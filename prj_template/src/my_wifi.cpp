@@ -46,7 +46,7 @@ void my_wifi_setup(bool verbose) {
 		  }
 		  return;
       }
-  WiFi.disconnect(wifioff=true);
+  WiFi.disconnect(/*wifioff=*/true);
   }
 
   if (verbose) {

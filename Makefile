@@ -1,6 +1,8 @@
 fmt:
 	npx prettier --write */src/*.html
-	clang-format --style=Google -i */src/*.h */src/*.c*
+	clang-format --style=Google -i `find . -name '*.h' -type f`
+	clang-format --style=Google -i `find . -name '*.c' -type f`
+	clang-format --style=Google -i `find . -name '*.cpp' -type f`
 	find . -name wifi_secrets.cpp -delete
 	for i in prj_*/src; do (cd $$i;echo $$i; ln -s ../../private_wifi_secrets.cpp wifi_secrets.cpp);done
 

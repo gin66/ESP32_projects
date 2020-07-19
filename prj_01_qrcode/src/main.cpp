@@ -11,7 +11,6 @@
 #include <WebSocketsServer.h>
 #include <WiFi.h>
 #include <WiFiClient.h>
-#include <WiFiMulti.h>
 #include <base64.h>
 #include <mem.h>
 
@@ -23,7 +22,7 @@
 #include "freertos/task.h"
 #include "img_converters.h"
 #include "qrcode_recognize.h"
-#include "wifi_secrets.h"
+#include "my_wifi.h"
 
 #define CONFIG_CAMERA_MODEL_AI_THINKER 1
 #include "app_camera.h"
@@ -40,8 +39,6 @@
 using namespace std;
 
 volatile bool camera_in_use = false;
-
-WiFiMulti wifiMulti;
 
 WebServer server(80);
 extern const uint8_t index_html_start[] asm("_binary_src_index_html_start");
@@ -258,15 +255,7 @@ void setup() {
   esp_log_level_set("*", ESP_LOG_VERBOSE);
   ESP_LOGE(TAG, "Free heap: %u", xPortGetFreeHeapSize());
 
-  add_aps(&wifiMulti);
-
-  Serial.println("Connecting Wifi...");
-  if (wifiMulti.run() == WL_CONNECTED) {
-    Serial.println("");
-    Serial.println("WiFi connected");
-    Serial.println("IP address: ");
-    Serial.println(WiFi.localIP());
-  }
+  my_wifi_setup(true);
 
   // Port defaults to 3232
   // ArduinoOTA.setPort(3232);
@@ -475,6 +464,7 @@ void setup() {
 }
 
 void loop() {
+  my_wifi_loop(true);
   ArduinoOTA.handle();
   server.handleClient();
 }

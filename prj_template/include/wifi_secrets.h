@@ -1,3 +1,5 @@
 #include <WiFiMulti.h>
-void add_aps(WiFiMulti *wm);
-
+extern const struct net_s {
+  const char *ssid;
+  const char *passwd;
+} nets[];

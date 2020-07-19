@@ -11,7 +11,6 @@
 #include <WebServer.h>
 #include <WiFi.h>
 #include <WiFiClient.h>
-#include <WiFiMulti.h>
 #include <base64.h>
 #include <mem.h>
 
@@ -20,13 +19,11 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "wifi_secrets.h"
+#include "my_wifi.h"
 
 #define ledPin 33
 
 using namespace std;
-
-WiFiMulti wifiMulti;
 
 WiFiServer telnet_server;
 #define BUFFER_SIZE 1024
@@ -70,10 +67,7 @@ void setup() {
   esp_log_level_set("*", ESP_LOG_NONE);
   ESP_LOGE(TAG, "Free heap: %u", xPortGetFreeHeapSize());
 
-  add_aps(&wifiMulti);
-
-  if (wifiMulti.run() == WL_CONNECTED) {
-  }
+  my_wifi_setup(false);
 
   // Port defaults to 3232
   // ArduinoOTA.setPort(3232);
@@ -190,6 +184,8 @@ void setup() {
 WiFiClient telnet_client = 0;
 
 void loop() {
+  my_wifi_loop(false);
+
   uint32_t period = 1000;
   if (fail >= 50) {
     period = 300;

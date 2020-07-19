@@ -1,0 +1,5 @@
+*/.pio
+*/.vscode
+private_wifi_secrets.cpp
+node_modules
+package-lock.json

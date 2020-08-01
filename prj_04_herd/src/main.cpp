@@ -9,6 +9,7 @@
 #include <ESP32Ping.h>
 #include <ESPmDNS.h>
 #include <WebServer.h>
+#include <WebSocketsServer.h>
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <base64.h>
@@ -17,22 +18,36 @@
 #include "esp32-hal-psram.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "driver/adc.h"
+#include "driver/dac.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "my_wifi.h"
 
-#define ledPin 33
-
 using namespace std;
 
-#define DAC_PIN 25
-#define ANALOG_CH1_PIN 32 /* ADC1_4 */
-#define ANALOG_CH2_PIN 33 /* ADC1_5 */
-#define ANALOG_CH3_PIN 35 /* ADC1_7 */
+#define DAC_PIN 25 /* DAC_CHANNEL_1 */
+#define CHANNEL_LEFT ADC1_CHANNEL_4
+#define CHANNEL_MIDDLE ADC1_CHANNEL_7
+#define CHANNEL_RIGHT ADC1_CHANNEL_5
 
-WiFiServer telnet_server;
-#define BUFFER_SIZE 1024
-uint8_t buff[BUFFER_SIZE];
+#define PIN_LEFT 32 // without pullup
+#define PIN_MIDDLE 35
+#define PIN_RIGHT 33 // without pullup
+
+struct val_s {
+	int16_t val_last;
+	int32_t val_avg;
+	int32_t val_min;
+	int32_t val_max;
+};
+struct channel_s {
+	adc1_channel_t channel;
+	uint32_t ms;
+	struct val_s curr;
+	struct val_s val[2];
+	bool is_rising;
+} channel[3];
 
 WebServer server(80);
 extern const uint8_t index_html_start[] asm("_binary_src_index_html_start");
@@ -59,6 +74,111 @@ void TaskWatchdog(void* pvParameters) {
       }
     } else {
       fail = 0;
+    }
+    vTaskDelay(xDelay);
+  }
+}
+
+WebSocketsServer webSocket = WebSocketsServer(81);
+
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
+                    size_t length) {
+  switch (type) {
+    case WStype_DISCONNECTED:
+      Serial.print("websocket disconnected: ");
+      Serial.println(num);
+      break;
+    case WStype_CONNECTED:
+      Serial.print("websocket connected: ");
+      Serial.println(num);
+      break;
+    case WStype_TEXT: {
+      Serial.print("received from websocket: ");
+      Serial.println((char*)payload);
+      JSONVar json = JSONVar::parse((char*)payload);
+      if (json.hasOwnProperty("garage")) {
+      }
+    } break;
+    case WStype_BIN:
+    case WStype_ERROR:
+    case WStype_FRAGMENT:
+    case WStype_FRAGMENT_FIN:
+    case WStype_FRAGMENT_TEXT_START:
+    case WStype_FRAGMENT_BIN_START:
+    case WStype_PING:
+    case WStype_PONG:
+      break;
+  }
+}
+void TaskWebSocket(void* pvParameters) {
+  const TickType_t xDelay = 1 + 10 / portTICK_PERIOD_MS;
+  uint32_t send_status_ms = 0;
+
+  Serial.println("WebSocket Task started");
+  webSocket.begin();
+  webSocket.onEvent(webSocketEvent);
+
+  for (;;) {
+    uint32_t now = millis();
+    webSocket.loop();
+
+    if (now > send_status_ms) {
+      send_status_ms = now + 100;
+      String data = "........................................";
+      for (int i = 0; i < 40; i++) {
+        //char ch = 48 + digitalRead(i);
+        //data.setCharAt(i, ch);
+      }
+      JSONVar myObject;
+      myObject["millis"] = millis();
+      myObject["mem_free"] = (long)ESP.getFreeHeap();
+      myObject["stack_free"] = (long)uxTaskGetStackHighWaterMark(NULL);
+      // myObject["time"] = formattedTime;
+      // myObject["b64"] = base64::encode((uint8_t*)data_buf, data_idx);
+      myObject["ch_left"] = channel[0].curr.val_last;
+      myObject["ch_middle"] = channel[1].curr.val_last;
+      myObject["ch_right"] = channel[2].curr.val_last;
+      myObject["avg_left"] = channel[0].curr.val_avg;
+      myObject["avg_middle"] = channel[1].curr.val_avg;
+      myObject["avg_right"] = channel[2].curr.val_avg;
+      myObject["min_left"] = channel[0].curr.val_min;
+      myObject["min_middle"] = channel[1].curr.val_min;
+      myObject["min_right"] = channel[2].curr.val_min;
+      myObject["max_left"] = channel[0].curr.val_max;
+      myObject["max_middle"] = channel[1].curr.val_max;
+      myObject["max_right"] = channel[2].curr.val_max;
+      myObject["ch_left_0"] = channel[0].val[0].val_last;
+      myObject["ch_middle_0"] = channel[1].val[0].val_last;
+      myObject["ch_right_0"] = channel[2].val[0].val_last;
+      myObject["avg_left_0"] = channel[0].val[0].val_avg;
+      myObject["avg_middle_0"] = channel[1].val[0].val_avg;
+      myObject["avg_right_0"] = channel[2].val[0].val_avg;
+      myObject["min_left_0"] = channel[0].val[0].val_min;
+      myObject["min_middle_0"] = channel[1].val[0].val_min;
+      myObject["min_right_0"] = channel[2].val[0].val_min;
+      myObject["max_left_0"] = channel[0].val[0].val_max;
+      myObject["max_middle_0"] = channel[1].val[0].val_max;
+      myObject["max_right_0"] = channel[2].val[0].val_max;
+      myObject["ch_left_1"] = channel[0].val[1].val_last;
+      myObject["ch_middle_1"] = channel[1].val[1].val_last;
+      myObject["ch_right_1"] = channel[2].val[1].val_last;
+      myObject["avg_left_1"] = channel[0].val[1].val_avg;
+      myObject["avg_middle_1"] = channel[1].val[1].val_avg;
+      myObject["avg_right_1"] = channel[2].val[1].val_avg;
+      myObject["min_left_1"] = channel[0].val[1].val_min;
+      myObject["min_middle_1"] = channel[1].val[1].val_min;
+      myObject["min_right_1"] = channel[2].val[1].val_min;
+      myObject["max_left_1"] = channel[0].val[1].val_max;
+      myObject["max_middle_1"] = channel[1].val[1].val_max;
+      myObject["max_right_1"] = channel[2].val[1].val_max;
+      // myObject["button_digital"] = digitalRead(BUTTON_PIN);
+      myObject["digital"] = data;
+      // myObject["sample_rate"] = I2S_SAMPLE_RATE;
+      myObject["wifi_dBm"] = WiFi.RSSI();
+      myObject["SSID"] = WiFi.SSID();
+
+      String as_json = JSONVar::stringify(myObject);
+      webSocket.broadcastTXT(as_json);
     }
     vTaskDelay(xDelay);
   }
@@ -171,32 +291,119 @@ void setup() {
 
   BaseType_t rc;
 
+  rc = xTaskCreatePinnedToCore(TaskWebSocket, "WebSocket", 81920, (void*)1, 1,
+                               NULL, 0);
+  if (rc != pdPASS) {
+    Serial.print("cannot start websocket task=");
+    Serial.println(rc);
+  }
   rc = xTaskCreatePinnedToCore(TaskWatchdog, "Watchdog", 8192, (void*)1, 1,
                                NULL, 0);
   if (rc != pdPASS) {
+    Serial.print("cannot start watchdog task=");
+    Serial.println(rc);
   }
 
   if (MDNS.begin("esp32_04")) {
+    Serial.println("MDNS responder started");
   }
   MDNS.addService("http", "tcp", 80);
+
+  pinMode(PIN_LEFT, OUTPUT);
+  pinMode(PIN_MIDDLE, OUTPUT);
+  pinMode(PIN_RIGHT, OUTPUT);
+  digitalWrite(PIN_LEFT, LOW);
+  digitalWrite(PIN_MIDDLE, LOW);
+  digitalWrite(PIN_RIGHT, LOW);
+  delay(100);
+
+  pinMode(PIN_LEFT, INPUT);
+  pinMode(PIN_MIDDLE, INPUT);
+  pinMode(PIN_RIGHT, INPUT);
+
+  adc1_config_width(ADC_WIDTH_BIT_12);
+  adc1_config_channel_atten(CHANNEL_LEFT, ADC_ATTEN_DB_0);
+  adc1_config_channel_atten(CHANNEL_MIDDLE, ADC_ATTEN_DB_0);
+  adc1_config_channel_atten(CHANNEL_RIGHT, ADC_ATTEN_DB_0);
+  dac_output_enable(DAC_CHANNEL_1);
+#define VOUT 500 /* mV */
+  dac_output_voltage(DAC_CHANNEL_1, VOUT*256/3300);
+
+  channel[0].channel = CHANNEL_LEFT;
+  channel[1].channel = CHANNEL_MIDDLE;
+  channel[2].channel = CHANNEL_RIGHT;
+  for (int i = 0;i < 3;i++) {
+      struct channel_s *ch = &channel[i];
+	  ch->ms = 0;
+	  ch->curr.val_last = 0;
+	  ch->curr.val_avg = 0;
+	  ch->curr.val_min = 0;
+	  ch->curr.val_max = 0;
+	  for (int j = 0;j < 2;j++) {
+		  ch->val[j] = ch->curr;
+	  }
+  } 
 }
+
+#define VOUT_0 550 /* mV */
+#define VOUT_1 450 /* mV */
+uint8_t curr_voltage = 255;
 
 void loop() {
   my_wifi_loop(false);
-
   uint32_t period = 1000;
   if (fail >= 50) {
     period = 300;
   }
-  if ((millis() / period) & 1) {
-    pinMode(ledPin, OUTPUT);
-    digitalWrite(ledPin, HIGH);
-  } else {
-    pinMode(ledPin, OUTPUT);
-    digitalWrite(ledPin, LOW);
-  }
   ArduinoOTA.handle();
   server.handleClient();
+
+  uint8_t new_voltage;
+  if (millis() & 32768) {
+	  new_voltage = 0;
+	  dac_output_voltage(DAC_CHANNEL_1, VOUT_0*256/3300);
+  }
+  else {
+	  new_voltage = 1;
+	  dac_output_voltage(DAC_CHANNEL_1, VOUT_1*256/3300);
+  }
+  uint32_t now = millis();
+  if (new_voltage != curr_voltage) {
+	  if (curr_voltage != 255) {
+		  for (int i = 0;i < 3;i++) {
+			  struct channel_s *ch = &channel[i];
+			  ch->val[curr_voltage] = ch->curr;
+		  } 
+	  }
+	  curr_voltage = new_voltage;
+	  for (int i = 0;i < 3;i++) {
+          struct channel_s *ch = &channel[i];
+		  ch->ms = now;
+		  ch->curr.val_avg = 0;
+		  ch->curr.val_min = 0;
+		  ch->curr.val_max = 0;
+	  }
+  }
+
+  for (int i = 0;i < 3;i++) {
+      struct channel_s *ch = &channel[i];
+	  int32_t curr_val = adc1_get_raw(ch->channel);
+	  ch->curr.val_last = curr_val;
+	  ch->curr.val_avg += (curr_val*256 - ch->curr.val_avg)/128;
+
+	  if (now - ch->ms < 10000) {
+		  ch->curr.val_max = ch->curr.val_avg;
+		  ch->curr.val_min = ch->curr.val_avg;
+	  }
+	  else {
+		  if (ch->curr.val_max < ch->curr.val_avg) {
+			  ch->curr.val_max = ch->curr.val_avg;
+		  }
+		  if (ch->curr.val_min > ch->curr.val_avg) {
+			  ch->curr.val_min = ch->curr.val_avg;
+		  }
+	  }
+  }
 
   switch (command) {
     case IDLE:

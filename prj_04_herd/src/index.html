@@ -3,8 +3,8 @@
   <head>
     <!-- Required meta tags -->
     <meta charset="utf-8" />
-    <title>Serial monitor</title>
-    <meta name="esp32_03" content="" />
+    <title>Herd monitor</title>
+    <meta name="esp32_04" content="" />
     <meta name="Jochen Kiemes" content="" />
 
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -135,7 +135,7 @@
             // Let us open a web socket
             var url = "ws://" + location.hostname + ":81/";
             if (location.hostname == "") {
-              url = "ws://esp32_03.local:81/";
+              url = "ws://esp32_04.local:81/";
             }
             document.getElementById("state").innerHTML = "connecting " + url;
             ws = new WebSocket(url);
@@ -149,7 +149,7 @@
 
             ws.onmessage = function (evt) {
               document.getElementById("state").innerHTML = "receiving";
-              //		     document.getElementById("raw").innerHTML = evt.data;
+              document.getElementById("raw").innerHTML = evt.data;
               var exp_width = grayscale_expect_width;
               var exp_height = grayscale_expect_height;
               grayscale_expect_width = 0;
@@ -293,7 +293,7 @@
   <body>
     <div class="container-fluid">
       <div class="row">
-        <h2>esp32_03</h2>
+        <h2>esp32_04</h2>
         <p>
           ESP32-Time: <span id="esp_time"></span> Memory available:
           <span id="mem_free"></span> Uptime: <span id="uptime"></span> Sample

@@ -35,18 +35,33 @@
         xVal = 0;
       var updateCount = 0;
       var dataPoints = [];
+      var dataPoints_left = [];
+      var dataPoints_middle = [];
+      var dataPoints_right = [];
       var chart;
       window.onload = function () {
         chart = new CanvasJS.Chart("chartContainer", {
           zoomEnabled: true,
           //      rangeChanging: customInterval,
           title: {
-            text: "Osc_Test",
+            text: "Averaged",
           },
           data: [
             {
               type: "line",
               dataPoints: dataPoints,
+            },
+            {
+              type: "line",
+              dataPoints: dataPoints_left,
+            },
+            {
+              type: "line",
+              dataPoints: dataPoints_middle,
+            },
+            {
+              type: "line",
+              dataPoints: dataPoints_right,
             },
           ],
           axisY: {
@@ -108,11 +123,33 @@
 				e.innerHTML = data[key];
 			}
 		}
-        //document.getElementById("mem_free").innerHTML = data["mem_free"];
-        document.getElementById("uptime").innerHTML = data["millis"] / 1000;
+		if ("sumcnt_0" in data) {
+			sc = data["sumcnt_0"];
+			if (sc[0] > 0) {
+				ls = data["left_summed_0"];
+				ms = data["middle_summed_0"];
+				rs = data["right_summed_0"];
+				dataPoints_left.length = 0;
+				dataPoints_middle.length = 0;
+				dataPoints_right.length = 0;
+				for (i = 0;i < 20;i++) {
+					dataPoints_left.push({ y: ls[i] / sc[i], x: i, });
+					dataPoints_middle.push({ y: ms[i] / sc[i], x: i, });
+					dataPoints_right.push({ y: rs[i] / sc[i], x: i, });
+				}
+			    if (data["mean_left_0"] < 30000) {
+					dataPoints_left.length = 0;
+				}
+			    if (data["mean_middle_0"] < 30000) {
+					dataPoints_middle.length = 0;
+				}
+			    if (data["mean_right_0"] < 30000) {
+					dataPoints_right.length = 0;
+				}
+				updateChart();
+			}
+		}
         return;
-        document.getElementById("esp_time").innerHTML = data["time"];
-        document.getElementById("sample_rate").innerHTML = data["sample_rate"];
         var ticks = 1.0 / data["sample_rate"];
         var data = b64_to_u16(data["b64"]);
         dataPoints.length = 0;
@@ -302,8 +339,10 @@
         <h2>esp32_04</h2>
         <p>
           ESP32-Time: <span id="esp_time"></span> Memory available:
-          <span id="mem_free"></span> Uptime: <span id="uptime"></span> Sample
+          <span id="mem_free"></span> Uptime: <span id="millis"></span>ms Sample
           Rate: <span id="sample_rate"></span>
+          SSID: <span id="SSID"></span>
+          dBm: <span id="wifi_dBm"></span>
         </p>
       </div>
 
@@ -325,70 +364,82 @@
           <button>SW Update</button>
         </form>
       </div>
-      <div id="chartContainer" style="height: 800px; width: 100%;" hidden></div>
+      <div id="chartContainer" style="height: 400px; width: 100%;"></div>
     </div>
-    <table>
+	<div class="table-responsive">
+    <table class="table">
 		<tr>
 			<th>Channel</th>
+			<th>Mean</th>
 			<th>Average</th>
 			<th>Minimum</th>
 			<th>Maximum</th>
 		</tr>
 		<tr>
 			<td>Left@550mV</td>
-			<td><span id=avg_left_0>HI</span></td>
-			<td><span id=min_left_0>HI</span></td>
-			<td><span id=max_left_0>HI</span></td>
+			<td><span id=mean_left_0></span></td>
+			<td><span id=avg_left_0></span></td>
+			<td><span id=min_left_0></span></td>
+			<td><span id=max_left_0></span></td>
 		</tr>
 		<tr>
 			<td>Left@450mV</td>
-			<td><span id=avg_left_1>HI</span></td>
-			<td><span id=min_left_1>HI</span></td>
-			<td><span id=max_left_1>HI</span></td>
+			<td><span id=mean_left_1></span></td>
+			<td><span id=avg_left_1></span></td>
+			<td><span id=min_left_1></span></td>
+			<td><span id=max_left_1></span></td>
 		</tr>
 		<tr>
 			<td>Left@Current</td>
-			<td><span id=avg_left>HI</span></td>
-			<td><span id=min_left>HI</span></td>
-			<td><span id=max_left>HI</span></td>
+			<td><span id=mean_left></span></td>
+			<td><span id=avg_left></span></td>
+			<td><span id=min_left></span></td>
+			<td><span id=max_left></span></td>
 		</tr>
 		<tr>
 			<td>Middle@550mV</td>
-			<td><span id=avg_middle_0>HI</span></td>
-			<td><span id=min_middle_0>HI</span></td>
-			<td><span id=max_middle_0>HI</span></td>
+			<td><span id=mean_middle_0></span></td>
+			<td><span id=avg_middle_0></span></td>
+			<td><span id=min_middle_0></span></td>
+			<td><span id=max_middle_0></span></td>
 		</tr>
 		<tr>
 			<td>Middle@450mV</td>
-			<td><span id=avg_middle_1>HI</span></td>
-			<td><span id=min_middle_1>HI</span></td>
-			<td><span id=max_middle_1>HI</span></td>
+			<td><span id=mean_middle_1></span></td>
+			<td><span id=avg_middle_1></span></td>
+			<td><span id=min_middle_1></span></td>
+			<td><span id=max_middle_1></span></td>
 		</tr>
 		<tr>
 			<td>Middle@Current</td>
-			<td><span id=avg_middle>HI</span></td>
-			<td><span id=min_middle>HI</span></td>
-			<td><span id=max_middle>HI</span></td>
+			<td><span id=mean_middle></span></td>
+			<td><span id=avg_middle></span></td>
+			<td><span id=min_middle></span></td>
+			<td><span id=max_middle></span></td>
 		</tr>
 		<tr>
 			<td>Right@550mV</td>
-			<td><span id=avg_right_0>HI</span></td>
-			<td><span id=min_right_0>HI</span></td>
-			<td><span id=max_right_0>HI</span></td>
+			<td><span id=mean_right_0></span></td>
+			<td><span id=avg_right_0></span></td>
+			<td><span id=min_right_0></span></td>
+			<td><span id=max_right_0></span></td>
 		</tr>
 		<tr>
 			<td>Right@450mV</td>
-			<td><span id=avg_right_1>HI</span></td>
-			<td><span id=min_right_1>HI</span></td>
-			<td><span id=max_right_1>HI</span></td>
+			<td><span id=mean_right_1></span></td>
+			<td><span id=avg_right_1></span></td>
+			<td><span id=min_right_1></span></td>
+			<td><span id=max_right_1></span></td>
 		</tr>
 		<tr>
 			<td>Right@Current</td>
-			<td><span id=avg_right>HI</span></td>
-			<td><span id=min_right>HI</span></td>
-			<td><span id=max_right>HI</span></td>
+			<td><span id=mean_right></span></td>
+			<td><span id=avg_right></span></td>
+			<td><span id=min_right></span></td>
+			<td><span id=max_right></span></td>
 		</tr>
 	</table>
+	</div>
     <canvas id="image" width="0" height="0"> </canvas>
     <div id="raw_image"></div>
     <span id="debug" style="word-wrap: break-word;"></span>

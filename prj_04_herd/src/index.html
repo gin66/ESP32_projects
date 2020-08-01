@@ -102,7 +102,13 @@
         return uint16Array;
       }
       function process(data) {
-        document.getElementById("mem_free").innerHTML = data["mem_free"];
+		for (key in data) {
+			e = document.getElementById(key);
+			if (e) {
+				e.innerHTML = data[key];
+			}
+		}
+        //document.getElementById("mem_free").innerHTML = data["mem_free"];
         document.getElementById("uptime").innerHTML = data["millis"] / 1000;
         return;
         document.getElementById("esp_time").innerHTML = data["time"];
@@ -321,12 +327,75 @@
       </div>
       <div id="chartContainer" style="height: 800px; width: 100%;" hidden></div>
     </div>
+    <table>
+		<tr>
+			<th>Channel</th>
+			<th>Average</th>
+			<th>Minimum</th>
+			<th>Maximum</th>
+		</tr>
+		<tr>
+			<td>Left@550mV</td>
+			<td><span id=avg_left_0>HI</span></td>
+			<td><span id=min_left_0>HI</span></td>
+			<td><span id=max_left_0>HI</span></td>
+		</tr>
+		<tr>
+			<td>Left@450mV</td>
+			<td><span id=avg_left_1>HI</span></td>
+			<td><span id=min_left_1>HI</span></td>
+			<td><span id=max_left_1>HI</span></td>
+		</tr>
+		<tr>
+			<td>Left@Current</td>
+			<td><span id=avg_left>HI</span></td>
+			<td><span id=min_left>HI</span></td>
+			<td><span id=max_left>HI</span></td>
+		</tr>
+		<tr>
+			<td>Middle@550mV</td>
+			<td><span id=avg_middle_0>HI</span></td>
+			<td><span id=min_middle_0>HI</span></td>
+			<td><span id=max_middle_0>HI</span></td>
+		</tr>
+		<tr>
+			<td>Middle@450mV</td>
+			<td><span id=avg_middle_1>HI</span></td>
+			<td><span id=min_middle_1>HI</span></td>
+			<td><span id=max_middle_1>HI</span></td>
+		</tr>
+		<tr>
+			<td>Middle@Current</td>
+			<td><span id=avg_middle>HI</span></td>
+			<td><span id=min_middle>HI</span></td>
+			<td><span id=max_middle>HI</span></td>
+		</tr>
+		<tr>
+			<td>Right@550mV</td>
+			<td><span id=avg_right_0>HI</span></td>
+			<td><span id=min_right_0>HI</span></td>
+			<td><span id=max_right_0>HI</span></td>
+		</tr>
+		<tr>
+			<td>Right@450mV</td>
+			<td><span id=avg_right_1>HI</span></td>
+			<td><span id=min_right_1>HI</span></td>
+			<td><span id=max_right_1>HI</span></td>
+		</tr>
+		<tr>
+			<td>Right@Current</td>
+			<td><span id=avg_right>HI</span></td>
+			<td><span id=min_right>HI</span></td>
+			<td><span id=max_right>HI</span></td>
+		</tr>
+	</table>
     <canvas id="image" width="0" height="0"> </canvas>
     <div id="raw_image"></div>
     <span id="debug" style="word-wrap: break-word;"></span>
     <span id="state"></span>
     <span id="readystate"></span>
     <span id="raw" style="word-wrap: break-word;"></span>
+
 
     <!-- Optional JavaScript -->
     <!-- Popper.js first, then Bootstrap JS -->

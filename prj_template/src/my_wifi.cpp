@@ -10,12 +10,12 @@ WiFiMulti wifiMulti;
 
 static void connect() {
   if (!automode) {
-	  automode = true;
-	  const struct net_s *net = &nets[0];
-	  while (net->ssid) {
-		wifiMulti.addAP(net->ssid, net->passwd);
-		net++;
-	  }
+    automode = true;
+    const struct net_s *net = &nets[0];
+    while (net->ssid) {
+      wifiMulti.addAP(net->ssid, net->passwd);
+      net++;
+    }
   }
   if (wifiMulti.run() == WL_CONNECTED) {
     const struct net_s *net = &nets[0];
@@ -37,16 +37,16 @@ void my_wifi_setup(bool verbose) {
     }
     WiFi.begin(nets[last_connected_network].ssid,
                nets[last_connected_network].passwd);
-	if (WiFi.waitForConnectResult() == WL_CONNECTED) {
-		  if (true) {
-			Serial.println("");
-			Serial.println("WiFi connected");
-			Serial.println("IP address: ");
-			Serial.println(WiFi.localIP());
-		  }
-		  return;
+    if (WiFi.waitForConnectResult() == WL_CONNECTED) {
+      if (true) {
+        Serial.println("");
+        Serial.println("WiFi connected");
+        Serial.println("IP address: ");
+        Serial.println(WiFi.localIP());
       }
-  WiFi.disconnect(/*wifioff=*/true);
+      return;
+    }
+    WiFi.disconnect(/*wifioff=*/true);
   }
 
   if (verbose) {

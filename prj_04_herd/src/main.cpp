@@ -15,11 +15,11 @@
 #include <base64.h>
 #include <mem.h>
 
+#include "driver/adc.h"
+#include "driver/dac.h"
 #include "esp32-hal-psram.h"
 #include "esp_log.h"
 #include "esp_timer.h"
-#include "driver/adc.h"
-#include "driver/dac.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "my_wifi.h"
@@ -31,25 +31,25 @@ using namespace std;
 #define CHANNEL_MIDDLE ADC1_CHANNEL_7
 #define CHANNEL_RIGHT ADC1_CHANNEL_5
 
-#define PIN_LEFT 32 // without pullup
+#define PIN_LEFT 32  // without pullup
 #define PIN_MIDDLE 35
-#define PIN_RIGHT 33 // without pullup
+#define PIN_RIGHT 33  // without pullup
 
 struct val_s {
-	int16_t val_last;
-	int32_t val_avg;
-	int32_t val_min;
-	int32_t val_max;
-	int32_t val_mean;
-	int32_t summed[20];
-	uint32_t sumcnt[20];
+  int16_t val_last;
+  int32_t val_avg;
+  int32_t val_min;
+  int32_t val_max;
+  int32_t val_mean;
+  int32_t summed[20];
+  uint32_t sumcnt[20];
 };
 struct channel_s {
-	adc1_channel_t channel;
-	uint32_t ms;
-	struct val_s curr;
-	struct val_s val[2];
-	bool is_rising;
+  adc1_channel_t channel;
+  uint32_t ms;
+  struct val_s curr;
+  struct val_s val[2];
+  bool is_rising;
 } channel[3];
 
 WebServer server(80);
@@ -129,8 +129,8 @@ void TaskWebSocket(void* pvParameters) {
       send_status_ms = now + 100;
       String data = "........................................";
       for (int i = 0; i < 40; i++) {
-        //char ch = 48 + digitalRead(i);
-        //data.setCharAt(i, ch);
+        // char ch = 48 + digitalRead(i);
+        // data.setCharAt(i, ch);
       }
       JSONVar myObject;
       myObject["millis"] = millis();
@@ -182,18 +182,19 @@ void TaskWebSocket(void* pvParameters) {
       myObject["mean_middle_1"] = channel[1].val[1].val_mean;
       myObject["mean_right_1"] = channel[2].val[1].val_mean;
 
-	  JSONVar ls_summed[2];
-	  JSONVar ms_summed[2];
-	  JSONVar rs_summed[2];
-	  JSONVar sumcnt[2];
-	  for (int j = 0;j < 2;j++) {
-		  for (int k = 0;k < 20;k++) {
-			  ls_summed[j][k] = (long)channel[0].val[j].summed[k];
-			  ms_summed[j][k] = (long)channel[1].val[j].summed[k];
-			  rs_summed[j][k] = (long)channel[2].val[j].summed[k];
-			  sumcnt[j][k] = (long)channel[0].val[j].sumcnt[k]; // any channel is ok
-		  } 
-	  }
+      JSONVar ls_summed[2];
+      JSONVar ms_summed[2];
+      JSONVar rs_summed[2];
+      JSONVar sumcnt[2];
+      for (int j = 0; j < 2; j++) {
+        for (int k = 0; k < 20; k++) {
+          ls_summed[j][k] = (long)channel[0].val[j].summed[k];
+          ms_summed[j][k] = (long)channel[1].val[j].summed[k];
+          rs_summed[j][k] = (long)channel[2].val[j].summed[k];
+          sumcnt[j][k] =
+              (long)channel[0].val[j].sumcnt[k];  // any channel is ok
+        }
+      }
       myObject["left_summed_0"] = ls_summed[0];
       myObject["left_summed_1"] = ls_summed[1];
       myObject["middle_summed_0"] = ms_summed[0];
@@ -358,22 +359,22 @@ void setup() {
   adc1_config_channel_atten(CHANNEL_RIGHT, ADC_ATTEN_DB_0);
   dac_output_enable(DAC_CHANNEL_1);
 #define VOUT 500 /* mV */
-  dac_output_voltage(DAC_CHANNEL_1, VOUT*256/3300);
+  dac_output_voltage(DAC_CHANNEL_1, VOUT * 256 / 3300);
 
   channel[0].channel = CHANNEL_LEFT;
   channel[1].channel = CHANNEL_MIDDLE;
   channel[2].channel = CHANNEL_RIGHT;
-  for (int i = 0;i < 3;i++) {
-      struct channel_s *ch = &channel[i];
-	  ch->ms = 0;
-	  ch->curr.val_last = 0;
-	  ch->curr.val_avg = 0;
-	  ch->curr.val_min = 0;
-	  ch->curr.val_max = 0;
-	  for (int j = 0;j < 2;j++) {
-		  ch->val[j] = ch->curr;
-	  }
-  } 
+  for (int i = 0; i < 3; i++) {
+    struct channel_s* ch = &channel[i];
+    ch->ms = 0;
+    ch->curr.val_last = 0;
+    ch->curr.val_avg = 0;
+    ch->curr.val_min = 0;
+    ch->curr.val_max = 0;
+    for (int j = 0; j < 2; j++) {
+      ch->val[j] = ch->curr;
+    }
+  }
 }
 
 #define VOUT_0 550 /* mV */
@@ -392,63 +393,61 @@ void loop() {
   uint8_t new_voltage;
   uint32_t now = millis();
   if (now & 32768) {
-	  new_voltage = 0;
-	  dac_output_voltage(DAC_CHANNEL_1, VOUT_0*256/3300);
-  }
-  else {
-	  new_voltage = 1;
-	  dac_output_voltage(DAC_CHANNEL_1, VOUT_1*256/3300);
+    new_voltage = 0;
+    dac_output_voltage(DAC_CHANNEL_1, VOUT_0 * 256 / 3300);
+  } else {
+    new_voltage = 1;
+    dac_output_voltage(DAC_CHANNEL_1, VOUT_1 * 256 / 3300);
   }
   if (new_voltage != curr_voltage) {
-	  if (curr_voltage != 255) {
-		  for (int i = 0;i < 3;i++) {
-			  struct channel_s *ch = &channel[i];
-			  int32_t mean = 0;
-			  for (int j = 0;j < 20;j++) {
-				  if (ch->curr.sumcnt[j] > 0) {
-					  mean += ch->curr.summed[j] / ch->curr.sumcnt[j];
-				  }
-			  }
-			  ch->curr.val_mean = mean;
-			  ch->val[curr_voltage] = ch->curr;
-		  } 
-	  }
-	  curr_voltage = new_voltage;
-	  for (int i = 0;i < 3;i++) {
-          struct channel_s *ch = &channel[i];
-		  ch->ms = now;
-		  ch->curr.val_avg = 0;
-		  ch->curr.val_min = 0;
-		  ch->curr.val_max = 0;
-		  ch->curr.val_mean = 0;
-		  for (int j = 0;j < 20;j++) {
-			  ch->curr.summed[j] = 0;
-			  ch->curr.sumcnt[j] = 0;
-		  }
-	  }
+    if (curr_voltage != 255) {
+      for (int i = 0; i < 3; i++) {
+        struct channel_s* ch = &channel[i];
+        int32_t mean = 0;
+        for (int j = 0; j < 20; j++) {
+          if (ch->curr.sumcnt[j] > 0) {
+            mean += ch->curr.summed[j] / ch->curr.sumcnt[j];
+          }
+        }
+        ch->curr.val_mean = mean;
+        ch->val[curr_voltage] = ch->curr;
+      }
+    }
+    curr_voltage = new_voltage;
+    for (int i = 0; i < 3; i++) {
+      struct channel_s* ch = &channel[i];
+      ch->ms = now;
+      ch->curr.val_avg = 0;
+      ch->curr.val_min = 0;
+      ch->curr.val_max = 0;
+      ch->curr.val_mean = 0;
+      for (int j = 0; j < 20; j++) {
+        ch->curr.summed[j] = 0;
+        ch->curr.sumcnt[j] = 0;
+      }
+    }
   }
 
-  uint8_t index = now % 20; // 20 ms for 50 Hz
-  for (int i = 0;i < 3;i++) {
-      struct channel_s *ch = &channel[i];
-	  int32_t curr_val = adc1_get_raw(ch->channel);
-	  ch->curr.val_last = curr_val;
-	  ch->curr.val_avg += (curr_val*256 - ch->curr.val_avg)/128;
-	  ch->curr.sumcnt[index]++;
-	  ch->curr.summed[index] += curr_val;
+  uint8_t index = now % 20;  // 20 ms for 50 Hz
+  for (int i = 0; i < 3; i++) {
+    struct channel_s* ch = &channel[i];
+    int32_t curr_val = adc1_get_raw(ch->channel);
+    ch->curr.val_last = curr_val;
+    ch->curr.val_avg += (curr_val * 256 - ch->curr.val_avg) / 128;
+    ch->curr.sumcnt[index]++;
+    ch->curr.summed[index] += curr_val;
 
-	  if (now - ch->ms < 10000) {
-		  ch->curr.val_max = ch->curr.val_avg;
-		  ch->curr.val_min = ch->curr.val_avg;
-	  }
-	  else {
-		  if (ch->curr.val_max < ch->curr.val_avg) {
-			  ch->curr.val_max = ch->curr.val_avg;
-		  }
-		  if (ch->curr.val_min > ch->curr.val_avg) {
-			  ch->curr.val_min = ch->curr.val_avg;
-		  }
-	  }
+    if (now - ch->ms < 10000) {
+      ch->curr.val_max = ch->curr.val_avg;
+      ch->curr.val_min = ch->curr.val_avg;
+    } else {
+      if (ch->curr.val_max < ch->curr.val_avg) {
+        ch->curr.val_max = ch->curr.val_avg;
+      }
+      if (ch->curr.val_min > ch->curr.val_avg) {
+        ch->curr.val_min = ch->curr.val_avg;
+      }
+    }
   }
 
   switch (command) {

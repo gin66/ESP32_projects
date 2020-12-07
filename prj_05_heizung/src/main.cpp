@@ -5,15 +5,18 @@
 
 #include <Arduino.h>
 #include <ArduinoOTA.h>
-#include <Arduino_JSON.h>
 #include <ESP32Ping.h>
 #include <ESPmDNS.h>
 #include <WebServer.h>
+#include <WebSockets.h>
 #include <WebSocketsServer.h>
+#include <WebSocketsClient.h>
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <base64.h>
 #include <mem.h>
+#include <UniversalTelegramBot.h>
+#include <ArduinoJson.h>
 
 #include "esp32-hal-psram.h"
 #include "esp_log.h"
@@ -24,6 +27,7 @@
 #include "img_converters.h"
 #include "my_wifi.h"
 #include "qrcode_recognize.h"
+#include "../../private_bot.h"
 
 #define CONFIG_CAMERA_MODEL_AI_THINKER 1
 #include "app_camera.h"
@@ -48,6 +52,9 @@ WebServer server(80);
 extern const uint8_t index_html_start[] asm("_binary_src_index_html_start");
 extern const uint8_t server_index_html_start[] asm(
     "_binary_src_serverindex_html_start");
+
+WiFiClientSecure client; //For ESP8266 boards
+UniversalTelegramBot bot(BOTtoken, client);
 
 #define PART_BOUNDARY "123456789000000000000987654321"
 
@@ -121,11 +128,12 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
     case WStype_TEXT: {
       Serial.print("received from websocket: ");
       Serial.println((char*)payload);
-      JSONVar json = JSONVar::parse((char*)payload);
-      if (json.hasOwnProperty("heizung")) {
+	  DynamicJsonDocument json(4096);
+	  deserializeJson(json, (char *)payload);
+      if (json.containsKey("heizung")) {
         command = HEIZUNG;
       }
-      if (json.hasOwnProperty("image")) {
+      if (json.containsKey("image")) {
         if (!camera_in_use) {
           camera_in_use = true;
           camera_config_t camera_config;
@@ -260,7 +268,7 @@ void TaskWebSocket(void* pvParameters) {
         char ch = 48 + digitalRead(i);
         data.setCharAt(i, ch);
       }
-      JSONVar myObject;
+	  DynamicJsonDocument myObject(4096);
       myObject["millis"] = millis();
       myObject["mem_free"] = (long)ESP.getFreeHeap();
       myObject["stack_free"] = (long)uxTaskGetStackHighWaterMark(NULL);
@@ -273,7 +281,10 @@ void TaskWebSocket(void* pvParameters) {
       myObject["wifi_dBm"] = WiFi.RSSI();
       myObject["SSID"] = WiFi.SSID();
 
-      String as_json = JSONVar::stringify(myObject);
+#define BUFLEN 4096
+	  char buffer[BUFLEN];
+	  /* size_t bx = */ serializeJson(myObject, &buffer, BUFLEN);
+	  String as_json = String(buffer);
       webSocket.broadcastTXT(as_json);
     }
     vTaskDelay(xDelay);
@@ -532,6 +543,7 @@ void loop() {
       digitalWrite(flashPin, HIGH);
       switch_off_delay = 10000;
       last_ms = millis();
+  bot.sendMessage(CHAT_ID, WiFi.SSID() + String(": ") + WiFi.localIP().toString());
     } break;
   }
   command = IDLE;

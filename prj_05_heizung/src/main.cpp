@@ -68,7 +68,7 @@ bool qrMode = true;
 enum Command {
   IDLE,
   HEIZUNG,
-} command = HEIZUNG; // make a photo and go to sleep
+} command = HEIZUNG;  // make a photo and go to sleep
 
 uint32_t last_ms = 0;
 uint32_t switch_off_delay = 0;
@@ -302,41 +302,35 @@ void TaskWebSocket(void* pvParameters) {
   }
 }
 
-void handleNewMessages(int numNewMessages)
-{
+void handleNewMessages(int numNewMessages) {
   Serial.println("handleNewMessages");
   Serial.println(String(numNewMessages));
 
-  for (int i = 0; i < numNewMessages; i++)
-  {
+  for (int i = 0; i < numNewMessages; i++) {
     String chat_id = bot.messages[i].chat_id;
     String text = bot.messages[i].text;
 
     String from_name = bot.messages[i].from_name;
-    if (from_name == "")
-      from_name = "Guest";
+    if (from_name == "") from_name = "Guest";
 
-    if (text == "/test")
-    {
+    if (text == "/test") {
       bot.sendChatAction(chat_id, "typing");
       delay(4000);
       bot.sendMessage(chat_id, "Did you see the action message?");
     }
 
-    if (text == "/nosleep")
-    {
-		deepsleep = false;
+    if (text == "/nosleep") {
+      deepsleep = false;
       bot.sendMessage(chat_id, "Prevent sleep");
     }
-    if (text == "/allowsleep")
-    {
-		deepsleep = true;
+    if (text == "/allowsleep") {
+      deepsleep = true;
       bot.sendMessage(chat_id, "Allow sleep");
     }
 
-    if (text == "/start")
-    {
-      String welcome = "Welcome to Universal Arduino Telegram Bot library, " + from_name + ".\n";
+    if (text == "/start") {
+      String welcome = "Welcome to Universal Arduino Telegram Bot library, " +
+                       from_name + ".\n";
       welcome += "This is Chat Action Bot example.\n\n";
       welcome += "/test : Show typing, then eply\n";
       welcome += "/nosleep : Prevent deep slep\n";
@@ -360,7 +354,8 @@ void setup() {
 
   my_wifi_setup(true);
 
-  secured_client.setCACert(TELEGRAM_CERTIFICATE_ROOT); // Add root certificate for api.telegram.org
+  secured_client.setCACert(
+      TELEGRAM_CERTIFICATE_ROOT);  // Add root certificate for api.telegram.org
 
   // Port defaults to 3232
   // ArduinoOTA.setPort(3232);
@@ -574,10 +569,9 @@ void setup() {
   MDNS.addService("ws", "tcp", 81);
 
   Serial.print("Retrieving time: ");
-  configTime(0, 0, "pool.ntp.org"); // get UTC time via NTP
+  configTime(0, 0, "pool.ntp.org");  // get UTC time via NTP
   time_t now = time(nullptr);
-  while (now < 24 * 3600)
-  {
+  while (now < 24 * 3600) {
     Serial.print(".");
     delay(100);
     now = time(nullptr);
@@ -618,8 +612,8 @@ int getNextBufferLen() {
   }
 }
 
-const unsigned long BOT_MTBS = 1000; // mean time between scan messages
-unsigned long bot_lasttime = 0;          // last time messages' scan has been done
+const unsigned long BOT_MTBS = 1000;  // mean time between scan messages
+unsigned long bot_lasttime = 0;       // last time messages' scan has been done
 void loop() {
   my_wifi_loop(true);
 
@@ -637,13 +631,11 @@ void loop() {
   ArduinoOTA.handle();
   server.handleClient();
 
-  if (millis() >= bot_lasttime)
-  {
+  if (millis() >= bot_lasttime) {
     int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
 
-    while (numNewMessages)
-    {
-		command = IDLE;
+    while (numNewMessages) {
+      command = IDLE;
       Serial.println("got response");
       handleNewMessages(numNewMessages);
       numNewMessages = bot.getUpdates(bot.last_message_received + 1);
@@ -663,31 +655,31 @@ void loop() {
       status = bot.sendMessage(CHAT_ID, "Camera capture");
       init_camera();
       digitalWrite(flashPin, HIGH);
-	  for(uint8_t i = 0;i < 10;i++) {
-		  // let the camera adjust
-		  photo_fb = esp_camera_fb_get();
+      for (uint8_t i = 0; i < 10; i++) {
+        // let the camera adjust
+        photo_fb = esp_camera_fb_get();
         esp_camera_fb_return(photo_fb);
         photo_fb = NULL;
-	  }
-		  photo_fb = esp_camera_fb_get();
+      }
+      photo_fb = esp_camera_fb_get();
       digitalWrite(flashPin, LOW);
       if (!photo_fb) {
         status = bot.sendMessage(CHAT_ID, "Camera capture failed");
       } else {
-          dataBytesSent = 0;
-          status = bot.sendPhotoByBinary(CHAT_ID, "image/jpeg", photo_fb->len,
-                                         isMoreDataAvailable, nullptr,
-                                         getNextBuffer, getNextBufferLen);
+        dataBytesSent = 0;
+        status = bot.sendPhotoByBinary(CHAT_ID, "image/jpeg", photo_fb->len,
+                                       isMoreDataAvailable, nullptr,
+                                       getNextBuffer, getNextBufferLen);
         esp_camera_fb_return(photo_fb);
         photo_fb = NULL;
         bot.sendMessage(CHAT_ID,
                         WiFi.SSID() + String(": ") + WiFi.localIP().toString());
       }
 
-	  if (deepsleep) {
-		  esp_sleep_enable_timer_wakeup(3600LL * 1000000LL);
-		  esp_deep_sleep_start();
-	  }
+      if (deepsleep) {
+        esp_sleep_enable_timer_wakeup(3600LL * 1000000LL);
+        esp_deep_sleep_start();
+      }
     }
   }
   command = IDLE;

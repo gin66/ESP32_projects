@@ -685,7 +685,7 @@ void loop() {
       }
 
 	  if (deepsleep) {
-		  esp_sleep_enable_timer_wakeup(60L * 1000000L);
+		  esp_sleep_enable_timer_wakeup(3600LL * 1000000LL);
 		  esp_deep_sleep_start();
 	  }
     }

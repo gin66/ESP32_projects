@@ -50,6 +50,8 @@ using namespace std;
 volatile bool camera_in_use = false;
 volatile bool status = false;
 
+RTC_DATA_ATTR uint16_t bootCount = 0;
+
 WebServer server(80);
 extern const uint8_t index_html_start[] asm("_binary_src_index_html_start");
 extern const uint8_t server_index_html_start[] asm(
@@ -288,6 +290,7 @@ void TaskWebSocket(void* pvParameters) {
       myObject["SSID"] = WiFi.SSID();
 
       myObject["status"] = status;
+      myObject["bootCount"] = bootCount;
 #define BUFLEN 4096
       char buffer[BUFLEN];
       /* size_t bx = */ serializeJson(myObject, &buffer, BUFLEN);
@@ -300,6 +303,7 @@ void TaskWebSocket(void* pvParameters) {
 
 //---------------------------------------------------
 void setup() {
+  bootCount++;
   digitalWrite(flashPin, LOW);
   pinMode(flashPin, OUTPUT);
 
@@ -604,6 +608,9 @@ void loop() {
                         WiFi.SSID() + String(": ") + WiFi.localIP().toString());
       }
       digitalWrite(flashPin, LOW);
+
+	  esp_sleep_enable_timer_wakeup(60L * 1000000L);
+	  esp_deep_sleep_start();
     }
   }
   command = IDLE;

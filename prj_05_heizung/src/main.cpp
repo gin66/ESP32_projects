@@ -158,12 +158,16 @@ void init_camera() {
         1;  // 1: Wait for V-Synch // 2: Continous Capture (Video)
     esp_err_t err = esp_camera_init(&camera_config);
     if (err != ESP_OK) {
-      Serial.println("Camera init failed with error ");
-      Serial.println(err);
+	  char buf[40];
+      sprintf(buf, "Camera init failed with error %x", err);
+      bot.sendMessage(CHAT_ID, buf);
 
-      // delay(3000);
-      // ESP.restart();
-      // return;
+      digitalWrite(PWDN_GPIO_NUM, HIGH);
+      pinMode(PWDN_GPIO_NUM, OUTPUT);
+      delay(3000);
+      digitalWrite(PWDN_GPIO_NUM, LOW);
+      ESP.restart();
+      return;
     }
     ESP_LOGE(TAG, "Total heap: %u", ESP.getHeapSize());
     ESP_LOGE(TAG, "Free heap: %u", ESP.getFreeHeap());

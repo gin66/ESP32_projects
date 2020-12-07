@@ -200,6 +200,8 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
         camera_fb_t* fb = esp_camera_fb_get();
         if (!fb) {
           Serial.println("Camera capture failed");
+          delay(1000);
+          ESP.restart();
         } else {
           if (fb->format == PIXFORMAT_JPEG) {
             webSocket.broadcastBIN(fb->buf, fb->len);
@@ -677,7 +679,13 @@ void loop() {
       }
 
       if (deepsleep) {
-        esp_sleep_enable_timer_wakeup(3600LL * 1000000LL);
+        digitalWrite(ledPin, HIGH);
+        digitalWrite(flashPin, LOW);
+        digitalWrite(PWDN_GPIO_NUM, HIGH);
+        pinMode(ledPin, INPUT_PULLUP);
+        pinMode(flashPin, INPUT_PULLDOWN);
+        pinMode(PWDN_GPIO_NUM, INPUT_PULLUP);
+        esp_sleep_enable_timer_wakeup(600LL * 1000000LL);
         esp_deep_sleep_start();
       }
     }

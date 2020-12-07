@@ -57,8 +57,8 @@ extern const uint8_t index_html_start[] asm("_binary_src_index_html_start");
 extern const uint8_t server_index_html_start[] asm(
     "_binary_src_serverindex_html_start");
 
-WiFiClientSecure client;
-UniversalTelegramBot bot(BOTtoken, client);
+WiFiClientSecure secured_client;
+UniversalTelegramBot bot(BOTtoken, secured_client);
 
 #define PART_BOUNDARY "123456789000000000000987654321"
 
@@ -301,6 +301,36 @@ void TaskWebSocket(void* pvParameters) {
   }
 }
 
+void handleNewMessages(int numNewMessages)
+{
+  Serial.println("handleNewMessages");
+  Serial.println(String(numNewMessages));
+
+  for (int i = 0; i < numNewMessages; i++)
+  {
+    String chat_id = bot.messages[i].chat_id;
+    String text = bot.messages[i].text;
+
+    String from_name = bot.messages[i].from_name;
+    if (from_name == "")
+      from_name = "Guest";
+
+    if (text == "/test")
+    {
+      bot.sendChatAction(chat_id, "typing");
+      delay(4000);
+      bot.sendMessage(chat_id, "Did you see the action message?");
+    }
+
+    if (text == "/start")
+    {
+      String welcome = "Welcome to Universal Arduino Telegram Bot library, " + from_name + ".\n";
+      welcome += "This is Chat Action Bot example.\n\n";
+      welcome += "/test : SEND\n";
+      bot.sendMessage(chat_id, welcome);
+    }
+  }
+}
 //---------------------------------------------------
 void setup() {
   bootCount++;
@@ -315,6 +345,8 @@ void setup() {
   ESP_LOGE(TAG, "Free heap: %u", xPortGetFreeHeapSize());
 
   my_wifi_setup(true);
+
+  secured_client.setCACert(TELEGRAM_CERTIFICATE_ROOT); // Add root certificate for api.telegram.org
 
   // Port defaults to 3232
   // ArduinoOTA.setPort(3232);
@@ -527,6 +559,16 @@ void setup() {
   MDNS.addService("http", "tcp", 80);
   MDNS.addService("ws", "tcp", 81);
 
+  Serial.print("Retrieving time: ");
+  configTime(0, 0, "pool.ntp.org"); // get UTC time via NTP
+  time_t now = time(nullptr);
+  while (now < 24 * 3600)
+  {
+    Serial.print(".");
+    delay(100);
+    now = time(nullptr);
+  }
+
   Serial.println("Setup done.");
 }
 
@@ -562,6 +604,8 @@ int getNextBufferLen() {
   }
 }
 
+const unsigned long BOT_MTBS = 1000; // mean time between scan messages
+unsigned long bot_lasttime = 0;          // last time messages' scan has been done
 void loop() {
   my_wifi_loop(true);
 
@@ -614,6 +658,20 @@ void loop() {
     }
   }
   command = IDLE;
+
+  if (millis() - bot_lasttime > BOT_MTBS)
+  {
+    int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+
+    while (numNewMessages)
+    {
+      Serial.println("got response");
+      handleNewMessages(numNewMessages);
+      numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+    }
+
+    bot_lasttime = millis();
+  }
 
   if (switch_off_delay > 0) {
     uint32_t curr = millis();

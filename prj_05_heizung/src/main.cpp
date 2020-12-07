@@ -49,6 +49,7 @@ using namespace std;
 
 volatile bool camera_in_use = false;
 volatile bool status = false;
+volatile bool deepsleep = true;
 
 RTC_DATA_ATTR uint16_t bootCount = 0;
 
@@ -67,7 +68,7 @@ bool qrMode = true;
 enum Command {
   IDLE,
   HEIZUNG,
-} command = IDLE;
+} command = HEIZUNG; // make a photo and go to sleep
 
 uint32_t last_ms = 0;
 uint32_t switch_off_delay = 0;
@@ -322,11 +323,24 @@ void handleNewMessages(int numNewMessages)
       bot.sendMessage(chat_id, "Did you see the action message?");
     }
 
+    if (text == "/nosleep")
+    {
+		deepsleep = false;
+      bot.sendMessage(chat_id, "Prevent sleep");
+    }
+    if (text == "/allowsleep")
+    {
+		deepsleep = true;
+      bot.sendMessage(chat_id, "Allow sleep");
+    }
+
     if (text == "/start")
     {
       String welcome = "Welcome to Universal Arduino Telegram Bot library, " + from_name + ".\n";
       welcome += "This is Chat Action Bot example.\n\n";
-      welcome += "/test : SEND\n";
+      welcome += "/test : Show typing, then eply\n";
+      welcome += "/nosleep : Prevent deep slep\n";
+      welcome += "/allowsleep : Allow deep slep\n";
       bot.sendMessage(chat_id, welcome);
     }
   }
@@ -623,6 +637,21 @@ void loop() {
   ArduinoOTA.handle();
   server.handleClient();
 
+  if (millis() >= bot_lasttime)
+  {
+    int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+
+    while (numNewMessages)
+    {
+		command = IDLE;
+      Serial.println("got response");
+      handleNewMessages(numNewMessages);
+      numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+    }
+
+    bot_lasttime = millis() + BOT_MTBS;
+  }
+
   switch (command) {
     case IDLE:
       break;
@@ -634,44 +663,34 @@ void loop() {
       status = bot.sendMessage(CHAT_ID, "Camera capture");
       init_camera();
       digitalWrite(flashPin, HIGH);
-      photo_fb = esp_camera_fb_get();
-      //		  esp_camera_deinit();
-      //		  camera_in_use = false;
+	  for(uint8_t i = 0;i < 10;i++) {
+		  // let the camera adjust
+		  photo_fb = esp_camera_fb_get();
+        esp_camera_fb_return(photo_fb);
+        photo_fb = NULL;
+	  }
+		  photo_fb = esp_camera_fb_get();
+      digitalWrite(flashPin, LOW);
       if (!photo_fb) {
         status = bot.sendMessage(CHAT_ID, "Camera capture failed");
       } else {
-        if (true) {
           dataBytesSent = 0;
           status = bot.sendPhotoByBinary(CHAT_ID, "image/jpeg", photo_fb->len,
                                          isMoreDataAvailable, nullptr,
                                          getNextBuffer, getNextBufferLen);
-        }
         esp_camera_fb_return(photo_fb);
         photo_fb = NULL;
         bot.sendMessage(CHAT_ID,
                         WiFi.SSID() + String(": ") + WiFi.localIP().toString());
       }
-      digitalWrite(flashPin, LOW);
 
-	  esp_sleep_enable_timer_wakeup(60L * 1000000L);
-	  esp_deep_sleep_start();
+	  if (deepsleep) {
+		  esp_sleep_enable_timer_wakeup(60L * 1000000L);
+		  esp_deep_sleep_start();
+	  }
     }
   }
   command = IDLE;
-
-  if (millis() - bot_lasttime > BOT_MTBS)
-  {
-    int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
-
-    while (numNewMessages)
-    {
-      Serial.println("got response");
-      handleNewMessages(numNewMessages);
-      numNewMessages = bot.getUpdates(bot.last_message_received + 1);
-    }
-
-    bot_lasttime = millis();
-  }
 
   if (switch_off_delay > 0) {
     uint32_t curr = millis();

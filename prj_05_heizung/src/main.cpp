@@ -4,20 +4,21 @@
 //#include "soc/rtc_cntl_reg.h"
 
 #include <Arduino.h>
+//#include <ArduinoJson.h>  // already included in UniversalTelegramBot.h
 #include <ArduinoOTA.h>
 #include <ESP32Ping.h>
 #include <ESPmDNS.h>
+#include <UniversalTelegramBot.h>
 #include <WebServer.h>
 #include <WebSockets.h>
-#include <WebSocketsServer.h>
 #include <WebSocketsClient.h>
+#include <WebSocketsServer.h>
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <base64.h>
 #include <mem.h>
-#include <UniversalTelegramBot.h>
-#include <ArduinoJson.h>
 
+#include "../../private_bot.h"
 #include "esp32-hal-psram.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -27,7 +28,6 @@
 #include "img_converters.h"
 #include "my_wifi.h"
 #include "qrcode_recognize.h"
-#include "../../private_bot.h"
 
 #define CONFIG_CAMERA_MODEL_AI_THINKER 1
 #include "app_camera.h"
@@ -53,7 +53,7 @@ extern const uint8_t index_html_start[] asm("_binary_src_index_html_start");
 extern const uint8_t server_index_html_start[] asm(
     "_binary_src_serverindex_html_start");
 
-WiFiClientSecure client; //For ESP8266 boards
+WiFiClientSecure client;
 UniversalTelegramBot bot(BOTtoken, client);
 
 #define PART_BOUNDARY "123456789000000000000987654321"
@@ -128,8 +128,8 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
     case WStype_TEXT: {
       Serial.print("received from websocket: ");
       Serial.println((char*)payload);
-	  DynamicJsonDocument json(4096);
-	  deserializeJson(json, (char *)payload);
+      DynamicJsonDocument json(4096);
+      deserializeJson(json, (char*)payload);
       if (json.containsKey("heizung")) {
         command = HEIZUNG;
       }
@@ -268,7 +268,7 @@ void TaskWebSocket(void* pvParameters) {
         char ch = 48 + digitalRead(i);
         data.setCharAt(i, ch);
       }
-	  DynamicJsonDocument myObject(4096);
+      DynamicJsonDocument myObject(4096);
       myObject["millis"] = millis();
       myObject["mem_free"] = (long)ESP.getFreeHeap();
       myObject["stack_free"] = (long)uxTaskGetStackHighWaterMark(NULL);
@@ -282,9 +282,9 @@ void TaskWebSocket(void* pvParameters) {
       myObject["SSID"] = WiFi.SSID();
 
 #define BUFLEN 4096
-	  char buffer[BUFLEN];
-	  /* size_t bx = */ serializeJson(myObject, &buffer, BUFLEN);
-	  String as_json = String(buffer);
+      char buffer[BUFLEN];
+      /* size_t bx = */ serializeJson(myObject, &buffer, BUFLEN);
+      String as_json = String(buffer);
       webSocket.broadcastTXT(as_json);
     }
     vTaskDelay(xDelay);

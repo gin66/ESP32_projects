@@ -1,11 +1,12 @@
-#include "esp_camera.h"
+#include <esp_camera.h>
+
 #include "string.h"
 //#include "soc/soc.h"
 //#include "soc/rtc_cntl_reg.h"
 
 #include <Arduino.h>
-//#include <ArduinoJson.h>  // already included in UniversalTelegramBot.h
 #include <ArduinoOTA.h>
+//#include <ArduinoJson.h>  // already included in UniversalTelegramBot.h
 #include <ESP32Ping.h>
 #include <ESPmDNS.h>
 #include <UniversalTelegramBot.h>
@@ -47,6 +48,7 @@
 using namespace std;
 
 volatile bool camera_in_use = false;
+volatile bool status = false;
 
 WebServer server(80);
 extern const uint8_t index_html_start[] asm("_binary_src_index_html_start");
@@ -114,6 +116,62 @@ int qr_identify(camera_fb_t* fb) {
 
 WebSocketsServer webSocket = WebSocketsServer(81);
 
+void init_camera() {
+  if (!camera_in_use) {
+    camera_in_use = true;
+    camera_config_t camera_config;
+
+    camera_config.ledc_channel = LEDC_CHANNEL_0;
+    camera_config.ledc_timer = LEDC_TIMER_0;
+    camera_config.pin_d0 = Y2_GPIO_NUM;
+    camera_config.pin_d1 = Y3_GPIO_NUM;
+    camera_config.pin_d2 = Y4_GPIO_NUM;
+    camera_config.pin_d3 = Y5_GPIO_NUM;
+    camera_config.pin_d4 = Y6_GPIO_NUM;
+    camera_config.pin_d5 = Y7_GPIO_NUM;
+    camera_config.pin_d6 = Y8_GPIO_NUM;
+    camera_config.pin_d7 = Y9_GPIO_NUM;
+    camera_config.pin_xclk = XCLK_GPIO_NUM;
+    camera_config.pin_pclk = PCLK_GPIO_NUM;
+    camera_config.pin_vsync = VSYNC_GPIO_NUM;
+    camera_config.pin_href = HREF_GPIO_NUM;
+    camera_config.pin_sscb_sda = SIOD_GPIO_NUM;
+    camera_config.pin_sscb_scl = SIOC_GPIO_NUM;
+    camera_config.pin_pwdn = PWDN_GPIO_NUM;
+    camera_config.pin_reset = RESET_GPIO_NUM;
+    camera_config.xclk_freq_hz = 10000000;
+    if (false) {
+      // higher resolution leads to artefacts
+      camera_config.pixel_format = PIXFORMAT_GRAYSCALE;
+      camera_config.frame_size = FRAMESIZE_QVGA;
+    } else {
+      camera_config.pixel_format = PIXFORMAT_JPEG;
+      camera_config.frame_size = FRAMESIZE_VGA;
+    }
+
+    camera_config.jpeg_quality =
+        5;  // quality of JPEG output. 0-63 lower means higher quality
+    camera_config.fb_count =
+        1;  // 1: Wait for V-Synch // 2: Continous Capture (Video)
+    esp_err_t err = esp_camera_init(&camera_config);
+    if (err != ESP_OK) {
+      Serial.println("Camera init failed with error ");
+      Serial.println(err);
+
+      // delay(3000);
+      // ESP.restart();
+      // return;
+    }
+    ESP_LOGE(TAG, "Total heap: %u", ESP.getHeapSize());
+    ESP_LOGE(TAG, "Free heap: %u", ESP.getFreeHeap());
+    ESP_LOGE(TAG, "Total PSRAM: %u", ESP.getPsramSize());
+    ESP_LOGE(TAG, "Free PSRAM: %u", ESP.getFreePsram());
+    sensor_t* sensor = esp_camera_sensor_get();
+    sensor->set_hmirror(sensor, 1);
+    sensor->set_vflip(sensor, 1);
+  }
+}
+
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
                     size_t length) {
   switch (type) {
@@ -134,59 +192,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
         command = HEIZUNG;
       }
       if (json.containsKey("image")) {
-        if (!camera_in_use) {
-          camera_in_use = true;
-          camera_config_t camera_config;
-
-          camera_config.ledc_channel = LEDC_CHANNEL_0;
-          camera_config.ledc_timer = LEDC_TIMER_0;
-          camera_config.pin_d0 = Y2_GPIO_NUM;
-          camera_config.pin_d1 = Y3_GPIO_NUM;
-          camera_config.pin_d2 = Y4_GPIO_NUM;
-          camera_config.pin_d3 = Y5_GPIO_NUM;
-          camera_config.pin_d4 = Y6_GPIO_NUM;
-          camera_config.pin_d5 = Y7_GPIO_NUM;
-          camera_config.pin_d6 = Y8_GPIO_NUM;
-          camera_config.pin_d7 = Y9_GPIO_NUM;
-          camera_config.pin_xclk = XCLK_GPIO_NUM;
-          camera_config.pin_pclk = PCLK_GPIO_NUM;
-          camera_config.pin_vsync = VSYNC_GPIO_NUM;
-          camera_config.pin_href = HREF_GPIO_NUM;
-          camera_config.pin_sscb_sda = SIOD_GPIO_NUM;
-          camera_config.pin_sscb_scl = SIOC_GPIO_NUM;
-          camera_config.pin_pwdn = PWDN_GPIO_NUM;
-          camera_config.pin_reset = RESET_GPIO_NUM;
-          camera_config.xclk_freq_hz = 10000000;
-          if (false) {
-            // higher resolution leads to artefacts
-            camera_config.pixel_format = PIXFORMAT_GRAYSCALE;
-            camera_config.frame_size = FRAMESIZE_QVGA;
-          } else {
-            camera_config.pixel_format = PIXFORMAT_JPEG;
-            camera_config.frame_size = FRAMESIZE_VGA;
-          }
-
-          camera_config.jpeg_quality =
-              5;  // quality of JPEG output. 0-63 lower means higher quality
-          camera_config.fb_count =
-              1;  // 1: Wait for V-Synch // 2: Continous Capture (Video)
-          esp_err_t err = esp_camera_init(&camera_config);
-          if (err != ESP_OK) {
-            Serial.println("Camera init failed with error ");
-            Serial.println(err);
-
-            // delay(3000);
-            // ESP.restart();
-            // return;
-          }
-          ESP_LOGE(TAG, "Total heap: %u", ESP.getHeapSize());
-          ESP_LOGE(TAG, "Free heap: %u", ESP.getFreeHeap());
-          ESP_LOGE(TAG, "Total PSRAM: %u", ESP.getPsramSize());
-          ESP_LOGE(TAG, "Free PSRAM: %u", ESP.getFreePsram());
-          sensor_t* sensor = esp_camera_sensor_get();
-          sensor->set_hmirror(sensor, 1);
-          sensor->set_vflip(sensor, 1);
-        }
+        init_camera();
 
         camera_fb_t* fb = esp_camera_fb_get();
         if (!fb) {
@@ -281,6 +287,7 @@ void TaskWebSocket(void* pvParameters) {
       myObject["wifi_dBm"] = WiFi.RSSI();
       myObject["SSID"] = WiFi.SSID();
 
+      myObject["status"] = status;
 #define BUFLEN 4096
       char buffer[BUFLEN];
       /* size_t bx = */ serializeJson(myObject, &buffer, BUFLEN);
@@ -496,7 +503,7 @@ void setup() {
 
   BaseType_t rc;
 
-  rc = xTaskCreatePinnedToCore(TaskWebSocket, "WebSocket", 81920, (void*)1, 1,
+  rc = xTaskCreatePinnedToCore(TaskWebSocket, "WebSocket", 8192, (void*)1, 1,
                                NULL, 0);
   if (rc != pdPASS) {
     Serial.print("cannot start websocket task=");
@@ -517,6 +524,38 @@ void setup() {
   MDNS.addService("ws", "tcp", 81);
 
   Serial.println("Setup done.");
+}
+
+camera_fb_t* photo_fb = NULL;
+uint32_t dataBytesSent;
+bool isMoreDataAvailable() {
+  if (photo_fb) {
+    return (dataBytesSent < photo_fb->len);
+  } else {
+    return false;
+  }
+}
+byte* getNextBuffer() {
+  if (photo_fb) {
+    byte* buf = &photo_fb->buf[dataBytesSent];
+    dataBytesSent += 1024;
+    return buf;
+  } else {
+    return nullptr;
+  }
+}
+
+int getNextBufferLen() {
+  if (photo_fb) {
+    uint32_t rem = photo_fb->len - dataBytesSent;
+    if (rem > 1024) {
+      return 1024;
+    } else {
+      return rem;
+    }
+  } else {
+    return 0;
+  }
 }
 
 void loop() {
@@ -540,11 +579,32 @@ void loop() {
     case IDLE:
       break;
     case HEIZUNG: {
-      digitalWrite(flashPin, HIGH);
-      switch_off_delay = 10000;
+      // bot.sendMessage(CHAT_ID, WiFi.SSID() + String(": ") +
+      // WiFi.localIP().toString());
+      // switch_off_delay = 10000;
       last_ms = millis();
-  bot.sendMessage(CHAT_ID, WiFi.SSID() + String(": ") + WiFi.localIP().toString());
-    } break;
+      status = bot.sendMessage(CHAT_ID, "Camera capture");
+      init_camera();
+      digitalWrite(flashPin, HIGH);
+      photo_fb = esp_camera_fb_get();
+      //		  esp_camera_deinit();
+      //		  camera_in_use = false;
+      if (!photo_fb) {
+        status = bot.sendMessage(CHAT_ID, "Camera capture failed");
+      } else {
+        if (true) {
+          dataBytesSent = 0;
+          status = bot.sendPhotoByBinary(CHAT_ID, "image/jpeg", photo_fb->len,
+                                         isMoreDataAvailable, nullptr,
+                                         getNextBuffer, getNextBufferLen);
+        }
+        esp_camera_fb_return(photo_fb);
+        photo_fb = NULL;
+        bot.sendMessage(CHAT_ID,
+                        WiFi.SSID() + String(": ") + WiFi.localIP().toString());
+      }
+      digitalWrite(flashPin, LOW);
+    }
   }
   command = IDLE;
 

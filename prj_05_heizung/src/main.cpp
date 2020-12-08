@@ -715,7 +715,8 @@ void loop() {
           pinMode(ledPin, INPUT_PULLUP);
           pinMode(flashPin, INPUT_PULLDOWN);
           pinMode(PWDN_GPIO_NUM, INPUT_PULLUP);
-          esp_sleep_enable_timer_wakeup(600LL * 1000000LL);
+          // wake up every four hours
+          esp_sleep_enable_timer_wakeup(4LL * 3600LL * 1000000LL);
           esp_deep_sleep_start();
         }
         command = IDLE;

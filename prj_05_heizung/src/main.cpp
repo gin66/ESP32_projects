@@ -68,10 +68,8 @@ bool qrMode = true;
 enum Command {
   IDLE,
   HEIZUNG,
+  DEEPSLEEP,
 } command = HEIZUNG;  // make a photo and go to sleep
-
-uint32_t last_ms = 0;
-uint32_t switch_off_delay = 0;
 
 #define MAX_CODES 4
 struct quirc_code qr_codes[MAX_CODES];
@@ -119,10 +117,18 @@ int qr_identify(camera_fb_t* fb) {
 
 WebSocketsServer webSocket = WebSocketsServer(81);
 
-void init_camera() {
-  if (!camera_in_use) {
-    camera_in_use = true;
+bool init_camera() {
+  if (camera_in_use) {
+    return true;
+  }
+  // try camera init for max 20 times
+  for (uint8_t i = 0; i < 20; i++) {
     camera_config_t camera_config;
+
+    // Turn camera power on and wait 100ms
+    digitalWrite(PWDN_GPIO_NUM, LOW);
+    pinMode(PWDN_GPIO_NUM, OUTPUT);
+    delay(100);
 
     camera_config.ledc_channel = LEDC_CHANNEL_0;
     camera_config.ledc_timer = LEDC_TIMER_0;
@@ -140,7 +146,8 @@ void init_camera() {
     camera_config.pin_href = HREF_GPIO_NUM;
     camera_config.pin_sscb_sda = SIOD_GPIO_NUM;
     camera_config.pin_sscb_scl = SIOC_GPIO_NUM;
-    camera_config.pin_pwdn = PWDN_GPIO_NUM;
+    // Do not let the driver to operate PWDN_GPIO_NUM;
+    camera_config.pin_pwdn = -1;  // PWDN_GPIO_NUM;
     camera_config.pin_reset = RESET_GPIO_NUM;
     camera_config.xclk_freq_hz = 10000000;
     if (false) {
@@ -152,31 +159,41 @@ void init_camera() {
       camera_config.frame_size = FRAMESIZE_VGA;
     }
 
-    camera_config.jpeg_quality =
-        5;  // quality of JPEG output. 0-63 lower means higher quality
-    camera_config.fb_count =
-        1;  // 1: Wait for V-Synch // 2: Continous Capture (Video)
+    // quality of JPEG output. 0-63 lower means higher quality
+    camera_config.jpeg_quality = 5;
+    // 1: Wait for V-Synch // 2: Continous Capture (Video)
+    camera_config.fb_count = 1;
     esp_err_t err = esp_camera_init(&camera_config);
-    if (err != ESP_OK) {
-	  char buf[40];
+    if (err == ESP_OK) {
+      if (i > 0) {
+        char buf[40];
+        sprintf(buf, "Camera init succeeded with %d fails", i);
+        bot.sendMessage(CHAT_ID, buf);
+      }
+      ESP_LOGE(TAG, "Total heap: %u", ESP.getHeapSize());
+      ESP_LOGE(TAG, "Free heap: %u", ESP.getFreeHeap());
+      ESP_LOGE(TAG, "Total PSRAM: %u", ESP.getPsramSize());
+      ESP_LOGE(TAG, "Free PSRAM: %u", ESP.getFreePsram());
+      sensor_t* sensor = esp_camera_sensor_get();
+      sensor->set_hmirror(sensor, 1);
+      sensor->set_vflip(sensor, 1);
+      camera_in_use = true;
+      return true;
+    }
+    if (err != 0x20004) {
+      char buf[40];
       sprintf(buf, "Camera init failed with error %x", err);
       bot.sendMessage(CHAT_ID, buf);
-
-      digitalWrite(PWDN_GPIO_NUM, HIGH);
-      pinMode(PWDN_GPIO_NUM, OUTPUT);
-      delay(3000);
-      digitalWrite(PWDN_GPIO_NUM, LOW);
-      ESP.restart();
-      return;
     }
-    ESP_LOGE(TAG, "Total heap: %u", ESP.getHeapSize());
-    ESP_LOGE(TAG, "Free heap: %u", ESP.getFreeHeap());
-    ESP_LOGE(TAG, "Total PSRAM: %u", ESP.getPsramSize());
-    ESP_LOGE(TAG, "Free PSRAM: %u", ESP.getFreePsram());
-    sensor_t* sensor = esp_camera_sensor_get();
-    sensor->set_hmirror(sensor, 1);
-    sensor->set_vflip(sensor, 1);
+
+    // power off the camera and try again
+    digitalWrite(PWDN_GPIO_NUM, HIGH);
+    pinMode(PWDN_GPIO_NUM, OUTPUT);
+    delay(3000);
   }
+  // cannot init camera
+  bot.sendMessage(CHAT_ID, "Camera init failed for 20 times");
+  return false;
 }
 
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
@@ -199,38 +216,38 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
         command = HEIZUNG;
       }
       if (json.containsKey("image")) {
-        init_camera();
-
-        camera_fb_t* fb = esp_camera_fb_get();
-        if (!fb) {
-          Serial.println("Camera capture failed");
-          delay(1000);
-          ESP.restart();
-        } else {
-          if (fb->format == PIXFORMAT_JPEG) {
-            webSocket.broadcastBIN(fb->buf, fb->len);
-          } else if (fb->format == PIXFORMAT_GRAYSCALE) {
-            int code_cnt = qr_identify(fb);
-            for (int i = 0; i < code_cnt; i++) {
-              uint16_t data[9];
-              data[0] = 1;
-              for (int j = 0; j < 4; j++) {
-                data[2 * j + 1] = qr_codes[i].corners[j].x;
-                data[2 * j + 2] = qr_codes[i].corners[j].y;
+        if (init_camera()) {
+          camera_fb_t* fb = esp_camera_fb_get();
+          if (!fb) {
+            Serial.println("Camera capture failed");
+            delay(1000);
+            ESP.restart();
+          } else {
+            if (fb->format == PIXFORMAT_JPEG) {
+              webSocket.broadcastBIN(fb->buf, fb->len);
+            } else if (fb->format == PIXFORMAT_GRAYSCALE) {
+              int code_cnt = qr_identify(fb);
+              for (int i = 0; i < code_cnt; i++) {
+                uint16_t data[9];
+                data[0] = 1;
+                for (int j = 0; j < 4; j++) {
+                  data[2 * j + 1] = qr_codes[i].corners[j].x;
+                  data[2 * j + 2] = qr_codes[i].corners[j].y;
+                }
+                webSocket.broadcastBIN((uint8_t*)data, 18);
               }
-              webSocket.broadcastBIN((uint8_t*)data, 18);
-            }
 
-            uint8_t head[5];
-            head[0] = 0;
-            head[1] = fb->width >> 8;
-            head[2] = fb->width & 0xff;
-            head[3] = fb->height >> 8;
-            head[4] = fb->height & 0xff;
-            webSocket.broadcastBIN(head, 5);
-            webSocket.broadcastBIN(fb->buf, fb->len);
+              uint8_t head[5];
+              head[0] = 0;
+              head[1] = fb->width >> 8;
+              head[2] = fb->width & 0xff;
+              head[3] = fb->height >> 8;
+              head[4] = fb->height & 0xff;
+              webSocket.broadcastBIN(head, 5);
+              webSocket.broadcastBIN(fb->buf, fb->len);
+            }
+            esp_camera_fb_return(fb);
           }
-          esp_camera_fb_return(fb);
         }
       }
     } break;
@@ -348,8 +365,14 @@ void handleNewMessages(int numNewMessages) {
 //---------------------------------------------------
 void setup() {
   bootCount++;
+
+  // turn flash light off
   digitalWrite(flashPin, LOW);
   pinMode(flashPin, OUTPUT);
+
+  // ensure camera module not powered up
+  digitalWrite(PWDN_GPIO_NUM, HIGH);
+  pinMode(PWDN_GPIO_NUM, OUTPUT);
 
 #ifdef DEBUG_ESP
   Serial.begin(115200);
@@ -656,55 +679,47 @@ void loop() {
     case HEIZUNG: {
       // bot.sendMessage(CHAT_ID, WiFi.SSID() + String(": ") +
       // WiFi.localIP().toString());
-      // switch_off_delay = 10000;
-      last_ms = millis();
       status = bot.sendMessage(CHAT_ID, "Camera capture");
-      init_camera();
-      digitalWrite(flashPin, HIGH);
-      for (uint8_t i = 0; i < 10; i++) {
-        // let the camera adjust
+      if (init_camera()) {
+        digitalWrite(flashPin, HIGH);
+        for (uint8_t i = 0; i < 10; i++) {
+          // let the camera adjust
+          photo_fb = esp_camera_fb_get();
+          esp_camera_fb_return(photo_fb);
+          photo_fb = NULL;
+        }
         photo_fb = esp_camera_fb_get();
-        esp_camera_fb_return(photo_fb);
-        photo_fb = NULL;
-      }
-      photo_fb = esp_camera_fb_get();
-      digitalWrite(flashPin, LOW);
-      if (!photo_fb) {
-        status = bot.sendMessage(CHAT_ID, "Camera capture failed");
-      } else {
-        dataBytesSent = 0;
-        status = bot.sendPhotoByBinary(CHAT_ID, "image/jpeg", photo_fb->len,
-                                       isMoreDataAvailable, nullptr,
-                                       getNextBuffer, getNextBufferLen);
-        esp_camera_fb_return(photo_fb);
-        photo_fb = NULL;
-        bot.sendMessage(CHAT_ID,
-                        WiFi.SSID() + String(": ") + WiFi.localIP().toString());
-      }
-
-      if (deepsleep) {
-        digitalWrite(ledPin, HIGH);
         digitalWrite(flashPin, LOW);
-        digitalWrite(PWDN_GPIO_NUM, HIGH);
-        pinMode(ledPin, INPUT_PULLUP);
-        pinMode(flashPin, INPUT_PULLDOWN);
-        pinMode(PWDN_GPIO_NUM, INPUT_PULLUP);
-        esp_sleep_enable_timer_wakeup(600LL * 1000000LL);
-        esp_deep_sleep_start();
+        if (!photo_fb) {
+          status = bot.sendMessage(CHAT_ID, "Camera capture failed");
+        } else {
+          dataBytesSent = 0;
+          status = bot.sendPhotoByBinary(CHAT_ID, "image/jpeg", photo_fb->len,
+                                         isMoreDataAvailable, nullptr,
+                                         getNextBuffer, getNextBufferLen);
+          esp_camera_fb_return(photo_fb);
+          photo_fb = NULL;
+          bot.sendMessage(
+              CHAT_ID, WiFi.SSID() + String(": ") + WiFi.localIP().toString());
+        }
       }
-    }
-  }
-  command = IDLE;
-
-  if (switch_off_delay > 0) {
-    uint32_t curr = millis();
-    uint32_t dt = curr - last_ms;
-    if (switch_off_delay > dt) {
-      switch_off_delay -= dt;
-      last_ms = curr;
-    } else {
-      switch_off_delay = 0;
-      digitalWrite(flashPin, LOW);
+      command = DEEPSLEEP;
+      break;
+      case DEEPSLEEP:
+        if (deepsleep) {
+          // ensure LEDs and camera module off and pull up/downs set
+          // appropriately
+          digitalWrite(ledPin, HIGH);
+          digitalWrite(flashPin, LOW);
+          digitalWrite(PWDN_GPIO_NUM, HIGH);
+          pinMode(ledPin, INPUT_PULLUP);
+          pinMode(flashPin, INPUT_PULLDOWN);
+          pinMode(PWDN_GPIO_NUM, INPUT_PULLUP);
+          esp_sleep_enable_timer_wakeup(600LL * 1000000LL);
+          esp_deep_sleep_start();
+        }
+        command = IDLE;
+        break;
     }
   }
 }

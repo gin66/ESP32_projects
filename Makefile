@@ -1,4 +1,4 @@
-fmt:
+fmt: node_modules/prettier/package.json
 	npx prettier --write */src/*.html
 	clang-format --style=Google -i `find . -name '*.h' -type f`
 	clang-format --style=Google -i `find . -name '*.c' -type f`
@@ -9,5 +9,5 @@ fmt:
 build:
 	for i in prj_[0-9]*;do (cd $$i;pio run);done
 
-install:
+node_modules/prettier/package.json:
 	npm install --save-dev --save-exact prettier

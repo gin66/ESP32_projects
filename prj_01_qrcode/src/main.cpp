@@ -21,9 +21,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "img_converters.h"
-#include "my_wifi.h"
 #include "qrcode_recognize.h"
 
+#include "template.h"
 #define CONFIG_CAMERA_MODEL_AI_THINKER 1
 #include "app_camera.h"
 #include "quirc.h"

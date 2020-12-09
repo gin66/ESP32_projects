@@ -383,10 +383,10 @@ uint8_t curr_voltage = 255;
 
 void loop() {
   my_wifi_loop(false);
-  uint32_t period = 1000;
-  if (fail >= 50) {
-    period = 300;
-  }
+//  uint32_t period = 1000;
+//  if (fail >= 50) {
+//    period = 300;
+//  }
   ArduinoOTA.handle();
   server.handleClient();
 

@@ -10,6 +10,7 @@
 #include <ESPmDNS.h>
 #include <WebServer.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <WiFiClient.h>
 #include <base64.h>
 #include <mem.h>

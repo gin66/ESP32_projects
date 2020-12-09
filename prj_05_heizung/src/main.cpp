@@ -236,8 +236,8 @@ void setup() {
 
   my_wifi_setup(true);
 
-  secured_client.setCACert(
-      TELEGRAM_CERTIFICATE_ROOT);  // Add root certificate for api.telegram.org
+  // Add root certificate for api.telegram.org
+  secured_client.setCACert( TELEGRAM_CERTIFICATE_ROOT);
 
   server.onNotFound([]() {
     server.send(404);

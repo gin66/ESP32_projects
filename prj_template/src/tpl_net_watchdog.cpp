@@ -1,5 +1,6 @@
-#include <stdint.h>
 #include "tpl_net_watchdog.h"
+
+#include <stdint.h>
 
 #ifdef NET_WATCHDOG
 #include <ESP32Ping.h>
@@ -24,11 +25,11 @@ void TaskWatchdog(void* pvParameters) {
 bool startNetWatchDog() {
   BaseType_t rc;
 
-  rc = xTaskCreatePinnedToCore(TaskWatchdog, "Net Watchdog", 4096, (void*)1, 1, NULL, 0);
+  rc = xTaskCreatePinnedToCore(TaskWatchdog, "Net Watchdog", 4096, (void*)1, 1,
+                               NULL, 0);
   return (rc == pdPASS);
 }
 #elif NO_NET_WATCHDOG
 #else
 #error "Need to define either NET_WATCHDOG=<ip> or NO_NET_WATCHDOG"
 #endif
-

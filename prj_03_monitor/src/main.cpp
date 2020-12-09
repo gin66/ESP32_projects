@@ -10,8 +10,8 @@
 #include <ESPmDNS.h>
 #include <WebServer.h>
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
 #include <WiFiClient.h>
+#include <WiFiClientSecure.h>
 #include <base64.h>
 #include <mem.h>
 
@@ -103,7 +103,7 @@ void setup() {
   ESP_LOGE(TAG, "Total PSRAM: %u", ESP.getPsramSize());
   ESP_LOGE(TAG, "Free PSRAM: %u", ESP.getFreePsram());
 
-  startNetWatchDog(); 
+  startNetWatchDog();
 
   if (MDNS.begin(HOSTNAME)) {
   }

@@ -115,9 +115,11 @@ int qr_identify(camera_fb_t* fb) {
 
 WebSocketsServer webSocket = WebSocketsServer(81);
 
-bool init_camera() {
+esp_err_t tpl_init_camera(uint8_t* fail_cnt, bool grayscale) {
+  *fail_cnt = 0;
+  esp_err_t err = ESP_OK;
   if (camera_in_use) {
-    return true;
+    return ESP_OK;
   }
   // try camera init for max 20 times
   for (uint8_t i = 0; i < 20; i++) {
@@ -148,7 +150,7 @@ bool init_camera() {
     camera_config.pin_pwdn = -1;  // PWDN_GPIO_NUM;
     camera_config.pin_reset = RESET_GPIO_NUM;
     camera_config.xclk_freq_hz = 10000000;
-    if (false) {
+    if (grayscale) {
       // higher resolution leads to artefacts
       camera_config.pixel_format = PIXFORMAT_GRAYSCALE;
       camera_config.frame_size = FRAMESIZE_QVGA;
@@ -161,36 +163,41 @@ bool init_camera() {
     camera_config.jpeg_quality = 5;
     // 1: Wait for V-Synch // 2: Continous Capture (Video)
     camera_config.fb_count = 1;
-    esp_err_t err = esp_camera_init(&camera_config);
+    err = esp_camera_init(&camera_config);
     if (err == ESP_OK) {
-      if (i > 0) {
-        char buf[40];
-        sprintf(buf, "Camera init succeeded with %d fails", i);
-        bot.sendMessage(CHAT_ID, buf);
-      }
-      ESP_LOGE(TAG, "Total heap: %u", ESP.getHeapSize());
-      ESP_LOGE(TAG, "Free heap: %u", ESP.getFreeHeap());
-      ESP_LOGE(TAG, "Total PSRAM: %u", ESP.getPsramSize());
-      ESP_LOGE(TAG, "Free PSRAM: %u", ESP.getFreePsram());
+      *fail_cnt = i;
       sensor_t* sensor = esp_camera_sensor_get();
       sensor->set_hmirror(sensor, 1);
       sensor->set_vflip(sensor, 1);
       camera_in_use = true;
-      return true;
+      return ESP_OK;
     }
-    if (err != 0x20004) {
-      char buf[40];
-      sprintf(buf, "Camera init failed with error %x", err);
-      bot.sendMessage(CHAT_ID, buf);
-    }
-
     // power off the camera and try again
     digitalWrite(PWDN_GPIO_NUM, HIGH);
     pinMode(PWDN_GPIO_NUM, OUTPUT);
     delay(3000);
   }
+  return err;
+}
+
+bool init_camera() {
+  uint8_t fail_cnt;
+  char buf[40];
+  esp_err_t err = tpl_init_camera(&fail_cnt, false);
+  if (err == ESP_OK) {
+    if (fail_cnt > 0) {
+      sprintf(buf, "Camera init succeeded with %d fails", fail_cnt);
+      bot.sendMessage(CHAT_ID, buf);
+    }
+    ESP_LOGE(TAG, "Total heap: %u", ESP.getHeapSize());
+    ESP_LOGE(TAG, "Free heap: %u", ESP.getFreeHeap());
+    ESP_LOGE(TAG, "Total PSRAM: %u", ESP.getPsramSize());
+    ESP_LOGE(TAG, "Free PSRAM: %u", ESP.getFreePsram());
+    return true;
+  }
   // cannot init camera
-  bot.sendMessage(CHAT_ID, "Camera init failed for 20 times");
+  sprintf(buf, "Camera init failed for 20 times: %x", err);
+  bot.sendMessage(CHAT_ID, buf);
   return false;
 }
 
@@ -519,7 +526,7 @@ void setup() {
     Serial.println(rc);
   }
 
-  startNetWatchDog(); 
+  startNetWatchDog();
 
   if (MDNS.begin(HOSTNAME)) {
     Serial.println("MDNS responder started");

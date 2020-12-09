@@ -22,7 +22,6 @@
 #include "freertos/task.h"
 #include "img_converters.h"
 #include "qrcode_recognize.h"
-
 #include "template.h"
 #define CONFIG_CAMERA_MODEL_AI_THINKER 1
 #include "app_camera.h"

@@ -4,5 +4,6 @@ private_bot.h
 private_wifi_secrets.cpp
 node_modules
 package-lock.json
+prj_[0-9]*/src/serverindex.html
 prj_[0-9]*/*/template.h
 prj_[0-9]*/*/tpl*

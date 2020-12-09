@@ -25,9 +25,9 @@
 #include "qrcode_recognize.h"
 
 #define CONFIG_CAMERA_MODEL_AI_THINKER 1
-#include "template.h"
 #include "app_camera.h"
 #include "quirc.h"
+#include "template.h"
 
 #define DEBUG_ESP
 
@@ -427,7 +427,7 @@ void setup() {
     Serial.println(rc);
   }
 
-  startNetWatchDog(); 
+  startNetWatchDog();
 
   if (MDNS.begin(HOSTNAME)) {
     Serial.println("MDNS responder started");

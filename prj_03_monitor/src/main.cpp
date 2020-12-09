@@ -41,23 +41,6 @@ enum Command {
   IDLE,
 } command = IDLE;
 
-uint8_t fail = 0;
-void TaskWatchdog(void* pvParameters) {
-  const TickType_t xDelay = 1000 / portTICK_PERIOD_MS;
-  for (;;) {
-    bool success = Ping.ping("192.168.1.1", 1);
-    if (!success) {
-      fail++;
-      if (fail >= 100) {
-        ESP.restart();
-      }
-    } else {
-      fail = 0;
-    }
-    vTaskDelay(xDelay);
-  }
-}
-
 //---------------------------------------------------
 void setup() {
   Serial.begin(115200);
@@ -120,12 +103,7 @@ void setup() {
   ESP_LOGE(TAG, "Total PSRAM: %u", ESP.getPsramSize());
   ESP_LOGE(TAG, "Free PSRAM: %u", ESP.getFreePsram());
 
-  BaseType_t rc;
-
-  rc = xTaskCreatePinnedToCore(TaskWatchdog, "Watchdog", 8192, (void*)1, 1,
-                               NULL, 0);
-  if (rc != pdPASS) {
-  }
+  startNetWatchDog(); 
 
   if (MDNS.begin(HOSTNAME)) {
   }

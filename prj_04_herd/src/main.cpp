@@ -63,23 +63,6 @@ enum Command {
   IDLE,
 } command = IDLE;
 
-uint8_t fail = 0;
-void TaskWatchdog(void* pvParameters) {
-  const TickType_t xDelay = 1000 / portTICK_PERIOD_MS;
-  for (;;) {
-    bool success = Ping.ping("192.168.1.1", 1);
-    if (!success) {
-      fail++;
-      if (fail >= 100) {
-        ESP.restart();
-      }
-    } else {
-      fail = 0;
-    }
-    vTaskDelay(xDelay);
-  }
-}
-
 WebSocketsServer webSocket = WebSocketsServer(81);
 
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
@@ -282,12 +265,8 @@ void setup() {
     Serial.print("cannot start websocket task=");
     Serial.println(rc);
   }
-  rc = xTaskCreatePinnedToCore(TaskWatchdog, "Watchdog", 8192, (void*)1, 1,
-                               NULL, 0);
-  if (rc != pdPASS) {
-    Serial.print("cannot start watchdog task=");
-    Serial.println(rc);
-  }
+
+  startNetWatchDog(); 
 
   if (MDNS.begin(HOSTNAME)) {
     Serial.println("MDNS responder started");

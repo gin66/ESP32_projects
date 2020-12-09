@@ -261,24 +261,6 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
   }
 }
 
-uint8_t fail = 0;
-void TaskWatchdog(void* pvParameters) {
-  const TickType_t xDelay = 1000 / portTICK_PERIOD_MS;
-  for (;;) {
-    bool success = Ping.ping("192.168.1.1", 1);
-    if (!success) {
-      fail++;
-      Serial.println("Ping failed");
-      if (fail >= 100) {
-        ESP.restart();
-      }
-    } else {
-      fail = 0;
-    }
-    vTaskDelay(xDelay);
-  }
-}
-
 void TaskWebSocket(void* pvParameters) {
   const TickType_t xDelay = 1 + 10 / portTICK_PERIOD_MS;
   uint32_t send_status_ms = 0;
@@ -537,12 +519,7 @@ void setup() {
     Serial.println(rc);
   }
 
-  rc = xTaskCreatePinnedToCore(TaskWatchdog, "Watchdog", 8192, (void*)1, 1,
-                               NULL, 0);
-  if (rc != pdPASS) {
-    Serial.print("cannot start watchdog task=");
-    Serial.println(rc);
-  }
+  startNetWatchDog(); 
 
   if (MDNS.begin(HOSTNAME)) {
     Serial.println("MDNS responder started");

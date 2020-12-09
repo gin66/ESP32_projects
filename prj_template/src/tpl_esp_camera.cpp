@@ -16,6 +16,12 @@ esp_err_t tpl_init_camera(uint8_t* fail_cnt, bool grayscale) {
   for (uint8_t i = 0; i < 20; i++) {
     camera_config_t camera_config;
 
+    // ensure power off
+    if (digitalRead(PWDN_GPIO_NUM) != HIGH) {
+      digitalWrite(PWDN_GPIO_NUM, HIGH);
+      pinMode(PWDN_GPIO_NUM, OUTPUT);
+      delay(1000);
+    }
     // Turn camera power on and wait 100ms
     digitalWrite(PWDN_GPIO_NUM, LOW);
     pinMode(PWDN_GPIO_NUM, OUTPUT);

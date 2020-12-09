@@ -61,8 +61,6 @@ extern const uint8_t server_index_html_start[] asm(
 WiFiClientSecure secured_client;
 UniversalTelegramBot bot(BOTtoken, secured_client);
 
-#define PART_BOUNDARY "123456789000000000000987654321"
-
 bool qrMode = true;
 
 enum Command {

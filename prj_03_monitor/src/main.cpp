@@ -35,8 +35,6 @@ extern const uint8_t index_html_start[] asm("_binary_src_index_html_start");
 extern const uint8_t server_index_html_start[] asm(
     "_binary_src_serverindex_html_start");
 
-#define PART_BOUNDARY "123456789000000000000987654321"
-
 bool qrMode = true;
 
 enum Command {

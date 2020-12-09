@@ -27,8 +27,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "img_converters.h"
-#include "qrcode_recognize.h"
-#include "quirc.h"
 #include "template.h"
 #include "tpl_esp_camera.h"
 
@@ -65,50 +63,6 @@ enum Command {
   HEIZUNG,
   DEEPSLEEP,
 } command = HEIZUNG;  // make a photo and go to sleep
-
-#define MAX_CODES 4
-struct quirc_code qr_codes[MAX_CODES];
-int qr_identify(camera_fb_t* fb) {
-  int id_count = 0;
-  struct quirc* qr_recognizer = quirc_new();
-  if (!qr_recognizer) {
-    ESP_LOGE(TAG, "Can't create quirc object");
-  } else {
-    if (quirc_resize(qr_recognizer, fb->width, fb->height) < 0) {
-      ESP_LOGE(TAG,
-               "Resize the QR-code recognizer err (cannot allocate memory).");
-    } else {
-      int w, h;
-      uint8_t* image = quirc_begin(qr_recognizer, &w, &h);
-      if (image) {
-        memcpy(image, fb->buf, w * h);
-        quirc_end(qr_recognizer);
-
-        // Return the number of QR-codes identified in the last processed
-        // image.
-        id_count = quirc_count(qr_recognizer);
-        ESP_LOGE(TAG, "qr_codes %d", id_count);
-        if (id_count > MAX_CODES) {
-          id_count = MAX_CODES;
-        }
-        for (int i = 0; i < id_count; i++) {
-          quirc_extract(qr_recognizer, i, &qr_codes[i]);
-          ESP_LOGE(TAG, "%d/%d %d/%d %d/%d %d/%d", qr_codes[i].corners[0].x,
-                   qr_codes[i].corners[0].y, qr_codes[i].corners[1].x,
-                   qr_codes[i].corners[1].y, qr_codes[i].corners[2].x,
-                   qr_codes[i].corners[2].y, qr_codes[i].corners[3].x,
-                   qr_codes[i].corners[3].y);
-        }
-      } else {
-        ESP_LOGE(TAG, "no image, dimension %d*%d != %d, %d*%d", w, h, fb->len,
-                 fb->width, fb->height);
-      }
-    }
-    ESP_LOGE(TAG, "Deconstruct QR-Code recognizer(quirc)");
-    quirc_destroy(qr_recognizer);
-  }
-  return id_count;
-}
 
 WebSocketsServer webSocket = WebSocketsServer(81);
 
@@ -161,26 +115,6 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
             ESP.restart();
           } else {
             if (fb->format == PIXFORMAT_JPEG) {
-              webSocket.broadcastBIN(fb->buf, fb->len);
-            } else if (fb->format == PIXFORMAT_GRAYSCALE) {
-              int code_cnt = qr_identify(fb);
-              for (int i = 0; i < code_cnt; i++) {
-                uint16_t data[9];
-                data[0] = 1;
-                for (int j = 0; j < 4; j++) {
-                  data[2 * j + 1] = qr_codes[i].corners[j].x;
-                  data[2 * j + 2] = qr_codes[i].corners[j].y;
-                }
-                webSocket.broadcastBIN((uint8_t*)data, 18);
-              }
-
-              uint8_t head[5];
-              head[0] = 0;
-              head[1] = fb->width >> 8;
-              head[2] = fb->width & 0xff;
-              head[3] = fb->height >> 8;
-              head[4] = fb->height & 0xff;
-              webSocket.broadcastBIN(head, 5);
               webSocket.broadcastBIN(fb->buf, fb->len);
             }
             esp_camera_fb_return(fb);
@@ -385,58 +319,6 @@ void setup() {
     command = HEIZUNG;
     server.sendHeader("Connection", "close");
     server.send_P(200, "text/html", (const char*)index_html_start);
-  });
-  server.on("/qr", HTTP_GET, []() {
-    bool send_error = true;
-#ifdef NEW
-    app_qr_recognize();
-    sensor_t* sensor = esp_camera_sensor_get();
-    sensor->set_pixformat(sensor, PIXFORMAT_GRAYSCALE);
-    sensor->set_framesize(sensor, FRAMESIZE_QVGA);
-    camera_fb_t* fb = esp_camera_fb_get();
-    if (!fb) {
-      Serial.println("Camera capture failed");
-    } else {
-      struct quirc* qr_recognizer = quirc_new();
-      if (!qr_recognizer) {
-        ESP_LOGE(TAG, "Can't create quirc object");
-
-      } else {
-        if (quirc_resize(qr_recognizer, fb->width, fb->height) < 0) {
-          ESP_LOGE(
-              TAG,
-              "Resize the QR-code recognizer err (cannot allocate memory).");
-        } else {
-          int w, h;
-          uint8_t* image = quirc_begin(qr_recognizer, &w, &h);
-          if (image) {
-            memcpy(image, fb->buf, w * h);
-            quirc_end(qr_recognizer);
-
-            // Return the number of QR-codes identified in the last processed
-            // image.
-            int id_count = quirc_count(qr_recognizer);
-
-            server.sendHeader("Connection", "close");
-            server.send(200, "text/plain",
-                        id_count > 0 ? "QR-CODE" : "NO QR-CODE");
-            send_error = false;
-          } else {
-            ESP_LOGE(TAG, "no image, dimension %d*%d != %d, %d*%d", w, h,
-                     fb->len, fb->width, fb->height);
-          }
-        }
-        ESP_LOGE(TAG, "Deconstruct QR-Code recognizer(quirc)");
-        quirc_destroy(qr_recognizer);
-      }
-      esp_camera_fb_return(fb);
-    }
-#endif
-    if (send_error) {
-      server.send(404);
-      Serial.print("IMAGE ERROR: ");
-      Serial.println(server.uri());
-    }
   });
   server.begin();
 

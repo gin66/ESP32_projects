@@ -23,9 +23,6 @@
 #include "freertos/task.h"
 #include "img_converters.h"
 #include "qrcode_recognize.h"
-
-#define CONFIG_CAMERA_MODEL_AI_THINKER 1
-#include "app_camera.h"
 #include "quirc.h"
 #include "template.h"
 
@@ -41,8 +38,6 @@
 #define ledPin 33
 
 using namespace std;
-
-volatile bool camera_in_use = false;
 
 WebServer server(80);
 extern const uint8_t index_html_start[] asm("_binary_src_index_html_start");
@@ -124,88 +119,43 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
         command = GARAGE;
       }
       if (json.hasOwnProperty("image")) {
-        if (!camera_in_use) {
-          camera_in_use = true;
-          camera_config_t camera_config;
-
-          camera_config.ledc_channel = LEDC_CHANNEL_0;
-          camera_config.ledc_timer = LEDC_TIMER_0;
-          camera_config.pin_d0 = Y2_GPIO_NUM;
-          camera_config.pin_d1 = Y3_GPIO_NUM;
-          camera_config.pin_d2 = Y4_GPIO_NUM;
-          camera_config.pin_d3 = Y5_GPIO_NUM;
-          camera_config.pin_d4 = Y6_GPIO_NUM;
-          camera_config.pin_d5 = Y7_GPIO_NUM;
-          camera_config.pin_d6 = Y8_GPIO_NUM;
-          camera_config.pin_d7 = Y9_GPIO_NUM;
-          camera_config.pin_xclk = XCLK_GPIO_NUM;
-          camera_config.pin_pclk = PCLK_GPIO_NUM;
-          camera_config.pin_vsync = VSYNC_GPIO_NUM;
-          camera_config.pin_href = HREF_GPIO_NUM;
-          camera_config.pin_sscb_sda = SIOD_GPIO_NUM;
-          camera_config.pin_sscb_scl = SIOC_GPIO_NUM;
-          camera_config.pin_pwdn = PWDN_GPIO_NUM;
-          camera_config.pin_reset = RESET_GPIO_NUM;
-          camera_config.xclk_freq_hz = 10000000;
-          if (false) {
-            // higher resolution leads to artefacts
-            camera_config.pixel_format = PIXFORMAT_GRAYSCALE;
-            camera_config.frame_size = FRAMESIZE_QVGA;
-          } else {
-            camera_config.pixel_format = PIXFORMAT_JPEG;
-            camera_config.frame_size = FRAMESIZE_VGA;
-          }
-
-          camera_config.jpeg_quality =
-              5;  // quality of JPEG output. 0-63 lower means higher quality
-          camera_config.fb_count =
-              1;  // 1: Wait for V-Synch // 2: Continous Capture (Video)
-          esp_err_t err = esp_camera_init(&camera_config);
-          if (err != ESP_OK) {
-            Serial.println("Camera init failed with error ");
-            Serial.println(err);
-
-            // delay(3000);
-            // ESP.restart();
-            // return;
-          }
+        uint8_t fail_cnt;
+        esp_err_t err = tpl_init_camera(&fail_cnt, false);
+        if (err == ESP_OK) {
           ESP_LOGE(TAG, "Total heap: %u", ESP.getHeapSize());
           ESP_LOGE(TAG, "Free heap: %u", ESP.getFreeHeap());
           ESP_LOGE(TAG, "Total PSRAM: %u", ESP.getPsramSize());
           ESP_LOGE(TAG, "Free PSRAM: %u", ESP.getFreePsram());
-          sensor_t* sensor = esp_camera_sensor_get();
-          sensor->set_hmirror(sensor, 1);
-          sensor->set_vflip(sensor, 1);
-        }
 
-        camera_fb_t* fb = esp_camera_fb_get();
-        if (!fb) {
-          Serial.println("Camera capture failed");
-        } else {
-          if (fb->format == PIXFORMAT_JPEG) {
-            webSocket.broadcastBIN(fb->buf, fb->len);
-          } else if (fb->format == PIXFORMAT_GRAYSCALE) {
-            int code_cnt = qr_identify(fb);
-            for (int i = 0; i < code_cnt; i++) {
-              uint16_t data[9];
-              data[0] = 1;
-              for (int j = 0; j < 4; j++) {
-                data[2 * j + 1] = qr_codes[i].corners[j].x;
-                data[2 * j + 2] = qr_codes[i].corners[j].y;
+          camera_fb_t* fb = esp_camera_fb_get();
+          if (!fb) {
+            Serial.println("Camera capture failed");
+          } else {
+            if (fb->format == PIXFORMAT_JPEG) {
+              webSocket.broadcastBIN(fb->buf, fb->len);
+            } else if (fb->format == PIXFORMAT_GRAYSCALE) {
+              int code_cnt = qr_identify(fb);
+              for (int i = 0; i < code_cnt; i++) {
+                uint16_t data[9];
+                data[0] = 1;
+                for (int j = 0; j < 4; j++) {
+                  data[2 * j + 1] = qr_codes[i].corners[j].x;
+                  data[2 * j + 2] = qr_codes[i].corners[j].y;
+                }
+                webSocket.broadcastBIN((uint8_t*)data, 18);
               }
-              webSocket.broadcastBIN((uint8_t*)data, 18);
-            }
 
-            uint8_t head[5];
-            head[0] = 0;
-            head[1] = fb->width >> 8;
-            head[2] = fb->width & 0xff;
-            head[3] = fb->height >> 8;
-            head[4] = fb->height & 0xff;
-            webSocket.broadcastBIN(head, 5);
-            webSocket.broadcastBIN(fb->buf, fb->len);
+              uint8_t head[5];
+              head[0] = 0;
+              head[1] = fb->width >> 8;
+              head[2] = fb->width & 0xff;
+              head[3] = fb->height >> 8;
+              head[4] = fb->height & 0xff;
+              webSocket.broadcastBIN(head, 5);
+              webSocket.broadcastBIN(fb->buf, fb->len);
+            }
+            esp_camera_fb_return(fb);
           }
-          esp_camera_fb_return(fb);
         }
       }
     } break;

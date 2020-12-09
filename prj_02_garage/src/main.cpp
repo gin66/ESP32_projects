@@ -298,7 +298,7 @@ void setup() {
   // ArduinoOTA.setPort(3232);
 
   // Hostname defaults to esp3232-[MAC]
-  ArduinoOTA.setHostname("esp32_02");
+  ArduinoOTA.setHostname(HOSTNAME);
 
   // No authentication by default
   // ArduinoOTA.setPassword("admin");
@@ -499,7 +499,7 @@ void setup() {
     Serial.println(rc);
   }
 
-  if (MDNS.begin("esp32_02")) {
+  if (MDNS.begin(HOSTNAME)) {
     Serial.println("MDNS responder started");
   }
   MDNS.addService("http", "tcp", 80);

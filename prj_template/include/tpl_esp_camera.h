@@ -8,4 +8,5 @@
 
 extern volatile bool camera_in_use;
 esp_err_t tpl_init_camera(uint8_t* fail_cnt, bool grayscale);
+void tpl_camera_off();
 #endif

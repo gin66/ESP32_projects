@@ -2,6 +2,7 @@
 #include "tpl_esp_camera.h"
 
 #include <Arduino.h>
+#include <driver/gpio.h>
 
 volatile bool camera_in_use = false;
 
@@ -69,4 +70,26 @@ esp_err_t tpl_init_camera(uint8_t* fail_cnt, bool grayscale) {
   }
   return err;
 }
+
+const int8_t gpios[] = {
+    Y2_GPIO_NUM,   Y3_GPIO_NUM,   Y4_GPIO_NUM,    Y5_GPIO_NUM,
+    Y6_GPIO_NUM,   Y7_GPIO_NUM,   Y8_GPIO_NUM,    Y9_GPIO_NUM,
+    XCLK_GPIO_NUM, PCLK_GPIO_NUM, VSYNC_GPIO_NUM, HREF_GPIO_NUM,
+    SIOD_GPIO_NUM, SIOC_GPIO_NUM, RESET_GPIO_NUM, 127};
+
+void tpl_camera_off() {
+  if (PWDN_GPIO_NUM >= 0) {
+    // power off the camera and try again
+    digitalWrite(PWDN_GPIO_NUM, HIGH);
+    pinMode(PWDN_GPIO_NUM, OUTPUT);
+    for (uint8_t i = 0; gpios[i] != 127; i++) {
+      gpio_num_t gpio = (gpio_num_t)gpios[i];
+      if (gpio >= 0) {
+        gpio_reset_pin(gpio);
+        pinMode(gpio, INPUT_PULLDOWN);
+      }
+    }
+  }
+}
+
 #endif

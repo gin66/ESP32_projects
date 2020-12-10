@@ -77,22 +77,28 @@ esp_err_t tpl_init_camera(uint8_t* fail_cnt, bool grayscale) {
   return err;
 }
 
-const int8_t gpios[] = {
-    Y2_GPIO_NUM,   Y3_GPIO_NUM,   Y4_GPIO_NUM,    Y5_GPIO_NUM,
-    Y6_GPIO_NUM,   Y7_GPIO_NUM,   Y8_GPIO_NUM,    Y9_GPIO_NUM,
-    XCLK_GPIO_NUM, PCLK_GPIO_NUM, VSYNC_GPIO_NUM, HREF_GPIO_NUM,
-    SIOD_GPIO_NUM, SIOC_GPIO_NUM, RESET_GPIO_NUM, 127};
+const struct {
+  int8_t pin;
+  uint8_t state;
+} gpios[] = {{Y2_GPIO_NUM, INPUT_PULLDOWN},    {Y3_GPIO_NUM, INPUT_PULLDOWN},
+             {Y4_GPIO_NUM, INPUT_PULLDOWN},    {Y5_GPIO_NUM, INPUT_PULLDOWN},
+             {Y6_GPIO_NUM, INPUT_PULLDOWN},    {Y7_GPIO_NUM, INPUT_PULLDOWN},
+             {Y8_GPIO_NUM, INPUT_PULLDOWN},    {Y9_GPIO_NUM, INPUT_PULLDOWN},
+             {XCLK_GPIO_NUM, INPUT_PULLDOWN},  {PCLK_GPIO_NUM, INPUT_PULLDOWN},
+             {VSYNC_GPIO_NUM, INPUT_PULLDOWN}, {HREF_GPIO_NUM, INPUT_PULLDOWN},
+             {SIOD_GPIO_NUM, INPUT_PULLUP},    {SIOC_GPIO_NUM, INPUT_PULLUP},
+             {RESET_GPIO_NUM, INPUT_PULLDOWN}, 127};
 
 void tpl_camera_off() {
   if (PWDN_GPIO_NUM >= 0) {
     // power off the camera and try again
     digitalWrite(PWDN_GPIO_NUM, HIGH);
     pinMode(PWDN_GPIO_NUM, OUTPUT);
-    for (uint8_t i = 0; gpios[i] != 127; i++) {
-      gpio_num_t gpio = (gpio_num_t)gpios[i];
+    for (uint8_t i = 0; gpios[i].pin != 127; i++) {
+      gpio_num_t gpio = (gpio_num_t)gpios[i].pin;
       if (gpio >= 0) {
         gpio_reset_pin(gpio);
-        pinMode(gpio, INPUT_PULLDOWN);
+        pinMode(gpio, gpios[i].state);
       }
     }
   }

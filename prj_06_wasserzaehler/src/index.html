@@ -324,9 +324,9 @@
         }
       }
       window.setInterval(repeating, 1000);
-      function send_watermeter() {
+      function send_flash_toggle() {
         if (ws != 0 && ws.readyState == 1) {
-          ws.send(JSON.stringify({ watermeter: true }));
+          ws.send(JSON.stringify({ flash: true }));
         }
       }
       function request_video() {
@@ -355,8 +355,8 @@
           <button class="button-primary">Wasserzaehler</button>
         </form>
         <form>
-          <button class="button-primary" type="button" onClick="send_watermeter();">
-            Wasserzaehler via ws
+          <button class="button-primary" type="button" onClick="send_flash_toggle();">
+            Flash Toggle
           </button>
         </form>
         <form>

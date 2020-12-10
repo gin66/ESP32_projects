@@ -58,6 +58,7 @@ UniversalTelegramBot bot(BOTtoken, secured_client);
 enum Command {
   IDLE,
   HEIZUNG,
+  FLASH,
   DEEPSLEEP,
 } command = IDLE;  // make a photo and go to sleep
 
@@ -100,8 +101,8 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
       Serial.println((char*)payload);
       DynamicJsonDocument json(4096);
       deserializeJson(json, (char*)payload);
-      if (json.containsKey("heizung")) {
-        command = HEIZUNG;
+      if (json.containsKey("flash")) {
+        command = FLASH;
       }
       if (json.containsKey("image")) {
         if (init_camera()) {
@@ -433,6 +434,10 @@ void loop() {
 
   switch (command) {
     case IDLE:
+      break;
+	case FLASH:
+	  digitalWrite(flashPin, !digitalRead(flashPin));
+      command = IDLE;
       break;
     case HEIZUNG:
       // bot.sendMessage(CHAT_ID, WiFi.SSID() + String(": ") +

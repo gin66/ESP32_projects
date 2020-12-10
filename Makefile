@@ -7,7 +7,8 @@ fmt: node_modules/prettier/package.json links
 
 links:
 	for i in prj_[0-9]*/include; do (cd $$i;echo $$i; ln -sf ../../prj_template/include/* .);done
-	for i in prj_[0-9]*/src; do (cd $$i;echo $$i; ln -sf ../../prj_template/src/* .);done
+	for i in prj_[0-9]*/src; do (cd $$i;echo $$i; cp ../../prj_template/src/*.html .);done
+	for i in prj_[0-9]*/src; do (cd $$i;echo $$i; ln -sf ../../prj_template/src/*.cpp .);done
 	for i in prj_[0-9]*/src; do (cd $$i;echo $$i; ln -sf ../../private_wifi_secrets.cpp wifi_secrets.cpp);done
 
 build: links

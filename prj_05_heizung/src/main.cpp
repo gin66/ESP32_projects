@@ -28,7 +28,6 @@
 #include "freertos/task.h"
 #include "img_converters.h"
 #include "template.h"
-#include "tpl_esp_camera.h"
 
 #define DEBUG_ESP
 
@@ -69,7 +68,7 @@ WebSocketsServer webSocket = WebSocketsServer(81);
 bool init_camera() {
   uint8_t fail_cnt;
   char buf[40];
-  esp_err_t err = tpl_init_camera(&fail_cnt, false);
+  esp_err_t err = tpl_init_camera(&fail_cnt);
   if (err == ESP_OK) {
     if (fail_cnt > 0) {
       sprintf(buf, "Camera init succeeded with %d fails", fail_cnt);

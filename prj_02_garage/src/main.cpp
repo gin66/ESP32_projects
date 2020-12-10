@@ -32,7 +32,7 @@
 #define DBG(...)
 #endif
 
-#define relayPin 12
+#define relayPin 4
 #define ledPin 33
 
 using namespace std;
@@ -72,7 +72,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
       }
       if (json.hasOwnProperty("image")) {
         uint8_t fail_cnt;
-        esp_err_t err = tpl_init_camera(&fail_cnt, false);
+        esp_err_t err = tpl_init_camera(&fail_cnt);
         if (err == ESP_OK) {
           ESP_LOGE(TAG, "Total heap: %u", ESP.getHeapSize());
           ESP_LOGE(TAG, "Free heap: %u", ESP.getFreeHeap());

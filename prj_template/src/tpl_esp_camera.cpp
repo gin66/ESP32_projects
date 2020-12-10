@@ -6,7 +6,7 @@
 
 volatile bool camera_in_use = false;
 
-esp_err_t tpl_init_camera(uint8_t* fail_cnt, bool grayscale) {
+esp_err_t tpl_init_camera(uint8_t* fail_cnt, pixformat_t format, framesize_t frame_size) {
   *fail_cnt = 0;
   esp_err_t err = ESP_OK;
   if (camera_in_use) {
@@ -47,14 +47,8 @@ esp_err_t tpl_init_camera(uint8_t* fail_cnt, bool grayscale) {
     camera_config.pin_pwdn = -1;  // PWDN_GPIO_NUM;
     camera_config.pin_reset = RESET_GPIO_NUM;
     camera_config.xclk_freq_hz = 10000000;
-    if (grayscale) {
-      // higher resolution leads to artefacts
-      camera_config.pixel_format = PIXFORMAT_GRAYSCALE;
-      camera_config.frame_size = FRAMESIZE_QVGA;
-    } else {
-      camera_config.pixel_format = PIXFORMAT_JPEG;
-      camera_config.frame_size = FRAMESIZE_VGA;
-    }
+    camera_config.pixel_format = format;
+    camera_config.frame_size = frame_size;
 
     // quality of JPEG output. 0-63 lower means higher quality
     camera_config.jpeg_quality = 5;

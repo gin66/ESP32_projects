@@ -107,7 +107,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
       }
       if (json.hasOwnProperty("image")) {
         uint8_t fail_cnt;
-        esp_err_t err = tpl_init_camera(&fail_cnt, true);
+        esp_err_t err = tpl_init_camera(&fail_cnt, PIXFORMAT_GRAYSCALE, FRAMESIZE_QVGA);
         if (err == ESP_OK) {
           camera_fb_t* fb = esp_camera_fb_get();
           if (!fb) {

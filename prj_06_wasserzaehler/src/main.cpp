@@ -66,7 +66,7 @@ WebSocketsServer webSocket = WebSocketsServer(81);
 bool init_camera() {
   uint8_t fail_cnt;
   char buf[40];
-  esp_err_t err = tpl_init_camera(&fail_cnt, PIXFORMAT_RGB565, FRAMESIZE_QQVGA);
+  esp_err_t err = tpl_init_camera(&fail_cnt, PIXFORMAT_RGB565, FRAMESIZE_QVGA);
   if (err == ESP_OK) {
     if (fail_cnt > 0) {
       sprintf(buf, "Camera init succeeded with %d fails", fail_cnt);

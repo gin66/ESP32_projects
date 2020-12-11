@@ -52,7 +52,7 @@ extern const uint8_t server_index_html_start[] asm(
 WiFiClientSecure secured_client;
 UniversalTelegramBot bot(BOTtoken, secured_client);
 
-uint16_t digitized_image[320 * 240 / 16];  // QVGA=320*240
+uint8_t digitized_image[320 * 240 / 8];  // QVGA=320*240
 
 enum Command {
   IDLE,
@@ -122,23 +122,32 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
               head[3] = fb->height >> 8;
               head[4] = fb->height & 0xff;
               webSocket.broadcastBIN(head, 5);
-              uint16_t* pixel = (uint16_t*)fb->buf;
-              uint16_t* out = digitized_image;
-              for (uint32_t i = fb->len / 2; i > 0; i -= 16) {
-                uint16_t mask = 0;
-                for (uint8_t j = 0; j < 16; j++) {
-                  uint16_t rgb = *pixel++;
-                  uint8_t r = (rgb >> 10) & 0x3e;
-                  uint8_t g = (rgb >> 5) & 0x3f;
-                  uint8_t b = (rgb << 1) & 0x3e;
+              uint8_t* pixel = fb->buf;
+              uint8_t* out = digitized_image;
+              for (uint32_t i = fb->len; i > 0; i -= 16) {
+                uint8_t mask = 0;
+                for (uint8_t j = 0; j < 8; j++) {
+                  uint8_t rgb1 = *pixel++;
+                  uint8_t rgb2 = *pixel++;
+				  // rrrrrggg.gggbbbbb
+                  uint8_t r = (rgb1 >> 2) & 0x3e;
+                  uint8_t g = (((rgb1 << 3) & 0x38) | ((rgb2 >> 5) & 0x07));
+                  uint8_t b = (rgb2 << 1) & 0x3e;
                   mask <<= 1;
-                  if (r > (g + b)*2) {
+				  uint16_t rx = r << 2;
+				  rx *= r;
+				  uint16_t gx = (g << 1) + g;
+				  gx *= g;
+				  uint16_t bx = (b << 1) + b;
+				  bx *= b;
+   
+                  if ((rx > gx + bx) && (r > g) && (r > b)) {
                     mask |= 1;
                   }
                 }
                 *out++ = mask;
               }
-              webSocket.broadcastBIN((uint8_t*)digitized_image,
+              webSocket.broadcastBIN(digitized_image,
                                      fb->len / 2 / 8);
             } else if (fb->format == PIXFORMAT_RGB565) {
               uint8_t head[5];
@@ -285,6 +294,18 @@ void setup() {
   server.on("/serverIndex", HTTP_GET, []() {
     server.sendHeader("Connection", "close");
     server.send_P(200, "text/html", (const char*)server_index_html_start);
+  });
+  server.on("/image", HTTP_GET, []() {
+        server.sendHeader("Connection", "close");
+        if (init_camera()) {
+          camera_fb_t* fb = esp_camera_fb_get();
+          if (fb) {
+            if (fb->format == PIXFORMAT_RGB565) {
+              server.send_P(200, "application/octet-stream", (const char*)fb->buf, fb->len);
+			}
+            esp_camera_fb_return(fb);
+		  }
+		  }
   });
   /*handling uploading firmware file */
   server.on(

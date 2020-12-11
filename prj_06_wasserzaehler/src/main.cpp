@@ -1,11 +1,8 @@
+#include <Arduino.h>
+#include <ArduinoOTA.h>
 #include <esp_camera.h>
 
 #include "string.h"
-//#include "soc/soc.h"
-//#include "soc/rtc_cntl_reg.h"
-
-#include <Arduino.h>
-#include <ArduinoOTA.h>
 //#include <ArduinoJson.h>  // already included in UniversalTelegramBot.h
 #include <ESP32Ping.h>
 #include <ESPmDNS.h>
@@ -55,9 +52,10 @@ extern const uint8_t server_index_html_start[] asm(
 WiFiClientSecure secured_client;
 UniversalTelegramBot bot(BOTtoken, secured_client);
 
+uint16_t digitized_image[320 * 240 / 16];  // QVGA=320*240
+
 enum Command {
   IDLE,
-  HEIZUNG,
   FLASH,
   DEEPSLEEP,
 } command = IDLE;  // make a photo and go to sleep
@@ -112,11 +110,36 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
             delay(1000);
             ESP.restart();
           } else {
-			  status = true;
+            status = true;
             if (fb->format == PIXFORMAT_JPEG) {
               webSocket.broadcastBIN(fb->buf, fb->len);
-            }
-			else if (fb->format == PIXFORMAT_RGB565) {
+            } else if (fb->format == PIXFORMAT_RGB565) {
+              uint8_t head[5];
+              head[0] = 3;
+              head[1] = fb->width >> 8;
+              head[2] = fb->width & 0xff;
+              head[3] = fb->height >> 8;
+              head[4] = fb->height & 0xff;
+              webSocket.broadcastBIN(head, 5);
+              uint16_t* pixel = (uint16_t*)fb->buf;
+              uint16_t* out = digitized_image;
+              for (uint32_t i = fb->len / 2; i > 0; i -= 16) {
+                uint16_t mask = 0;
+                for (uint8_t j = 0; j < 16; j++) {
+                  uint16_t rgb = *pixel++;
+                  uint8_t r = (rgb >> 10) & 0x3e;
+                  uint8_t g = (rgb >> 5) & 0x3f;
+                  uint8_t b = (rgb << 1) & 0x3e;
+                  mask <<= 1;
+                  if (r > g + b) {
+                    mask |= 1;
+                  }
+                }
+                *out++ = mask;
+              }
+              webSocket.broadcastBIN((uint8_t*)digitized_image,
+                                     fb->len / 2 / 8);
+            } else if (fb->format == PIXFORMAT_RGB565) {
               uint8_t head[5];
               head[0] = 2;
               head[1] = fb->width >> 8;
@@ -125,7 +148,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
               head[4] = fb->height & 0xff;
               webSocket.broadcastBIN(head, 5);
               webSocket.broadcastBIN(fb->buf, fb->len);
-			}
+            }
             esp_camera_fb_return(fb);
           }
         }
@@ -294,41 +317,6 @@ void setup() {
           }
         }
       });
-  server.on("/image", HTTP_GET, []() {
-    bool send_error = true;
-    sensor_t* sensor = esp_camera_sensor_get();
-    sensor->set_pixformat(sensor, PIXFORMAT_JPEG);
-    sensor->set_framesize(sensor, FRAMESIZE_UXGA);
-    camera_fb_t* fb = esp_camera_fb_get();
-    if (!fb) {
-      Serial.println("Camera capture failed");
-    } else {
-      if (fb->width > 100) {
-        if (fb->format != PIXFORMAT_JPEG) {
-          //          bool jpeg_converted = frame2jpg(fb, 80, &_jpg_buf,
-          //          &_jpg_buf_len); fb = NULL; if(!jpeg_converted){
-          //            Serial.println("JPEG compression failed");
-          //          }
-        } else {
-          server.sendHeader("Connection", "close");
-          server.send_P(200, "Content-Type: image/jpeg", (const char*)fb->buf,
-                        fb->len);
-          send_error = false;
-        }
-      }
-      esp_camera_fb_return(fb);
-    }
-    if (send_error) {
-      server.send(404);
-      Serial.print("IMAGE ERROR: ");
-      Serial.println(server.uri());
-    }
-  });
-  server.on("/heizung", HTTP_GET, []() {
-    command = HEIZUNG;
-    server.sendHeader("Connection", "close");
-    server.send_P(200, "text/html", (const char*)index_html_start);
-  });
   server.begin();
 
   if (psramFound()) {
@@ -435,38 +423,9 @@ void loop() {
   switch (command) {
     case IDLE:
       break;
-	case FLASH:
-	  digitalWrite(flashPin, !digitalRead(flashPin));
+    case FLASH:
+      digitalWrite(flashPin, !digitalRead(flashPin));
       command = IDLE;
-      break;
-    case HEIZUNG:
-      // bot.sendMessage(CHAT_ID, WiFi.SSID() + String(": ") +
-      // WiFi.localIP().toString());
-      status = bot.sendMessage(CHAT_ID, "Camera capture");
-      if (init_camera()) {
-        digitalWrite(flashPin, HIGH);
-        for (uint8_t i = 0; i < 10; i++) {
-          // let the camera adjust
-          photo_fb = esp_camera_fb_get();
-          esp_camera_fb_return(photo_fb);
-          photo_fb = NULL;
-        }
-        photo_fb = esp_camera_fb_get();
-        digitalWrite(flashPin, LOW);
-        if (!photo_fb) {
-          status = bot.sendMessage(CHAT_ID, "Camera capture failed");
-        } else {
-          dataBytesSent = 0;
-          status = bot.sendPhotoByBinary(CHAT_ID, "image/jpeg", photo_fb->len,
-                                         isMoreDataAvailable, nullptr,
-                                         getNextBuffer, getNextBufferLen);
-          esp_camera_fb_return(photo_fb);
-          photo_fb = NULL;
-          bot.sendMessage(
-              CHAT_ID, WiFi.SSID() + String(": ") + WiFi.localIP().toString());
-        }
-      }
-      command = DEEPSLEEP;
       break;
     case DEEPSLEEP:
       if (deepsleep) {

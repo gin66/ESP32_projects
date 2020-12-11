@@ -85,7 +85,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
           } else {
             if (fb->format == PIXFORMAT_JPEG) {
               webSocket.broadcastBIN(fb->buf, fb->len);
-            } 
+            }
             esp_camera_fb_return(fb);
           }
         }

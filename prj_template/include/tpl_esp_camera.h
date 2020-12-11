@@ -7,6 +7,8 @@
 #include "tpl_app_camera.h"
 
 extern volatile bool camera_in_use;
-esp_err_t tpl_init_camera(uint8_t* fail_cnt, pixformat_t format = PIXFORMAT_JPEG, framesize_t frame_size = FRAMESIZE_VGA);
+esp_err_t tpl_init_camera(uint8_t* fail_cnt,
+                          pixformat_t format = PIXFORMAT_JPEG,
+                          framesize_t frame_size = FRAMESIZE_VGA);
 void tpl_camera_off();
 #endif

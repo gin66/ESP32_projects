@@ -6,7 +6,8 @@
 
 volatile bool camera_in_use = false;
 
-esp_err_t tpl_init_camera(uint8_t* fail_cnt, pixformat_t format, framesize_t frame_size) {
+esp_err_t tpl_init_camera(uint8_t* fail_cnt, pixformat_t format,
+                          framesize_t frame_size) {
   *fail_cnt = 0;
   esp_err_t err = ESP_OK;
   if (camera_in_use) {

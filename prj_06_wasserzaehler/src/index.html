@@ -151,7 +151,7 @@
 
             ws.onmessage = function (evt) {
               document.getElementById("state").innerHTML = "receiving";
-			  var exp_format = expect_format;  // 0..grayscale, 2..RGB565
+              var exp_format = expect_format; // 0..grayscale, 2..RGB565
               var exp_width = expect_width;
               var exp_height = expect_height;
               expect_width = 0;
@@ -177,12 +177,12 @@
                   request_video();
                 } else if (dv.getUint8(0) == 0 && dv.byteLength == 5) {
                   // expect next grayscale image
-				  expect_format = 0;
+                  expect_format = 0;
                   expect_width = dv.getUint16(1);
                   expect_height = dv.getUint16(3);
                 } else if (dv.getUint8(0) == 2 && dv.byteLength == 5) {
                   // expect next RGB565 image
-				  expect_format = 2;
+                  expect_format = 2;
                   expect_width = dv.getUint16(1);
                   expect_height = dv.getUint16(3);
                   console.log(
@@ -209,7 +209,47 @@
                   qr[3][0] = dv.getInt16(13, false);
                   qr[3][1] = dv.getInt16(15, false);
                   qr_codes[qr_codes.length] = qr;
-                } else if ((expect_format == 2) && (2 * exp_width * exp_height == dv.byteLength)) {
+                } else if (
+                  expect_format == 3 &&
+                  (exp_width * exp_height) / 8 == dv.byteLength
+                ) {
+                  // image with width/height of 1 bit pixels
+                  request_video(); // request early
+                  var canvas = document.getElementById("image");
+                  var width = exp_width;
+                  var height = exp_height;
+                  console.log(
+                    "We have width: " +
+                      width +
+                      "px, height: " +
+                      height +
+                      "px, length: " +
+                      dv.byteLength
+                  );
+                  canvas.width = width;
+                  canvas.height = height;
+                  context = canvas.getContext("2d");
+                  image = context.getImageData(0, 0, width, height);
+                  var px = 0;
+                  for (i = 0; i < dv.byteLength; i++) {
+                    var mask = dv.getUint8(i);
+                    for (j = 0; j < 8; j++) {
+                      var g = 0;
+                      if ((mask & 128) != 0) {
+                        g = 255;
+                      }
+					  mask <<= 1;
+                      image.data[px++] = g;
+                      image.data[px++] = g;
+                      image.data[px++] = g;
+                      image.data[px++] = 255;
+                    }
+                  }
+                  put_image_update = true;
+                } else if (
+                  expect_format == 2 &&
+                  2 * exp_width * exp_height == dv.byteLength
+                ) {
                   // RGB565 image with width/height/pixel data
                   request_video(); // request early
                   var canvas = document.getElementById("image");
@@ -228,18 +268,21 @@
                   context = canvas.getContext("2d");
                   image = context.getImageData(0, 0, width, height);
                   var px = 0;
-                  for (i = 0; i < dv.byteLength; i+=2) {
+                  for (i = 0; i < dv.byteLength; i += 2) {
                     var pixel = dv.getUint16(i);
-					var r = (pixel & 0xf800) >> 8;
-					var g = (pixel & 0x07e0) >> 3;
+                    var r = (pixel & 0xf800) >> 8;
+                    var g = (pixel & 0x07e0) >> 3;
                     var b = (pixel & 0x001f) << 3;
-					image.data[px++] = r;
-					image.data[px++] = g;
+                    image.data[px++] = r;
+                    image.data[px++] = g;
                     image.data[px++] = b;
                     image.data[px++] = 255;
                   }
                   put_image_update = true;
-                } else if ((expect_format == 0) && (exp_width * exp_height == dv.byteLength)) {
+                } else if (
+                  expect_format == 0 &&
+                  exp_width * exp_height == dv.byteLength
+                ) {
                   // gray scale image with width/height/pixel data
                   request_video(); // request early
                   var canvas = document.getElementById("image");
@@ -285,7 +328,7 @@
                         }
                       }
                     }
-					put_image_update = true;
+                    put_image_update = true;
                   }
                   qr_codes = new Array();
                 } else {
@@ -355,7 +398,11 @@
           <button class="button-primary">Wasserzaehler</button>
         </form>
         <form>
-          <button class="button-primary" type="button" onClick="send_flash_toggle();">
+          <button
+            class="button-primary"
+            type="button"
+            onClick="send_flash_toggle();"
+          >
             Flash Toggle
           </button>
         </form>

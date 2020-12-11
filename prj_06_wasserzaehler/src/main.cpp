@@ -111,9 +111,10 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
             ESP.restart();
           } else {
             status = true;
+			bool raw = json["image"];
             if (fb->format == PIXFORMAT_JPEG) {
               webSocket.broadcastBIN(fb->buf, fb->len);
-            } else if (fb->format == PIXFORMAT_RGB565) {
+            } else if ((fb->format == PIXFORMAT_RGB565) && !raw) {
               uint8_t head[5];
               head[0] = 3;
               head[1] = fb->width >> 8;
@@ -131,7 +132,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
                   uint8_t g = (rgb >> 5) & 0x3f;
                   uint8_t b = (rgb << 1) & 0x3e;
                   mask <<= 1;
-                  if (r > g + b) {
+                  if (r > (g + b)*2) {
                     mask |= 1;
                   }
                 }

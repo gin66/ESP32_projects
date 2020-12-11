@@ -192,6 +192,18 @@
                       expect_height +
                       "px"
                   );
+                } else if (dv.getUint8(0) == 3 && dv.byteLength == 5) {
+                  // expect next digitized image
+                  expect_format = 3;
+                  expect_width = dv.getUint16(1);
+                  expect_height = dv.getUint16(3);
+                  console.log(
+                    "We have width: " +
+                      expect_width +
+                      "px, height: " +
+                      expect_height +
+                      "px"
+                  );
                 } else if (dv.getUint8(0) == 1 && dv.byteLength == 18) {
                   // expect qr_code info
                   qr = [
@@ -375,7 +387,12 @@
       function request_video() {
         if (ws != 0 && ws.readyState == 1) {
           if (document.getElementById("video_on").checked) {
-            ws.send(JSON.stringify({ image: true }));
+            if (document.getElementById("video_raw").checked) {
+				ws.send(JSON.stringify({ image: true }));
+			}
+			  else {
+				ws.send(JSON.stringify({ image: false }));
+			  }
           }
         }
       }
@@ -412,9 +429,18 @@
             type="checkbox"
             id="video_on"
             onClick="request_video();"
-          />Video on
-          <input class="button-primary" type="checkbox" id="show_raw" />Show raw
+          >Video on
+		  </input>
+          <input
+            class="button-primary"
+            type="checkbox"
+            id="video_raw"
+            onClick="request_video();"
+          >Raw Video
+		  </input>
+          <input class="button-primary" type="checkbox" id="show_raw" >Show raw
           messages
+		  </input>
         </form>
         <form action="/serverIndex">
           <button>SW Update</button>

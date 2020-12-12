@@ -1,7 +1,10 @@
 use std::fs::File;
-use std::io::prelude::*;
+use std::io::BufReader;
 use std::io::BufWriter;
 use std::path::Path;
+
+const HEIGHT: usize = 296;
+const WIDTH: usize = 400;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -14,24 +17,8 @@ extern "C" {
     fn find_pointer(digitized: *const u8, filtered: *mut u8, temp: *mut u8, r: *mut Reader);
 }
 
-fn rgb565_to_rgb888(image: &Vec<u8>) -> Vec<u8> {
-    let mut out = vec![0u8; 3 * 320 * 240];
-    let mut p = image.iter();
-    let mut o = out.iter_mut();
-    while let Some(rgb1) = p.next() {
-        let rgb2 = p.next().unwrap();
-        let r = (rgb1 >> 2) & 0x3e;
-        let g = ((rgb1 << 3) & 0x38) | ((rgb2 >> 5) & 0x07);
-        let b = (rgb2 << 1) & 0x3e;
-        *(o.next().unwrap()) = r << 2;
-        *(o.next().unwrap()) = g << 2;
-        *(o.next().unwrap()) = b << 2;
-    }
-    out
-}
-
 fn bits_to_rgb888(image: &Vec<u8>) -> Vec<u8> {
-    let mut out = vec![0u8; 3 * 320 * 240];
+    let mut out = vec![0u8; 3 * WIDTH * HEIGHT];
     let mut p = image.iter();
     let mut o = out.iter_mut();
     while let Some(mask) = p.next() {
@@ -53,17 +40,21 @@ fn bits_to_rgb888(image: &Vec<u8>) -> Vec<u8> {
 }
 
 fn main() -> std::io::Result<()> {
-    let mut image: Vec<u8> = vec![];
-    let mut digitized = vec![0u8; 320 * 240 / 8];
-    let mut temp = vec![0u8; 320 * 240 / 8];
-    let mut filtered = vec![0u8; 320 * 240 / 8];
+    let mut digitized = vec![0u8; WIDTH * HEIGHT / 8];
+    let mut temp = vec![0u8; WIDTH * HEIGHT / 8];
+    let mut filtered = vec![0u8; WIDTH * HEIGHT / 8];
     let mut r: Reader = Reader { is_ok: 0 };
 
-    let mut f = File::open("../test/image")?;
-    f.read_to_end(&mut image)?;
+    let f = File::open("../test/image.jpeg")?;
+    let mut decoder = jpeg_decoder::Decoder::new(BufReader::new(f));
+    let pixels = decoder.decode().expect("failed to decode image");
+
+    if pixels.len() != HEIGHT*WIDTH*3 {
+        panic!("Invalid length: {}", pixels.len());
+    }
 
     unsafe {
-        digitize(image.as_ptr(), digitized.as_mut_ptr(), &mut r);
+        digitize(pixels.as_ptr(), digitized.as_mut_ptr(), &mut r);
         find_pointer(digitized.as_ptr(), filtered.as_mut_ptr(), temp.as_mut_ptr(), &mut r);
     }
     println!("{:?}", r);
@@ -71,17 +62,16 @@ fn main() -> std::io::Result<()> {
     let path = Path::new("image.png");
     let file = File::create(path).unwrap();
     let ref mut w = BufWriter::new(file);
-    let mut encoder = png::Encoder::new(w, 320, 240);
+    let mut encoder = png::Encoder::new(w, WIDTH as u32, HEIGHT as u32);
     encoder.set_color(png::ColorType::RGB);
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header()?;
-    let data = rgb565_to_rgb888(&image);
-    writer.write_image_data(&data)?; // Save
+    writer.write_image_data(&pixels)?; // Save
 
     let path = Path::new("image_digitized.png");
     let file = File::create(path).unwrap();
     let ref mut w = BufWriter::new(file);
-    let mut encoder = png::Encoder::new(w, 320, 240);
+    let mut encoder = png::Encoder::new(w, WIDTH as u32, HEIGHT as u32);
     encoder.set_color(png::ColorType::RGB);
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header()?;
@@ -91,7 +81,7 @@ fn main() -> std::io::Result<()> {
     let path = Path::new("image_filtered.png");
     let file = File::create(path).unwrap();
     let ref mut w = BufWriter::new(file);
-    let mut encoder = png::Encoder::new(w, 320, 240);
+    let mut encoder = png::Encoder::new(w, WIDTH as u32, HEIGHT as u32);
     encoder.set_color(png::ColorType::RGB);
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header()?;

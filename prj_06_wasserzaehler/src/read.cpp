@@ -2,15 +2,15 @@
 
 #include "read.h"
 
-void digitize(const uint8_t *rgb_888, uint8_t *digitized, struct read_s *read) {
+void digitize(const uint8_t *bgr_888, uint8_t *digitized, struct read_s *read) {
   uint8_t *out = digitized;
   for (uint32_t i = WIDTH * HEIGHT; i > 0; i -= 8) {
     uint8_t mask = 0;
     for (uint8_t j = 0; j < 8; j++) {
       mask <<= 1;
-      uint8_t r = *rgb_888++;
-      uint8_t g = *rgb_888++;
-      uint8_t b = *rgb_888++;
+      uint8_t b = *bgr_888++;
+      uint8_t g = *bgr_888++;
+      uint8_t r = *bgr_888++;
       uint16_t rx = r;
       rx *= r;
       uint16_t gx = g;

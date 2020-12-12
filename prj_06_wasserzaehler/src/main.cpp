@@ -427,7 +427,7 @@ void setup() {
 
   BaseType_t rc;
 
-  rc = xTaskCreatePinnedToCore(TaskWebSocket, "WebSocket", 8192, (void*)1, 1,
+  rc = xTaskCreatePinnedToCore(TaskWebSocket, "WebSocket", 16384, (void*)1, 1,
                                NULL, 0);
   if (rc != pdPASS) {
     Serial.print("cannot start websocket task=");

@@ -53,6 +53,16 @@ fn main() -> std::io::Result<()> {
         panic!("Invalid length: {}", pixels.len());
     }
 
+    // convert from rgb to bgr
+    let mut i = 0;
+    while i < pixels.len() {
+        let r = pixels[i];
+        let b = pixels[i+2];
+        pixels[i]= b;
+        pixels[i+2] = r;
+        i += 3;
+    }
+
     unsafe {
         digitize(pixels.as_ptr(), digitized.as_mut_ptr(), &mut r);
         find_pointer(digitized.as_ptr(), filtered.as_mut_ptr(), temp.as_mut_ptr(), &mut r);

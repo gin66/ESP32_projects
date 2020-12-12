@@ -194,6 +194,8 @@
                   expect_format = 3;
                   expect_width = dv.getUint16(1);
                   expect_height = dv.getUint16(3);
+		expect_height = 296;
+		expect_width = 400;
                   console.log(
                     "We have width: " +
                       expect_width +
@@ -201,8 +203,6 @@
                       expect_height +
                       "px"
                   );
-					expect_height = 296;
-					expect_width = 400;
                 } else if (dv.getUint8(0) == 1 && dv.byteLength == 18) {
                   // expect qr_code info
                   qr = [

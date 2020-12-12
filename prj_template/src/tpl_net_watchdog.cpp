@@ -12,7 +12,7 @@ void TaskWatchdog(void* pvParameters) {
     if (!success) {
       fail++;
       Serial.println("Ping failed");
-      if (fail >= 100) {
+      if (fail >= 5*60) { // 5 minutes
         ESP.restart();
       }
     } else {

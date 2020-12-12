@@ -24,8 +24,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "img_converters.h"
-#include "template.h"
 #include "read.h"
+#include "template.h"
 
 #define DEBUG_ESP
 
@@ -53,9 +53,10 @@ extern const uint8_t server_index_html_start[] asm(
 WiFiClientSecure secured_client;
 UniversalTelegramBot bot(BOTtoken, secured_client);
 
-uint8_t digitized_image[WIDTH * HEIGHT / 8];  // QVGA=320*240
-uint8_t filtered_image[WIDTH * HEIGHT / 8];  // QVGA=320*240
-uint8_t temp_image[WIDTH * HEIGHT / 8];  // QVGA=320*240
+uint8_t* raw_image = NULL;
+uint8_t digitized_image[WIDTH * HEIGHT / 8];
+uint8_t filtered_image[WIDTH * HEIGHT / 8];
+uint8_t temp_image[WIDTH * HEIGHT / 8];
 
 enum Command {
   IDLE,
@@ -78,14 +79,14 @@ bool init_camera() {
     ESP_LOGE(TAG, "Free heap: %u", ESP.getFreeHeap());
     ESP_LOGE(TAG, "Total PSRAM: %u", ESP.getPsramSize());
     ESP_LOGE(TAG, "Free PSRAM: %u", ESP.getFreePsram());
-		sensor_t* sensor = esp_camera_sensor_get();
-		sensor->set_brightness(sensor, -2);
-		sensor->set_contrast(sensor, -2);
-		sensor->set_saturation(sensor, 2);
-		sensor->set_raw_gma(sensor, 1);
-		sensor->set_dcw(sensor, 0);
-		sensor->set_hflip(sensor, 0);
-		sensor->set_vmirror(sensor, 0);
+    sensor_t* sensor = esp_camera_sensor_get();
+    sensor->set_brightness(sensor, -2);
+    sensor->set_contrast(sensor, -2);
+    sensor->set_saturation(sensor, 2);
+    sensor->set_raw_gma(sensor, 1);
+    sensor->set_dcw(sensor, 0);
+    sensor->set_hmirror(sensor, 0);
+    sensor->set_vflip(sensor, 0);
     return true;
   }
   // cannot init camera
@@ -114,85 +115,85 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
         command = FLASH;
       }
       if (json.containsKey("brightness")) {
-		  int8_t brightness = json["brightness"];
-		sensor_t* sensor = esp_camera_sensor_get();
-		sensor->set_brightness(sensor, brightness);
-	  }
+        int8_t brightness = json["brightness"];
+        sensor_t* sensor = esp_camera_sensor_get();
+        sensor->set_brightness(sensor, brightness);
+      }
       if (json.containsKey("contrast")) {
-		  int8_t contrast = json["contrast"];
-		sensor_t* sensor = esp_camera_sensor_get();
-		sensor->set_contrast(sensor, contrast);
-	  }
+        int8_t contrast = json["contrast"];
+        sensor_t* sensor = esp_camera_sensor_get();
+        sensor->set_contrast(sensor, contrast);
+      }
       if (json.containsKey("saturation")) {
-		  int8_t saturation = json["saturation"];
-		sensor_t* sensor = esp_camera_sensor_get();
-		sensor->set_saturation(sensor, saturation);
-	  }
+        int8_t saturation = json["saturation"];
+        sensor_t* sensor = esp_camera_sensor_get();
+        sensor->set_saturation(sensor, saturation);
+      }
       if (json.containsKey("ae_level")) {
-		  int8_t ae_level = json["ae_level"];
-		sensor_t* sensor = esp_camera_sensor_get();
-		sensor->set_ae_level(sensor, ae_level);
-	  }
+        int8_t ae_level = json["ae_level"];
+        sensor_t* sensor = esp_camera_sensor_get();
+        sensor->set_ae_level(sensor, ae_level);
+      }
       if (json.containsKey("set_aec_value")) {
-		  int8_t set_aec_value = json["set_aec_value"];
-		sensor_t* sensor = esp_camera_sensor_get();
-		sensor->set_aec_value(sensor, set_aec_value);
-	  }
+        int8_t set_aec_value = json["set_aec_value"];
+        sensor_t* sensor = esp_camera_sensor_get();
+        sensor->set_aec_value(sensor, set_aec_value);
+      }
       if (json.containsKey("gain_ctrl")) {
-		  int8_t gain_ctrl = json["gain_ctrl"];
-		sensor_t* sensor = esp_camera_sensor_get();
-		sensor->set_gain_ctrl(sensor, gain_ctrl);
-	  }
+        int8_t gain_ctrl = json["gain_ctrl"];
+        sensor_t* sensor = esp_camera_sensor_get();
+        sensor->set_gain_ctrl(sensor, gain_ctrl);
+      }
       if (json.containsKey("gainceiling")) {
-		  int8_t gainceiling = json["gainceiling"];
-		sensor_t* sensor = esp_camera_sensor_get();
-		sensor->set_gainceiling(sensor, (gainceiling_t)gainceiling);
-	  }
+        int8_t gainceiling = json["gainceiling"];
+        sensor_t* sensor = esp_camera_sensor_get();
+        sensor->set_gainceiling(sensor, (gainceiling_t)gainceiling);
+      }
       if (json.containsKey("bpc")) {
-		  bool v = json["bpc"];
-		sensor_t* sensor = esp_camera_sensor_get();
-		sensor->set_bpc(sensor, v ? 1:0);
-	  }
+        bool v = json["bpc"];
+        sensor_t* sensor = esp_camera_sensor_get();
+        sensor->set_bpc(sensor, v ? 1 : 0);
+      }
       if (json.containsKey("whitebal")) {
-		  bool v = json["whitebal"];
-		sensor_t* sensor = esp_camera_sensor_get();
-		sensor->set_whitebal(sensor, v ? 1:0);
-	  }
+        bool v = json["whitebal"];
+        sensor_t* sensor = esp_camera_sensor_get();
+        sensor->set_whitebal(sensor, v ? 1 : 0);
+      }
       if (json.containsKey("exposure_ctrl")) {
-		  bool v = json["exposure_ctrl"];
-		sensor_t* sensor = esp_camera_sensor_get();
-		sensor->set_exposure_ctrl(sensor, v ? 1:0);
-	  }
+        bool v = json["exposure_ctrl"];
+        sensor_t* sensor = esp_camera_sensor_get();
+        sensor->set_exposure_ctrl(sensor, v ? 1 : 0);
+      }
       if (json.containsKey("awb_gain")) {
-		  bool v = json["awb_gain"];
-		sensor_t* sensor = esp_camera_sensor_get();
-		sensor->set_awb_gain(sensor, v ? 1:0);
-	  }
+        bool v = json["awb_gain"];
+        sensor_t* sensor = esp_camera_sensor_get();
+        sensor->set_awb_gain(sensor, v ? 1 : 0);
+      }
       if (json.containsKey("wpc")) {
-		  bool v = json["wpc"];
-		sensor_t* sensor = esp_camera_sensor_get();
-		sensor->set_wpc(sensor, v ? 1:0);
-	  }
+        bool v = json["wpc"];
+        sensor_t* sensor = esp_camera_sensor_get();
+        sensor->set_wpc(sensor, v ? 1 : 0);
+      }
       if (json.containsKey("dcw")) {
-		  bool v = json["dcw"];
-		sensor_t* sensor = esp_camera_sensor_get();
-		sensor->set_dcw(sensor, v ? 1:0);
-	  }
+        bool v = json["dcw"];
+        sensor_t* sensor = esp_camera_sensor_get();
+        sensor->set_dcw(sensor, v ? 1 : 0);
+      }
       if (json.containsKey("raw_gma")) {
-		  bool v = json["raw_gma"];
-		sensor_t* sensor = esp_camera_sensor_get();
-		sensor->set_raw_gma(sensor, v ? 1:0);
-	  }
+        bool v = json["raw_gma"];
+        sensor_t* sensor = esp_camera_sensor_get();
+        sensor->set_raw_gma(sensor, v ? 1 : 0);
+      }
       if (json.containsKey("vflip")) {
-		  bool v = json["vflip"];
-		sensor_t* sensor = esp_camera_sensor_get();
-		sensor->set_vflip(sensor, v ? 1:0);
-	  }
+        bool v = json["vflip"];
+        sensor_t* sensor = esp_camera_sensor_get();
+        sensor->set_vflip(sensor, v ? 1 : 0);
+      }
       if (json.containsKey("hmirror")) {
-		  bool v = json["hmirror"];
-		sensor_t* sensor = esp_camera_sensor_get();
-		sensor->set_hmirror(sensor, v ? 1:0);
-	  }
+        bool v = json["hmirror"];
+        sensor_t* sensor = esp_camera_sensor_get();
+        sensor->set_hmirror(sensor, v ? 1 : 0);
+      }
       if (json.containsKey("image")) {
         if (init_camera()) {
           camera_fb_t* fb = esp_camera_fb_get();
@@ -203,32 +204,31 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
           } else {
             status = true;
             bool raw = json["image"];
-            if (fb->format == PIXFORMAT_JPEG) {
+            if ((fb->format == PIXFORMAT_JPEG) && raw) {
               webSocket.broadcastBIN(fb->buf, fb->len);
-            } else if ((fb->format == PIXFORMAT_RGB565) && !raw) {
+				esp_camera_fb_return(fb);
+            } else if ((fb->format == PIXFORMAT_JPEG) && !raw) {
+              struct read_s reader;
+              if (raw_image == NULL) {
+                raw_image = (uint8_t*)ps_malloc(WIDTH * HEIGHT * 3);
+              }
+              fmt2rgb888(fb->buf, fb->len, fb->format, raw_image);
               uint8_t head[5];
               head[0] = 3;
               head[1] = fb->width >> 8;
               head[2] = fb->width & 0xff;
               head[3] = fb->height >> 8;
               head[4] = fb->height & 0xff;
+				esp_camera_fb_return(fb);
+              digitize(raw_image, digitized_image, &reader);
+              find_pointer(digitized_image, filtered_image, temp_image,
+                           &reader);
               webSocket.broadcastBIN(head, 5);
-			  struct read_s reader;
-			  digitize(fb->buf, digitized_image, &reader);
-			  find_pointer(digitized_image, filtered_image, temp_image, &reader);
-              //webSocket.broadcastBIN(digitized_image, fb->len / 2 / 8);
-              webSocket.broadcastBIN(filtered_image, fb->len / 2 / 8);
-            } else if (fb->format == PIXFORMAT_RGB565) {
-              uint8_t head[5];
-              head[0] = 2;
-              head[1] = fb->width >> 8;
-              head[2] = fb->width & 0xff;
-              head[3] = fb->height >> 8;
-              head[4] = fb->height & 0xff;
-              webSocket.broadcastBIN(head, 5);
-              webSocket.broadcastBIN(fb->buf, fb->len);
+              webSocket.broadcastBIN(filtered_image, WIDTH*HEIGHT/8);
             }
-            esp_camera_fb_return(fb);
+			else {
+				esp_camera_fb_return(fb);
+			}
           }
         }
       }
@@ -267,15 +267,18 @@ void TaskWebSocket(void* pvParameters) {
       DynamicJsonDocument myObject(4096);
       myObject["millis"] = millis();
       myObject["mem_free"] = (long)ESP.getFreeHeap();
+      myObject["PSmem_free"] = (long)ESP.getFreePsram();
       myObject["stack_free"] = (long)uxTaskGetStackHighWaterMark(NULL);
       // myObject["time"] = formattedTime;
       // myObject["b64"] = base64::encode((uint8_t*)data_buf, data_idx);
       // myObject["button_analog"] = analogRead(BUTTON_PIN);
       // myObject["button_digital"] = digitalRead(BUTTON_PIN);
+      myObject["flash"] = digitalRead(flashPin);
       myObject["digital"] = data;
       // myObject["sample_rate"] = I2S_SAMPLE_RATE;
       myObject["wifi_dBm"] = WiFi.RSSI();
       myObject["SSID"] = WiFi.SSID();
+      myObject["IP"] = WiFi.localIP().toString();
 
       myObject["status"] = status;
       myObject["bootCount"] = bootCount;
@@ -372,10 +375,9 @@ void setup() {
         if (fb->format == PIXFORMAT_RGB565) {
           server.send_P(200, "application/octet-stream", (const char*)fb->buf,
                         fb->len);
-        }
-		else if (fb->format == PIXFORMAT_JPEG) {
+        } else if (fb->format == PIXFORMAT_JPEG) {
           server.send_P(200, "image/jpeg", (const char*)fb->buf, fb->len);
-		}
+        }
         esp_camera_fb_return(fb);
       }
     }

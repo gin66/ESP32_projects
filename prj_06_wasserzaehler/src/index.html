@@ -58,6 +58,7 @@
 
       var image = new Image();
       var image_update = false;
+      var put_image;
       var put_image_update = false;
       var expect_format = 0;
       var expect_width = 0;
@@ -74,7 +75,7 @@
           context.drawImage(image, 0, 0, canvas.width, canvas.height);
         } else if (put_image_update) {
           put_image_update = false;
-          context.putImageData(image, 0, 0);
+          context.putImageData(put_image, 0, 0);
         }
         requestAnimationFrame(renderFunction);
       }
@@ -105,6 +106,7 @@
         document.getElementById("mem_free").innerHTML = data["mem_free"];
         document.getElementById("uptime").innerHTML = data["millis"] / 1000;
         document.getElementById("ssid").innerHTML = data["SSID"];
+        document.getElementById("ip").innerHTML = data["IP"];
         document.getElementById("dbm").innerHTML = data["wifi_dBm"];
         return;
         document.getElementById("esp_time").innerHTML = data["time"];
@@ -173,25 +175,20 @@
                   var img_src = "data:image/jpeg;base64," + btoa(s);
                   image.src = img_src;
                   //document.getElementById("raw_image").innerText = img_src;
-                  console.log("image received: " + dv.byteLength + " width: " + image.width + " height: " + image.height);
+                  console.log(
+                    "image received: " +
+                      dv.byteLength +
+                      " width: " +
+                      image.width +
+                      " height: " +
+                      image.height
+                  );
                   request_video();
                 } else if (dv.getUint8(0) == 0 && dv.byteLength == 5) {
                   // expect next grayscale image
                   expect_format = 0;
                   expect_width = dv.getUint16(1);
                   expect_height = dv.getUint16(3);
-                } else if (dv.getUint8(0) == 2 && dv.byteLength == 5) {
-                  // expect next RGB565 image
-                  expect_format = 2;
-                  expect_width = dv.getUint16(1);
-                  expect_height = dv.getUint16(3);
-                  console.log(
-                    "We have width: " +
-                      expect_width +
-                      "px, height: " +
-                      expect_height +
-                      "px"
-                  );
                 } else if (dv.getUint8(0) == 3 && dv.byteLength == 5) {
                   // expect next digitized image
                   expect_format = 3;
@@ -204,6 +201,8 @@
                       expect_height +
                       "px"
                   );
+					expect_height = 296;
+					expect_width = 400;
                 } else if (dv.getUint8(0) == 1 && dv.byteLength == 18) {
                   // expect qr_code info
                   qr = [
@@ -241,7 +240,7 @@
                   canvas.width = width;
                   canvas.height = height;
                   context = canvas.getContext("2d");
-                  image = context.getImageData(0, 0, width, height);
+                  put_image = context.getImageData(0, 0, width, height);
                   var px = 0;
                   for (i = 0; i < dv.byteLength; i++) {
                     var mask = dv.getUint8(i);
@@ -251,44 +250,11 @@
                         g = 255;
                       }
                       mask <<= 1;
-                      image.data[px++] = g;
-                      image.data[px++] = g;
-                      image.data[px++] = g;
-                      image.data[px++] = 255;
+                      put_image.data[px++] = g;
+                      put_image.data[px++] = g;
+                      put_image.data[px++] = g;
+                      put_image.data[px++] = 255;
                     }
-                  }
-                  put_image_update = true;
-                } else if (
-                  expect_format == 2 &&
-                  2 * exp_width * exp_height == dv.byteLength
-                ) {
-                  // RGB565 image with width/height/pixel data
-                  request_video(); // request early
-                  var canvas = document.getElementById("image");
-                  var width = exp_width;
-                  var height = exp_height;
-                  console.log(
-                    "We have width: " +
-                      width +
-                      "px, height: " +
-                      height +
-                      "px, length: " +
-                      dv.byteLength
-                  );
-                  canvas.width = width;
-                  canvas.height = height;
-                  context = canvas.getContext("2d");
-                  image = context.getImageData(0, 0, width, height);
-                  var px = 0;
-                  for (i = 0; i < dv.byteLength; i += 2) {
-                    var pixel = dv.getUint16(i);
-                    var r = (pixel & 0xf800) >> 8;
-                    var g = (pixel & 0x07e0) >> 3;
-                    var b = (pixel & 0x001f) << 3;
-                    image.data[px++] = r;
-                    image.data[px++] = g;
-                    image.data[px++] = b;
-                    image.data[px++] = 255;
                   }
                   put_image_update = true;
                 } else if (
@@ -311,14 +277,14 @@
                   canvas.width = width;
                   canvas.height = height;
                   context = canvas.getContext("2d");
-                  image = context.getImageData(0, 0, width, height);
+                  put_image = context.getImageData(0, 0, width, height);
                   var px = 0;
                   for (i = 0; i < dv.byteLength; i++) {
                     var g = dv.getUint8(i);
-                    image.data[px++] = g;
-                    image.data[px++] = g;
-                    image.data[px++] = g;
-                    image.data[px++] = 255;
+                    put_image.data[px++] = g;
+                    put_image.data[px++] = g;
+                    put_image.data[px++] = g;
+                    put_image.data[px++] = 255;
                   }
                   for (i = 0; i < qr_codes.length; i++) {
                     var qr = qr_codes[i];
@@ -334,9 +300,9 @@
                           var pixel =
                             (Math.round(px) + Math.round(py) * width) * 4;
                           console.log(pixel);
-                          image.data[pixel++] = 0;
-                          image.data[pixel++] = 255;
-                          image.data[pixel] = 0;
+                          put_image.data[pixel++] = 0;
+                          put_image.data[pixel++] = 255;
+                          put_image.data[pixel] = 0;
                         }
                       }
                     }
@@ -344,7 +310,7 @@
                   }
                   qr_codes = new Array();
                 } else {
-                  console.log("unknown binary data:" + dv.byteLength);
+                  console.log("unknown binary data of length" + dv.byteLength);
                 }
               } else {
                 if (document.getElementById("show_raw").checked) {
@@ -395,11 +361,11 @@
           }
         }
       }
-      function send_value(k,v) {
+      function send_value(k, v) {
         if (ws != 0 && ws.readyState == 1) {
-		  var j = {};
-			j[k] = v;
-			console.log(j);
+          var j = {};
+          j[k] = v;
+          console.log(j);
           ws.send(JSON.stringify(j));
         }
       }
@@ -412,8 +378,10 @@
         <p>
           ESP32-Time: <span id="esp_time"></span> Memory available:
           <span id="mem_free"></span> Uptime: <span id="uptime"></span> Sample
-          Rate: <span id="sample_rate"></span> SSID:
-          <span id="ssid"></span> dBm: <span id="dbm"></span>
+          Rate: <span id="sample_rate"></span>
+		  SSID: <span id="ssid"></span> 
+		  IP: <span id="ip"></span> 
+		  dBm: <span id="dbm"></span>
         </p>
       </div>
 
@@ -453,83 +421,132 @@
       <div id="chartContainer" style="height: 800px; width: 100%" hidden></div>
     </div>
     <canvas id="image" width="0" height="0"> </canvas>
-	<div class="row">
-		<div>
-			<label for="brightness">Brightness</label>
-			<input type="range" class="custom-range" min="-2" max="2" id="brightness" onchange="send_value('brightness',this.value)">
-			<br>
-			<label for="contrast">Contrast</label>
-			<input type="range" class="custom-range" min="-2" max="2" id="contrast" onchange="send_value('contrast',this.value)">
-			<br>
-			<label for="saturation">Saturation</label>
-			<input type="range" class="custom-range" min="-2" max="2" id="saturation" onchange="send_value('saturation',this.value)">
-			<br>
-			<label for="ae_level">AE Level</label>
-			<input type="range" class="custom-range" min="-2" max="2" id="ae_level" onchange="send_value('ae_level',this.value)">
-			<br>
-			<label for="aec_value">AEC Value</label>
-			<input type="range" class="custom-range" min="0" max="1200" id="aec_value" onchange="send_value('aec_value',this.value)">
-			<br>
-			<label for="agc_gain">AGC Gain</label>
-			<input type="range" class="custom-range" min="0" max="30" id="agc_gain" onchange="send_value('agc_gain',this.value)">
-			<br>
-			<label for="gainceiling">Gain ceiling</label>
-			<input type="range" class="custom-range" min="0" max="6" id="gainceiling" onchange="send_value('gainceiling',this.value)">
-          <input
-            class="button-primary"
-            type="checkbox"
-            id="bpc"
-            onClick="send_value('bpc',this.checked);"
-          />BPC
-          <input
-            class="button-primary"
-            type="checkbox"
-            id="whitebal"
-            onClick="send_value('whitebal',this.checked);"
-          />White Balance
-          <input
-            class="button-primary"
-            type="checkbox"
-            id="exposure_ctrl"
-            onClick="send_value('exposure_ctrl',this.checked);"
-          />Exposure Ctrl
-          <input
-            class="button-primary"
-            type="checkbox"
-            id="awb_gain"
-            onClick="send_value('awb_gain',this.checked);"
-          />AWB Gain
-          <input
-            class="button-primary"
-            type="checkbox"
-            id="wpc"
-            onClick="send_value('wpc',this.checked);"
-          />WPC
-          <input
-            class="button-primary"
-            type="checkbox"
-            id="dcw"
-            onClick="send_value('dcw',this.checked);"
-          />DCW
-          <input
-            class="button-primary"
-            type="checkbox"
-            id="raw_gma"
-            onClick="send_value('raw_gma',this.checked);"
-          />Raw GMA
-          <input
-            class="button-primary"
-            type="checkbox"
-            id="vflip"
-            onClick="send_value('vflip',this.checked);"
-          />Vflip
-          <input
-            class="button-primary"
-            type="checkbox"
-            id="hmirror"
-            onClick="send_value('hmirror',this.checked);"
-          />Hmirror
-		</div>
+    <div class="row">
+      <div>
+        <label for="brightness">Brightness</label>
+        <input
+          type="range"
+          class="custom-range"
+          min="-2"
+          max="2"
+          id="brightness"
+          onchange="send_value('brightness',this.value)"
+        />
+        <br />
+        <label for="contrast">Contrast</label>
+        <input
+          type="range"
+          class="custom-range"
+          min="-2"
+          max="2"
+          id="contrast"
+          onchange="send_value('contrast',this.value)"
+        />
+        <br />
+        <label for="saturation">Saturation</label>
+        <input
+          type="range"
+          class="custom-range"
+          min="-2"
+          max="2"
+          id="saturation"
+          onchange="send_value('saturation',this.value)"
+        />
+        <br />
+        <label for="ae_level">AE Level</label>
+        <input
+          type="range"
+          class="custom-range"
+          min="-2"
+          max="2"
+          id="ae_level"
+          onchange="send_value('ae_level',this.value)"
+        />
+        <br />
+        <label for="aec_value">AEC Value</label>
+        <input
+          type="range"
+          class="custom-range"
+          min="0"
+          max="1200"
+          id="aec_value"
+          onchange="send_value('aec_value',this.value)"
+        />
+        <br />
+        <label for="agc_gain">AGC Gain</label>
+        <input
+          type="range"
+          class="custom-range"
+          min="0"
+          max="30"
+          id="agc_gain"
+          onchange="send_value('agc_gain',this.value)"
+        />
+        <br />
+        <label for="gainceiling">Gain ceiling</label>
+        <input
+          type="range"
+          class="custom-range"
+          min="0"
+          max="6"
+          id="gainceiling"
+          onchange="send_value('gainceiling',this.value)"
+        />
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="bpc"
+          onClick="send_value('bpc',this.checked);"
+        />BPC
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="whitebal"
+          onClick="send_value('whitebal',this.checked);"
+        />White Balance
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="exposure_ctrl"
+          onClick="send_value('exposure_ctrl',this.checked);"
+        />Exposure Ctrl
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="awb_gain"
+          onClick="send_value('awb_gain',this.checked);"
+        />AWB Gain
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="wpc"
+          onClick="send_value('wpc',this.checked);"
+        />WPC
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="dcw"
+          onClick="send_value('dcw',this.checked);"
+        />DCW
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="raw_gma"
+          onClick="send_value('raw_gma',this.checked);"
+        />Raw GMA
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="vflip"
+          onClick="send_value('vflip',this.checked);"
+        />Vflip
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="hmirror"
+          onClick="send_value('hmirror',this.checked);"
+        />Hmirror
+      </div>
     </div>
     <div id="raw_image"></div>
     <span id="debug" style="word-wrap: break-word"></span>

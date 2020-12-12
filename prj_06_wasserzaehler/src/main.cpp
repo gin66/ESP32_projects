@@ -111,7 +111,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
             ESP.restart();
           } else {
             status = true;
-			bool raw = json["image"];
+            bool raw = json["image"];
             if (fb->format == PIXFORMAT_JPEG) {
               webSocket.broadcastBIN(fb->buf, fb->len);
             } else if ((fb->format == PIXFORMAT_RGB565) && !raw) {
@@ -129,26 +129,25 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
                 for (uint8_t j = 0; j < 8; j++) {
                   uint8_t rgb1 = *pixel++;
                   uint8_t rgb2 = *pixel++;
-				  // rrrrrggg.gggbbbbb
+                  // rrrrrggg.gggbbbbb
                   uint8_t r = (rgb1 >> 2) & 0x3e;
                   uint8_t g = (((rgb1 << 3) & 0x38) | ((rgb2 >> 5) & 0x07));
                   uint8_t b = (rgb2 << 1) & 0x3e;
                   mask <<= 1;
-				  uint16_t rx = r << 2;
-				  rx *= r;
-				  uint16_t gx = (g << 1) + g;
-				  gx *= g;
-				  uint16_t bx = (b << 1) + b;
-				  bx *= b;
-   
+                  uint16_t rx = r << 2;
+                  rx *= r;
+                  uint16_t gx = (g << 1) + g;
+                  gx *= g;
+                  uint16_t bx = (b << 1) + b;
+                  bx *= b;
+
                   if ((rx > gx + bx) && (r > g) && (r > b)) {
                     mask |= 1;
                   }
                 }
                 *out++ = mask;
               }
-              webSocket.broadcastBIN(digitized_image,
-                                     fb->len / 2 / 8);
+              webSocket.broadcastBIN(digitized_image, fb->len / 2 / 8);
             } else if (fb->format == PIXFORMAT_RGB565) {
               uint8_t head[5];
               head[0] = 2;
@@ -296,16 +295,17 @@ void setup() {
     server.send_P(200, "text/html", (const char*)server_index_html_start);
   });
   server.on("/image", HTTP_GET, []() {
-        server.sendHeader("Connection", "close");
-        if (init_camera()) {
-          camera_fb_t* fb = esp_camera_fb_get();
-          if (fb) {
-            if (fb->format == PIXFORMAT_RGB565) {
-              server.send_P(200, "application/octet-stream", (const char*)fb->buf, fb->len);
-			}
-            esp_camera_fb_return(fb);
-		  }
-		  }
+    server.sendHeader("Connection", "close");
+    if (init_camera()) {
+      camera_fb_t* fb = esp_camera_fb_get();
+      if (fb) {
+        if (fb->format == PIXFORMAT_RGB565) {
+          server.send_P(200, "application/octet-stream", (const char*)fb->buf,
+                        fb->len);
+        }
+        esp_camera_fb_return(fb);
+      }
+    }
   });
   /*handling uploading firmware file */
   server.on(

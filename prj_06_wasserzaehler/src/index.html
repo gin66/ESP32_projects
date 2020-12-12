@@ -250,7 +250,7 @@
                       if ((mask & 128) != 0) {
                         g = 255;
                       }
-					  mask <<= 1;
+                      mask <<= 1;
                       image.data[px++] = g;
                       image.data[px++] = g;
                       image.data[px++] = g;
@@ -388,11 +388,10 @@
         if (ws != 0 && ws.readyState == 1) {
           if (document.getElementById("video_on").checked) {
             if (document.getElementById("video_raw").checked) {
-				ws.send(JSON.stringify({ image: true }));
-			}
-			  else {
-				ws.send(JSON.stringify({ image: false }));
-			  }
+              ws.send(JSON.stringify({ image: true }));
+            } else {
+              ws.send(JSON.stringify({ image: false }));
+            }
           }
         }
       }
@@ -429,18 +428,15 @@
             type="checkbox"
             id="video_on"
             onClick="request_video();"
-          >Video on
-		  </input>
+          />Video on
           <input
             class="button-primary"
             type="checkbox"
             id="video_raw"
             onClick="request_video();"
-          >Raw Video
-		  </input>
-          <input class="button-primary" type="checkbox" id="show_raw" >Show raw
+          />Raw Video
+          <input class="button-primary" type="checkbox" id="show_raw" />Show raw
           messages
-		  </input>
         </form>
         <form action="/serverIndex">
           <button>SW Update</button>

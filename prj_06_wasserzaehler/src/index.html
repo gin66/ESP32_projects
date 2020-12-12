@@ -395,6 +395,21 @@
           }
         }
       }
+      function send_brightness(v) {
+        if (ws != 0 && ws.readyState == 1) {
+          ws.send(JSON.stringify({ brightness: v }));
+        }
+      }
+      function send_contrast(v) {
+        if (ws != 0 && ws.readyState == 1) {
+          ws.send(JSON.stringify({ contrast: v }));
+        }
+      }
+      function send_saturation(v) {
+        if (ws != 0 && ws.readyState == 1) {
+          ws.send(JSON.stringify({ saturation: v }));
+        }
+      }
     </script>
   </head>
   <body>
@@ -445,6 +460,18 @@
       <div id="chartContainer" style="height: 800px; width: 100%" hidden></div>
     </div>
     <canvas id="image" width="0" height="0"> </canvas>
+	<div class="row">
+		<div class="slidecontainer">
+			<label for="brightness">Brightness</label>
+			<input type="range" class="custom-range" min="-2" max="2" id="brightness" onchange="send_brightness(this.value)">
+			<br>
+			<label for="contrast">Contrast</label>
+			<input type="range" class="custom-range" min="-2" max="2" id="contrast" onchange="send_contrast(this.value)">
+			<br>
+			<label for="saturation">Saturation</label>
+			<input type="range" class="custom-range" min="-2" max="2" id="saturation" onchange="send_saturation(this.value)">
+		</div>
+    </div>
     <div id="raw_image"></div>
     <span id="debug" style="word-wrap: break-word"></span>
     <span id="state"></span>

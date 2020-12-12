@@ -68,7 +68,7 @@ WebSocketsServer webSocket = WebSocketsServer(81);
 bool init_camera() {
   uint8_t fail_cnt;
   char buf[40];
-  esp_err_t err = tpl_init_camera(&fail_cnt, PIXFORMAT_RGB565, FRAMESIZE_QVGA);
+  esp_err_t err = tpl_init_camera(&fail_cnt, PIXFORMAT_JPEG, FRAMESIZE_QVGA);
   if (err == ESP_OK) {
     if (fail_cnt > 0) {
       sprintf(buf, "Camera init succeeded with %d fails", fail_cnt);
@@ -78,6 +78,10 @@ bool init_camera() {
     ESP_LOGE(TAG, "Free heap: %u", ESP.getFreeHeap());
     ESP_LOGE(TAG, "Total PSRAM: %u", ESP.getPsramSize());
     ESP_LOGE(TAG, "Free PSRAM: %u", ESP.getFreePsram());
+		sensor_t* sensor = esp_camera_sensor_get();
+		sensor->set_brightness(sensor, -2);
+		sensor->set_contrast(sensor, -2);
+		sensor->set_saturation(sensor, 2);
     return true;
   }
   // cannot init camera
@@ -105,6 +109,21 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
       if (json.containsKey("flash")) {
         command = FLASH;
       }
+      if (json.containsKey("brightness")) {
+		  int8_t brightness = json["brightness"];
+		sensor_t* sensor = esp_camera_sensor_get();
+		sensor->set_brightness(sensor, brightness);
+	  }
+      if (json.containsKey("contrast")) {
+		  int8_t contrast = json["contrast"];
+		sensor_t* sensor = esp_camera_sensor_get();
+		sensor->set_contrast(sensor, contrast);
+	  }
+      if (json.containsKey("saturation")) {
+		  int8_t saturation = json["saturation"];
+		sensor_t* sensor = esp_camera_sensor_get();
+		sensor->set_saturation(sensor, saturation);
+	  }
       if (json.containsKey("image")) {
         if (init_camera()) {
           camera_fb_t* fb = esp_camera_fb_get();
@@ -285,6 +304,9 @@ void setup() {
           server.send_P(200, "application/octet-stream", (const char*)fb->buf,
                         fb->len);
         }
+		else if (fb->format == PIXFORMAT_JPEG) {
+          server.send_P(200, "image/jpeg", (const char*)fb->buf, fb->len);
+		}
         esp_camera_fb_return(fb);
       }
     }

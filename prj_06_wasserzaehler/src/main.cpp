@@ -82,6 +82,10 @@ bool init_camera() {
 		sensor->set_brightness(sensor, -2);
 		sensor->set_contrast(sensor, -2);
 		sensor->set_saturation(sensor, 2);
+		sensor->set_raw_gma(sensor, 1);
+		sensor->set_dcw(sensor, 0);
+		sensor->set_hflip(sensor, 0);
+		sensor->set_vmirror(sensor, 0);
     return true;
   }
   // cannot init camera
@@ -123,6 +127,71 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
 		  int8_t saturation = json["saturation"];
 		sensor_t* sensor = esp_camera_sensor_get();
 		sensor->set_saturation(sensor, saturation);
+	  }
+      if (json.containsKey("ae_level")) {
+		  int8_t ae_level = json["ae_level"];
+		sensor_t* sensor = esp_camera_sensor_get();
+		sensor->set_ae_level(sensor, ae_level);
+	  }
+      if (json.containsKey("set_aec_value")) {
+		  int8_t set_aec_value = json["set_aec_value"];
+		sensor_t* sensor = esp_camera_sensor_get();
+		sensor->set_aec_value(sensor, set_aec_value);
+	  }
+      if (json.containsKey("gain_ctrl")) {
+		  int8_t gain_ctrl = json["gain_ctrl"];
+		sensor_t* sensor = esp_camera_sensor_get();
+		sensor->set_gain_ctrl(sensor, gain_ctrl);
+	  }
+      if (json.containsKey("gainceiling")) {
+		  int8_t gainceiling = json["gainceiling"];
+		sensor_t* sensor = esp_camera_sensor_get();
+		sensor->set_gainceiling(sensor, (gainceiling_t)gainceiling);
+	  }
+      if (json.containsKey("bpc")) {
+		  bool v = json["bpc"];
+		sensor_t* sensor = esp_camera_sensor_get();
+		sensor->set_bpc(sensor, v ? 1:0);
+	  }
+      if (json.containsKey("whitebal")) {
+		  bool v = json["whitebal"];
+		sensor_t* sensor = esp_camera_sensor_get();
+		sensor->set_whitebal(sensor, v ? 1:0);
+	  }
+      if (json.containsKey("exposure_ctrl")) {
+		  bool v = json["exposure_ctrl"];
+		sensor_t* sensor = esp_camera_sensor_get();
+		sensor->set_exposure_ctrl(sensor, v ? 1:0);
+	  }
+      if (json.containsKey("awb_gain")) {
+		  bool v = json["awb_gain"];
+		sensor_t* sensor = esp_camera_sensor_get();
+		sensor->set_awb_gain(sensor, v ? 1:0);
+	  }
+      if (json.containsKey("wpc")) {
+		  bool v = json["wpc"];
+		sensor_t* sensor = esp_camera_sensor_get();
+		sensor->set_wpc(sensor, v ? 1:0);
+	  }
+      if (json.containsKey("dcw")) {
+		  bool v = json["dcw"];
+		sensor_t* sensor = esp_camera_sensor_get();
+		sensor->set_dcw(sensor, v ? 1:0);
+	  }
+      if (json.containsKey("raw_gma")) {
+		  bool v = json["raw_gma"];
+		sensor_t* sensor = esp_camera_sensor_get();
+		sensor->set_raw_gma(sensor, v ? 1:0);
+	  }
+      if (json.containsKey("vflip")) {
+		  bool v = json["vflip"];
+		sensor_t* sensor = esp_camera_sensor_get();
+		sensor->set_vflip(sensor, v ? 1:0);
+	  }
+      if (json.containsKey("hmirror")) {
+		  bool v = json["hmirror"];
+		sensor_t* sensor = esp_camera_sensor_get();
+		sensor->set_hmirror(sensor, v ? 1:0);
 	  }
       if (json.containsKey("image")) {
         if (init_camera()) {

@@ -1,5 +1,5 @@
-#define HEIGHT 240
-#define WIDTH 320
+#define HEIGHT 296
+#define WIDTH 400
 
 struct read_s {
 	uint8_t ok;

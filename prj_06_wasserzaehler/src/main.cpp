@@ -25,6 +25,7 @@
 #include "freertos/task.h"
 #include "img_converters.h"
 #include "template.h"
+#include "read.h"
 
 #define DEBUG_ESP
 
@@ -52,7 +53,9 @@ extern const uint8_t server_index_html_start[] asm(
 WiFiClientSecure secured_client;
 UniversalTelegramBot bot(BOTtoken, secured_client);
 
-uint8_t digitized_image[320 * 240 / 8];  // QVGA=320*240
+uint8_t digitized_image[WIDTH * HEIGHT / 8];  // QVGA=320*240
+uint8_t filtered_image[WIDTH * HEIGHT / 8];  // QVGA=320*240
+uint8_t temp_image[WIDTH * HEIGHT / 8];  // QVGA=320*240
 
 enum Command {
   IDLE,
@@ -122,32 +125,11 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
               head[3] = fb->height >> 8;
               head[4] = fb->height & 0xff;
               webSocket.broadcastBIN(head, 5);
-              uint8_t* pixel = fb->buf;
-              uint8_t* out = digitized_image;
-              for (uint32_t i = fb->len; i > 0; i -= 16) {
-                uint8_t mask = 0;
-                for (uint8_t j = 0; j < 8; j++) {
-                  uint8_t rgb1 = *pixel++;
-                  uint8_t rgb2 = *pixel++;
-                  // rrrrrggg.gggbbbbb
-                  uint8_t r = (rgb1 >> 2) & 0x3e;
-                  uint8_t g = (((rgb1 << 3) & 0x38) | ((rgb2 >> 5) & 0x07));
-                  uint8_t b = (rgb2 << 1) & 0x3e;
-                  mask <<= 1;
-                  uint16_t rx = r << 2;
-                  rx *= r;
-                  uint16_t gx = (g << 1) + g;
-                  gx *= g;
-                  uint16_t bx = (b << 1) + b;
-                  bx *= b;
-
-                  if ((rx > gx + bx) && (r > g) && (r > b)) {
-                    mask |= 1;
-                  }
-                }
-                *out++ = mask;
-              }
-              webSocket.broadcastBIN(digitized_image, fb->len / 2 / 8);
+			  struct read_s reader;
+			  digitize(fb->buf, digitized_image, &reader);
+			  find_pointer(digitized_image, filtered_image, temp_image, &reader);
+              //webSocket.broadcastBIN(digitized_image, fb->len / 2 / 8);
+              webSocket.broadcastBIN(filtered_image, fb->len / 2 / 8);
             } else if (fb->format == PIXFORMAT_RGB565) {
               uint8_t head[5];
               head[0] = 2;

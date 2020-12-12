@@ -78,4 +78,6 @@ void find_pointer(uint8_t* digitized, uint8_t *filtered, uint8_t *temp, struct r
 	filter(temp, filtered);
 	filter(filtered, temp);
 	filter(temp, filtered);
+	filter(filtered, temp);
+	filter(temp, filtered);
 }

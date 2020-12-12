@@ -9,8 +9,10 @@ const WIDTH: usize = 400;
 #[repr(C)]
 #[derive(Debug,Default)]
 struct Pointer {
-    row: u16,
-    col: u16,
+    row_from: u16,
+    row_to: u16,
+    col_from: u16,
+    col_to: u16,
 }
 
 #[repr(C)]
@@ -50,13 +52,18 @@ fn bits_to_rgb888(image: &Vec<u8>) -> Vec<u8> {
 
 fn mark(image: &mut Vec<u8>, r: &Reader) {
     for i in 0..r.candidates {
-        let row = r.pointer[i as usize].row;
-        let col = r.pointer[i as usize].col;
+        let row_from = r.pointer[i as usize].row_from;
+        let col_from = r.pointer[i as usize].col_from;
+        let row_to = r.pointer[i as usize].row_to;
+        let col_to = r.pointer[i as usize].col_to;
 
+        for row in row_from..=row_to {
+            for col in col_from..=col_to {
         let i = (row as usize * WIDTH + col as usize) * 3;
-        image[i] = 255;
         image[i+1] = 255;
         image[i+2] = 255;
+            }
+        }
     }
 }
 

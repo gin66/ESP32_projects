@@ -159,10 +159,12 @@ int8_t find_filled_bytes(uint8_t *bitimage, struct read_s *read) {
 				new_i++;
 		  }
 		  else if (area_finished) {
-			  read->pointer[read->candidates].row = row - 1 - last_areas[last_i].cnt/2;
-			  read->pointer[read->candidates].col = (1 + last_areas[last_i].from + last_areas[last_i].to)*4;
-			  read->candidates++;
-				  printf("found: %d %d %d\n",last_areas[last_i].cnt, last_areas[last_i].from, last_areas[last_i].to);
+			  struct pointer_s *px = &read->pointer[read->candidates++];
+			  px->row_from = row - last_areas[last_i].cnt;
+			  px->row_to = row - 1;
+			  px->col_from = last_areas[last_i].from * 8;
+			  px->col_to = last_areas[last_i].to * 8 + 7;
+				  printf("found: height = %d\n",last_areas[last_i].cnt);
 				  last_i++;
 		  }
 		  else /* area_new */ {

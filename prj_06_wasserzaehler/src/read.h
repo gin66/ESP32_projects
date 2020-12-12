@@ -1,13 +1,14 @@
 #define HEIGHT 296
 #define WIDTH 400
 
+  struct pointer_s {
+	  uint16_t row_from, row_to;
+	  uint16_t col_from, col_to;
+  };
 struct read_s {
   uint8_t ok;
   uint8_t candidates;
-  struct pointer_s {
-	  uint16_t row;
-	  uint16_t col;
-  } pointer[10];
+  struct pointer_s pointer[10];
 };
 
 void digitize(const uint8_t *bgr_888, uint8_t *digitized, struct read_s *read);

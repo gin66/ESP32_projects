@@ -7,9 +7,18 @@ const HEIGHT: usize = 296;
 const WIDTH: usize = 400;
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug,Default)]
+struct Pointer {
+    row: u16,
+    col: u16,
+}
+
+#[repr(C)]
+#[derive(Debug,Default)]
 struct Reader {
     is_ok: u8,
+    candidates: u8,
+    pointer: [Pointer; 10],
 }
 
 extern "C" {
@@ -31,23 +40,35 @@ fn bits_to_rgb888(image: &Vec<u8>) -> Vec<u8> {
                 0
             };
             *(o.next().unwrap()) = v;
-            *(o.next().unwrap()) = v;
-            *(o.next().unwrap()) = v;
+            *(o.next().unwrap()) = 0;
+            *(o.next().unwrap()) = 0;
             b >>= 1;
         }
     }
     out
 }
 
+fn mark(image: &mut Vec<u8>, r: &Reader) {
+    for i in 0..r.candidates {
+        let row = r.pointer[i as usize].row;
+        let col = r.pointer[i as usize].col;
+
+        let i = (row as usize * WIDTH + col as usize) * 3;
+        image[i] = 255;
+        image[i+1] = 255;
+        image[i+2] = 255;
+    }
+}
+
 fn main() -> std::io::Result<()> {
     let mut digitized = vec![0u8; WIDTH * HEIGHT / 8];
     let mut temp = vec![0u8; WIDTH * HEIGHT / 8];
     let mut filtered = vec![0u8; WIDTH * HEIGHT / 8];
-    let mut r: Reader = Reader { is_ok: 0 };
+    let mut r: Reader = Reader::default();
 
     let f = File::open("../test/image.jpeg")?;
     let mut decoder = jpeg_decoder::Decoder::new(BufReader::new(f));
-    let pixels = decoder.decode().expect("failed to decode image");
+    let mut pixels = decoder.decode().expect("failed to decode image");
 
     if pixels.len() != HEIGHT*WIDTH*3 {
         panic!("Invalid length: {}", pixels.len());
@@ -95,7 +116,8 @@ fn main() -> std::io::Result<()> {
     encoder.set_color(png::ColorType::RGB);
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header()?;
-    let data = bits_to_rgb888(&filtered);
+    let mut data = bits_to_rgb888(&filtered);
+    mark(&mut data, &r);
     writer.write_image_data(&data)?; // Save
 
     Ok(())

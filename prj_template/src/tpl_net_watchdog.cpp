@@ -13,7 +13,10 @@ void TaskWatchdog(void* pvParameters) {
       fail++;
       Serial.println("Ping failed");
       if (fail >= 5*60) { // 5 minutes
-        ESP.restart();
+		// use deep sleep to reset
+        esp_sleep_enable_timer_wakeup(1LL * 1000000LL);
+        esp_deep_sleep_start();
+        //ESP.restart();
       }
     } else {
       fail = 0;

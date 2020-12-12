@@ -504,7 +504,8 @@ void loop() {
   }
   server.handleClient();
 
-  if (millis() >= bot_lasttime) {
+  if (false && (millis() >= bot_lasttime)) {
+	  // Perhaps reason for 50kBytes mem_free negative spikes
     int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
 
     while (numNewMessages) {
@@ -539,5 +540,11 @@ void loop() {
       }
       command = IDLE;
       break;
+  }
+
+  if (millis() > 1000L*60L*10L) {
+	  // reset every 10 minutes
+        esp_sleep_enable_timer_wakeup(1LL * 1000000LL);
+        esp_deep_sleep_start();
   }
 }

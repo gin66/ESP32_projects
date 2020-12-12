@@ -12,4 +12,4 @@ prj_06_wasserzaehler/test/*read*
 prj_06_wasserzaehler/test/image*
 Cargo.lock
 *png
-*/target/*
+target/

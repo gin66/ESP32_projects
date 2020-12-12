@@ -10,7 +10,8 @@ struct Reader {
 }
 
 extern "C" {
-    fn find_pointer(image: *const u8, digitized: *mut u8, r: *mut Reader);
+    fn digitize(image: *const u8, digitized: *mut u8, r: *mut Reader);
+    fn find_pointer(digitized: *const u8, filtered: *mut u8, temp: *mut u8, r: *mut Reader);
 }
 
 fn rgb565_to_rgb888(image: &Vec<u8>) -> Vec<u8> {
@@ -54,13 +55,16 @@ fn bits_to_rgb888(image: &Vec<u8>) -> Vec<u8> {
 fn main() -> std::io::Result<()> {
     let mut image: Vec<u8> = vec![];
     let mut digitized = vec![0u8; 320 * 240 / 8];
+    let mut temp = vec![0u8; 320 * 240 / 8];
+    let mut filtered = vec![0u8; 320 * 240 / 8];
     let mut r: Reader = Reader { is_ok: 0 };
 
     let mut f = File::open("../test/image")?;
     f.read_to_end(&mut image)?;
 
     unsafe {
-        find_pointer(image.as_ptr(), digitized.as_mut_ptr(), &mut r);
+        digitize(image.as_ptr(), digitized.as_mut_ptr(), &mut r);
+        find_pointer(digitized.as_ptr(), filtered.as_mut_ptr(), temp.as_mut_ptr(), &mut r);
     }
     println!("{:?}", r);
 
@@ -82,6 +86,16 @@ fn main() -> std::io::Result<()> {
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header()?;
     let data = bits_to_rgb888(&digitized);
+    writer.write_image_data(&data)?; // Save
+
+    let path = Path::new("image_filtered.png");
+    let file = File::create(path).unwrap();
+    let ref mut w = BufWriter::new(file);
+    let mut encoder = png::Encoder::new(w, 320, 240);
+    encoder.set_color(png::ColorType::RGB);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header()?;
+    let data = bits_to_rgb888(&filtered);
     writer.write_image_data(&data)?; // Save
 
     Ok(())

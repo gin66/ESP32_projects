@@ -7,7 +7,7 @@ const HEIGHT: usize = 296;
 const WIDTH: usize = 400;
 
 #[repr(C)]
-#[derive(Debug,Default)]
+#[derive(Debug, Default)]
 struct Pointer {
     row_from: u16,
     row_to: u16,
@@ -16,7 +16,7 @@ struct Pointer {
 }
 
 #[repr(C)]
-#[derive(Debug,Default)]
+#[derive(Debug, Default)]
 struct Reader {
     is_ok: u8,
     candidates: u8,
@@ -35,12 +35,7 @@ fn bits_to_rgb888(image: &Vec<u8>) -> Vec<u8> {
     while let Some(mask) = p.next() {
         let mut b = 128;
         while b > 0 {
-            let v = if mask & b != 0 {
-                255
-            }
-            else {
-                0
-            };
+            let v = if mask & b != 0 { 255 } else { 0 };
             *(o.next().unwrap()) = v;
             *(o.next().unwrap()) = 0;
             *(o.next().unwrap()) = 0;
@@ -59,9 +54,9 @@ fn mark(image: &mut Vec<u8>, r: &Reader) {
 
         for row in row_from..=row_to {
             for col in col_from..=col_to {
-        let i = (row as usize * WIDTH + col as usize) * 3;
-        image[i+1] = 255;
-        image[i+2] = 255;
+                let i = (row as usize * WIDTH + col as usize) * 3;
+                image[i + 1] = 255;
+                image[i + 2] = 255;
             }
         }
     }
@@ -77,7 +72,7 @@ fn main() -> std::io::Result<()> {
     let mut decoder = jpeg_decoder::Decoder::new(BufReader::new(f));
     let mut pixels = decoder.decode().expect("failed to decode image");
 
-    if pixels.len() != HEIGHT*WIDTH*3 {
+    if pixels.len() != HEIGHT * WIDTH * 3 {
         panic!("Invalid length: {}", pixels.len());
     }
 
@@ -85,15 +80,20 @@ fn main() -> std::io::Result<()> {
     let mut i = 0;
     while i < pixels.len() {
         let r = pixels[i];
-        let b = pixels[i+2];
-        pixels[i]= b;
-        pixels[i+2] = r;
+        let b = pixels[i + 2];
+        pixels[i] = b;
+        pixels[i + 2] = r;
         i += 3;
     }
 
     unsafe {
         digitize(pixels.as_ptr(), digitized.as_mut_ptr(), &mut r);
-        find_pointer(digitized.as_ptr(), filtered.as_mut_ptr(), temp.as_mut_ptr(), &mut r);
+        find_pointer(
+            digitized.as_ptr(),
+            filtered.as_mut_ptr(),
+            temp.as_mut_ptr(),
+            &mut r,
+        );
     }
     println!("{:?}", r);
 

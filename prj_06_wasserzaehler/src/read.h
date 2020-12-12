@@ -1,10 +1,10 @@
 #define HEIGHT 296
 #define WIDTH 400
 
-  struct pointer_s {
-	  uint16_t row_from, row_to;
-	  uint16_t col_from, col_to;
-  };
+struct pointer_s {
+  uint16_t row_from, row_to;
+  uint16_t col_from, col_to;
+};
 struct read_s {
   uint8_t ok;
   uint8_t candidates;

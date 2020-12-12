@@ -206,7 +206,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
             bool raw = json["image"];
             if ((fb->format == PIXFORMAT_JPEG) && raw) {
               webSocket.broadcastBIN(fb->buf, fb->len);
-				esp_camera_fb_return(fb);
+              esp_camera_fb_return(fb);
             } else if ((fb->format == PIXFORMAT_JPEG) && !raw) {
               struct read_s reader;
               if (raw_image == NULL) {
@@ -219,16 +219,15 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
               head[2] = fb->width & 0xff;
               head[3] = fb->height >> 8;
               head[4] = fb->height & 0xff;
-				esp_camera_fb_return(fb);
+              esp_camera_fb_return(fb);
               digitize(raw_image, digitized_image, &reader);
               find_pointer(digitized_image, filtered_image, temp_image,
                            &reader);
               webSocket.broadcastBIN(head, 5);
-              webSocket.broadcastBIN(filtered_image, WIDTH*HEIGHT/8);
+              webSocket.broadcastBIN(filtered_image, WIDTH * HEIGHT / 8);
+            } else {
+              esp_camera_fb_return(fb);
             }
-			else {
-				esp_camera_fb_return(fb);
-			}
           }
         }
       }
@@ -505,7 +504,7 @@ void loop() {
   server.handleClient();
 
   if (false && (millis() >= bot_lasttime)) {
-	  // Perhaps reason for 50kBytes mem_free negative spikes
+    // Perhaps reason for 50kBytes mem_free negative spikes
     int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
 
     while (numNewMessages) {
@@ -542,9 +541,9 @@ void loop() {
       break;
   }
 
-  if (millis() > 1000L*60L*10L) {
-	  // reset every 10 minutes
-        esp_sleep_enable_timer_wakeup(1LL * 1000000LL);
-        esp_deep_sleep_start();
+  if (millis() > 1000L * 60L * 10L) {
+    // reset every 10 minutes
+    esp_sleep_enable_timer_wakeup(1LL * 1000000LL);
+    esp_deep_sleep_start();
   }
 }

@@ -76,6 +76,15 @@ fn main() -> std::io::Result<()> {
         panic!("Invalid length: {}", pixels.len());
     }
 
+    let path = Path::new("image.png");
+    let file = File::create(path).unwrap();
+    let ref mut w = BufWriter::new(file);
+    let mut encoder = png::Encoder::new(w, WIDTH as u32, HEIGHT as u32);
+    encoder.set_color(png::ColorType::RGB);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header()?;
+    writer.write_image_data(&pixels)?; // Save
+
     // convert from rgb to bgr
     let mut i = 0;
     while i < pixels.len() {
@@ -96,15 +105,6 @@ fn main() -> std::io::Result<()> {
         );
     }
     println!("{:?}", r);
-
-    let path = Path::new("image.png");
-    let file = File::create(path).unwrap();
-    let ref mut w = BufWriter::new(file);
-    let mut encoder = png::Encoder::new(w, WIDTH as u32, HEIGHT as u32);
-    encoder.set_color(png::ColorType::RGB);
-    encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder.write_header()?;
-    writer.write_image_data(&pixels)?; // Save
 
     let path = Path::new("image_digitized.png");
     let file = File::create(path).unwrap();

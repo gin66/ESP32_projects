@@ -1,6 +1,8 @@
 #define HEIGHT 296
 #define WIDTH 400
 
+#include <stdint.h>
+
 struct pointer_s {
   uint16_t row_from, row_to;
   uint16_t col_from, col_to;

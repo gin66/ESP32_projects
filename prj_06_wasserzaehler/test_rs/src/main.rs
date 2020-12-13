@@ -48,7 +48,7 @@ fn bits_to_rgb888(image: &Vec<u8>) -> Vec<u8> {
     out
 }
 
-fn mark(image: &mut Vec<u8>, r: &Reader) {
+fn mark(image: &mut Vec<u8>, r: &Reader, ps: &PointerShape) {
     for i in 0..r.candidates {
         let row_from = r.pointer[i as usize].row_from;
         let col_from = r.pointer[i as usize].col_from;
@@ -94,10 +94,96 @@ fn mark(image: &mut Vec<u8>, r: &Reader) {
             image[ind + 1] = 0;
             image[ind + 2] = 255;
         }
+
+        // draw pointer shape
+        let shape = &ps.shapes[r.pointer[i as usize].angle as usize/18];
+        for (y,x_min,x_max) in shape.iter() {
+            let row = row_center + y;
+
+            let col = col_center + x_min;
+            let ind = (row as usize * WIDTH + col as usize) * 3;
+            image[ind + 0] = 127;
+            image[ind + 1] = 127;
+            image[ind + 2] = 127;
+
+            let col = col_center + x_max;
+            let ind = (row as usize * WIDTH + col as usize) * 3;
+            image[ind + 0] = 127;
+            image[ind + 1] = 127;
+            image[ind + 2] = 127;
+        }
     }
 }
 
+struct PointerShape {
+    shapes: Vec<Vec<(i16,i16,i16)>>
+}
+
+impl PointerShape {
+
+fn make_pointer() -> std::io::Result<PointerShape> {
+    let mut shapes = vec![];
+    for angle_i in 0..20 {
+        let mut x_min = vec![10000;40];
+        let mut x_max = vec![-10000;40];
+
+        let angle = angle_i as f64/10.0*std::f64::consts::PI;
+        for radius_i in -120..150 {
+            let radius = radius_i as f64/10.0;
+
+            let half_width = if radius_i < 0 { 
+                8.0
+            }
+            else {
+                8.0-radius/2.0
+            };
+
+            for w_i in -100..=100 {
+                let w = w_i as f64 * half_width / 100.0;
+
+                let r_y = (radius * angle.sin()).floor() as i16;
+                let r_x = (radius * angle.cos()).floor() as i16;
+
+                let y_1 = r_y - (w as f64 * f64::cos(angle)).floor() as i16;
+                let x_1 = r_x + (w as f64 * f64::sin(angle)).floor() as i16;
+
+                let y_2 = r_y + (w as f64 * f64::cos(angle)).floor() as i16;
+                let x_2 = r_x - (w as f64 * f64::sin(angle)).floor() as i16;
+
+                let yi_1 = (y_1 + 20) as usize;
+                let yi_2 = (y_2 + 20) as usize;
+
+                x_min[yi_1] = i16::min(x_min[yi_1], x_1);
+                x_max[yi_1] = i16::max(x_max[yi_1], x_1);
+
+                x_min[yi_2] = i16::min(x_min[yi_2], x_2);
+                x_max[yi_2] = i16::max(x_max[yi_2], x_2);
+            }
+        }
+
+        let mut shape = vec![];
+        for i in 0..40 {
+            if x_min[i] <= x_max[i] {
+                shape.push((i as i16-20, x_min[i], x_max[i]));
+            }
+        }
+        shapes.push(shape);
+    }
+    Ok(PointerShape{ shapes })
+}
+fn print_shapes(&self) {
+    for (angle,shape) in self.shapes.iter().enumerate() {
+        for (y,x_min,x_max) in shape.iter() {
+                println!("{}: {}, {} {}",angle, y, x_min, x_max);
+        }
+    }
+}
+}
+
 fn main() -> std::io::Result<()> {
+    let pointer_shapes = PointerShape::make_pointer()?;
+    pointer_shapes.print_shapes();
+
     let mut digitized = vec![0u8; WIDTH * HEIGHT / 8];
     let mut temp = vec![0u8; WIDTH * HEIGHT / 8];
     let mut filtered = vec![0u8; WIDTH * HEIGHT / 8];
@@ -149,7 +235,7 @@ fn main() -> std::io::Result<()> {
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header()?;
     let mut data = bits_to_rgb888(&digitized);
-    mark(&mut data, &r);
+    mark(&mut data, &r, &pointer_shapes);
     writer.write_image_data(&data)?; // Save
 
     let path = Path::new("image_filtered.png");
@@ -160,7 +246,7 @@ fn main() -> std::io::Result<()> {
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header()?;
     let mut data = bits_to_rgb888(&filtered);
-    mark(&mut data, &r);
+    mark(&mut data, &r, &pointer_shapes);
     writer.write_image_data(&data)?; // Save
 
     Ok(())

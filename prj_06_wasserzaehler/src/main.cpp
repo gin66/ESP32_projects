@@ -288,14 +288,14 @@ void TaskWebSocket(void* pvParameters) {
         myObject["a2"] = reader.pointer[1].angle;
         myObject["a3"] = reader.pointer[2].angle;
         myObject["a4"] = reader.pointer[3].angle;
-        myObject["x1"] = reader.pointer[0].col_center2/2;
-        myObject["x2"] = reader.pointer[1].col_center2/2;
-        myObject["x3"] = reader.pointer[2].col_center2/2;
-        myObject["x4"] = reader.pointer[3].col_center2/2;
-        myObject["y1"] = reader.pointer[0].row_center2/2;
-        myObject["y2"] = reader.pointer[1].row_center2/2;
-        myObject["y3"] = reader.pointer[2].row_center2/2;
-        myObject["y4"] = reader.pointer[3].row_center2/2;
+        myObject["x1"] = reader.pointer[0].col_center2 / 2;
+        myObject["x2"] = reader.pointer[1].col_center2 / 2;
+        myObject["x3"] = reader.pointer[2].col_center2 / 2;
+        myObject["x4"] = reader.pointer[3].col_center2 / 2;
+        myObject["y1"] = reader.pointer[0].row_center2 / 2;
+        myObject["y2"] = reader.pointer[1].row_center2 / 2;
+        myObject["y3"] = reader.pointer[2].row_center2 / 2;
+        myObject["y4"] = reader.pointer[3].row_center2 / 2;
       }
 #define BUFLEN 4096
       char buffer[BUFLEN];
@@ -536,7 +536,7 @@ void loop() {
   switch (command) {
     case IDLE:
       break;
-	case MEASURE:
+    case MEASURE:
       status = bot.sendMessage(CHAT_ID, "Camera capture");
       if (init_camera()) {
         digitalWrite(flashPin, HIGH);
@@ -560,31 +560,29 @@ void loop() {
               CHAT_ID, WiFi.SSID() + String(": ") + WiFi.localIP().toString());
         }
         for (uint8_t i = 0; i < 10; i++) {
-              photo_fb = esp_camera_fb_get();
-              if (raw_image == NULL) {
-                raw_image = (uint8_t*)ps_malloc(WIDTH * HEIGHT * 3);
-              }
-              fmt2rgb888(photo_fb->buf, photo_fb->len, photo_fb->format, raw_image);
+          photo_fb = esp_camera_fb_get();
+          if (raw_image == NULL) {
+            raw_image = (uint8_t*)ps_malloc(WIDTH * HEIGHT * 3);
+          }
+          fmt2rgb888(photo_fb->buf, photo_fb->len, photo_fb->format, raw_image);
           esp_camera_fb_return(photo_fb);
           photo_fb = NULL;
-              digitize(raw_image, digitized_image, &reader);
-              find_pointer(digitized_image, filtered_image, temp_image,
-                           &reader);
-			  if (reader.candidates == 4) {
-          bot.sendMessage(
-              CHAT_ID, String("Result: ")
-			  + reader.pointer[0].angle + String("/")
-			  + reader.pointer[1].angle + String("/")
-			  + reader.pointer[2].angle + String("/")
-			  + reader.pointer[3].angle
-			  );
-				  break;
-			  }
-	    }
+          digitize(raw_image, digitized_image, &reader);
+          find_pointer(digitized_image, filtered_image, temp_image, &reader);
+          if (reader.candidates == 4) {
+            bot.sendMessage(CHAT_ID, String("Result: ") +
+                                         reader.pointer[0].angle + String("/") +
+                                         reader.pointer[1].angle + String("/") +
+                                         reader.pointer[2].angle + String("/") +
+                                         reader.pointer[3].angle);
+            reader.candidates = 0;
+            break;
+          }
+        }
         digitalWrite(flashPin, LOW);
       }
       command = DEEPSLEEP;
-	  break;
+      break;
     case FLASH:
       digitalWrite(flashPin, !digitalRead(flashPin));
       command = IDLE;

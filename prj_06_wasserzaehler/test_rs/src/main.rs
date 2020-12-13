@@ -228,7 +228,9 @@ impl PointerShape {
 
 fn main() -> std::io::Result<()> {
     let pointer_shapes = PointerShape::make_pointer()?;
-    pointer_shapes.print_shapes();
+    if false {
+        pointer_shapes.print_shapes();
+    }
     pointer_shapes.generate_c()?;
 
     let mut digitized = vec![0u8; WIDTH * HEIGHT / 8];

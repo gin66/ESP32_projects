@@ -401,8 +401,7 @@ int16_t calc_match(const uint8_t *digitized, const struct pointer_s *px,
     }
   }
   int16_t res = 4 * in_ok_points - 2* out_wrong_points - in_miss_points;
-  printf("%d  inside shape: ok=%d/miss=%d  outside=%d => %d\n", angle,
-         in_ok_points, in_miss_points, out_wrong_points, res);
+  //printf("%d  inside shape: ok=%d/miss=%d  outside=%d => %d\n", angle, in_ok_points, in_miss_points, out_wrong_points, res);
   return res;
 }
 
@@ -418,7 +417,7 @@ void find_direction(const uint8_t *digitized, struct pointer_s *px,
     }
   }
   px->angle = best_angle * 18;
-  printf("%d\n", best_angle);
+  //printf("=> %d\n", best_angle);
 }
 
 void find_pointer(uint8_t *digitized, uint8_t *filtered, uint8_t *temp,

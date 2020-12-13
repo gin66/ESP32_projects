@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::BufReader;
 use std::io::BufWriter;
+use std::io::Write;
 use std::path::Path;
 
 const HEIGHT: usize = 296;
@@ -65,8 +66,8 @@ fn mark(image: &mut Vec<u8>, r: &Reader, ps: &PointerShape) {
             }
         }
 
-        for row in row_from-32..=row_to+32 {
-            for col in col_from-32..=col_to+32 {
+        for row in row_from - 32..=row_to + 32 {
+            for col in col_from - 32..=col_to + 32 {
                 let dr = row as i32 - row_center as i32;
                 let dc = col as i32 - col_center as i32;
 
@@ -84,7 +85,7 @@ fn mark(image: &mut Vec<u8>, r: &Reader, ps: &PointerShape) {
         image[ind + 2] = 0;
 
         // draw angle
-        let angle = r.pointer[i as usize].angle as f64/180.0*3.1415;
+        let angle = r.pointer[i as usize].angle as f64 / 180.0 * 3.1415;
         for radius in 0..20 {
             let dr = (radius as f64 * f64::sin(angle)).floor() as i16;
             let dc = (radius as f64 * f64::cos(angle)).floor() as i16;
@@ -96,8 +97,8 @@ fn mark(image: &mut Vec<u8>, r: &Reader, ps: &PointerShape) {
         }
 
         // draw pointer shape
-        let shape = &ps.shapes[r.pointer[i as usize].angle as usize/18];
-        for (y,x_min,x_max) in shape.iter() {
+        let shape = &ps.shapes[r.pointer[i as usize].angle as usize / 18];
+        for (y, x_min, x_max) in shape.iter() {
             let row = row_center + y;
 
             let col = col_center + x_min;
@@ -116,73 +117,119 @@ fn mark(image: &mut Vec<u8>, r: &Reader, ps: &PointerShape) {
 }
 
 struct PointerShape {
-    shapes: Vec<Vec<(i16,i16,i16)>>
+    shapes: Vec<Vec<(i16, i16, i16)>>,
 }
 
 impl PointerShape {
+    fn make_pointer() -> std::io::Result<PointerShape> {
+        let mut shapes = vec![];
+        for angle_i in 0..20 {
+            let mut x_min = vec![10000; 40];
+            let mut x_max = vec![-10000; 40];
 
-fn make_pointer() -> std::io::Result<PointerShape> {
-    let mut shapes = vec![];
-    for angle_i in 0..20 {
-        let mut x_min = vec![10000;40];
-        let mut x_max = vec![-10000;40];
+            let angle = angle_i as f64 / 10.0 * std::f64::consts::PI;
+            for radius_i in -120..150 {
+                let radius = radius_i as f64 / 10.0;
 
-        let angle = angle_i as f64/10.0*std::f64::consts::PI;
-        for radius_i in -120..150 {
-            let radius = radius_i as f64/10.0;
+                let half_width = if radius_i < 0 {
+                    8.0
+                } else {
+                    8.0 - radius / 2.0
+                };
 
-            let half_width = if radius_i < 0 { 
-                8.0
+                for w_i in -100..=100 {
+                    let w = w_i as f64 * half_width / 100.0;
+
+                    let r_y = (radius * angle.sin()).floor() as i16;
+                    let r_x = (radius * angle.cos()).floor() as i16;
+
+                    let y_1 = r_y - (w as f64 * f64::cos(angle)).floor() as i16;
+                    let x_1 = r_x + (w as f64 * f64::sin(angle)).floor() as i16;
+
+                    let y_2 = r_y + (w as f64 * f64::cos(angle)).floor() as i16;
+                    let x_2 = r_x - (w as f64 * f64::sin(angle)).floor() as i16;
+
+                    let yi_1 = (y_1 + 20) as usize;
+                    let yi_2 = (y_2 + 20) as usize;
+
+                    x_min[yi_1] = i16::min(x_min[yi_1], x_1);
+                    x_max[yi_1] = i16::max(x_max[yi_1], x_1);
+
+                    x_min[yi_2] = i16::min(x_min[yi_2], x_2);
+                    x_max[yi_2] = i16::max(x_max[yi_2], x_2);
+                }
             }
-            else {
-                8.0-radius/2.0
-            };
 
-            for w_i in -100..=100 {
-                let w = w_i as f64 * half_width / 100.0;
-
-                let r_y = (radius * angle.sin()).floor() as i16;
-                let r_x = (radius * angle.cos()).floor() as i16;
-
-                let y_1 = r_y - (w as f64 * f64::cos(angle)).floor() as i16;
-                let x_1 = r_x + (w as f64 * f64::sin(angle)).floor() as i16;
-
-                let y_2 = r_y + (w as f64 * f64::cos(angle)).floor() as i16;
-                let x_2 = r_x - (w as f64 * f64::sin(angle)).floor() as i16;
-
-                let yi_1 = (y_1 + 20) as usize;
-                let yi_2 = (y_2 + 20) as usize;
-
-                x_min[yi_1] = i16::min(x_min[yi_1], x_1);
-                x_max[yi_1] = i16::max(x_max[yi_1], x_1);
-
-                x_min[yi_2] = i16::min(x_min[yi_2], x_2);
-                x_max[yi_2] = i16::max(x_max[yi_2], x_2);
+            let mut shape = vec![];
+            for i in 0..40 {
+                if x_min[i] <= x_max[i] {
+                    shape.push((i as i16 - 20, x_min[i], x_max[i]));
+                }
             }
+            shapes.push(shape);
         }
-
-        let mut shape = vec![];
-        for i in 0..40 {
-            if x_min[i] <= x_max[i] {
-                shape.push((i as i16-20, x_min[i], x_max[i]));
-            }
-        }
-        shapes.push(shape);
+        Ok(PointerShape { shapes })
     }
-    Ok(PointerShape{ shapes })
-}
-fn print_shapes(&self) {
-    for (angle,shape) in self.shapes.iter().enumerate() {
-        for (y,x_min,x_max) in shape.iter() {
-                println!("{}: {}, {} {}",angle, y, x_min, x_max);
+    fn print_shapes(&self) {
+        for (angle, shape) in self.shapes.iter().enumerate() {
+            for (y, x_min, x_max) in shape.iter() {
+                println!("{}: {}, {} {}", angle, y, x_min, x_max);
+            }
         }
     }
-}
+    fn generate_c(&self) -> std::io::Result<()> {
+        let path = Path::new("../src/pointer_shape.h");
+        let file = File::create(path).unwrap();
+        let mut w = BufWriter::new(file);
+        writeln!(w, "{}", r#"#include <stdint.h>"#)?;
+        writeln!(w)?;
+        writeln!(w, "{}", r#"struct shape_s {"#)?;
+        writeln!(w, "{}", r#"   int16_t y_min; "#)?;
+        writeln!(w, "{}", r#"   int16_t y_max; "#)?;
+        writeln!(w, "{}", r#"   int16_t x_min[40]; "#)?;
+        writeln!(w, "{}", r#"   int16_t x_max[40]; "#)?;
+        writeln!(w, "{}", r#"};"#)?;
+        writeln!(w)?;
+        writeln!(w, "{}", r#"extern const struct shape_s shapes[20];"#)?;
+
+        let path = Path::new("../src/pointer_shape.cpp");
+        let file = File::create(path).unwrap();
+        let mut w = BufWriter::new(file);
+        writeln!(w, "{}", r#"#include "pointer_shape.h""#)?;
+        writeln!(w)?;
+        writeln!(w, "{}", r#"const struct shape_s shapes[20] = {"#)?;
+        for shape in self.shapes.iter() {
+            writeln!(w, "{}", r#"   {"#)?;
+            writeln!(w, r#"      .y_min = {},"#, shape[0].0)?;
+            writeln!(w, r#"      .y_max = {},"#, shape[shape.len()-1].0)?;
+            writeln!(w, "{}", r#"      .x_min = {"#)?;
+            for (_, x_min, _) in shape.iter() {
+                writeln!(w,"         {},", x_min)?;
+            }
+            for _ in shape.len()..40 {
+                writeln!(w,"         0,")?;
+            }
+            writeln!(w, "{}", r#"      },"#)?;
+            writeln!(w, "{}", r#"      .x_max = {"#)?;
+            for (_, _, x_max) in shape.iter() {
+                writeln!(w,"         {},", x_max)?;
+            }
+            for _ in shape.len()..40 {
+                writeln!(w,"         0,")?;
+            }
+            writeln!(w, "{}", r#"      },"#)?;
+            writeln!(w, "{}", r#"   },"#)?;
+        }
+        writeln!(w, "{}", r#"};"#)?;
+
+        Ok(())
+    }
 }
 
 fn main() -> std::io::Result<()> {
     let pointer_shapes = PointerShape::make_pointer()?;
     pointer_shapes.print_shapes();
+    pointer_shapes.generate_c()?;
 
     let mut digitized = vec![0u8; WIDTH * HEIGHT / 8];
     let mut temp = vec![0u8; WIDTH * HEIGHT / 8];

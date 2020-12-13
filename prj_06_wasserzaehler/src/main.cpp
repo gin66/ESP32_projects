@@ -282,12 +282,20 @@ void TaskWebSocket(void* pvParameters) {
       myObject["status"] = status;
       myObject["bootCount"] = bootCount;
 
-	  if (reader.candidates == 4) {
-		myObject["a1"] = reader.pointer[0].angle;
-		myObject["a2"] = reader.pointer[1].angle;
-		myObject["a3"] = reader.pointer[2].angle;
-		myObject["a4"] = reader.pointer[3].angle;
-	  }
+      if (reader.candidates == 4) {
+        myObject["a1"] = reader.pointer[0].angle;
+        myObject["a2"] = reader.pointer[1].angle;
+        myObject["a3"] = reader.pointer[2].angle;
+        myObject["a4"] = reader.pointer[3].angle;
+        myObject["x1"] = reader.pointer[0].col_center2/2;
+        myObject["x2"] = reader.pointer[1].col_center2/2;
+        myObject["x3"] = reader.pointer[2].col_center2/2;
+        myObject["x4"] = reader.pointer[3].col_center2/2;
+        myObject["y1"] = reader.pointer[0].row_center2/2;
+        myObject["y2"] = reader.pointer[1].row_center2/2;
+        myObject["y3"] = reader.pointer[2].row_center2/2;
+        myObject["y4"] = reader.pointer[3].row_center2/2;
+      }
 #define BUFLEN 4096
       char buffer[BUFLEN];
       /* size_t bx = */ serializeJson(myObject, &buffer, BUFLEN);

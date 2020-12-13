@@ -201,21 +201,21 @@ impl PointerShape {
         for shape in self.shapes.iter() {
             writeln!(w, "{}", r#"   {"#)?;
             writeln!(w, r#"      .y_min = {},"#, shape[0].0)?;
-            writeln!(w, r#"      .y_max = {},"#, shape[shape.len()-1].0)?;
+            writeln!(w, r#"      .y_max = {},"#, shape[shape.len() - 1].0)?;
             writeln!(w, "{}", r#"      .x_min = {"#)?;
             for (_, x_min, _) in shape.iter() {
-                writeln!(w,"         {},", x_min)?;
+                writeln!(w, "         {},", x_min)?;
             }
             for _ in shape.len()..40 {
-                writeln!(w,"         0,")?;
+                writeln!(w, "         0,")?;
             }
             writeln!(w, "{}", r#"      },"#)?;
             writeln!(w, "{}", r#"      .x_max = {"#)?;
             for (_, _, x_max) in shape.iter() {
-                writeln!(w,"         {},", x_max)?;
+                writeln!(w, "         {},", x_max)?;
             }
             for _ in shape.len()..40 {
-                writeln!(w,"         0,")?;
+                writeln!(w, "         0,")?;
             }
             writeln!(w, "{}", r#"      },"#)?;
             writeln!(w, "{}", r#"   },"#)?;

@@ -158,13 +158,13 @@ void find_candidates(uint8_t *bitimage, struct read_s *read) {
         px->row_to = row - 1;
         px->col_from = last_areas[last_i].from * 8;
         px->col_to = last_areas[last_i].to * 8 + 7;
-		px->row_center2 = px->row_from + px->row_to;
-		px->col_center2 = px->col_from + px->col_to;
-        //printf("found: height = %d\n", last_areas[last_i].cnt);
+        px->row_center2 = px->row_from + px->row_to;
+        px->col_center2 = px->col_from + px->col_to;
+        // printf("found: height = %d\n", last_areas[last_i].cnt);
         last_i++;
-		if (read->candidates == 6) {
-			return;
-		}
+        if (read->candidates == 6) {
+          return;
+        }
       } else /* area_new */ {
         new_areas[new_i++] = areas[curr_i++];
       }
@@ -177,243 +177,248 @@ void find_candidates(uint8_t *bitimage, struct read_s *read) {
 }
 
 void filter_by_geometry(struct read_s *read) {
-	// Here are 5 candidates !
-	//
-	// Find most distant candidates.
+  // Here are 5 candidates !
+  //
+  // Find most distant candidates.
 
-   int32_t max_dist = 0;
-   uint8_t c1 = 0;
-   uint8_t c4 = 0;
-   for (uint8_t i = 0;i < 4;i++) {
-	   int16_t r_i = read->pointer[i].row_center2;
-	   int16_t c_i = read->pointer[i].col_center2;
-	   for (uint8_t j = i+1;j < 5;j++) {
-		   int16_t r_j = read->pointer[j].row_center2;
-		   int16_t c_j = read->pointer[j].col_center2;
+  int32_t max_dist = 0;
+  uint8_t c1 = 0;
+  uint8_t c4 = 0;
+  for (uint8_t i = 0; i < 4; i++) {
+    int16_t r_i = read->pointer[i].row_center2;
+    int16_t c_i = read->pointer[i].col_center2;
+    for (uint8_t j = i + 1; j < 5; j++) {
+      int16_t r_j = read->pointer[j].row_center2;
+      int16_t c_j = read->pointer[j].col_center2;
 
-		   int16_t dr = r_i - r_j;
-		   int16_t dc = c_i - c_j;
+      int16_t dr = r_i - r_j;
+      int16_t dc = c_i - c_j;
 
-		   int32_t dr2 = dr;
-		   dr2 *= dr;
-		   int32_t dc4 = dc;
-		   dc4 *= dc;
+      int32_t dr2 = dr;
+      dr2 *= dr;
+      int32_t dc4 = dc;
+      dc4 *= dc;
 
-		   int32_t dist = dr2+dc4;
-		   if (dist > max_dist) {
-				max_dist = dist;
-				c1 = i;
-				c4 = j;
-		   }
-	   }
-   }
+      int32_t dist = dr2 + dc4;
+      if (dist > max_dist) {
+        max_dist = dist;
+        c1 = i;
+        c4 = j;
+      }
+    }
+  }
 
-   read->radius2 = max_dist/36/4;
+  read->radius2 = max_dist / 36 / 4;
 
-   int16_t dr_14 = (read->pointer[c4].row_center2 - read->pointer[c1].row_center2)/3;
-   int16_t dc_14 = (read->pointer[c4].col_center2 - read->pointer[c1].col_center2)/3;
+  int16_t dr_14 =
+      (read->pointer[c4].row_center2 - read->pointer[c1].row_center2) / 3;
+  int16_t dc_14 =
+      (read->pointer[c4].col_center2 - read->pointer[c1].col_center2) / 3;
 
-	// Find those two short distant candidates
-	// The approach is, that the line from the outter pointers is parallel to the line between inner pointers
-	// And that inner line is approx. 1/3 of the outter
-   int32_t min_dist = 0x7fffffff;
-   uint8_t c2 = 0;
-   uint8_t c3 = 0;
-   for (uint8_t i = 0;i < 5;i++) {
-	   if ((i == c1) || (i == c4)) {
-		   continue;
-	   }
-	   int16_t r_i = read->pointer[i].row_center2;
-	   int16_t c_i = read->pointer[i].col_center2;
-	   for (uint8_t j = 0;j < 5;j++) {
-		   if ((j == c1) || (j == c4) || (i == j)) {
-			   continue;
-		   }
-		   int16_t r_j = read->pointer[j].row_center2;
-		   int16_t c_j = read->pointer[j].col_center2;
+  // Find those two short distant candidates
+  // The approach is, that the line from the outter pointers is parallel to the
+  // line between inner pointers And that inner line is approx. 1/3 of the
+  // outter
+  int32_t min_dist = 0x7fffffff;
+  uint8_t c2 = 0;
+  uint8_t c3 = 0;
+  for (uint8_t i = 0; i < 5; i++) {
+    if ((i == c1) || (i == c4)) {
+      continue;
+    }
+    int16_t r_i = read->pointer[i].row_center2;
+    int16_t c_i = read->pointer[i].col_center2;
+    for (uint8_t j = 0; j < 5; j++) {
+      if ((j == c1) || (j == c4) || (i == j)) {
+        continue;
+      }
+      int16_t r_j = read->pointer[j].row_center2;
+      int16_t c_j = read->pointer[j].col_center2;
 
-		   int16_t dr = r_j - r_i - dr_14;
-		   int16_t dc = c_j - c_i - dc_14;
+      int16_t dr = r_j - r_i - dr_14;
+      int16_t dc = c_j - c_i - dc_14;
 
-		   int32_t dr2 = dr;
-		   dr2 *= dr;
-		   int32_t dc4 = dc;
-		   dc4 *= dc;
+      int32_t dr2 = dr;
+      dr2 *= dr;
+      int32_t dc4 = dc;
+      dc4 *= dc;
 
-		   int32_t dist = dr2+dc4;
-		   if (dist < min_dist) {
-				min_dist = dist;
-				c2 = i;
-				c3 = j;
-		   }
-	   }
-   }
+      int32_t dist = dr2 + dc4;
+      if (dist < min_dist) {
+        min_dist = dist;
+        c2 = i;
+        c3 = j;
+      }
+    }
+  }
 
-   // Check the distance of the remaining pointer to the outter.
-   // The lower distance indicates the 0.0001m³ pointer
-   for (uint8_t i = 0;i < 5;i++) {
-	   if ((i == c1) || (i == c2) || (i == c3) || (i == c4)) {
-		   continue;
-	   }
-	   // This should be triangle wheel
-	   int16_t r_i = read->pointer[i].row_center2;
-	   int16_t c_i = read->pointer[i].col_center2;
+  // Check the distance of the remaining pointer to the outter.
+  // The lower distance indicates the 0.0001m³ pointer
+  for (uint8_t i = 0; i < 5; i++) {
+    if ((i == c1) || (i == c2) || (i == c3) || (i == c4)) {
+      continue;
+    }
+    // This should be triangle wheel
+    int16_t r_i = read->pointer[i].row_center2;
+    int16_t c_i = read->pointer[i].col_center2;
 
-	   int16_t r_1 = read->pointer[c1].row_center2;
-	   int16_t c_1 = read->pointer[c1].col_center2;
-	   int16_t r_4 = read->pointer[c4].row_center2;
-	   int16_t c_4 = read->pointer[c4].col_center2;
+    int16_t r_1 = read->pointer[c1].row_center2;
+    int16_t c_1 = read->pointer[c1].col_center2;
+    int16_t r_4 = read->pointer[c4].row_center2;
+    int16_t c_4 = read->pointer[c4].col_center2;
 
-	   int16_t dr1 = r_1 - r_i;
-	   int16_t dc1 = c_1 - c_i;
-	   int16_t dr4 = r_4 - r_i;
-	   int16_t dc4 = c_4 - c_i;
+    int16_t dr1 = r_1 - r_i;
+    int16_t dc1 = c_1 - c_i;
+    int16_t dr4 = r_4 - r_i;
+    int16_t dc4 = c_4 - c_i;
 
-	   int32_t dr1_2 = dr1;
-	   dr1_2 *= dr1;
-	   int32_t dc1_2 = dc1;
-	   dc1_2 *= dc1;
-	   int32_t ds1_2 = dr1_2 + dc1_2;
+    int32_t dr1_2 = dr1;
+    dr1_2 *= dr1;
+    int32_t dc1_2 = dc1;
+    dc1_2 *= dc1;
+    int32_t ds1_2 = dr1_2 + dc1_2;
 
-	   int32_t dr4_2 = dr4;
-	   dr4_2 *= dr4;
-	   int32_t dc4_2 = dc4;
-	   dc4_2 *= dc4;
-	   int32_t ds4_2 = dr4_2 + dc4_2;
+    int32_t dr4_2 = dr4;
+    dr4_2 *= dr4;
+    int32_t dc4_2 = dc4;
+    dc4_2 *= dc4;
+    int32_t ds4_2 = dr4_2 + dc4_2;
 
-	   if (ds1_2 < ds4_2) {
-		   // c1 is the 0.0001m³ pointer. So swap
-		   uint8_t tmp = c_1;
-		   c4 = c1;
-		   c1 = tmp;
-		   tmp = c2;
-		   c2 = c3;
-		   c3 = tmp;
-	   }
+    if (ds1_2 < ds4_2) {
+      // c1 is the 0.0001m³ pointer. So swap
+      uint8_t tmp = c_1;
+      c4 = c1;
+      c1 = tmp;
+      tmp = c2;
+      c2 = c3;
+      c3 = tmp;
+    }
 
-	   // Now c1 is 0.1, c2 0.01, c3 0.001 and c4 0.0001
-   }
+    // Now c1 is 0.1, c2 0.01, c3 0.001 and c4 0.0001
+  }
 
-   struct pointer_s p_new[4];
-   p_new[0] = read->pointer[c1];
-   p_new[1] = read->pointer[c2];
-   p_new[2] = read->pointer[c3];
-   p_new[3] = read->pointer[c4];
+  struct pointer_s p_new[4];
+  p_new[0] = read->pointer[c1];
+  p_new[1] = read->pointer[c2];
+  p_new[2] = read->pointer[c3];
+  p_new[3] = read->pointer[c4];
 
-   read->pointer[0] = p_new[0];
-   read->pointer[1] = p_new[1];
-   read->pointer[2] = p_new[2];
-   read->pointer[3] = p_new[3];
-   read->candidates = 4;
+  read->pointer[0] = p_new[0];
+  read->pointer[1] = p_new[1];
+  read->pointer[2] = p_new[2];
+  read->pointer[3] = p_new[3];
+  read->candidates = 4;
 
-   //printf("%d %d %d %d\n",c1,c2,c3,c4);
+  // printf("%d %d %d %d\n",c1,c2,c3,c4);
 }
 
-void update_center(const uint8_t *digitized, struct pointer_s *px, int16_t radius2) {
-	int16_t row_center = px->row_center2/2;
-	int16_t col_center = px->col_center2/2;
+void update_center(const uint8_t *digitized, struct pointer_s *px,
+                   int16_t radius2) {
+  int16_t row_center = px->row_center2 / 2;
+  int16_t col_center = px->col_center2 / 2;
 
-	uint16_t points = 0;
-	int32_t r_sum = 0;
-	int32_t c_sum = 0;
-	for (int16_t dr = -100;dr < 100;dr++) {
-		int16_t drr = dr*dr;
-		if (drr > radius2) {
-			continue;
-		}
-		for (int16_t dc = -100;dc < 100;dc++) {
-			if (drr + dc * dc > radius2) {
-				continue;
-			}
+  uint16_t points = 0;
+  int32_t r_sum = 0;
+  int32_t c_sum = 0;
+  for (int16_t dr = -100; dr < 100; dr++) {
+    int16_t drr = dr * dr;
+    if (drr > radius2) {
+      continue;
+    }
+    for (int16_t dc = -100; dc < 100; dc++) {
+      if (drr + dc * dc > radius2) {
+        continue;
+      }
 
-			uint16_t row = row_center + dr;
-			uint16_t col = col_center + dc;
-			uint16_t index = row * WIDTH/8;
-			index += col >> 3;
-			uint8_t mask = 0x80 >> (col & 0x07);
+      uint16_t row = row_center + dr;
+      uint16_t col = col_center + dc;
+      uint16_t index = row * WIDTH / 8;
+      index += col >> 3;
+      uint8_t mask = 0x80 >> (col & 0x07);
 
-			if ((digitized[index] & mask) != 0) {
-				points++;
-				r_sum += dr;
-				c_sum += dc;
-			}
-		}
-	}
-	px->row_center2 += r_sum*2/points;
-	px->col_center2 += c_sum*2/points;
+      if ((digitized[index] & mask) != 0) {
+        points++;
+        r_sum += dr;
+        c_sum += dc;
+      }
+    }
+  }
+  px->row_center2 += r_sum * 2 / points;
+  px->col_center2 += c_sum * 2 / points;
 }
 
-int16_t calc_match(const uint8_t *digitized, const struct pointer_s *px, int16_t radius2, uint8_t angle) {
-	const struct shape_s *shape = &shapes[angle];
+int16_t calc_match(const uint8_t *digitized, const struct pointer_s *px,
+                   int16_t radius2, uint8_t angle) {
+  const struct shape_s *shape = &shapes[angle];
 
-	int16_t row_center = px->row_center2/2;
-	int16_t col_center = px->col_center2/2;
+  int16_t row_center = px->row_center2 / 2;
+  int16_t col_center = px->col_center2 / 2;
 
-	int16_t in_ok_points = 0;
-	int16_t in_miss_points = 0;
-	int16_t out_wrong_points = 0;
-	for (int16_t dr = -40;dr < 40;dr++) {
-		int16_t drr = dr*dr;
-		if (drr > radius2) {
-			continue;
-		}
-		for (int16_t dc = -40;dc < 40;dc++) {
-			int16_t dcc = dc*dc;
-			if (dcc > radius2) {
-				continue;
-			}
-			if (drr + dcc > radius2) {
-				continue;
-			}
+  int16_t in_ok_points = 0;
+  int16_t in_miss_points = 0;
+  int16_t out_wrong_points = 0;
+  for (int16_t dr = -40; dr < 40; dr++) {
+    int16_t drr = dr * dr;
+    if (drr > radius2) {
+      continue;
+    }
+    for (int16_t dc = -40; dc < 40; dc++) {
+      int16_t dcc = dc * dc;
+      if (dcc > radius2) {
+        continue;
+      }
+      if (drr + dcc > radius2) {
+        continue;
+      }
 
-			uint16_t row = row_center + dr;
-			uint16_t col = col_center + dc;
-			uint16_t index = row * WIDTH/8;
-			index += col >> 3;
-			uint8_t mask = 0x80 >> (col & 0x07);
+      uint16_t row = row_center + dr;
+      uint16_t col = col_center + dc;
+      uint16_t index = row * WIDTH / 8;
+      index += col >> 3;
+      uint8_t mask = 0x80 >> (col & 0x07);
 
-			uint8_t expect = 0;
-			if ((dr >= shape->y_min) && (dr <= shape->y_max)) {
-				int8_t j = dr - shape->y_min;
-				int16_t x_min = shape->x_min[j];
-				int16_t x_max = shape->x_max[j];
-				if ((dc >= x_min) && (dc <= x_max)) {
-					expect = 1;
-				}
-			}
+      uint8_t expect = 0;
+      if ((dr >= shape->y_min) && (dr <= shape->y_max)) {
+        int8_t j = dr - shape->y_min;
+        int16_t x_min = shape->x_min[j];
+        int16_t x_max = shape->x_max[j];
+        if ((dc >= x_min) && (dc <= x_max)) {
+          expect = 1;
+        }
+      }
 
-			if ((digitized[index] & mask) != 0) {
-				if (expect == 1) {
-					in_ok_points++;
-				}
-				else {
-					out_wrong_points++;
-				}
-			}
-			else {
-				if (expect == 1) {
-					in_miss_points++;
-				}
-			}
-		}
-	}
-	int16_t res = 2*in_ok_points + out_wrong_points - in_miss_points;
-	printf("%d  inside shape: ok=%d/miss=%d  outside=%d => %d\n",angle,in_ok_points,in_miss_points,out_wrong_points,res);
-	return res;
+      if ((digitized[index] & mask) != 0) {
+        if (expect == 1) {
+          in_ok_points++;
+        } else {
+          out_wrong_points++;
+        }
+      } else {
+        if (expect == 1) {
+          in_miss_points++;
+        }
+      }
+    }
+  }
+  int16_t res = 4 * in_ok_points - 2* out_wrong_points - in_miss_points;
+  printf("%d  inside shape: ok=%d/miss=%d  outside=%d => %d\n", angle,
+         in_ok_points, in_miss_points, out_wrong_points, res);
+  return res;
 }
 
-void find_direction(const uint8_t *digitized, struct pointer_s *px, int16_t radius2) {
-	uint8_t best_angle = 0;
-	int32_t max_mom = 0;
-	for (uint8_t angle = 0;angle < 20;angle++) {
-		int32_t mom = calc_match(digitized, px, radius2, angle);
-	   if (mom  > max_mom) {
-		   max_mom = mom;
-		   best_angle = angle;
-	   }	   
-	}
-	px->angle = best_angle * 18;
-	printf("%d\n",best_angle);
+void find_direction(const uint8_t *digitized, struct pointer_s *px,
+                    int16_t radius2) {
+  uint8_t best_angle = 0;
+  int32_t max_mom = 0;
+  for (uint8_t angle = 0; angle < 20; angle++) {
+    int32_t mom = calc_match(digitized, px, radius2, angle);
+    if (mom > max_mom) {
+      max_mom = mom;
+      best_angle = angle;
+    }
+  }
+  px->angle = best_angle * 18;
+  printf("%d\n", best_angle);
 }
 
 void find_pointer(uint8_t *digitized, uint8_t *filtered, uint8_t *temp,
@@ -425,18 +430,18 @@ void find_pointer(uint8_t *digitized, uint8_t *filtered, uint8_t *temp,
   find_candidates(filtered, read);
 
   if (read->candidates != 5) {
-	  read->candidates = 0;
-	  return;
+    read->candidates = 0;
+    return;
   }
   filter_by_geometry(read);
   if (read->candidates == 5) {
-	  read->candidates = 0;
-	  return;
+    read->candidates = 0;
+    return;
   }
 
-  for (uint8_t i = 0;i < 4;i++) {
-      struct pointer_s *px = &read->pointer[i];
-	  update_center(digitized, px, read->radius2);
-	  find_direction(digitized, px, read->radius2);
+  for (uint8_t i = 0; i < 4; i++) {
+    struct pointer_s *px = &read->pointer[i];
+    update_center(digitized, px, read->radius2);
+    find_direction(digitized, px, read->radius2);
   }
 }

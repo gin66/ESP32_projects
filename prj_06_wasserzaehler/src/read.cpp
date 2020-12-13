@@ -405,16 +405,16 @@ void check_direction(const uint8_t *digitized, struct pointer_s *px, int16_t rad
 	int16_t col_center = px->col_center2/2;
 
 	uint8_t ang_index = px->angle/18;
-	int16_t dx = x_sin[ang_index+0];
-	int16_t dy = y_cos[ang_index+0];
+	int16_t dx = x_sin[ang_index];
+	int16_t dy = y_cos[ang_index];
 
 	int16_t sym_points = 0;
-	for (int16_t dr = -100;dr < 100;dr++) {
+	for (int16_t dr = 0;dr < 100;dr++) {
 		int16_t drr = dr*dr;
 		if (drr > radius2) {
 			continue;
 		}
-		for (int16_t dc = 0;dc < 100;dc++) {
+		for (int16_t dc = -100;dc < 100;dc++) {
 			if (drr + dc * dc > radius2) {
 				continue;
 			}
@@ -422,8 +422,8 @@ void check_direction(const uint8_t *digitized, struct pointer_s *px, int16_t rad
 			uint16_t sym1_r = (dr * dx + dc * dy)>>4;
 			uint16_t sym1_c = (dr * dy - dc * dx)>>4;
 
-			uint16_t sym2_r = (dr * dx - dc * dy)>>4;
-			uint16_t sym2_c = (dr * dy + dc * dx)>>4;
+			uint16_t sym2_r = (-dr * dx + dc * dy)>>4;
+			uint16_t sym2_c = (-dr * dy - dc * dx)>>4;
 
 			uint16_t row1 = row_center + sym1_r;
 			uint16_t col1 = col_center + sym1_c;

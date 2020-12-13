@@ -41,7 +41,7 @@
 using namespace std;
 
 volatile bool status = false;
-volatile bool deepsleep = false;
+volatile bool deepsleep = true;
 
 RTC_DATA_ATTR uint16_t bootCount = 0;
 
@@ -51,7 +51,7 @@ extern const uint8_t server_index_html_start[] asm(
     "_binary_src_serverindex_html_start");
 
 WiFiClientSecure secured_client;
-UniversalTelegramBot bot(BOTtoken, secured_client);
+UniversalTelegramBot bot(wasserzaehler_BOTtoken, secured_client);
 
 uint8_t* raw_image = NULL;
 uint8_t digitized_image[WIDTH * HEIGHT / 8];
@@ -62,8 +62,9 @@ struct read_s reader;
 enum Command {
   IDLE,
   FLASH,
+  MEASURE,
   DEEPSLEEP,
-} command = IDLE;  // make a photo and go to sleep
+} command = MEASURE;  // make a photo and go to sleep
 
 WebSocketsServer webSocket = WebSocketsServer(81);
 
@@ -336,9 +337,9 @@ void handleNewMessages(int numNewMessages) {
       String welcome = "Welcome to Universal Arduino Telegram Bot library, " +
                        from_name + ".\n";
       welcome += "This is Chat Action Bot example.\n\n";
-      welcome += "/test : Show typing, then eply\n";
-      welcome += "/nosleep : Prevent deep slep\n";
-      welcome += "/allowsleep : Allow deep slep\n";
+      welcome += "/test : Show typing, then reply\n";
+      welcome += "/nosleep : Prevent deep sleep\n";
+      welcome += "/allowsleep : Allow deep sleep\n";
       bot.sendMessage(chat_id, welcome);
     }
   }
@@ -518,7 +519,7 @@ void loop() {
   }
   server.handleClient();
 
-  if (false && (millis() >= bot_lasttime)) {
+  if (millis() >= bot_lasttime) {
     // Perhaps reason for 50kBytes mem_free negative spikes
     int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
 
@@ -535,6 +536,55 @@ void loop() {
   switch (command) {
     case IDLE:
       break;
+	case MEASURE:
+      status = bot.sendMessage(CHAT_ID, "Camera capture");
+      if (init_camera()) {
+        digitalWrite(flashPin, HIGH);
+        for (uint8_t i = 0; i < 10; i++) {
+          // let the camera adjust
+          photo_fb = esp_camera_fb_get();
+          esp_camera_fb_return(photo_fb);
+          photo_fb = NULL;
+        }
+        photo_fb = esp_camera_fb_get();
+        if (!photo_fb) {
+          status = bot.sendMessage(CHAT_ID, "Camera capture failed");
+        } else {
+          dataBytesSent = 0;
+          status = bot.sendPhotoByBinary(CHAT_ID, "image/jpeg", photo_fb->len,
+                                         isMoreDataAvailable, nullptr,
+                                         getNextBuffer, getNextBufferLen);
+          esp_camera_fb_return(photo_fb);
+          photo_fb = NULL;
+          bot.sendMessage(
+              CHAT_ID, WiFi.SSID() + String(": ") + WiFi.localIP().toString());
+        }
+        for (uint8_t i = 0; i < 10; i++) {
+              photo_fb = esp_camera_fb_get();
+              if (raw_image == NULL) {
+                raw_image = (uint8_t*)ps_malloc(WIDTH * HEIGHT * 3);
+              }
+              fmt2rgb888(photo_fb->buf, photo_fb->len, photo_fb->format, raw_image);
+          esp_camera_fb_return(photo_fb);
+          photo_fb = NULL;
+              digitize(raw_image, digitized_image, &reader);
+              find_pointer(digitized_image, filtered_image, temp_image,
+                           &reader);
+			  if (reader.candidates == 4) {
+          bot.sendMessage(
+              CHAT_ID, String("Result: ")
+			  + reader.pointer[0].angle + String("/")
+			  + reader.pointer[1].angle + String("/")
+			  + reader.pointer[2].angle + String("/")
+			  + reader.pointer[3].angle
+			  );
+				  break;
+			  }
+	    }
+        digitalWrite(flashPin, LOW);
+      }
+      command = DEEPSLEEP;
+	  break;
     case FLASH:
       digitalWrite(flashPin, !digitalRead(flashPin));
       command = IDLE;
@@ -548,8 +598,8 @@ void loop() {
         pinMode(ledPin, INPUT_PULLUP);
         pinMode(flashPin, INPUT_PULLDOWN);
         tpl_camera_off();
-        // wake up every four hours
-        esp_sleep_enable_timer_wakeup(4LL * 3600LL * 1000000LL);
+        // wake up every ten minutes
+        esp_sleep_enable_timer_wakeup(600LL * 1000000LL);
         esp_deep_sleep_start();
       }
       command = IDLE;

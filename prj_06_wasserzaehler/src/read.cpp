@@ -310,6 +310,41 @@ void filter_by_geometry(struct read_s *read) {
    printf("%d %d %d %d\n",c1,c2,c3,c4);
 }
 
+void update_center(uint8_t *digitized, struct pointer_s *px, int16_t radius2) {
+	int16_t row_center = px->row_center2/2;
+	int16_t col_center = px->col_center2/2;
+
+	uint16_t points = 0;
+	int32_t r_sum = 0;
+	int32_t c_sum = 0;
+	for (int16_t dr = -100;dr < 100;dr++) {
+		int16_t drr = dr*dr;
+		if (drr > radius2) {
+			continue;
+		}
+		for (int16_t dc = -100;dc < 100;dc++) {
+			if (drr + dc * dc > radius2) {
+				continue;
+			}
+
+			uint16_t row = row_center + dr;
+			uint16_t col = col_center + dc;
+			uint16_t index = row * WIDTH/8;
+			index += col >> 3;
+			uint8_t mask = 0x80 >> (col & 0x07);
+
+			if ((digitized[index] & mask) != 0) {
+				points++;
+				r_sum += dr;
+				c_sum += dc;
+			}
+		}
+	}
+	px->row_center2 += r_sum*2/points;
+	px->col_center2 += c_sum*2/points;
+	printf("%d %d %d\n",points,r_sum/points,c_sum/points);
+}
+
 void find_pointer(uint8_t *digitized, uint8_t *filtered, uint8_t *temp,
                   struct read_s *read) {
   filter(digitized, filtered);
@@ -330,5 +365,6 @@ void find_pointer(uint8_t *digitized, uint8_t *filtered, uint8_t *temp,
 
   for (uint8_t i = 0;i < 4;i++) {
       struct pointer_s *px = &read->pointer[i];
+	  update_center(digitized, px, read->radius2);
   }
 }

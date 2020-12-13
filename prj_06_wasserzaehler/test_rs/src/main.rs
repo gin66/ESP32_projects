@@ -54,6 +54,8 @@ fn mark(image: &mut Vec<u8>, r: &Reader) {
         let col_from = r.pointer[i as usize].col_from;
         let row_to = r.pointer[i as usize].row_to;
         let col_to = r.pointer[i as usize].col_to;
+        let row_center = r.pointer[i as usize].row_center2 / 2;
+        let col_center = r.pointer[i as usize].col_center2 / 2;
 
         for row in row_from..=row_to {
             for col in col_from..=col_to {
@@ -65,8 +67,8 @@ fn mark(image: &mut Vec<u8>, r: &Reader) {
 
         for row in row_from-32..=row_to+32 {
             for col in col_from-32..=col_to+32 {
-                let dr = row as i32 - r.pointer[i as usize].row_center2 as i32/2;
-                let dc = col as i32 - r.pointer[i as usize].col_center2 as i32/2;
+                let dr = row as i32 - row_center as i32;
+                let dc = col as i32 - col_center as i32;
 
                 if dr * dr + dc * dc <= r.radius2 as i32 {
                     let i = (row as usize * WIDTH + col as usize) * 3;
@@ -75,6 +77,11 @@ fn mark(image: &mut Vec<u8>, r: &Reader) {
                 }
             }
         }
+
+        let i = (row_center as usize * WIDTH + col_center as usize) * 3;
+        image[i] = 0;
+        image[i + 1] = 0;
+        image[i + 2] = 0;
     }
 }
 

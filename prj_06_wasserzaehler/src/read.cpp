@@ -3,6 +3,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "pointer_shape.h"
+
 void digitize(const uint8_t *bgr_888, uint8_t *digitized, struct read_s *read) {
   uint8_t *out = digitized;
   for (uint32_t i = WIDTH * HEIGHT; i > 0; i -= 8) {
@@ -341,25 +343,21 @@ void update_center(const uint8_t *digitized, struct pointer_s *px, int16_t radiu
 	px->col_center2 += c_sum*2/points;
 }
 
-static const int16_t x_sin[20] = {
-0, 20, 38, 52, 61, 64, 61, 52, 38, 20, 0, -20, -38, -52, -61, -64, -61, -52, -38, -20};
-static const int16_t y_cos[20] = {
-64, 61, 52, 38, 20, 0, -20, -38, -52, -61, -64, -61, -52, -38, -20, 0, 20, 38, 52, 61};
+int16_t calc_match(const uint8_t *digitized, const struct pointer_s *px, int16_t radius2, uint8_t angle) {
+	const struct shape_s *shape = &shapes[angle];
 
-uint16_t calc_symmetry(const uint8_t *digitized, const struct pointer_s *px, int16_t radius2, uint8_t angle) {
 	int16_t row_center = px->row_center2/2;
 	int16_t col_center = px->col_center2/2;
 
-	int16_t dx = x_sin[angle];
-	int16_t dy = y_cos[angle];
-
-	int16_t sym_points = 0;
-	for (int16_t dr = -100;dr < 100;dr++) {
+	int16_t in_ok_points = 0;
+	int16_t in_miss_points = 0;
+	int16_t out_wrong_points = 0;
+	for (int16_t dr = -40;dr < 40;dr++) {
 		int16_t drr = dr*dr;
 		if (drr > radius2) {
 			continue;
 		}
-		for (int16_t dc = 0;dc < 100;dc++) {
+		for (int16_t dc = -40;dc < 40;dc++) {
 			int16_t dcc = dc*dc;
 			if (dcc > radius2) {
 				continue;
@@ -368,116 +366,54 @@ uint16_t calc_symmetry(const uint8_t *digitized, const struct pointer_s *px, int
 				continue;
 			}
 
-			uint16_t sym1_r = (dr * dx + dc * dy)>>6;
-			uint16_t sym1_c = (dr * dy - dc * dx)>>6;
+			uint16_t row = row_center + dr;
+			uint16_t col = col_center + dc;
+			uint16_t index = row * WIDTH/8;
+			index += col >> 3;
+			uint8_t mask = 0x80 >> (col & 0x07);
 
-			uint16_t sym2_r = (dr * dx - dc * dy)>>6;
-			uint16_t sym2_c = (dr * dy + dc * dx)>>6;
+			uint8_t expect = 0;
+			if ((dr >= shape->y_min) && (dr <= shape->y_max)) {
+				int8_t j = dr - shape->y_min;
+				int16_t x_min = shape->x_min[j];
+				int16_t x_max = shape->x_max[j];
+				if ((dc >= x_min) && (dc <= x_max)) {
+					expect = 1;
+				}
+			}
 
-			uint16_t row1 = row_center + sym1_r;
-			uint16_t col1 = col_center + sym1_c;
-			uint16_t index1 = row1 * WIDTH/8;
-			index1 += col1 >> 3;
-			uint8_t mask1 = 0x80 >> (col1 & 0x07);
-
-			uint16_t row2 = row_center + sym2_r;
-			uint16_t col2 = col_center + sym2_c;
-			uint16_t index2 = row2 * WIDTH/8;
-			index2 += col2 >> 3;
-			uint8_t mask2 = 0x80 >> (col2 & 0x07);
-
-			if ((digitized[index1] & mask1) != 0) {
-				if ((digitized[index2] & mask2) != 0) {
-					sym_points+=3;
+			if ((digitized[index] & mask) != 0) {
+				if (expect == 1) {
+					in_ok_points++;
 				}
 				else {
-					sym_points--;
+					out_wrong_points++;
 				}
 			}
 			else {
-				if ((digitized[index2] & mask2) != 0) {
-					sym_points--;
+				if (expect == 1) {
+					in_miss_points++;
 				}
 			}
 		}
 	}
-	printf("%d %d\n",angle,sym_points);
-	return sym_points;
-}
-
-void check_direction(const uint8_t *digitized, struct pointer_s *px, int16_t radius2) {
-	int16_t row_center = px->row_center2/2;
-	int16_t col_center = px->col_center2/2;
-
-	uint8_t ang_index = px->angle/18;
-	int16_t dx = x_sin[ang_index];
-	int16_t dy = y_cos[ang_index];
-
-	int16_t sym_points = 0;
-	for (int16_t dr = 0;dr < 100;dr++) {
-		int16_t drr = dr*dr;
-		if (drr > radius2) {
-			continue;
-		}
-		for (int16_t dc = -100;dc < 100;dc++) {
-			int16_t dcc = dc*dc;
-			if (dcc > radius2) {
-				continue;
-			}
-			if (drr + dcc > radius2) {
-				continue;
-			}
-
-			uint16_t sym1_r = (dr * dx + dc * dy)>>6;
-			uint16_t sym1_c = (dr * dy - dc * dx)>>6;
-
-			uint16_t sym2_r = (-dr * dx + dc * dy)>>6;
-			uint16_t sym2_c = (-dr * dy - dc * dx)>>6;
-
-			uint16_t row1 = row_center + sym1_r;
-			uint16_t col1 = col_center + sym1_c;
-			uint16_t index1 = row1 * WIDTH/8;
-			index1 += col1 >> 3;
-			uint8_t mask1 = 0x80 >> (col1 & 0x07);
-
-			uint16_t row2 = row_center + sym2_r;
-			uint16_t col2 = col_center + sym2_c;
-			uint16_t index2 = row2 * WIDTH/8;
-			index2 += col2 >> 3;
-			uint8_t mask2 = 0x80 >> (col2 & 0x07);
-
-			if ((digitized[index1] & mask1) != 0) {
-				if ((digitized[index2] & mask2) == 0) {
-					sym_points+= 1;
-				}
-			}
-			else {
-				if ((digitized[index2] & mask2) != 0) {
-					sym_points-=1;
-				}
-			}
-		}
-	}
-	if (sym_points > 0) {
-		px->angle += 180;
-	}
-	//printf("%d %d\n",angle,sym_points);
+	int16_t res = 2*in_ok_points + out_wrong_points - in_miss_points;
+	printf("%d  inside shape: ok=%d/miss=%d  outside=%d => %d\n",angle,in_ok_points,in_miss_points,out_wrong_points,res);
+	return res;
 }
 
 void find_direction(const uint8_t *digitized, struct pointer_s *px, int16_t radius2) {
 	uint8_t best_angle = 0;
-	uint32_t max_mom = 0;
-	for (uint8_t angle = 0;angle < 10;angle++) {
-		uint32_t mom = calc_symmetry(digitized, px, radius2, angle);
+	int32_t max_mom = 0;
+	for (uint8_t angle = 0;angle < 20;angle++) {
+		int32_t mom = calc_match(digitized, px, radius2, angle);
 	   if (mom  > max_mom) {
 		   max_mom = mom;
 		   best_angle = angle;
 	   }	   
 	}
 	px->angle = best_angle * 18;
-	//printf("%d\n",best_angle);
-	//
-	check_direction(digitized, px, radius2);
+	printf("%d\n",best_angle);
 }
 
 void find_pointer(uint8_t *digitized, uint8_t *filtered, uint8_t *temp,

@@ -206,9 +206,10 @@ void filter_by_geometry(struct read_s *read) {
 	   }
    }
 
+   read->radius2 = max_dist/36/4;
+
    int16_t dr_14 = (read->pointer[c4].row_center2 - read->pointer[c1].row_center2)/3;
    int16_t dc_14 = (read->pointer[c4].col_center2 - read->pointer[c1].col_center2)/3;
-
 
 	// Find those two short distant candidates
 	// The approach is, that the line from the outter pointers is parallel to the line between inner pointers
@@ -245,8 +246,6 @@ void filter_by_geometry(struct read_s *read) {
 		   }
 	   }
    }
-
-   read->radius2 = min_dist*2;
 
    // Check the distance of the remaining pointer to the outter.
    // The lower distance indicates the 0.0001m³ pointer
@@ -342,8 +341,10 @@ void update_center(const uint8_t *digitized, struct pointer_s *px, int16_t radiu
 	px->col_center2 += c_sum*2/points;
 }
 
-static const int16_t x_sin[20] = {0, 4, 9, 12, 15, 16, 15, 12, 9, 4, 0, -4, -9, -12, -15, -16, -15, -12, -9, -4};
-static const int16_t y_cos[20] = {16, 15, 12, 9, 4, 0, -4, -9, -12, -15, -16, -15, -12, -9, -4, 0, 4, 9, 12, 15};
+static const int16_t x_sin[20] = {
+0, 20, 38, 52, 61, 64, 61, 52, 38, 20, 0, -20, -38, -52, -61, -64, -61, -52, -38, -20};
+static const int16_t y_cos[20] = {
+64, 61, 52, 38, 20, 0, -20, -38, -52, -61, -64, -61, -52, -38, -20, 0, 20, 38, 52, 61};
 
 uint16_t calc_symmetry(const uint8_t *digitized, const struct pointer_s *px, int16_t radius2, uint8_t angle) {
 	int16_t row_center = px->row_center2/2;
@@ -359,15 +360,19 @@ uint16_t calc_symmetry(const uint8_t *digitized, const struct pointer_s *px, int
 			continue;
 		}
 		for (int16_t dc = 0;dc < 100;dc++) {
-			if (drr + dc * dc > radius2) {
+			int16_t dcc = dc*dc;
+			if (dcc > radius2) {
+				continue;
+			}
+			if (drr + dcc > radius2) {
 				continue;
 			}
 
-			uint16_t sym1_r = (dr * dx + dc * dy)>>4;
-			uint16_t sym1_c = (dr * dy - dc * dx)>>4;
+			uint16_t sym1_r = (dr * dx + dc * dy)>>6;
+			uint16_t sym1_c = (dr * dy - dc * dx)>>6;
 
-			uint16_t sym2_r = (dr * dx - dc * dy)>>4;
-			uint16_t sym2_c = (dr * dy + dc * dx)>>4;
+			uint16_t sym2_r = (dr * dx - dc * dy)>>6;
+			uint16_t sym2_c = (dr * dy + dc * dx)>>6;
 
 			uint16_t row1 = row_center + sym1_r;
 			uint16_t col1 = col_center + sym1_c;
@@ -383,7 +388,7 @@ uint16_t calc_symmetry(const uint8_t *digitized, const struct pointer_s *px, int
 
 			if ((digitized[index1] & mask1) != 0) {
 				if ((digitized[index2] & mask2) != 0) {
-					sym_points+=2;
+					sym_points+=3;
 				}
 				else {
 					sym_points--;
@@ -396,7 +401,7 @@ uint16_t calc_symmetry(const uint8_t *digitized, const struct pointer_s *px, int
 			}
 		}
 	}
-	//printf("%d %d\n",angle,sym_points);
+	printf("%d %d\n",angle,sym_points);
 	return sym_points;
 }
 
@@ -415,15 +420,19 @@ void check_direction(const uint8_t *digitized, struct pointer_s *px, int16_t rad
 			continue;
 		}
 		for (int16_t dc = -100;dc < 100;dc++) {
-			if (drr + dc * dc > radius2) {
+			int16_t dcc = dc*dc;
+			if (dcc > radius2) {
+				continue;
+			}
+			if (drr + dcc > radius2) {
 				continue;
 			}
 
-			uint16_t sym1_r = (dr * dx + dc * dy)>>4;
-			uint16_t sym1_c = (dr * dy - dc * dx)>>4;
+			uint16_t sym1_r = (dr * dx + dc * dy)>>6;
+			uint16_t sym1_c = (dr * dy - dc * dx)>>6;
 
-			uint16_t sym2_r = (-dr * dx + dc * dy)>>4;
-			uint16_t sym2_c = (-dr * dy - dc * dx)>>4;
+			uint16_t sym2_r = (-dr * dx + dc * dy)>>6;
+			uint16_t sym2_c = (-dr * dy - dc * dx)>>6;
 
 			uint16_t row1 = row_center + sym1_r;
 			uint16_t col1 = col_center + sym1_c;
@@ -439,17 +448,17 @@ void check_direction(const uint8_t *digitized, struct pointer_s *px, int16_t rad
 
 			if ((digitized[index1] & mask1) != 0) {
 				if ((digitized[index2] & mask2) == 0) {
-					sym_points+= drr;
+					sym_points+= 1;
 				}
 			}
 			else {
 				if ((digitized[index2] & mask2) != 0) {
-					sym_points-=drr;
+					sym_points-=1;
 				}
 			}
 		}
 	}
-	if (sym_points < 0) {
+	if (sym_points > 0) {
 		px->angle += 180;
 	}
 	//printf("%d %d\n",angle,sym_points);

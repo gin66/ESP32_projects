@@ -57,6 +57,7 @@ uint8_t* raw_image = NULL;
 uint8_t digitized_image[WIDTH * HEIGHT / 8];
 uint8_t filtered_image[WIDTH * HEIGHT / 8];
 uint8_t temp_image[WIDTH * HEIGHT / 8];
+struct read_s reader;
 
 enum Command {
   IDLE,
@@ -208,7 +209,6 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
               webSocket.broadcastBIN(fb->buf, fb->len);
               esp_camera_fb_return(fb);
             } else if ((fb->format == PIXFORMAT_JPEG) && !raw) {
-              struct read_s reader;
               if (raw_image == NULL) {
                 raw_image = (uint8_t*)ps_malloc(WIDTH * HEIGHT * 3);
               }
@@ -281,6 +281,13 @@ void TaskWebSocket(void* pvParameters) {
 
       myObject["status"] = status;
       myObject["bootCount"] = bootCount;
+
+	  if (reader.candidates == 4) {
+		myObject["a1"] = reader.pointer[0].angle;
+		myObject["a2"] = reader.pointer[1].angle;
+		myObject["a3"] = reader.pointer[2].angle;
+		myObject["a4"] = reader.pointer[3].angle;
+	  }
 #define BUFLEN 4096
       char buffer[BUFLEN];
       /* size_t bx = */ serializeJson(myObject, &buffer, BUFLEN);

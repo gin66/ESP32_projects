@@ -136,7 +136,8 @@ fn main() -> std::io::Result<()> {
     encoder.set_color(png::ColorType::RGB);
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header()?;
-    let data = bits_to_rgb888(&digitized);
+    let mut data = bits_to_rgb888(&digitized);
+    mark(&mut data, &r);
     writer.write_image_data(&data)?; // Save
 
     let path = Path::new("image_filtered.png");

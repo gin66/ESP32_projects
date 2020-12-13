@@ -15,15 +15,15 @@ struct Pointer {
     col_from: i16,
     col_to: i16,
     col_center2: i16,
+    angle: u16,
 }
 
 #[repr(C)]
 #[derive(Debug, Default)]
 struct Reader {
-    is_ok: u8,
     candidates: u8,
     radius2: i16,
-    pointer: [Pointer; 10],
+    pointer: [Pointer; 6],
 }
 
 extern "C" {
@@ -59,9 +59,9 @@ fn mark(image: &mut Vec<u8>, r: &Reader) {
 
         for row in row_from..=row_to {
             for col in col_from..=col_to {
-                let i = (row as usize * WIDTH + col as usize) * 3;
-                image[i + 1] = 255;
-                image[i + 2] = 0;
+                let ind = (row as usize * WIDTH + col as usize) * 3;
+                image[ind + 1] = 255;
+                image[ind + 2] = 0;
             }
         }
 
@@ -71,17 +71,29 @@ fn mark(image: &mut Vec<u8>, r: &Reader) {
                 let dc = col as i32 - col_center as i32;
 
                 if dr * dr + dc * dc <= r.radius2 as i32 {
-                    let i = (row as usize * WIDTH + col as usize) * 3;
-                    image[i + 1] = 255;
-                    image[i + 2] = 255;
+                    let ind = (row as usize * WIDTH + col as usize) * 3;
+                    image[ind + 1] = 255;
+                    image[ind + 2] = 255;
                 }
             }
         }
 
-        let i = (row_center as usize * WIDTH + col_center as usize) * 3;
-        image[i] = 0;
-        image[i + 1] = 0;
-        image[i + 2] = 0;
+        let ind = (row_center as usize * WIDTH + col_center as usize) * 3;
+        image[ind] = 0;
+        image[ind + 1] = 0;
+        image[ind + 2] = 0;
+
+        // draw angle
+        let angle = r.pointer[i as usize].angle as f64/180.0*3.1415;
+        for radius in 0..20 {
+            let dr = (radius as f64 * f64::sin(angle)).floor() as i16;
+            let dc = (radius as f64 * f64::cos(angle)).floor() as i16;
+            let row = row_center + dr;
+            let col = col_center + dc;
+            let ind = (row as usize * WIDTH + col as usize) * 3;
+            image[ind + 1] = 0;
+            image[ind + 2] = 255;
+        }
     }
 }
 

@@ -9,10 +9,12 @@ const WIDTH: usize = 400;
 #[repr(C)]
 #[derive(Debug, Default)]
 struct Pointer {
-    row_from: u16,
-    row_to: u16,
-    col_from: u16,
-    col_to: u16,
+    row_from: i16,
+    row_to: i16,
+    row_center2: i16,
+    col_from: i16,
+    col_to: i16,
+    col_center2: i16,
 }
 
 #[repr(C)]

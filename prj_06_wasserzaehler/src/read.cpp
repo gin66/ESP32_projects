@@ -79,7 +79,8 @@ static void filter(uint8_t *digitized, uint8_t *filtered) {
 uint8_t min(uint8_t a, uint8_t b) { return (a > b) ? b : a; }
 uint8_t max(uint8_t a, uint8_t b) { return (a > b) ? a : b; }
 
-int8_t find_filled_bytes(uint8_t *bitimage, struct read_s *read) {
+void find_candidates(uint8_t *bitimage, struct read_s *read) {
+  read->candidates = 0;
   uint8_t *p = bitimage;
 
   uint8_t last_row_areas = 0;
@@ -109,7 +110,7 @@ int8_t find_filled_bytes(uint8_t *bitimage, struct read_s *read) {
         }
       }
       if (this_row_cnt == 5) {
-        return -1;
+        return;
       }
     }
 
@@ -157,8 +158,13 @@ int8_t find_filled_bytes(uint8_t *bitimage, struct read_s *read) {
         px->row_to = row - 1;
         px->col_from = last_areas[last_i].from * 8;
         px->col_to = last_areas[last_i].to * 8 + 7;
+		px->row_center2 = px->row_from + px->row_to;
+		px->col_center2 = px->col_from + px->col_to;
         printf("found: height = %d\n", last_areas[last_i].cnt);
         last_i++;
+		if (read->candidates == 6) {
+			return;
+		}
       } else /* area_new */ {
         new_areas[new_i++] = areas[curr_i++];
       }
@@ -168,7 +174,138 @@ int8_t find_filled_bytes(uint8_t *bitimage, struct read_s *read) {
       last_areas[last_row_areas] = new_areas[last_row_areas];
     }
   }
-  return 0;
+}
+
+void filter_by_geometry(struct read_s *read) {
+	// Here are 5 candidates !
+	//
+	// Find most distant candidates.
+
+   int32_t max_dist = 0;
+   uint8_t c1 = 0;
+   uint8_t c4 = 0;
+   for (uint8_t i = 0;i < 4;i++) {
+	   int16_t r_i = read->pointer[i].row_center2;
+	   int16_t c_i = read->pointer[i].col_center2;
+	   for (uint8_t j = i+1;j < 5;j++) {
+		   int16_t r_j = read->pointer[j].row_center2;
+		   int16_t c_j = read->pointer[j].col_center2;
+
+		   int16_t dr = r_i - r_j;
+		   int16_t dc = c_i - c_j;
+
+		   int32_t dr2 = dr;
+		   dr2 *= dr;
+		   int32_t dc4 = dc;
+		   dc4 *= dc;
+
+		   int32_t dist = dr2+dc4;
+		   if (dist > max_dist) {
+				max_dist = dist;
+				c1 = i;
+				c4 = j;
+		   }
+	   }
+   }
+
+   int16_t dr_14 = (read->pointer[c4].row_center2 - read->pointer[c1].row_center2)/3;
+   int16_t dc_14 = (read->pointer[c4].col_center2 - read->pointer[c1].col_center2)/3;
+
+
+	// Find those two short distant candidates
+	// The approach is, that the line from the outter pointers is parallel to the line between inner pointers
+	// And that inner line is approx. 1/3 of the outter
+   int32_t min_dist = 0x7fffffff;
+   uint8_t c2 = 0;
+   uint8_t c3 = 0;
+   for (uint8_t i = 0;i < 5;i++) {
+	   if ((i == c1) || (i == c4)) {
+		   continue;
+	   }
+	   int16_t r_i = read->pointer[i].row_center2;
+	   int16_t c_i = read->pointer[i].col_center2;
+	   for (uint8_t j = 0;j < 5;j++) {
+		   if ((j == c1) || (j == c4) || (i == j)) {
+			   continue;
+		   }
+		   int16_t r_j = read->pointer[j].row_center2;
+		   int16_t c_j = read->pointer[j].col_center2;
+
+		   int16_t dr = r_j - r_i - dr_14;
+		   int16_t dc = c_j - c_i - dc_14;
+
+		   int32_t dr2 = dr;
+		   dr2 *= dr;
+		   int32_t dc4 = dc;
+		   dc4 *= dc;
+
+		   int32_t dist = dr2+dc4;
+		   if (dist < min_dist) {
+				min_dist = dist;
+				c2 = i;
+				c3 = j;
+		   }
+	   }
+   }
+
+   // Check the distance of the remaining pointer to the outter.
+   // The lower distance indicates the 0.0001m³ pointer
+   for (uint8_t i = 0;i < 5;i++) {
+	   if ((i == c1) || (i == c2) || (i == c3) || (i == c4)) {
+		   continue;
+	   }
+	   // This should be triangle wheel
+	   int16_t r_i = read->pointer[i].row_center2;
+	   int16_t c_i = read->pointer[i].col_center2;
+
+	   int16_t r_1 = read->pointer[c1].row_center2;
+	   int16_t c_1 = read->pointer[c1].col_center2;
+	   int16_t r_4 = read->pointer[c4].row_center2;
+	   int16_t c_4 = read->pointer[c4].col_center2;
+
+	   int16_t dr1 = r_1 - r_i;
+	   int16_t dc1 = c_1 - c_i;
+	   int16_t dr4 = r_4 - r_i;
+	   int16_t dc4 = c_4 - c_i;
+
+	   int32_t dr1_2 = dr1;
+	   dr1_2 *= dr1;
+	   int32_t dc1_2 = dc1;
+	   dc1_2 *= dc1;
+	   int32_t ds1_2 = dr1_2 + dc1_2;
+
+	   int32_t dr4_2 = dr4;
+	   dr4_2 *= dr4;
+	   int32_t dc4_2 = dc4;
+	   dc4_2 *= dc4;
+	   int32_t ds4_2 = dr4_2 + dc4_2;
+
+	   if (ds1_2 < ds4_2) {
+		   // c1 is the 0.0001m³ pointer. So swap
+		   uint8_t tmp = c_1;
+		   c4 = c1;
+		   c1 = tmp;
+		   tmp = c2;
+		   c2 = c3;
+		   c3 = tmp;
+	   }
+
+	   // Now c1 is 0.1, c2 0.01, c3 0.001 and c4 0.0001
+   }
+
+   struct pointer_s p_new[4];
+   p_new[0] = read->pointer[c1];
+   p_new[1] = read->pointer[c2];
+   p_new[2] = read->pointer[c3];
+   p_new[3] = read->pointer[c4];
+
+   read->pointer[0] = p_new[0];
+   read->pointer[1] = p_new[1];
+   read->pointer[2] = p_new[2];
+   read->pointer[3] = p_new[3];
+   read->candidates = 4;
+
+   printf("%d %d %d %d\n",c1,c2,c3,c4);
 }
 
 void find_pointer(uint8_t *digitized, uint8_t *filtered, uint8_t *temp,
@@ -177,5 +314,15 @@ void find_pointer(uint8_t *digitized, uint8_t *filtered, uint8_t *temp,
   filter(filtered, temp);
   filter(temp, filtered);
 
-  find_filled_bytes(filtered, read);
+  find_candidates(filtered, read);
+
+  if (read->candidates != 5) {
+	  read->candidates = 0;
+	  return;
+  }
+  filter_by_geometry(read);
+  if (read->candidates == 5) {
+	  read->candidates = 0;
+	  return;
+  }
 }

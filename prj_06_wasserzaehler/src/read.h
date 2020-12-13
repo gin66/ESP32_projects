@@ -4,13 +4,13 @@
 #include <stdint.h>
 
 struct pointer_s {
-  uint16_t row_from, row_to;
-  uint16_t col_from, col_to;
+  int16_t row_from, row_to, row_center2;
+  int16_t col_from, col_to, col_center2;
 };
 struct read_s {
   uint8_t ok;
   uint8_t candidates;
-  struct pointer_s pointer[10];
+  struct pointer_s pointer[6];
 };
 
 void digitize(const uint8_t *bgr_888, uint8_t *digitized, struct read_s *read);

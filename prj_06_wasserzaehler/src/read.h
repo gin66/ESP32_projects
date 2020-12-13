@@ -10,6 +10,7 @@ struct pointer_s {
 struct read_s {
   uint8_t ok;
   uint8_t candidates;
+  uint16_t radius2;
   struct pointer_s pointer[6];
 };
 

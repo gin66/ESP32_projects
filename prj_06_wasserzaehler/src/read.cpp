@@ -248,6 +248,8 @@ void filter_by_geometry(struct read_s *read) {
 	   }
    }
 
+   read->radius2 = min_dist*2;
+
    // Check the distance of the remaining pointer to the outter.
    // The lower distance indicates the 0.0001m³ pointer
    for (uint8_t i = 0;i < 5;i++) {
@@ -324,5 +326,9 @@ void find_pointer(uint8_t *digitized, uint8_t *filtered, uint8_t *temp,
   if (read->candidates == 5) {
 	  read->candidates = 0;
 	  return;
+  }
+
+  for (uint8_t i = 0;i < 4;i++) {
+      struct pointer_s *px = &read->pointer[i];
   }
 }

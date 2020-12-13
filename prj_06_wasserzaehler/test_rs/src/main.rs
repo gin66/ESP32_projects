@@ -22,6 +22,7 @@ struct Pointer {
 struct Reader {
     is_ok: u8,
     candidates: u8,
+    radius2: i16,
     pointer: [Pointer; 10],
 }
 
@@ -58,7 +59,20 @@ fn mark(image: &mut Vec<u8>, r: &Reader) {
             for col in col_from..=col_to {
                 let i = (row as usize * WIDTH + col as usize) * 3;
                 image[i + 1] = 255;
-                image[i + 2] = 255;
+                image[i + 2] = 0;
+            }
+        }
+
+        for row in row_from-32..=row_to+32 {
+            for col in col_from-32..=col_to+32 {
+                let dr = row as i32 - r.pointer[i as usize].row_center2 as i32/2;
+                let dc = col as i32 - r.pointer[i as usize].col_center2 as i32/2;
+
+                if dr * dr + dc * dc <= r.radius2 as i32 {
+                    let i = (row as usize * WIDTH + col as usize) * 3;
+                    image[i + 1] = 255;
+                    image[i + 2] = 255;
+                }
             }
         }
     }

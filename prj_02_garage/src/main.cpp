@@ -144,7 +144,7 @@ void TaskWebSocket(void* pvParameters) {
 
 //---------------------------------------------------
 void setup() {
-  digitalWrite(relayPin, HIGH);
+  digitalWrite(relayPin, LOW);
   pinMode(relayPin, OUTPUT);
 
 #ifdef DEBUG_ESP
@@ -288,7 +288,7 @@ void loop() {
     case IDLE:
       break;
     case GARAGE: {
-      digitalWrite(relayPin, LOW);
+      digitalWrite(relayPin, HIGH);
       switch_off_delay = 1000;
       last_ms = millis();
     } break;
@@ -303,7 +303,7 @@ void loop() {
       last_ms = curr;
     } else {
       switch_off_delay = 0;
-      digitalWrite(relayPin, HIGH);
+      digitalWrite(relayPin, LOW);
     }
   }
 }

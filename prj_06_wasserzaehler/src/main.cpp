@@ -541,7 +541,8 @@ void loop() {
       status = bot.sendMessage(CHAT_ID, "Camera capture");
       if (init_camera()) {
         digitalWrite(flashPin, HIGH);
-        for (uint8_t i = 0; i < 10; i++) {
+		uint32_t start_ms = millis();
+		while((uint32_t)(millis()-start_ms) < 3000) {
           // let the camera adjust
           camera_fb_t *fb = esp_camera_fb_get();
           esp_camera_fb_return(fb);

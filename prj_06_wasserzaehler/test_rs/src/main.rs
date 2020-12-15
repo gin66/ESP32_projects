@@ -58,6 +58,11 @@ fn mark(image: &mut Vec<u8>, r: &Reader, ps: &PointerShape) {
         let row_center = r.pointer[i as usize].row_center2 / 2;
         let col_center = r.pointer[i as usize].col_center2 / 2;
 
+        if row_center < 0  || row_from < 0 || row_to < 0 || col_center < 0 || col_from < 0 || col_to < 0 {
+            println!("INVALID DATA");
+            return;
+        }
+
         for row in row_from..=row_to {
             for col in col_from..=col_to {
                 let ind = (row as usize * WIDTH + col as usize) * 3;
@@ -227,6 +232,8 @@ impl PointerShape {
 }
 
 fn main() -> std::io::Result<()> {
+    for fname in std::env::args().skip(1) {
+        println!("{}", fname);
     let pointer_shapes = PointerShape::make_pointer()?;
     if false {
         pointer_shapes.print_shapes();
@@ -238,7 +245,7 @@ fn main() -> std::io::Result<()> {
     let mut filtered = vec![0u8; WIDTH * HEIGHT / 8];
     let mut r: Reader = Reader::default();
 
-    let f = File::open("../test/image.jpeg")?;
+    let f = File::open(&fname)?;
     let mut decoder = jpeg_decoder::Decoder::new(BufReader::new(f));
     let mut pixels = decoder.decode().expect("failed to decode image");
 
@@ -246,14 +253,16 @@ fn main() -> std::io::Result<()> {
         panic!("Invalid length: {}", pixels.len());
     }
 
-    let path = Path::new("image.png");
-    let file = File::create(path).unwrap();
+    if false {
+    let path = Path::new(&fname);
+    let file = File::create(path.with_extension("original.png")).unwrap();
     let ref mut w = BufWriter::new(file);
     let mut encoder = png::Encoder::new(w, WIDTH as u32, HEIGHT as u32);
     encoder.set_color(png::ColorType::RGB);
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header()?;
     writer.write_image_data(&pixels)?; // Save
+    }
 
     // convert from rgb to bgr
     let mut i = 0;
@@ -264,9 +273,10 @@ fn main() -> std::io::Result<()> {
         pixels[i + 2] = r;
         i += 3;
     }
-
+println!("BEFORE");
     unsafe {
         digitize(pixels.as_ptr(), digitized.as_mut_ptr());
+println!("INBETWEEN");
         find_pointer(
             digitized.as_ptr(),
             filtered.as_mut_ptr(),
@@ -275,9 +285,10 @@ fn main() -> std::io::Result<()> {
         );
     }
     println!("{:?}", r);
+println!("AFTER");
 
-    let path = Path::new("image_digitized.png");
-    let file = File::create(path).unwrap();
+    let path = Path::new(&fname);
+    let file = File::create(path.with_extension("digitized.png")).unwrap();
     let ref mut w = BufWriter::new(file);
     let mut encoder = png::Encoder::new(w, WIDTH as u32, HEIGHT as u32);
     encoder.set_color(png::ColorType::RGB);
@@ -287,8 +298,8 @@ fn main() -> std::io::Result<()> {
     mark(&mut data, &r, &pointer_shapes);
     writer.write_image_data(&data)?; // Save
 
-    let path = Path::new("image_filtered.png");
-    let file = File::create(path).unwrap();
+    let path = Path::new(&fname);
+    let file = File::create(path.with_extension("filtered.png")).unwrap();
     let ref mut w = BufWriter::new(file);
     let mut encoder = png::Encoder::new(w, WIDTH as u32, HEIGHT as u32);
     encoder.set_color(png::ColorType::RGB);
@@ -298,5 +309,6 @@ fn main() -> std::io::Result<()> {
     mark(&mut data, &r, &pointer_shapes);
     writer.write_image_data(&data)?; // Save
 
+    }
     Ok(())
 }

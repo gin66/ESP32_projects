@@ -27,7 +27,7 @@ void digitize(const uint8_t *bgr_888, uint8_t *digitized) {
       gx_bx >>= 2;
       gx_bx += gx_bx >> 1;  // *3/2
 
-      if ((rx > gx_bx) && (r / 3 > g / 2) && (r / 3 > b / 2)) {
+      if ((rx > gx_bx) && (r / 3 > g / 3) && (r / 3 > b / 3)) {
         mask |= 1;
       }
     }
@@ -90,7 +90,6 @@ void find_candidates(uint8_t *bitimage, struct read_s *read) {
     uint8_t cnt;
   } last_areas[5];
 
-  // one run revealed 43 filled bytes
   for (uint16_t row = 0; row < HEIGHT; row++) {
     uint8_t this_row_cnt = 0;
     struct area_s areas[5];
@@ -153,18 +152,22 @@ void find_candidates(uint8_t *bitimage, struct read_s *read) {
         curr_i++;
         new_i++;
       } else if (area_finished) {
-        struct pointer_s *px = &read->pointer[read->candidates++];
-        px->row_from = row - last_areas[last_i].cnt;
-        px->row_to = row - 1;
-        px->col_from = last_areas[last_i].from * 8;
-        px->col_to = last_areas[last_i].to * 8 + 7;
-        px->row_center2 = px->row_from + px->row_to;
-        px->col_center2 = px->col_from + px->col_to;
-        // printf("found: height = %d\n", last_areas[last_i].cnt);
-        last_i++;
-        if (read->candidates == 6) {
-          return;
+        if (last_areas[last_i].cnt > 3) {
+          struct pointer_s *px = &read->pointer[read->candidates++];
+          px->row_from = row - last_areas[last_i].cnt;
+          px->row_to = row - 1;
+          px->col_from = last_areas[last_i].from * 8;
+          px->col_to = last_areas[last_i].to * 8 + 7;
+          px->row_center2 = px->row_from + px->row_to;
+          px->col_center2 = px->col_from + px->col_to;
+          // printf("found: row = %d  height = %d  col=%d..%d\n", row-1
+          // ,last_areas[last_i].cnt, px->col_from, px->col_to);
+          last_i++;
+          if (read->candidates == 6) {
+            return;
+          }
         }
+        last_i++;
       } else /* area_new */ {
         new_areas[new_i++] = areas[curr_i++];
       }
@@ -211,9 +214,9 @@ void filter_by_geometry(struct read_s *read) {
   read->radius2 = max_dist / 36 / 4;
 
   int16_t dr_14 =
-      (read->pointer[c4].row_center2 - read->pointer[c1].row_center2) / 3;
+      (read->pointer[c4].row_center2 - read->pointer[c1].row_center2) * 3 / 8;
   int16_t dc_14 =
-      (read->pointer[c4].col_center2 - read->pointer[c1].col_center2) / 3;
+      (read->pointer[c4].col_center2 - read->pointer[c1].col_center2) * 3 / 8;
 
   // Find those two short distant candidates
   // The approach is, that the line from the outter pointers is parallel to the
@@ -251,6 +254,12 @@ void filter_by_geometry(struct read_s *read) {
       }
     }
   }
+  if (min_dist > read->radius2 / 2) {
+    // Distance too big
+    // printf("TOO FAR AWAY: %d %d\n", min_dist, read->radius2/2);
+    return;
+  }
+  // printf("%d %d\n", min_dist, read->radius2);
 
   // Check the distance of the remaining pointer to the outter.
   // The lower distance indicates the 0.0001m³ pointer
@@ -320,12 +329,12 @@ void update_center(const uint8_t *digitized, struct pointer_s *px,
   uint16_t points = 0;
   int32_t r_sum = 0;
   int32_t c_sum = 0;
-  for (int16_t dr = -100; dr < 100; dr++) {
+  for (int16_t dr = -50; dr < 50; dr++) {
     int16_t drr = dr * dr;
     if (drr > radius2) {
       continue;
     }
-    for (int16_t dc = -100; dc < 100; dc++) {
+    for (int16_t dc = -50; dc < 50; dc++) {
       if (drr + dc * dc > radius2) {
         continue;
       }
@@ -342,6 +351,9 @@ void update_center(const uint8_t *digitized, struct pointer_s *px,
         c_sum += dc;
       }
     }
+  }
+  if (points == 0) {
+    return;
   }
   px->row_center2 += r_sum * 2 / points;
   px->col_center2 += c_sum * 2 / points;
@@ -429,6 +441,7 @@ void find_pointer(uint8_t *digitized, uint8_t *filtered, uint8_t *temp,
 
   find_candidates(filtered, read);
 
+  // printf("candidates: %d\n", read->candidates);
   if (read->candidates != 5) {
     read->candidates = 0;
     return;

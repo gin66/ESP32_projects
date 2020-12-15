@@ -53,6 +53,8 @@ extern const uint8_t server_index_html_start[] asm(
 WiFiClientSecure secured_client;
 UniversalTelegramBot bot(wasserzaehler_BOTtoken, secured_client);
 
+uint8_t* jpg_image = NULL;
+uint32_t jpg_len = 0;
 uint8_t* raw_image = NULL;
 uint8_t digitized_image[WIDTH * HEIGHT / 8];
 uint8_t filtered_image[WIDTH * HEIGHT / 8];
@@ -469,18 +471,17 @@ void setup() {
   Serial.println("Setup done.");
 }
 
-camera_fb_t* photo_fb = NULL;
 uint32_t dataBytesSent;
 bool isMoreDataAvailable() {
-  if (photo_fb) {
-    return (dataBytesSent < photo_fb->len);
+  if (jpg_image) {
+    return (dataBytesSent < jpg_len);
   } else {
     return false;
   }
 }
 byte* getNextBuffer() {
-  if (photo_fb) {
-    byte* buf = &photo_fb->buf[dataBytesSent];
+  if (jpg_image) {
+    byte* buf = &jpg_image[dataBytesSent];
     dataBytesSent += 1024;
     return buf;
   } else {
@@ -489,8 +490,8 @@ byte* getNextBuffer() {
 }
 
 int getNextBufferLen() {
-  if (photo_fb) {
-    uint32_t rem = photo_fb->len - dataBytesSent;
+  if (jpg_image) {
+    uint32_t rem = jpg_len - dataBytesSent;
     if (rem > 1024) {
       return 1024;
     } else {
@@ -542,31 +543,26 @@ void loop() {
         digitalWrite(flashPin, HIGH);
         for (uint8_t i = 0; i < 10; i++) {
           // let the camera adjust
-          photo_fb = esp_camera_fb_get();
-          esp_camera_fb_return(photo_fb);
-          photo_fb = NULL;
-        }
-        photo_fb = esp_camera_fb_get();
-        if (!photo_fb) {
-          status = bot.sendMessage(CHAT_ID, "Camera capture failed");
-        } else {
-          dataBytesSent = 0;
-          status = bot.sendPhotoByBinary(CHAT_ID, "image/jpeg", photo_fb->len,
-                                         isMoreDataAvailable, nullptr,
-                                         getNextBuffer, getNextBufferLen);
-          esp_camera_fb_return(photo_fb);
-          photo_fb = NULL;
-          bot.sendMessage(
-              CHAT_ID, WiFi.SSID() + String(": ") + WiFi.localIP().toString());
+          camera_fb_t *fb = esp_camera_fb_get();
+          esp_camera_fb_return(fb);
         }
         for (uint8_t i = 0; i < 10; i++) {
-          photo_fb = esp_camera_fb_get();
+          if (jpg_image == NULL) {
+            jpg_image = (uint8_t*)ps_malloc(50000); // should be enough
+          }
           if (raw_image == NULL) {
             raw_image = (uint8_t*)ps_malloc(WIDTH * HEIGHT * 3);
           }
-          fmt2rgb888(photo_fb->buf, photo_fb->len, photo_fb->format, raw_image);
-          esp_camera_fb_return(photo_fb);
-          photo_fb = NULL;
+          camera_fb_t *fb = esp_camera_fb_get();
+		  jpg_len = fb->len;
+		  if (jpg_len > 50000) {
+			  esp_camera_fb_return(fb);
+			  continue;
+		  }
+		  memcpy(jpg_image, fb->buf, jpg_len);
+          esp_camera_fb_return(fb);
+
+          fmt2rgb888(jpg_image, jpg_len, PIXFORMAT_JPEG, raw_image);
           digitize(raw_image, digitized_image);
           find_pointer(digitized_image, filtered_image, temp_image, &reader);
           if (reader.candidates == 4) {
@@ -575,6 +571,12 @@ void loop() {
                                          reader.pointer[1].angle + String("/") +
                                          reader.pointer[2].angle + String("/") +
                                          reader.pointer[3].angle);
+            dataBytesSent = 0;
+            status = bot.sendPhotoByBinary(CHAT_ID, "image/jpeg", jpg_len,
+                                         isMoreDataAvailable, nullptr,
+                                         getNextBuffer, getNextBufferLen);
+            bot.sendMessage(
+              CHAT_ID, WiFi.SSID() + String(": ") + WiFi.localIP().toString());
             reader.candidates = 0;
             break;
           }

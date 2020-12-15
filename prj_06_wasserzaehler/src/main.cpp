@@ -380,6 +380,11 @@ void setup() {
     server.sendHeader("Connection", "close");
     server.send_P(200, "text/html", (const char*)index_html_start);
   });
+  server.on("/nosleep", HTTP_GET, []() {
+    server.sendHeader("Connection", "close");
+    deepsleep = false;
+    server.send_P(200, "text/html", (const char*)index_html_start);
+  });
   server.on("/serverIndex", HTTP_GET, []() {
     server.sendHeader("Connection", "close");
     server.send_P(200, "text/html", (const char*)server_index_html_start);
@@ -541,26 +546,26 @@ void loop() {
       status = bot.sendMessage(CHAT_ID, "Camera capture");
       if (init_camera()) {
         digitalWrite(flashPin, HIGH);
-		uint32_t start_ms = millis();
-		while((uint32_t)(millis()-start_ms) < 3000) {
+        uint32_t start_ms = millis();
+        while ((uint32_t)(millis() - start_ms) < 3000) {
           // let the camera adjust
-          camera_fb_t *fb = esp_camera_fb_get();
+          camera_fb_t* fb = esp_camera_fb_get();
           esp_camera_fb_return(fb);
         }
+        if (jpg_image == NULL) {
+          jpg_image = (uint8_t*)ps_malloc(50000);  // should be enough
+        }
+        if (raw_image == NULL) {
+          raw_image = (uint8_t*)ps_malloc(WIDTH * HEIGHT * 3);
+        }
         for (uint8_t i = 0; i < 10; i++) {
-          if (jpg_image == NULL) {
-            jpg_image = (uint8_t*)ps_malloc(50000); // should be enough
+          camera_fb_t* fb = esp_camera_fb_get();
+          jpg_len = fb->len;
+          if (jpg_len > 50000) {
+            esp_camera_fb_return(fb);
+            continue;
           }
-          if (raw_image == NULL) {
-            raw_image = (uint8_t*)ps_malloc(WIDTH * HEIGHT * 3);
-          }
-          camera_fb_t *fb = esp_camera_fb_get();
-		  jpg_len = fb->len;
-		  if (jpg_len > 50000) {
-			  esp_camera_fb_return(fb);
-			  continue;
-		  }
-		  memcpy(jpg_image, fb->buf, jpg_len);
+          memcpy(jpg_image, fb->buf, jpg_len);
           esp_camera_fb_return(fb);
 
           fmt2rgb888(jpg_image, jpg_len, PIXFORMAT_JPEG, raw_image);
@@ -572,17 +577,19 @@ void loop() {
                                          reader.pointer[1].angle + String("/") +
                                          reader.pointer[2].angle + String("/") +
                                          reader.pointer[3].angle);
-            dataBytesSent = 0;
-            status = bot.sendPhotoByBinary(CHAT_ID, "image/jpeg", jpg_len,
-                                         isMoreDataAvailable, nullptr,
-                                         getNextBuffer, getNextBufferLen);
-            bot.sendMessage(
-              CHAT_ID, WiFi.SSID() + String(": ") + WiFi.localIP().toString());
             reader.candidates = 0;
             break;
           }
         }
         digitalWrite(flashPin, LOW);
+        if (jpg_len <= 50000) {
+          dataBytesSent = 0;
+          status = bot.sendPhotoByBinary(CHAT_ID, "image/jpeg", jpg_len,
+                                         isMoreDataAvailable, nullptr,
+                                         getNextBuffer, getNextBufferLen);
+        }
+        bot.sendMessage(CHAT_ID,
+                        WiFi.SSID() + String(": ") + WiFi.localIP().toString());
       }
       command = DEEPSLEEP;
       break;

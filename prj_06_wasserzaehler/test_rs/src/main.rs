@@ -58,7 +58,7 @@ fn mark(image: &mut Vec<u8>, r: &Reader, ps: &PointerShape) {
         let row_center = r.pointer[i as usize].row_center2 / 2;
         let col_center = r.pointer[i as usize].col_center2 / 2;
 
-        if row_center < 0  || row_from < 0 || row_to < 0 || col_center < 0 || col_from < 0 || col_to < 0 {
+        if row_center < 32  || row_from < 32 || row_to < 32 || col_center < 32 || col_from < 32 || col_to < 32 {
             println!("INVALID DATA");
             return;
         }

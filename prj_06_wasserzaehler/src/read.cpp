@@ -27,7 +27,7 @@ void digitize(const uint8_t *bgr_888, uint8_t *digitized) {
       gx_bx >>= 2;
       gx_bx += gx_bx >> 1;  // *3/2
 
-      if ((rx > gx_bx) && (r / 3 > g / 3) && (r / 3 > b / 3)) {
+      if ((rx > gx_bx) && (r / 3 > g / 2) && (r / 3 > b / 2)) {
         mask |= 1;
       }
     }
@@ -160,24 +160,24 @@ void find_candidates(uint8_t *bitimage, struct read_s *read) {
           px->col_to = last_areas[last_i].to * 8 + 7;
           px->row_center2 = px->row_from + px->row_to;
           px->col_center2 = px->col_from + px->col_to;
-          //printf("found: row = %d  height = %d  col=%d..%d\n", row-1 ,last_areas[last_i].cnt, px->col_from, px->col_to);
-          if (read->candidates == 5) {//already 6 candidates. delete smallest
-			uint16_t smallest = HEIGHT;
-			uint8_t min_i = 0;
-			for (uint8_t i = 0;i <= 5;i++) {
-				struct pointer_s *px = &read->pointer[i];
-				if (px->row_to - px->row_from <= smallest) {
-					smallest = px->row_to - px->row_from;
-					min_i = i;
-				}
-			}
-			read->pointer[min_i] = read->pointer[5];
+          // printf("found: row = %d  height = %d  col=%d..%d\n", row-1
+          // ,last_areas[last_i].cnt, px->col_from, px->col_to);
+          if (read->candidates == 5) {  // already 6 candidates. delete smallest
+            uint16_t smallest = HEIGHT;
+            uint8_t min_i = 0;
+            for (uint8_t i = 0; i <= 5; i++) {
+              struct pointer_s *px = &read->pointer[i];
+              if (px->row_to - px->row_from <= smallest) {
+                smallest = px->row_to - px->row_from;
+                min_i = i;
+              }
+            }
+            read->pointer[min_i] = read->pointer[5];
+          } else {
+            read->candidates++;
           }
-		  else {
-			read->candidates++;
-		  }
         }
-		last_i++;
+        last_i++;
       } else /* area_new */ {
         new_areas[new_i++] = areas[curr_i++];
       }
@@ -266,7 +266,7 @@ void filter_by_geometry(struct read_s *read) {
   }
   if (min_dist > read->radius2 * read->radius2 / 8) {
     // Distance too big
-    //printf("TOO FAR AWAY: %d %d\n", min_dist, read->radius2/2);
+    // printf("TOO FAR AWAY: %d %d\n", min_dist, read->radius2/2);
     return;
   }
   // printf("%d %d\n", min_dist, read->radius2);

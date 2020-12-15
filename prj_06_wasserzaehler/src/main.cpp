@@ -221,7 +221,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
               head[3] = fb->height >> 8;
               head[4] = fb->height & 0xff;
               esp_camera_fb_return(fb);
-              digitize(raw_image, digitized_image, &reader);
+              digitize(raw_image, digitized_image);
               find_pointer(digitized_image, filtered_image, temp_image,
                            &reader);
               webSocket.broadcastBIN(head, 5);
@@ -567,7 +567,7 @@ void loop() {
           fmt2rgb888(photo_fb->buf, photo_fb->len, photo_fb->format, raw_image);
           esp_camera_fb_return(photo_fb);
           photo_fb = NULL;
-          digitize(raw_image, digitized_image, &reader);
+          digitize(raw_image, digitized_image);
           find_pointer(digitized_image, filtered_image, temp_image, &reader);
           if (reader.candidates == 4) {
             bot.sendMessage(CHAT_ID, String("Result: ") +

@@ -28,7 +28,7 @@ struct Reader {
 }
 
 extern "C" {
-    fn digitize(image: *const u8, digitized: *mut u8, r: *mut Reader);
+    fn digitize(image: *const u8, digitized: *mut u8);
     fn find_pointer(digitized: *const u8, filtered: *mut u8, temp: *mut u8, r: *mut Reader);
 }
 
@@ -266,7 +266,7 @@ fn main() -> std::io::Result<()> {
     }
 
     unsafe {
-        digitize(pixels.as_ptr(), digitized.as_mut_ptr(), &mut r);
+        digitize(pixels.as_ptr(), digitized.as_mut_ptr());
         find_pointer(
             digitized.as_ptr(),
             filtered.as_mut_ptr(),

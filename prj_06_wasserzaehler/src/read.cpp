@@ -5,7 +5,7 @@
 
 #include "pointer_shape.h"
 
-void digitize(const uint8_t *bgr_888, uint8_t *digitized, struct read_s *read) {
+void digitize(const uint8_t *bgr_888, uint8_t *digitized) {
   uint8_t *out = digitized;
   for (uint32_t i = WIDTH * HEIGHT; i > 0; i -= 8) {
     uint8_t mask = 0;

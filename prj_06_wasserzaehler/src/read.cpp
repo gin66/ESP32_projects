@@ -152,22 +152,32 @@ void find_candidates(uint8_t *bitimage, struct read_s *read) {
         curr_i++;
         new_i++;
       } else if (area_finished) {
-        if (last_areas[last_i].cnt > 3) {
-          struct pointer_s *px = &read->pointer[read->candidates++];
+        if (last_areas[last_i].cnt > 1) {
+          struct pointer_s *px = &read->pointer[read->candidates];
           px->row_from = row - last_areas[last_i].cnt;
           px->row_to = row - 1;
           px->col_from = last_areas[last_i].from * 8;
           px->col_to = last_areas[last_i].to * 8 + 7;
           px->row_center2 = px->row_from + px->row_to;
           px->col_center2 = px->col_from + px->col_to;
-          // printf("found: row = %d  height = %d  col=%d..%d\n", row-1
-          // ,last_areas[last_i].cnt, px->col_from, px->col_to);
-          last_i++;
-          if (read->candidates == 6) {
-            return;
+          //printf("found: row = %d  height = %d  col=%d..%d\n", row-1 ,last_areas[last_i].cnt, px->col_from, px->col_to);
+          if (read->candidates == 5) {//already 6 candidates. delete smallest
+			uint16_t smallest = HEIGHT;
+			uint8_t min_i = 0;
+			for (uint8_t i = 0;i <= 5;i++) {
+				struct pointer_s *px = &read->pointer[i];
+				if (px->row_to - px->row_from <= smallest) {
+					smallest = px->row_to - px->row_from;
+					min_i = i;
+				}
+			}
+			read->pointer[min_i] = read->pointer[5];
           }
+		  else {
+			read->candidates++;
+		  }
         }
-        last_i++;
+		last_i++;
       } else /* area_new */ {
         new_areas[new_i++] = areas[curr_i++];
       }
@@ -254,9 +264,9 @@ void filter_by_geometry(struct read_s *read) {
       }
     }
   }
-  if (min_dist > read->radius2 / 2) {
+  if (min_dist > read->radius2 * read->radius2 / 8) {
     // Distance too big
-    // printf("TOO FAR AWAY: %d %d\n", min_dist, read->radius2/2);
+    //printf("TOO FAR AWAY: %d %d\n", min_dist, read->radius2/2);
     return;
   }
   // printf("%d %d\n", min_dist, read->radius2);

@@ -139,6 +139,7 @@ void TaskWebSocket(void* pvParameters) {
 
 #define BUFLEN 4096
       char buffer[BUFLEN];
+      /* size_t bx = */ serializeJson(myObject, &buffer, BUFLEN);
       String as_json = String(buffer);
       webSocket.broadcastTXT(as_json);
     }

@@ -4,8 +4,8 @@
 //#include "soc/rtc_cntl_reg.h"
 
 #include <Arduino.h>
-#include <ArduinoOTA.h>
 #include <ArduinoJson.h>
+#include <ArduinoOTA.h>
 #include <ESPmDNS.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
@@ -104,7 +104,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
       Serial.println((char*)payload);
       DynamicJsonDocument json(4096);
       deserializeJson(json, (char*)payload);
-	  process_web_socket_cam_settings(&json);
+      process_web_socket_cam_settings(&json);
       if (json.containsKey("light")) {
       }
       if (json.containsKey("image")) {

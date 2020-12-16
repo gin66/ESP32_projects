@@ -1,8 +1,7 @@
 #include <Arduino.h>
 #include <ArduinoOTA.h>
 #include <esp_camera.h>
-
-#include "string.h"
+#include <string.h>
 //#include <ArduinoJson.h>  // already included in UniversalTelegramBot.h
 #include <ESP32Ping.h>
 #include <ESPmDNS.h>
@@ -14,16 +13,16 @@
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <base64.h>
+#include <esp32-hal-psram.h>
+#include <esp_log.h>
+#include <esp_timer.h>
+#include <fb_gfx.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <img_converters.h>
 #include <mem.h>
 
 #include "../../private_bot.h"
-#include "esp32-hal-psram.h"
-#include "esp_log.h"
-#include "esp_timer.h"
-#include "fb_gfx.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "img_converters.h"
 #include "read.h"
 #include "template.h"
 
@@ -115,7 +114,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
       Serial.println((char*)payload);
       DynamicJsonDocument json(4096);
       deserializeJson(json, (char*)payload);
-	  process_web_socket_cam_settings(&json);
+      process_web_socket_cam_settings(&json);
       if (json.containsKey("flash")) {
         command = FLASH;
       }

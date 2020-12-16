@@ -261,7 +261,20 @@ fn main() -> std::io::Result<()> {
     encoder.set_color(png::ColorType::RGB);
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header()?;
-    writer.write_image_data(&pixels)?; // Save
+    let mut px = pixels.clone();
+    let mut i = 0;
+    while i < px.len() {
+        let r = px[i] as i32;
+        let g = px[i + 1] as i32;
+        let b = px[i + 2] as i32;
+        let m = r*r*0+1 + g*g + b*b;
+        let v = (255*r*r/m).min(255).max(0) as u8;
+        px[i] = v;
+        px[i + 1] = v;
+        px[i + 2] = v;
+        i += 3;
+    }
+    writer.write_image_data(&px)?; // Save
     }
 
     // convert from rgb to bgr

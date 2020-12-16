@@ -15,15 +15,15 @@
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <base64.h>
+#include <esp_wifi.h>
 #include <mem.h>
 
 #include "../../private_bot.h"
+#include "driver/gpio.h"
+#include "driver/rtc_io.h"
 #include "esp32-hal-psram.h"
 #include "esp_log.h"
 #include "esp_timer.h"
-#include <esp_wifi.h>
-#include "driver/gpio.h"
-#include "driver/rtc_io.h"
 #include "fb_gfx.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -202,7 +202,7 @@ void setup() {
     server.send_P(200, "text/html", (const char*)index_html_start);
   });
   server.on("/deepsleep", HTTP_GET, []() {
-	command = DEEPSLEEP;
+    command = DEEPSLEEP;
     server.sendHeader("Connection", "close");
     server.send_P(200, "text/html", (const char*)index_html_start);
   });
@@ -317,30 +317,30 @@ void loop() {
         pinMode(flashPin, INPUT_PULLDOWN);
 
 #ifdef OLD
-		rtc_gpio_isolate(ledPin);
-		rtc_gpio_isolate(flashPin);
-		rtc_gpio_isolate((gpio_num_t)2);
-		rtc_gpio_isolate((gpio_num_t)12);
-		rtc_gpio_isolate((gpio_num_t)13);
-		rtc_gpio_isolate((gpio_num_t)14);
-		rtc_gpio_isolate((gpio_num_t)15);
-		rtc_gpio_isolate((gpio_num_t)26);
-		rtc_gpio_isolate((gpio_num_t)27);
-		rtc_gpio_isolate((gpio_num_t)0);
+        rtc_gpio_isolate(ledPin);
+        rtc_gpio_isolate(flashPin);
+        rtc_gpio_isolate((gpio_num_t)2);
+        rtc_gpio_isolate((gpio_num_t)12);
+        rtc_gpio_isolate((gpio_num_t)13);
+        rtc_gpio_isolate((gpio_num_t)14);
+        rtc_gpio_isolate((gpio_num_t)15);
+        rtc_gpio_isolate((gpio_num_t)26);
+        rtc_gpio_isolate((gpio_num_t)27);
+        rtc_gpio_isolate((gpio_num_t)0);
 #endif
-		pinMode((gpio_num_t)2,INPUT_PULLUP);
-		pinMode((gpio_num_t)12,INPUT_PULLUP);
-		pinMode((gpio_num_t)13,INPUT_PULLUP);
-		pinMode((gpio_num_t)14,INPUT_PULLUP);
-		pinMode((gpio_num_t)15,INPUT_PULLUP);
-		pinMode((gpio_num_t)26,INPUT_PULLUP);
-		pinMode((gpio_num_t)27,INPUT_PULLUP);
-		pinMode((gpio_num_t)0,INPUT_PULLUP);
+        pinMode((gpio_num_t)2, INPUT_PULLUP);
+        pinMode((gpio_num_t)12, INPUT_PULLUP);
+        pinMode((gpio_num_t)13, INPUT_PULLUP);
+        pinMode((gpio_num_t)14, INPUT_PULLUP);
+        pinMode((gpio_num_t)15, INPUT_PULLUP);
+        pinMode((gpio_num_t)26, INPUT_PULLUP);
+        pinMode((gpio_num_t)27, INPUT_PULLUP);
+        pinMode((gpio_num_t)0, INPUT_PULLUP);
 
         tpl_camera_off();
 
-		gpio_deep_sleep_hold_en();
-		esp_wifi_stop();
+        gpio_deep_sleep_hold_en();
+        esp_wifi_stop();
 
         // wake up every four hours
         esp_sleep_enable_timer_wakeup(4LL * 3600LL * 1000000LL);

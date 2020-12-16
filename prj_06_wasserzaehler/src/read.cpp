@@ -5,7 +5,7 @@
 
 #include "pointer_shape.h"
 
-void digitize(const uint8_t *bgr_888, uint8_t *digitized) {
+void digitize(const uint8_t *bgr_888, uint8_t *digitized, uint8_t first) {
   uint8_t *out = digitized;
   for (uint32_t i = WIDTH * HEIGHT; i > 0; i -= 8) {
     uint8_t mask = 0;
@@ -21,14 +21,24 @@ void digitize(const uint8_t *bgr_888, uint8_t *digitized) {
       uint16_t bx = b;
       bx *= b;
 
-      // 4*r*r > 3*(g*g+b*b)
-      uint16_t gx_bx = (gx >> 1) + (bx >> 1);
-      rx >>= 2;
-      gx_bx >>= 2;
-      gx_bx += gx_bx >> 1;  // *3/2
+      if (first) {
+        // 4*r*r > 3*(g*g+b*b)
+        uint16_t gx_bx = (gx >> 1) + (bx >> 1);
+        rx >>= 2;
+        gx_bx >>= 2;
+        gx_bx += gx_bx >> 1;  // *3/2
 
-      if ((rx > gx_bx) && (r / 3 > g / 2) && (r / 3 > b / 2)) {
-        mask |= 1;
+        if ((rx > gx_bx) && (r / 3 > g / 2) && (r / 3 > b / 2)) {
+          mask |= 1;
+        }
+      } else {
+        // 255 * r * r < 224 * (g * g + b * b)
+        rx >>= 1;
+        uint16_t gx_bx = (gx >> 1) + (bx >> 1);
+        gx_bx -= gx_bx >> 3;
+        if (rx > gx_bx) {
+          mask |= 1;
+        }
       }
     }
     *out++ = mask;
@@ -459,9 +469,13 @@ void find_pointer(uint8_t *digitized, uint8_t *filtered, uint8_t *temp,
   filter_by_geometry(read);
   if (read->candidates == 5) {
     read->candidates = 0;
+  }
+}
+
+void eval_pointer(uint8_t *digitized, struct read_s *read) {
+  if (read->candidates == 0) {
     return;
   }
-
   for (uint8_t i = 0; i < 4; i++) {
     struct pointer_s *px = &read->pointer[i];
     update_center(digitized, px, read->radius2);

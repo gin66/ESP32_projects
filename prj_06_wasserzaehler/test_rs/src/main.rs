@@ -3,12 +3,13 @@ use std::io::BufReader;
 use std::io::BufWriter;
 use std::io::Write;
 use std::path::Path;
+use serde::{Deserialize,Serialize};
 
 const HEIGHT: usize = 296;
 const WIDTH: usize = 400;
 
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default,Serialize,Deserialize)]
 struct Pointer {
     row_from: i16,
     row_to: i16,
@@ -20,7 +21,7 @@ struct Pointer {
 }
 
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default,Serialize,Deserialize)]
 struct Reader {
     candidates: u8,
     radius2: i16,
@@ -28,8 +29,9 @@ struct Reader {
 }
 
 extern "C" {
-    fn digitize(image: *const u8, digitized: *mut u8);
+    fn digitize(image: *const u8, digitized: *mut u8, first: u8);
     fn find_pointer(digitized: *const u8, filtered: *mut u8, temp: *mut u8, r: *mut Reader);
+    fn eval_pointer(digitized: *const u8, r: *mut Reader);
 }
 
 fn bits_to_rgb888(image: &Vec<u8>) -> Vec<u8> {
@@ -256,7 +258,7 @@ impl PointerShape {
 
 fn main() -> std::io::Result<()> {
     let mut results = vec![];
-    for fname in std::env::args().skip(1).take(10) {
+    for fname in std::env::args().skip(1) {
         println!("{}", fname);
 
         let timestamp = fname.split("@").into_iter().collect::<Vec<_>>()[1];
@@ -297,8 +299,12 @@ fn main() -> std::io::Result<()> {
                 let r = px[i] as i32;
                 let g = px[i + 1] as i32;
                 let b = px[i + 2] as i32;
-                let m = r * r * 0 + 1 + g * g + b * b;
-                let v = (255 * r * r / m).min(255).max(0) as u8;
+                let v = if 255 * r * r < 224 * (g * g + b * b) {
+                    0
+                }
+                else {
+                    255
+                };
                 px[i] = v;
                 px[i + 1] = v;
                 px[i + 2] = v;
@@ -318,12 +324,17 @@ fn main() -> std::io::Result<()> {
         }
         println!("BEFORE");
         unsafe {
-            digitize(pixels.as_ptr(), digitized.as_mut_ptr());
+            digitize(pixels.as_ptr(), digitized.as_mut_ptr(), 1);
             println!("INBETWEEN");
             find_pointer(
                 digitized.as_ptr(),
                 filtered.as_mut_ptr(),
                 temp.as_mut_ptr(),
+                &mut r,
+            );
+            digitize(pixels.as_ptr(), digitized.as_mut_ptr(), 0);
+            eval_pointer(
+                digitized.as_ptr(),
                 &mut r,
             );
         }
@@ -352,16 +363,18 @@ fn main() -> std::io::Result<()> {
         mark(&mut data, &r, &pointer_shapes);
         writer.write_image_data(&data)?; // Save
 
-        results.push((timestamp, r));
+        if r.candidates == 4 {
+            results.push((timestamp, r));
+        }
     }
 
     results.sort_by_key(|(t,_)| t.clone());
+    let results = results.into_iter().map(|(timestamp,r)| serde_json::json!({"timestamp":timestamp.timestamp(), "result":r})).collect::<Vec<_>>();
 
     let path = Path::new("all.log");
     let log_file = File::create(path)?;
     let ref mut log_w = BufWriter::new(log_file);
-    for (timestamp, r) in results {
-        writeln!(log_w, "{} {:?}", timestamp, r)?;
-    }
+    let j = serde_json::json!(results);
+    writeln!(log_w, "{}", serde_json::to_string_pretty(&j).unwrap())?;
     Ok(())
 }

@@ -1,8 +1,9 @@
 #include <Arduino.h>
+#include <ArduinoJson.h>  // already included in UniversalTelegramBot.h
 #include <ArduinoOTA.h>
 #include <esp_camera.h>
 #include <string.h>
-//#include <ArduinoJson.h>  // already included in UniversalTelegramBot.h
+#undef ARDUINOJSON_USE_LONG_LONG
 #include <ESP32Ping.h>
 #include <ESPmDNS.h>
 #include <UniversalTelegramBot.h>
@@ -143,9 +144,11 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
               head[3] = fb->height >> 8;
               head[4] = fb->height & 0xff;
               esp_camera_fb_return(fb);
-              digitize(raw_image, digitized_image);
+              digitize(raw_image, digitized_image, 1);
               find_pointer(digitized_image, filtered_image, temp_image,
                            &reader);
+              digitize(raw_image, digitized_image, 0);
+              eval_pointer(digitized_image, &reader);
               webSocket.broadcastBIN(head, 5);
               webSocket.broadcastBIN(filtered_image, WIDTH * HEIGHT / 8);
             } else {
@@ -489,8 +492,10 @@ void loop() {
           esp_camera_fb_return(fb);
 
           fmt2rgb888(jpg_image, jpg_len, PIXFORMAT_JPEG, raw_image);
-          digitize(raw_image, digitized_image);
+          digitize(raw_image, digitized_image, 1);
           find_pointer(digitized_image, filtered_image, temp_image, &reader);
+          digitize(raw_image, digitized_image, 0);
+          eval_pointer(digitized_image, &reader);
           if (reader.candidates == 4) {
             bot.sendMessage(CHAT_ID, String("Result: ") +
                                          reader.pointer[0].angle + String("/") +

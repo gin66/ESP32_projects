@@ -5,7 +5,7 @@
 
 #include <Arduino.h>
 #include <ArduinoOTA.h>
-#include <Arduino_JSON.h>
+#include <ArduinoJson.h>
 #include <ESP32Ping.h>
 #include <ESPmDNS.h>
 #include <WebServer.h>

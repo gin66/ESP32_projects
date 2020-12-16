@@ -5,7 +5,7 @@
 
 #include <Arduino.h>
 #include <ArduinoOTA.h>
-#include <Arduino_JSON.h>
+#include <ArduinoJson.h>
 #include <ESP32Ping.h>
 #include <ESPmDNS.h>
 #include <WebServer.h>
@@ -66,12 +66,14 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
     case WStype_TEXT: {
       Serial.print("received from websocket: ");
       Serial.println((char*)payload);
-      JSONVar json = JSONVar::parse((char*)payload);
-      if (json.hasOwnProperty("garage")) {
+      DynamicJsonDocument json(4096);
+      deserializeJson(json, (char*)payload);
+	  process_web_socket_cam_settings(&json);
+      if (json.containsKey("garage")) {
         command = GARAGE;
       }
-      if (json.hasOwnProperty("image")) {
-        uint8_t fail_cnt;
+      if (json.containsKey("image")) {
+        uint8_t fail_cnt = 0;
         esp_err_t err = tpl_init_camera(&fail_cnt);
         if (err == ESP_OK) {
           ESP_LOGE(TAG, "Total heap: %u", ESP.getHeapSize());
@@ -122,7 +124,7 @@ void TaskWebSocket(void* pvParameters) {
         char ch = 48 + digitalRead(i);
         data.setCharAt(i, ch);
       }
-      JSONVar myObject;
+      DynamicJsonDocument myObject(4096);
       myObject["millis"] = millis();
       myObject["mem_free"] = (long)ESP.getFreeHeap();
       myObject["stack_free"] = (long)uxTaskGetStackHighWaterMark(NULL);
@@ -135,7 +137,9 @@ void TaskWebSocket(void* pvParameters) {
       myObject["wifi_dBm"] = WiFi.RSSI();
       myObject["SSID"] = WiFi.SSID();
 
-      String as_json = JSONVar::stringify(myObject);
+#define BUFLEN 4096
+      char buffer[BUFLEN];
+      String as_json = String(buffer);
       webSocket.broadcastTXT(as_json);
     }
     vTaskDelay(xDelay);

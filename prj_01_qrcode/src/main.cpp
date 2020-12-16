@@ -5,7 +5,7 @@
 
 #include <Arduino.h>
 #include <ArduinoOTA.h>
-#include <Arduino_JSON.h>
+#include <ArduinoJson.h>
 #include <ESPmDNS.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
@@ -102,10 +102,12 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
     case WStype_TEXT: {
       Serial.print("received from websocket: ");
       Serial.println((char*)payload);
-      JSONVar json = JSONVar::parse((char*)payload);
-      if (json.hasOwnProperty("light")) {
+      DynamicJsonDocument json(4096);
+      deserializeJson(json, (char*)payload);
+	  process_web_socket_cam_settings(&json);
+      if (json.containsKey("light")) {
       }
-      if (json.hasOwnProperty("image")) {
+      if (json.containsKey("image")) {
         uint8_t fail_cnt;
         esp_err_t err =
             tpl_init_camera(&fail_cnt, PIXFORMAT_GRAYSCALE, FRAMESIZE_QVGA);
@@ -173,7 +175,7 @@ void TaskWebSocket(void* pvParameters) {
         char ch = 48 + digitalRead(i);
         data.setCharAt(i, ch);
       }
-      JSONVar myObject;
+      DynamicJsonDocument myObject(4096);
       myObject["millis"] = millis();
       myObject["mem_free"] = (long)ESP.getFreeHeap();
       myObject["stack_free"] = (long)uxTaskGetStackHighWaterMark(NULL);
@@ -183,7 +185,10 @@ void TaskWebSocket(void* pvParameters) {
       // myObject["button_digital"] = digitalRead(BUTTON_PIN);
       myObject["digital"] = data;
       // myObject["sample_rate"] = I2S_SAMPLE_RATE;
-      String as_json = JSONVar::stringify(myObject);
+#define BUFLEN 4096
+      char buffer[BUFLEN];
+      /* size_t bx = */ serializeJson(myObject, &buffer, BUFLEN);
+      String as_json = String(buffer);
       webSocket.broadcastTXT(as_json);
     }
     vTaskDelay(xDelay);

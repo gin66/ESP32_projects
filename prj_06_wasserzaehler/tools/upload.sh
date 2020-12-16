@@ -6,6 +6,9 @@ echo $TARGET
 
 # ensure compilable
 rm -fR .pio
+
+(cd ..;make links)
+
 pio run
 
 # wait esp32_05 coming online

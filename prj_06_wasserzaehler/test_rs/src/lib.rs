@@ -36,4 +36,3 @@ extern "C" {
     pub fn find_pointer(digitized: *const u8, filtered: *mut u8, temp: *mut u8, r: *mut Reader);
     pub fn eval_pointer(digitized: *const u8, r: *mut Reader);
 }
-

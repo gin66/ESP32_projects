@@ -19,6 +19,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     }
     for result in results.results.iter() {
         let r = &result.r;
+        if false {
         println!(
             "{} r={}  {} {} {} {}",
             result.timestamp,
@@ -28,6 +29,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             r.pointer[2].angle,
             r.pointer[3].angle,
         );
+        }
         let (ok,predict) = unsafe {
             let ok = rtc_ram_buffer_add(
                 rtc_buffer.as_mut_ptr(),
@@ -54,15 +56,6 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let mut data_3 = vec![];
     for result in results.results.iter() {
         let r = &result.r;
-        println!(
-            "{} r={}  {} {} {} {}",
-            result.timestamp,
-            r.radius2,
-            r.pointer[0].angle,
-            r.pointer[1].angle,
-            r.pointer[2].angle,
-            r.pointer[3].angle,
-        );
         data_0.push((result.timestamp, r.pointer[0].angle));
         data_1.push((result.timestamp, r.pointer[1].angle));
         data_2.push((result.timestamp, r.pointer[2].angle));
@@ -88,7 +81,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     upper_chart
         .draw_series(
-            err_data.into_iter().map(|(t, r)| Circle::new((t as i64, r.pointer[0].angle as i32), 2, RED.filled())),
+            err_data.into_iter().map(|(t, r)| Circle::new((t as i64, r.pointer[0].angle as i32), 5, RED.filled())),
         )?;
 
     upper_chart
@@ -99,6 +92,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .label("0.1")
         .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
 
+    if false {
     upper_chart
         .draw_series(LineSeries::new(
             data_1.into_iter().map(|(t, a)| (t as i64, a as i32)),
@@ -109,12 +103,12 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     upper_chart
         .draw_series(LineSeries::new(
-            data_3.into_iter().map(|(t, a)| (t as i64, a as i32)),
+            data_2.into_iter().map(|(t, a)| (t as i64, a as i32)),
             &GREEN,
         ))?
         .label("0.001")
         .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
-
+    }
     upper_chart
         .configure_series_labels()
         .background_style(&WHITE.mix(0.8))

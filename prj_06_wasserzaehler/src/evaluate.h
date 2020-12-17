@@ -7,7 +7,7 @@
 
 struct entry_s {
 	uint32_t timestamp;
-	uint8_t angle[4];   // 0..360° encoded as 0-180
+	uint8_t angle[4];   // 0..360° encoded as 0-100
 };
 struct rtc_ram_buffer_s {
 	uint16_t windex;

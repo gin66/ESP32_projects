@@ -3,30 +3,13 @@ use std::io::BufReader;
 use std::io::BufWriter;
 use std::io::Write;
 use std::path::Path;
-use serde::{Deserialize,Serialize};
 
 const HEIGHT: usize = 296;
 const WIDTH: usize = 400;
 
-#[repr(C)]
-#[derive(Debug, Default,Serialize,Deserialize)]
-struct Pointer {
-    row_from: i16,
-    row_to: i16,
-    row_center2: i16,
-    col_from: i16,
-    col_to: i16,
-    col_center2: i16,
-    angle: u16,
-}
+mod common;
 
-#[repr(C)]
-#[derive(Debug, Default,Serialize,Deserialize)]
-struct Reader {
-    candidates: u8,
-    radius2: i16,
-    pointer: [Pointer; 6],
-}
+use common::*;
 
 extern "C" {
     fn digitize(image: *const u8, digitized: *mut u8, first: u8);
@@ -90,8 +73,8 @@ fn mark(image: &mut Vec<u8>, r: &Reader, ps: &PointerShape) {
             }
         }
 
-        for row in row_from - 32..=(row_to + 32).min(HEIGHT as i16-1) {
-            for col in col_from - 32..=(col_to + 32).min(WIDTH as i16-1) {
+        for row in row_from - 32..=(row_to + 32).min(HEIGHT as i16 - 1) {
+            for col in col_from - 32..=(col_to + 32).min(WIDTH as i16 - 1) {
                 let dr = row as i32 - row_center as i32;
                 let dc = col as i32 - col_center as i32;
 
@@ -263,7 +246,8 @@ fn main() -> std::io::Result<()> {
 
         let timestamp = fname.split("@").into_iter().collect::<Vec<_>>()[1];
         let timestamp = timestamp.split(".").into_iter().collect::<Vec<_>>()[0];
-        let timestamp = chrono::NaiveDateTime::parse_from_str(timestamp, "%d-%m-%Y_%H-%M-%S").unwrap();
+        let timestamp =
+            chrono::NaiveDateTime::parse_from_str(timestamp, "%d-%m-%Y_%H-%M-%S").unwrap();
         println!("{}", timestamp);
 
         let pointer_shapes = PointerShape::make_pointer()?;
@@ -301,8 +285,7 @@ fn main() -> std::io::Result<()> {
                 let b = px[i + 2] as i32;
                 let v = if 255 * r * r < 224 * (g * g + b * b) {
                     0
-                }
-                else {
+                } else {
                     255
                 };
                 px[i] = v;
@@ -333,10 +316,7 @@ fn main() -> std::io::Result<()> {
                 &mut r,
             );
             digitize(pixels.as_ptr(), digitized.as_mut_ptr(), 0);
-            eval_pointer(
-                digitized.as_ptr(),
-                &mut r,
-            );
+            eval_pointer(digitized.as_ptr(), &mut r);
         }
         println!("{:?}", r);
         println!("AFTER");
@@ -364,17 +344,20 @@ fn main() -> std::io::Result<()> {
         writer.write_image_data(&data)?; // Save
 
         if r.candidates == 4 {
-            results.push((timestamp, r));
+            results.push((timestamp.timestamp(), r));
         }
     }
 
-    results.sort_by_key(|(t,_)| t.clone());
-    let results = results.into_iter().map(|(timestamp,r)| serde_json::json!({"timestamp":timestamp.timestamp(), "result":r})).collect::<Vec<_>>();
+    results.sort_by_key(|(t, _)| *t);
+    let results = results
+        .into_iter()
+        .map(|(timestamp, r)| TimedResult { timestamp, r })
+        .collect::<Vec<_>>();
 
     let path = Path::new("all.log");
     let log_file = File::create(path)?;
     let ref mut log_w = BufWriter::new(log_file);
-    let j = serde_json::json!(results);
+    let j = serde_json::json!(Result { results });
     writeln!(log_w, "{}", serde_json::to_string_pretty(&j).unwrap())?;
     Ok(())
 }

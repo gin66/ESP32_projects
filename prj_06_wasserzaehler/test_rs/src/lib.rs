@@ -44,5 +44,6 @@ extern "C" {
         angle1: u16,
         angle2: u16,
         angle3: u16,
-    );
+    ) -> i8;
+    pub fn water_consumption(buffer: *mut u8) -> u16;
 }

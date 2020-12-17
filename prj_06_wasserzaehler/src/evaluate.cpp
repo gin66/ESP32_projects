@@ -6,7 +6,7 @@ void rtc_ram_buffer_init(struct rtc_ram_buffer_s *b) {
 	b->rindex = 0;
 }
 
-void rtc_ram_buffer_add(struct rtc_ram_buffer_s *b,
+int8_t rtc_ram_buffer_add(struct rtc_ram_buffer_s *b,
 		uint32_t timestamp,
 		uint16_t angle0,
 		uint16_t angle1,
@@ -22,5 +22,12 @@ void rtc_ram_buffer_add(struct rtc_ram_buffer_s *b,
 	e->angle[1] = angle1 >> 1;
 	e->angle[2] = angle2 >> 1;
 	e->angle[3] = angle3 >> 1;
+
+	return b->windex & 16;
+}
+uint16_t water_consumption(struct rtc_ram_buffer_s *b) {
+	b->windex++;
+	b->windex--;
+	return 0;
 }
 

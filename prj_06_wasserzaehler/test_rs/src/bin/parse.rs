@@ -7,15 +7,7 @@ use std::path::Path;
 const HEIGHT: usize = 296;
 const WIDTH: usize = 400;
 
-mod common;
-
-use common::*;
-
-extern "C" {
-    fn digitize(image: *const u8, digitized: *mut u8, first: u8);
-    fn find_pointer(digitized: *const u8, filtered: *mut u8, temp: *mut u8, r: *mut Reader);
-    fn eval_pointer(digitized: *const u8, r: *mut Reader);
-}
+use test_rs::*;
 
 fn bits_to_rgb888(image: &Vec<u8>) -> Vec<u8> {
     let mut out = vec![0u8; 3 * WIDTH * HEIGHT];

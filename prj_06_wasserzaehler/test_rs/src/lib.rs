@@ -30,3 +30,10 @@ pub struct TimedResult {
 pub struct Result {
     pub results: Vec<TimedResult>,
 }
+
+extern "C" {
+    pub fn digitize(image: *const u8, digitized: *mut u8, first: u8);
+    pub fn find_pointer(digitized: *const u8, filtered: *mut u8, temp: *mut u8, r: *mut Reader);
+    pub fn eval_pointer(digitized: *const u8, r: *mut Reader);
+}
+

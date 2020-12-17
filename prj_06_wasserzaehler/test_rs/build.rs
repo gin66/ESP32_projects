@@ -3,7 +3,5 @@ fn main() {
     cc::Build::new()
         .file("pointer_shape.cpp")
         .compile("pointer_shape");
-    cc::Build::new()
-        .file("evaluate.cpp")
-        .compile("evaluate");
+    cc::Build::new().file("evaluate.c").compile("evaluate");
 }

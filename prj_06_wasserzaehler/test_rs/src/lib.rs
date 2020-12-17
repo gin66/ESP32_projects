@@ -35,4 +35,14 @@ extern "C" {
     pub fn digitize(image: *const u8, digitized: *mut u8, first: u8);
     pub fn find_pointer(digitized: *const u8, filtered: *mut u8, temp: *mut u8, r: *mut Reader);
     pub fn eval_pointer(digitized: *const u8, r: *mut Reader);
+
+    pub fn rtc_ram_buffer_init(buffer: *mut u8);
+    pub fn rtc_ram_buffer_add(
+        buffer: *mut u8,
+        timestamp: u32,
+        angle0: u16,
+        angle1: u16,
+        angle2: u16,
+        angle3: u16,
+    );
 }

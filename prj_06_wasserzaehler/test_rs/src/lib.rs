@@ -46,4 +46,5 @@ extern "C" {
         angle3: u16,
     ) -> i8;
     pub fn water_consumption(buffer: *mut u8) -> u16;
+    pub fn have_alarm(buffer: *mut u8) -> u8;
 }

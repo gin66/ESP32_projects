@@ -13,6 +13,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let mut err_data = vec![];
     let mut predict_data = vec![];
+    let mut alarm_data = vec![];
     let mut rtc_buffer = [0u8; 8192];
     unsafe {
         rtc_ram_buffer_init(rtc_buffer.as_mut_ptr());
@@ -30,7 +31,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 r.pointer[3].angle,
             );
         }
-        let (ok, predict) = unsafe {
+        let (ok, predict, alarm) = unsafe {
             let ok = rtc_ram_buffer_add(
                 rtc_buffer.as_mut_ptr(),
                 result.timestamp as u32,
@@ -40,12 +41,16 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 r.pointer[3].angle,
             );
             let predict = water_consumption(rtc_buffer.as_mut_ptr());
-            (ok, predict)
+            let alarm = have_alarm(rtc_buffer.as_mut_ptr());
+            (ok, predict, alarm)
         };
         if ok != 0 {
             err_data.push((result.timestamp, r));
         } else {
             predict_data.push((result.timestamp, predict));
+            if alarm != 0 {
+                alarm_data.push((result.timestamp, alarm));
+            }
         }
     }
 
@@ -64,13 +69,13 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let from_t = results.results[0].timestamp;
     let to_t = results.results[results.results.len() - 1].timestamp;
 
-    let root_area = BitMapBackend::new("eval.png", (2500, 2000)).into_drawing_area();
+    let root_area = BitMapBackend::new("eval.png", (800, 600)).into_drawing_area();
     root_area.fill(&WHITE)?;
 
-    let (upper, lower) = root_area.split_vertically(1000);
+    let (upper, lower) = root_area.split_vertically(300);
 
     let mut upper_chart = ChartBuilder::on(&upper)
-        .caption("over t", ("sans-serif", 50).into_font())
+        .caption("over t", ("sans-serif", 20).into_font())
         .margin(5)
         .x_label_area_size(30)
         .y_label_area_size(30)
@@ -117,10 +122,10 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let y_max: i32 = predict_data.iter().map(|(_, p)| *p as i32).max().unwrap();
     let mut lower_chart = ChartBuilder::on(&lower)
-        .caption("over t", ("sans-serif", 50).into_font())
+        .caption("over t", ("sans-serif", 20).into_font())
         .margin(5)
         .x_label_area_size(30)
-        .y_label_area_size(30)
+        .y_label_area_size(50)
         .build_cartesian_2d(from_t as i64..to_t as i64, 0..y_max)?;
 
     lower_chart.configure_mesh().draw()?;
@@ -128,7 +133,13 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     lower_chart.draw_series(
         predict_data
             .into_iter()
-            .map(|(t, p)| Circle::new((t as i64, p as i32), 4, BLUE.filled())),
+            .map(|(t, p)| Circle::new((t as i64, p as i32), 2, BLUE.filled())),
+    )?;
+
+    lower_chart.draw_series(
+        alarm_data
+            .into_iter()
+            .map(|(t, a)| Circle::new((t as i64, a as i32 * 500), 5, RED.filled())),
     )?;
 
     lower_chart

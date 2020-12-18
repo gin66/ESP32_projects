@@ -13,6 +13,7 @@ struct rtc_ram_buffer_s {
   uint16_t windex;
   uint16_t rindex;
   uint32_t steigung;
+  uint32_t last_timestamp_no_consumption;
   struct entry_s entry[NUM_ENTRIES];
 };
 
@@ -21,3 +22,9 @@ int8_t rtc_ram_buffer_add(struct rtc_ram_buffer_s *b, uint32_t timestamp,
                           uint16_t angle0, uint16_t angle1, uint16_t angle2,
                           uint16_t angle3);
 uint16_t water_consumption(struct rtc_ram_buffer_s *b);
+
+#define NO_ALARM 0
+#define ALARM_TOO_HIGH_CONSUMPTION 1
+#define ALARM_LEAKAGE 2
+uint8_t have_alarm(struct rtc_ram_buffer_s *b);
+

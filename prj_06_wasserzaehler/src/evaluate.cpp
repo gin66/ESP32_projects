@@ -5,6 +5,8 @@
 void rtc_ram_buffer_init(struct rtc_ram_buffer_s *b) {
   b->windex = 0;
   b->rindex = 0;
+  b->steigung = 0;
+  b->last_timestamp_no_consumption = 0;
 }
 
 #define ANG_RANGE 100
@@ -72,8 +74,8 @@ int8_t rtc_ram_buffer_add(struct rtc_ram_buffer_s *b, uint32_t timestamp,
       i_last = i;
       if (i_first == 0xffff) {
         i_first = i;
-      }
-    }
+	  } 
+	}
   }
   if (ok <= 1) {
     return -1;
@@ -110,14 +112,15 @@ int8_t rtc_ram_buffer_add(struct rtc_ram_buffer_s *b, uint32_t timestamp,
     uint16_t j2 =
         (b->windex + NUM_ENTRIES - window + i_last) & NUM_ENTRIES_MASK;
 
-    uint16_t a1 = angle[i_first];
-    uint16_t a2 = angle[i_last];
+    uint32_t a1 = angle[i_first];
+    uint32_t a2 = angle[i_last];
     uint32_t t1 = b->entry[j1].timestamp;
     uint32_t t2 = b->entry[j2].timestamp;
 
     if (a2 > a1) {
       s = a2 - a1;
     }
+    s *= 10000/ANG_RANGE; // for 0.1 m3
     s *= 3600;
     s /= (t2 - t1);
     b->steigung = s;
@@ -127,6 +130,10 @@ int8_t rtc_ram_buffer_add(struct rtc_ram_buffer_s *b, uint32_t timestamp,
     return -1;
   }
 
+  if (b->steigung == 0) {
+	  b->last_timestamp_no_consumption = timestamp;
+  }
+
   return 0;
 }
 
@@ -134,3 +141,15 @@ uint16_t water_consumption(struct rtc_ram_buffer_s *b) {
   // return b->entry[(b->windex+NUM_ENTRIES-1) & NUM_ENTRIES_MASK].angle[0];
   return b->steigung;
 }
+
+uint8_t have_alarm(struct rtc_ram_buffer_s *b) {
+	if (b->steigung > 500) {
+		return ALARM_TOO_HIGH_CONSUMPTION;
+	}
+	uint32_t timestamp = b->entry[(b->windex+NUM_ENTRIES-1)&NUM_ENTRIES_MASK].timestamp;
+	if (timestamp - b->last_timestamp_no_consumption > 18*3600) {
+		return ALARM_LEAKAGE;
+	}
+	return NO_ALARM;
+}
+

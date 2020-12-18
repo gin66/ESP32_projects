@@ -6,6 +6,7 @@ void rtc_ram_buffer_init(struct rtc_ram_buffer_s *b) {
   b->windex = 0;
   b->rindex = 0;
   b->steigung = 0;
+  b->cumulated_consumption = 0;
   b->last_timestamp_no_consumption = 0;
   b->last_timestamp_no_consumption_all_pointers = 0;
 }
@@ -137,6 +138,12 @@ int8_t rtc_ram_buffer_add(struct rtc_ram_buffer_s *b, uint32_t timestamp,
 
   if (b->steigung == 0) {
 	  b->last_timestamp_no_consumption = timestamp;
+	  b->cumulated_consumption = 0;
+  }
+  else {
+	  uint16_t j = (b->windex + NUM_ENTRIES - 2) & NUM_ENTRIES_MASK;
+	  uint32_t t = b->entry[j].timestamp;
+	  b->cumulated_consumption += b->steigung * (timestamp - t) / 3600;
   }
 
   for (uint8_t i = b->rindex;(i & NUM_ENTRIES_MASK) != (b->windex & NUM_ENTRIES_MASK);i++) {
@@ -148,6 +155,9 @@ int8_t rtc_ram_buffer_add(struct rtc_ram_buffer_s *b, uint32_t timestamp,
 		  if (timestamp - e->timestamp > 3600) {
 			  b->last_timestamp_no_consumption_all_pointers = timestamp;
 		  }
+		  if (timestamp - e->timestamp > 1200) {
+			  b->cumulated_consumption = 0;
+		  }
 		  break;
 	  }
   }
@@ -157,11 +167,14 @@ int8_t rtc_ram_buffer_add(struct rtc_ram_buffer_s *b, uint32_t timestamp,
 
 uint16_t water_consumption(struct rtc_ram_buffer_s *b) {
   // return b->entry[(b->windex+NUM_ENTRIES-1) & NUM_ENTRIES_MASK].angle[0];
-  return b->steigung;
+  return b->cumulated_consumption;
 }
 
 uint8_t have_alarm(struct rtc_ram_buffer_s *b) {
-	if (b->steigung > 500) {
+	if (b->cumulated_consumption > 1300) {
+		return ALARM_CUMULATED_CONSUMPTION_TOO_HIGH;
+	}
+	if (b->steigung > 700) {
 		return ALARM_TOO_HIGH_CONSUMPTION;
 	}
 	uint32_t timestamp = b->entry[(b->windex+NUM_ENTRIES-1)&NUM_ENTRIES_MASK].timestamp;

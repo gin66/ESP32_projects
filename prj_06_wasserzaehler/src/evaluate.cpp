@@ -87,7 +87,7 @@ int8_t rtc_ram_buffer_add(struct rtc_ram_buffer_s *b, uint32_t timestamp,
     }
   }
   if (ok <= 1) {
-    return -1;
+    return -2;
   }
 
   uint16_t angle[WINDOW_SIZE];
@@ -136,7 +136,7 @@ int8_t rtc_ram_buffer_add(struct rtc_ram_buffer_s *b, uint32_t timestamp,
   }
 
   if (err[window - 1] != 0) {
-    return -1;
+    return -3;
   }
 
   if (b->steigung == 0) {

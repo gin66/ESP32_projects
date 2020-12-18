@@ -553,6 +553,8 @@ void loop() {
                                 String("/") + reader.pointer[3].angle +
                                 String(" Consumption: ") + consumption +
                                 String(" Alarm: ") + alarm +
+                                String(" Buffer_add: ") + res +
+                                String(" entries: ") + ((uint16_t)(rtc_buffer.windex - rtc_buffer.rindex)) +
                                 String(" BootCount: ") + bootCount);
             reader.candidates = 0;
             break;

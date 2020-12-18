@@ -7,6 +7,7 @@ void rtc_ram_buffer_init(struct rtc_ram_buffer_s *b) {
   b->rindex = 0;
   b->steigung = 0;
   b->last_timestamp_no_consumption = 0;
+  b->last_timestamp_no_consumption_all_pointers = 0;
 }
 
 #define ANG_RANGE 100
@@ -34,10 +35,14 @@ int8_t rtc_ram_buffer_add(struct rtc_ram_buffer_s *b, uint32_t timestamp,
   }
   struct entry_s *e = &b->entry[b->windex++ & NUM_ENTRIES_MASK];
   e->timestamp = timestamp;
-  e->angle[0] = angle0 * ANG_STEP / 18;
-  e->angle[1] = angle1 * ANG_STEP / 18;
-  e->angle[2] = angle2 * ANG_STEP / 18;
-  e->angle[3] = angle3 * ANG_STEP / 18;
+  uint8_t norm_angle0 = angle0 * ANG_STEP / 18;
+  uint8_t norm_angle1 = angle1 * ANG_STEP / 18;
+  uint8_t norm_angle2 = angle2 * ANG_STEP / 18;
+  uint8_t norm_angle3 = angle3 * ANG_STEP / 18;
+  e->angle[0] = norm_angle0;
+  e->angle[1] = norm_angle1;
+  e->angle[2] = norm_angle2;
+  e->angle[3] = norm_angle3;
 
   uint16_t num_data = b->windex - b->rindex;
   if (num_data < 5) {
@@ -134,6 +139,19 @@ int8_t rtc_ram_buffer_add(struct rtc_ram_buffer_s *b, uint32_t timestamp,
 	  b->last_timestamp_no_consumption = timestamp;
   }
 
+  for (uint8_t i = b->rindex;(i & NUM_ENTRIES_MASK) != (b->windex & NUM_ENTRIES_MASK);i++) {
+	  struct entry_s *e = &b->entry[i & NUM_ENTRIES_MASK];
+	  if ((e->angle[0] == norm_angle0)
+	        && (e->angle[1] == norm_angle1)
+	        && (e->angle[2] == norm_angle2)
+	        && (e->angle[3] == norm_angle3)) {
+		  if (timestamp - e->timestamp > 3600) {
+			  b->last_timestamp_no_consumption_all_pointers = timestamp;
+		  }
+		  break;
+	  }
+  }
+
   return 0;
 }
 
@@ -147,6 +165,9 @@ uint8_t have_alarm(struct rtc_ram_buffer_s *b) {
 		return ALARM_TOO_HIGH_CONSUMPTION;
 	}
 	uint32_t timestamp = b->entry[(b->windex+NUM_ENTRIES-1)&NUM_ENTRIES_MASK].timestamp;
+	if (timestamp - b->last_timestamp_no_consumption_all_pointers > 18*3600) {
+		return ALARM_LEAKAGE_FINE;
+	}
 	if (timestamp - b->last_timestamp_no_consumption > 18*3600) {
 		return ALARM_LEAKAGE;
 	}

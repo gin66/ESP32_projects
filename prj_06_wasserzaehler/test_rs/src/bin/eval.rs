@@ -75,7 +75,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let (upper, lower) = root_area.split_vertically(300);
 
     let mut upper_chart = ChartBuilder::on(&upper)
-        .caption("Rohzeiger 0.1m3", ("sans-serif", 20).into_font())
+        .caption("Rohzeiger 0.1m3 als Winkel °", ("sans-serif", 20).into_font())
         .margin(5)
         .x_label_area_size(30)
         .y_label_area_size(30)

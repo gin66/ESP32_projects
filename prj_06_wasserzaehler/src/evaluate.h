@@ -12,6 +12,7 @@ struct entry_s {
 struct rtc_ram_buffer_s {
 	uint16_t windex;
 	uint16_t rindex;
+	uint32_t steigung;
 	struct entry_s entry[NUM_ENTRIES];
 };
 

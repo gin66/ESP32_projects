@@ -116,12 +116,13 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .draw()?;
 
 
+    let y_max: i32 = predict_data.iter().map(|(_,p)| *p as i32).max().unwrap();
     let mut lower_chart = ChartBuilder::on(&lower)
         .caption("over t", ("sans-serif", 50).into_font())
         .margin(5)
         .x_label_area_size(30)
         .y_label_area_size(30)
-        .build_cartesian_2d(from_t as i64..to_t as i64, 0..360)?;
+        .build_cartesian_2d(from_t as i64..to_t as i64, 0..y_max)?;
 
     lower_chart.configure_mesh().draw()?;
 

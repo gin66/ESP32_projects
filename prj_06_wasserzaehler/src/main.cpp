@@ -334,6 +334,11 @@ void setup() {
       }
     }
   });
+  server.on("/log", HTTP_GET, []() {
+    server.sendHeader("Connection", "close");
+    server.send_P(200, "application/octet-stream", (const char*)&rtc_buffer,
+                        sizeof(rtc_buffer));
+  });
   /*handling uploading firmware file */
   server.on(
       "/update", HTTP_POST,

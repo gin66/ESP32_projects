@@ -34,4 +34,3 @@ uint16_t water_consumption(struct rtc_ram_buffer_s *b);
 #define ALARM_LEAKAGE 3
 #define ALARM_LEAKAGE_FINE 4
 uint8_t have_alarm(struct rtc_ram_buffer_s *b);
-

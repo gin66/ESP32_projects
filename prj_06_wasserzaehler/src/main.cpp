@@ -24,8 +24,8 @@
 #include <mem.h>
 
 #include "../../private_bot.h"
-#include "read.h"
 #include "evaluate.h"
+#include "read.h"
 #include "template.h"
 
 #define DEBUG_ESP
@@ -335,7 +335,7 @@ void setup() {
   server.on("/log", HTTP_GET, []() {
     server.sendHeader("Connection", "close");
     server.send_P(200, "application/octet-stream", (const char*)&rtc_buffer,
-                        sizeof(rtc_buffer));
+                  sizeof(rtc_buffer));
   });
   /*handling uploading firmware file */
   server.on(
@@ -491,7 +491,7 @@ void loop() {
         if (raw_image == NULL) {
           raw_image = (uint8_t*)ps_malloc(WIDTH * HEIGHT * 3);
         }
-		bool send_image = true;
+        bool send_image = true;
         for (uint8_t i = 0; i < 10; i++) {
           camera_fb_t* fb = esp_camera_fb_get();
           jpg_len = fb->len;
@@ -508,49 +508,52 @@ void loop() {
           digitize(raw_image, digitized_image, 0);
           eval_pointer(digitized_image, &reader);
           if (reader.candidates == 4) {
-			send_image = false;
-			struct timeval tv;
-			gettimeofday(&tv, NULL);
-			int8_t res = rtc_ram_buffer_add(&rtc_buffer,
-						 tv.tv_sec,
-						 reader.pointer[0].angle,
-						 reader.pointer[1].angle,
-						 reader.pointer[2].angle,
-						 reader.pointer[3].angle);
-			if (res < 0) {
-				send_image = true;
-			}
-			uint16_t consumption = water_consumption(&rtc_buffer);
-			uint8_t alarm = have_alarm(&rtc_buffer);
-			switch(alarm) {
-				case NO_ALARM:
-					break;
-				case ALARM_TOO_HIGH_CONSUMPTION:
-					send_image = true;
-					alarm_bot.sendMessage(CHAT_ID, String("Wasseralarm: Hoher Verbrauch:") +
-							+ rtc_buffer.steigung);
-					break;
-				case ALARM_CUMULATED_CONSUMPTION_TOO_HIGH:
-					send_image = true;
-					alarm_bot.sendMessage(CHAT_ID, String("Wasseralarm: Kumulierter Verbrauch zu hoch: ")
-							+ rtc_buffer.cumulated_consumption);
-					break;
-				case ALARM_LEAKAGE:
-					send_image = true;
-					alarm_bot.sendMessage(CHAT_ID, String("Wasseralarm: Leck"));
-					break;
-				case ALARM_LEAKAGE_FINE:
-					send_image = true;
-					alarm_bot.sendMessage(CHAT_ID, String("Wasseralarm: Leck alle Zeiger"));
-					break;
-			}
-            bot.sendMessage(CHAT_ID, String("Result: ") +
-                                         reader.pointer[0].angle + String("/") +
-                                         reader.pointer[1].angle + String("/") +
-                                         reader.pointer[2].angle + String("/") +
-                                         reader.pointer[3].angle + String(" Consumption: ") +
-                                         consumption + String(" Alarm: ") + alarm + String(" BootCount: ") +
-										 bootCount);
+            send_image = false;
+            struct timeval tv;
+            gettimeofday(&tv, NULL);
+            int8_t res = rtc_ram_buffer_add(
+                &rtc_buffer, tv.tv_sec, reader.pointer[0].angle,
+                reader.pointer[1].angle, reader.pointer[2].angle,
+                reader.pointer[3].angle);
+            if (res < 0) {
+              send_image = true;
+            }
+            uint16_t consumption = water_consumption(&rtc_buffer);
+            uint8_t alarm = have_alarm(&rtc_buffer);
+            switch (alarm) {
+              case NO_ALARM:
+                break;
+              case ALARM_TOO_HIGH_CONSUMPTION:
+                send_image = true;
+                alarm_bot.sendMessage(CHAT_ID,
+                                      String("Wasseralarm: Hoher Verbrauch:") +
+                                          +rtc_buffer.steigung);
+                break;
+              case ALARM_CUMULATED_CONSUMPTION_TOO_HIGH:
+                send_image = true;
+                alarm_bot.sendMessage(
+                    CHAT_ID,
+                    String("Wasseralarm: Kumulierter Verbrauch zu hoch: ") +
+                        rtc_buffer.cumulated_consumption);
+                break;
+              case ALARM_LEAKAGE:
+                send_image = true;
+                alarm_bot.sendMessage(CHAT_ID, String("Wasseralarm: Leck"));
+                break;
+              case ALARM_LEAKAGE_FINE:
+                send_image = true;
+                alarm_bot.sendMessage(CHAT_ID,
+                                      String("Wasseralarm: Leck alle Zeiger"));
+                break;
+            }
+            bot.sendMessage(CHAT_ID,
+                            String("Result: ") + reader.pointer[0].angle +
+                                String("/") + reader.pointer[1].angle +
+                                String("/") + reader.pointer[2].angle +
+                                String("/") + reader.pointer[3].angle +
+                                String(" Consumption: ") + consumption +
+                                String(" Alarm: ") + alarm +
+                                String(" BootCount: ") + bootCount);
             reader.candidates = 0;
             break;
           }

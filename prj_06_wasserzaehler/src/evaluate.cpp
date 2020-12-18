@@ -4,13 +4,13 @@
 
 void rtc_ram_buffer_init(struct rtc_ram_buffer_s *b) {
   if (b->windex != RTC_VERSION) {
-	  b->windex = RTC_VERSION;
-	  b->windex = 0;
-	  b->rindex = 0;
-	  b->steigung = 0;
-	  b->cumulated_consumption = 0;
-	  b->last_timestamp_no_consumption = 0;
-	  b->last_timestamp_no_consumption_all_pointers = 0;
+    b->windex = RTC_VERSION;
+    b->windex = 0;
+    b->rindex = 0;
+    b->steigung = 0;
+    b->cumulated_consumption = 0;
+    b->last_timestamp_no_consumption = 0;
+    b->last_timestamp_no_consumption_all_pointers = 0;
   }
 }
 
@@ -83,8 +83,8 @@ int8_t rtc_ram_buffer_add(struct rtc_ram_buffer_s *b, uint32_t timestamp,
       i_last = i;
       if (i_first == 0xffff) {
         i_first = i;
-	  } 
-	}
+      }
+    }
   }
   if (ok <= 1) {
     return -1;
@@ -129,7 +129,7 @@ int8_t rtc_ram_buffer_add(struct rtc_ram_buffer_s *b, uint32_t timestamp,
     if (a2 > a1) {
       s = a2 - a1;
     }
-    s *= 10000/ANG_RANGE; // for 0.1 m3
+    s *= 10000 / ANG_RANGE;  // for 0.1 m3
     s *= 3600;
     s /= (t2 - t1);
     b->steigung = s;
@@ -140,32 +140,27 @@ int8_t rtc_ram_buffer_add(struct rtc_ram_buffer_s *b, uint32_t timestamp,
   }
 
   if (b->steigung == 0) {
-	  b->last_timestamp_no_consumption = timestamp;
-	  b->cumulated_consumption = 0;
-  }
-  else {
-	  uint16_t j = (b->windex + NUM_ENTRIES - 2) & NUM_ENTRIES_MASK;
-	  uint32_t t = b->entry[j].timestamp;
-	  b->cumulated_consumption += b->steigung * (timestamp - t) / 3600;
+    b->last_timestamp_no_consumption = timestamp;
+    b->cumulated_consumption = 0;
+  } else {
+    uint16_t j = (b->windex + NUM_ENTRIES - 2) & NUM_ENTRIES_MASK;
+    uint32_t t = b->entry[j].timestamp;
+    b->cumulated_consumption += b->steigung * (timestamp - t) / 3600;
   }
 
-  for (uint8_t i = b->rindex;(i & NUM_ENTRIES_MASK) != (b->windex & NUM_ENTRIES_MASK);i++) {
-	  struct entry_s *e = &b->entry[i & NUM_ENTRIES_MASK];
-	  if ((e->angle[0] == norm_angle0)
-	        && (e->angle[1] == norm_angle1)
-	        && (e->angle[2] == norm_angle2)
-	        && (e->angle[3] == norm_angle3)) {
-		  if (num_data > NUM_ENTRIES/2) {
-			  // 64*10 = 640 minutes => ~10h
-			  if (timestamp - e->timestamp > 3600) {
-				  b->last_timestamp_no_consumption_all_pointers = timestamp;
-			  }
-		  }
-		  if (timestamp - e->timestamp > 1200) {
-			  b->cumulated_consumption = 0;
-		  }
-		  break;
-	  }
+  for (uint8_t i = b->rindex;
+       (i & NUM_ENTRIES_MASK) != (b->windex & NUM_ENTRIES_MASK); i++) {
+    struct entry_s *e = &b->entry[i & NUM_ENTRIES_MASK];
+    if ((e->angle[0] == norm_angle0) && (e->angle[1] == norm_angle1) &&
+        (e->angle[2] == norm_angle2) && (e->angle[3] == norm_angle3)) {
+      if (timestamp - e->timestamp > 3600) {
+        b->last_timestamp_no_consumption_all_pointers = timestamp;
+      }
+      if (timestamp - e->timestamp > 1200) {
+        b->cumulated_consumption = 0;
+      }
+      break;
+    }
   }
 
   return 0;
@@ -177,19 +172,23 @@ uint16_t water_consumption(struct rtc_ram_buffer_s *b) {
 }
 
 uint8_t have_alarm(struct rtc_ram_buffer_s *b) {
-	if (b->cumulated_consumption > 1300) {
-		return ALARM_CUMULATED_CONSUMPTION_TOO_HIGH;
-	}
-	if (b->steigung > 700) {
-		return ALARM_TOO_HIGH_CONSUMPTION;
-	}
-	uint32_t timestamp = b->entry[(b->windex+NUM_ENTRIES-1)&NUM_ENTRIES_MASK].timestamp;
-	if (timestamp - b->last_timestamp_no_consumption_all_pointers > 18*3600) {
-		return ALARM_LEAKAGE_FINE;
-	}
-	if (timestamp - b->last_timestamp_no_consumption > 18*3600) {
-		return ALARM_LEAKAGE;
-	}
-	return NO_ALARM;
+  if (b->cumulated_consumption > 1300) {
+    return ALARM_CUMULATED_CONSUMPTION_TOO_HIGH;
+  }
+  if (b->steigung > 700) {
+    return ALARM_TOO_HIGH_CONSUMPTION;
+  }
+  uint16_t num_data = b->windex - b->rindex;
+  if (num_data > NUM_ENTRIES / 2) {
+    // 64*10 = 640 minutes => ~10h
+    uint32_t timestamp =
+        b->entry[(b->windex + NUM_ENTRIES - 1) & NUM_ENTRIES_MASK].timestamp;
+    if (timestamp - b->last_timestamp_no_consumption_all_pointers > 18 * 3600) {
+      return ALARM_LEAKAGE_FINE;
+    }
+    if (timestamp - b->last_timestamp_no_consumption > 18 * 3600) {
+      return ALARM_LEAKAGE;
+    }
+  }
+  return NO_ALARM;
 }
-

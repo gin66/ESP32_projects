@@ -14,9 +14,8 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let mut err_data = vec![];
     let mut predict_data = vec![];
     let mut alarm_data = vec![];
-    let mut rtc_buffer = [0u8; 8192];
     unsafe {
-        rtc_ram_buffer_init(rtc_buffer.as_mut_ptr());
+        rtc_ram_buffer_init();
     }
     for result in results.results.iter() {
         let r = &result.r;
@@ -33,15 +32,14 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         }
         let (ok, predict, alarm) = unsafe {
             let ok = rtc_ram_buffer_add(
-                rtc_buffer.as_mut_ptr(),
                 result.timestamp as u32,
                 r.pointer[0].angle,
                 r.pointer[1].angle,
                 r.pointer[2].angle,
                 r.pointer[3].angle,
             );
-            let predict = water_consumption(rtc_buffer.as_mut_ptr());
-            let alarm = have_alarm(rtc_buffer.as_mut_ptr());
+            let predict = water_consumption();
+            let alarm = have_alarm();
             (ok, predict, alarm)
         };
         if ok != 0 {

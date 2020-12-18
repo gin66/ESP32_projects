@@ -1,6 +1,11 @@
 // esp32 has 8k of RTC RAM
 //
 #include <stdint.h>
+#ifdef ARDUINO_ARCH_ESP32
+#include <Arduino.h>
+#else
+#define RTC_DATA_ATTR
+#endif
 
 #define NUM_ENTRIES 256
 #define NUM_ENTRIES_MASK (NUM_ENTRIES - 1)
@@ -22,15 +27,20 @@ struct rtc_ram_buffer_s {
   struct entry_s entry[NUM_ENTRIES];
 };
 
-void rtc_ram_buffer_init(struct rtc_ram_buffer_s *b);
-int8_t rtc_ram_buffer_add(struct rtc_ram_buffer_s *b, uint32_t timestamp,
+void rtc_ram_buffer_init();
+int8_t rtc_ram_buffer_add(uint32_t timestamp,
                           uint16_t angle0, uint16_t angle1, uint16_t angle2,
                           uint16_t angle3);
-uint16_t water_consumption(struct rtc_ram_buffer_s *b);
+uint16_t water_consumption();
 
 #define NO_ALARM 0
 #define ALARM_TOO_HIGH_CONSUMPTION 1
 #define ALARM_CUMULATED_CONSUMPTION_TOO_HIGH 2
 #define ALARM_LEAKAGE 3
 #define ALARM_LEAKAGE_FINE 4
-uint8_t have_alarm(struct rtc_ram_buffer_s *b);
+uint8_t have_alarm();
+uint32_t water_steigung();
+uint32_t cumulated_consumption();
+uint16_t num_entries();
+
+RTC_DATA_ATTR extern struct rtc_ram_buffer_s rtc_buffer;

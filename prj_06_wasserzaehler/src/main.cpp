@@ -45,7 +45,6 @@ volatile bool status = false;
 volatile bool deepsleep = true;
 
 RTC_DATA_ATTR uint16_t bootCount = 0;
-RTC_DATA_ATTR struct rtc_ram_buffer_s rtc_buffer;
 
 WebServer server(80);
 extern const uint8_t index_html_start[] asm("_binary_src_index_html_start");
@@ -276,7 +275,7 @@ void handleNewMessages(int numNewMessages) {
 void setup() {
   bootCount++;
 
-  rtc_ram_buffer_init(&rtc_buffer);
+  rtc_ram_buffer_init();
 
   // turn flash light off
   digitalWrite(flashPin, LOW);
@@ -512,14 +511,14 @@ void loop() {
             struct timeval tv;
             gettimeofday(&tv, NULL);
             int8_t res = rtc_ram_buffer_add(
-                &rtc_buffer, tv.tv_sec, reader.pointer[0].angle,
+                tv.tv_sec, reader.pointer[0].angle,
                 reader.pointer[1].angle, reader.pointer[2].angle,
                 reader.pointer[3].angle);
             if (res < 0) {
               send_image = true;
             }
-            uint16_t consumption = water_consumption(&rtc_buffer);
-            uint8_t alarm = have_alarm(&rtc_buffer);
+            uint16_t consumption = water_consumption();
+            uint8_t alarm = have_alarm();
             switch (alarm) {
               case NO_ALARM:
                 break;
@@ -527,14 +526,14 @@ void loop() {
                 send_image = true;
                 alarm_bot.sendMessage(CHAT_ID,
                                       String("Wasseralarm: Hoher Verbrauch:") +
-                                          +rtc_buffer.steigung);
+                                          +water_steigung());
                 break;
               case ALARM_CUMULATED_CONSUMPTION_TOO_HIGH:
                 send_image = true;
                 alarm_bot.sendMessage(
                     CHAT_ID,
                     String("Wasseralarm: Kumulierter Verbrauch zu hoch: ") +
-                        rtc_buffer.cumulated_consumption);
+                        cumulated_consumption());
                 break;
               case ALARM_LEAKAGE:
                 send_image = true;
@@ -554,7 +553,7 @@ void loop() {
                                 String(" Consumption: ") + consumption +
                                 String(" Alarm: ") + alarm +
                                 String(" Buffer_add: ") + res +
-                                String(" entries: ") + ((uint16_t)(rtc_buffer.windex - rtc_buffer.rindex)) +
+                                String(" entries: ") + num_entries() +
                                 String(" BootCount: ") + bootCount);
             reader.candidates = 0;
             break;

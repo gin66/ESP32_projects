@@ -36,15 +36,14 @@ extern "C" {
     pub fn find_pointer(digitized: *const u8, filtered: *mut u8, temp: *mut u8, r: *mut Reader);
     pub fn eval_pointer(digitized: *const u8, r: *mut Reader);
 
-    pub fn rtc_ram_buffer_init(buffer: *mut u8);
+    pub fn rtc_ram_buffer_init();
     pub fn rtc_ram_buffer_add(
-        buffer: *mut u8,
         timestamp: u32,
         angle0: u16,
         angle1: u16,
         angle2: u16,
         angle3: u16,
     ) -> i8;
-    pub fn water_consumption(buffer: *mut u8) -> u16;
-    pub fn have_alarm(buffer: *mut u8) -> u8;
+    pub fn water_consumption() -> u16;
+    pub fn have_alarm() -> u8;
 }

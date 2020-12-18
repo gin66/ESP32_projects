@@ -75,7 +75,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let (upper, lower) = root_area.split_vertically(300);
 
     let mut upper_chart = ChartBuilder::on(&upper)
-        .caption("over t", ("sans-serif", 20).into_font())
+        .caption("Rohzeiger 0.1m3", ("sans-serif", 20).into_font())
         .margin(5)
         .x_label_area_size(30)
         .y_label_area_size(30)
@@ -122,7 +122,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let y_max: i32 = predict_data.iter().map(|(_, p)| *p as i32).max().unwrap();
     let mut lower_chart = ChartBuilder::on(&lower)
-        .caption("over t", ("sans-serif", 20).into_font())
+        .caption("kumulierter Verbrauch", ("sans-serif", 20).into_font())
         .margin(5)
         .x_label_area_size(30)
         .y_label_area_size(50)

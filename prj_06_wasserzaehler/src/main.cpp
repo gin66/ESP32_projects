@@ -529,11 +529,13 @@ void loop() {
 					break;
 				case ALARM_TOO_HIGH_CONSUMPTION:
 					send_image = true;
-					alarm_bot.sendMessage(CHAT_ID, String("Wasseralarm: Hoher Verbrauch"));
+					alarm_bot.sendMessage(CHAT_ID, String("Wasseralarm: Hoher Verbrauch:") +
+							+ rtc_buffer.steigung);
 					break;
 				case ALARM_CUMULATED_CONSUMPTION_TOO_HIGH:
 					send_image = true;
-					alarm_bot.sendMessage(CHAT_ID, String("Wasseralarm: Kumulerter Verbrauch zu hoch"));
+					alarm_bot.sendMessage(CHAT_ID, String("Wasseralarm: Kumulierter Verbrauch zu hoch: ")
+							+ rtc_buffer.cumulated_consumption);
 					break;
 				case ALARM_LEAKAGE:
 					send_image = true;

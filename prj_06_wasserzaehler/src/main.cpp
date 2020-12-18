@@ -550,8 +550,8 @@ void loop() {
                                          reader.pointer[0].angle + String("/") +
                                          reader.pointer[1].angle + String("/") +
                                          reader.pointer[2].angle + String("/") +
-                                         reader.pointer[3].angle) + String(" Consumption: ") +
-                                         consumption + String(" Alarm: ") + alarm ;
+                                         reader.pointer[3].angle + String(" Consumption: ") +
+                                         consumption + String(" Alarm: ") + alarm);
             reader.candidates = 0;
             break;
           }

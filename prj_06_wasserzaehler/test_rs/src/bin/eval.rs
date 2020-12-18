@@ -20,17 +20,17 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     for result in results.results.iter() {
         let r = &result.r;
         if false {
-        println!(
-            "{} r={}  {} {} {} {}",
-            result.timestamp,
-            r.radius2,
-            r.pointer[0].angle,
-            r.pointer[1].angle,
-            r.pointer[2].angle,
-            r.pointer[3].angle,
-        );
+            println!(
+                "{} r={}  {} {} {} {}",
+                result.timestamp,
+                r.radius2,
+                r.pointer[0].angle,
+                r.pointer[1].angle,
+                r.pointer[2].angle,
+                r.pointer[3].angle,
+            );
         }
-        let (ok,predict) = unsafe {
+        let (ok, predict) = unsafe {
             let ok = rtc_ram_buffer_add(
                 rtc_buffer.as_mut_ptr(),
                 result.timestamp as u32,
@@ -44,8 +44,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         };
         if ok != 0 {
             err_data.push((result.timestamp, r));
-        }
-        else {
+        } else {
             predict_data.push((result.timestamp, predict));
         }
     }
@@ -79,10 +78,11 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     upper_chart.configure_mesh().draw()?;
 
-    upper_chart
-        .draw_series(
-            err_data.into_iter().map(|(t, r)| Circle::new((t as i64, r.pointer[0].angle as i32), 5, RED.filled())),
-        )?;
+    upper_chart.draw_series(
+        err_data
+            .into_iter()
+            .map(|(t, r)| Circle::new((t as i64, r.pointer[0].angle as i32), 5, RED.filled())),
+    )?;
 
     upper_chart
         .draw_series(LineSeries::new(
@@ -93,21 +93,21 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
 
     if false {
-    upper_chart
-        .draw_series(LineSeries::new(
-            data_1.into_iter().map(|(t, a)| (t as i64, a as i32)),
-            &BLUE,
-        ))?
-        .label("0.01")
-        .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
+        upper_chart
+            .draw_series(LineSeries::new(
+                data_1.into_iter().map(|(t, a)| (t as i64, a as i32)),
+                &BLUE,
+            ))?
+            .label("0.01")
+            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
 
-    upper_chart
-        .draw_series(LineSeries::new(
-            data_2.into_iter().map(|(t, a)| (t as i64, a as i32)),
-            &GREEN,
-        ))?
-        .label("0.001")
-        .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
+        upper_chart
+            .draw_series(LineSeries::new(
+                data_2.into_iter().map(|(t, a)| (t as i64, a as i32)),
+                &GREEN,
+            ))?
+            .label("0.001")
+            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
     }
     upper_chart
         .configure_series_labels()
@@ -115,8 +115,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .border_style(&BLACK)
         .draw()?;
 
-
-    let y_max: i32 = predict_data.iter().map(|(_,p)| *p as i32).max().unwrap();
+    let y_max: i32 = predict_data.iter().map(|(_, p)| *p as i32).max().unwrap();
     let mut lower_chart = ChartBuilder::on(&lower)
         .caption("over t", ("sans-serif", 50).into_font())
         .margin(5)
@@ -126,10 +125,11 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     lower_chart.configure_mesh().draw()?;
 
-    lower_chart
-        .draw_series(
-            predict_data.into_iter().map(|(t, p)| Circle::new((t as i64, p as i32), 4, BLUE.filled())),
-        )?;
+    lower_chart.draw_series(
+        predict_data
+            .into_iter()
+            .map(|(t, p)| Circle::new((t as i64, p as i32), 4, BLUE.filled())),
+    )?;
 
     lower_chart
         .configure_series_labels()

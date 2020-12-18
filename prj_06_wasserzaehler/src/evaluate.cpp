@@ -152,8 +152,11 @@ int8_t rtc_ram_buffer_add(struct rtc_ram_buffer_s *b, uint32_t timestamp,
 	        && (e->angle[1] == norm_angle1)
 	        && (e->angle[2] == norm_angle2)
 	        && (e->angle[3] == norm_angle3)) {
-		  if (timestamp - e->timestamp > 3600) {
-			  b->last_timestamp_no_consumption_all_pointers = timestamp;
+		  if (num_data > NUM_ENTRIES/2) {
+			  // 64*10 = 640 minutes => ~10h
+			  if (timestamp - e->timestamp > 3600) {
+				  b->last_timestamp_no_consumption_all_pointers = timestamp;
+			  }
 		  }
 		  if (timestamp - e->timestamp > 1200) {
 			  b->cumulated_consumption = 0;

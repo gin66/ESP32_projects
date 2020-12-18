@@ -535,6 +535,10 @@ void loop() {
 					send_image = true;
 					alarm_bot.sendMessage(CHAT_ID, String("Wasseralarm: Leck"));
 					break;
+				case ALARM_LEAKAGE_FINE:
+					send_image = true;
+					alarm_bot.sendMessage(CHAT_ID, String("Wasseralarm: Leck alle Zeiger"));
+					break;
 			}
             bot.sendMessage(CHAT_ID, String("Result: ") +
                                          reader.pointer[0].angle + String("/") +

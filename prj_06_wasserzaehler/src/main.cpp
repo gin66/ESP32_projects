@@ -549,7 +549,8 @@ void loop() {
                                          reader.pointer[1].angle + String("/") +
                                          reader.pointer[2].angle + String("/") +
                                          reader.pointer[3].angle + String(" Consumption: ") +
-                                         consumption + String(" Alarm: ") + alarm);
+                                         consumption + String(" Alarm: ") + alarm + String(" BootCount: ") +
+										 bootCount);
             reader.candidates = 0;
             break;
           }

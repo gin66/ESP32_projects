@@ -3,12 +3,15 @@
 #include <stdio.h>
 
 void rtc_ram_buffer_init(struct rtc_ram_buffer_s *b) {
-  b->windex = 0;
-  b->rindex = 0;
-  b->steigung = 0;
-  b->cumulated_consumption = 0;
-  b->last_timestamp_no_consumption = 0;
-  b->last_timestamp_no_consumption_all_pointers = 0;
+  if (b->windex != RTC_VERSION) {
+	  b->windex = RTC_VERSION;
+	  b->windex = 0;
+	  b->rindex = 0;
+	  b->steigung = 0;
+	  b->cumulated_consumption = 0;
+	  b->last_timestamp_no_consumption = 0;
+	  b->last_timestamp_no_consumption_all_pointers = 0;
+  }
 }
 
 #define ANG_RANGE 100

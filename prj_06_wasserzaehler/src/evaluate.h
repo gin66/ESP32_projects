@@ -5,11 +5,14 @@
 #define NUM_ENTRIES 256
 #define NUM_ENTRIES_MASK (NUM_ENTRIES - 1)
 
+#define RTC_VERSION 0x0101
+
 struct entry_s {
   uint32_t timestamp;
   uint8_t angle[4];  // 0..360° encoded as 0-100
 };
 struct rtc_ram_buffer_s {
+  uint16_t version;
   uint16_t windex;
   uint16_t rindex;
   uint32_t steigung;

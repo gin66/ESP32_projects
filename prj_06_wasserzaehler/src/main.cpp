@@ -276,9 +276,7 @@ void handleNewMessages(int numNewMessages) {
 void setup() {
   bootCount++;
 
-  if (bootCount == 0) {
-	  rtc_ram_buffer_init(&rtc_buffer);
-  }
+  rtc_ram_buffer_init(&rtc_buffer);
 
   // turn flash light off
   digitalWrite(flashPin, LOW);

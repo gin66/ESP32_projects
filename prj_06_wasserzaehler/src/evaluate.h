@@ -2,7 +2,7 @@
 //
 #include <stdint.h>
 
-#define NUM_ENTRIES 512
+#define NUM_ENTRIES 256
 #define NUM_ENTRIES_MASK (NUM_ENTRIES - 1)
 
 struct entry_s {

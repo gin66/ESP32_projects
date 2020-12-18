@@ -25,6 +25,7 @@
 
 #include "../../private_bot.h"
 #include "read.h"
+#include "evaluate.h"
 #include "template.h"
 
 #define DEBUG_ESP
@@ -44,6 +45,7 @@ volatile bool status = false;
 volatile bool deepsleep = true;
 
 RTC_DATA_ATTR uint16_t bootCount = 0;
+RTC_DATA_ATTR struct rtc_ram_buffer_s rtc_buffer;
 
 WebServer server(80);
 extern const uint8_t index_html_start[] asm("_binary_src_index_html_start");
@@ -52,6 +54,7 @@ extern const uint8_t server_index_html_start[] asm(
 
 WiFiClientSecure secured_client;
 UniversalTelegramBot bot(wasserzaehler_BOTtoken, secured_client);
+UniversalTelegramBot alarm_bot(ALARM_BOTtoken, secured_client);
 
 uint8_t* jpg_image = NULL;
 uint32_t jpg_len = 0;
@@ -273,6 +276,10 @@ void handleNewMessages(int numNewMessages) {
 void setup() {
   bootCount++;
 
+  if (bootCount == 0) {
+	  rtc_ram_buffer_init(&rtc_buffer);
+  }
+
   // turn flash light off
   digitalWrite(flashPin, LOW);
   pinMode(flashPin, OUTPUT);
@@ -481,6 +488,7 @@ void loop() {
         if (raw_image == NULL) {
           raw_image = (uint8_t*)ps_malloc(WIDTH * HEIGHT * 3);
         }
+		bool send_image = true;
         for (uint8_t i = 0; i < 10; i++) {
           camera_fb_t* fb = esp_camera_fb_get();
           jpg_len = fb->len;
@@ -497,17 +505,44 @@ void loop() {
           digitize(raw_image, digitized_image, 0);
           eval_pointer(digitized_image, &reader);
           if (reader.candidates == 4) {
+			send_image = false;
+			struct timeval tv;
+			gettimeofday(&tv, NULL);
+			int8_t res = rtc_ram_buffer_add(&rtc_buffer,
+						 tv.tv_sec,
+						 reader.pointer[0].angle,
+						 reader.pointer[1].angle,
+						 reader.pointer[2].angle,
+						 reader.pointer[3].angle);
+			if (res < 0) {
+				send_image = true;
+			}
+			uint16_t consumption = water_consumption(&rtc_buffer);
+			uint8_t alarm = have_alarm(&rtc_buffer);
+			switch(alarm) {
+				case NO_ALARM:
+					break;
+				case ALARM_TOO_HIGH_CONSUMPTION:
+					send_image = true;
+					alarm_bot.sendMessage(CHAT_ID, String("Wasseralarm: Hoher Verbrauch"));
+					break;
+				case ALARM_LEAKAGE:
+					send_image = true;
+					alarm_bot.sendMessage(CHAT_ID, String("Wasseralarm: Leck"));
+					break;
+			}
             bot.sendMessage(CHAT_ID, String("Result: ") +
                                          reader.pointer[0].angle + String("/") +
                                          reader.pointer[1].angle + String("/") +
                                          reader.pointer[2].angle + String("/") +
-                                         reader.pointer[3].angle);
+                                         reader.pointer[3].angle) + String(" Consumption: ") +
+                                         consumption + String(" Alarm: ") + alarm ;
             reader.candidates = 0;
             break;
           }
         }
         digitalWrite(flashPin, LOW);
-        if (jpg_len <= 50000) {
+        if ((jpg_len <= 50000) && send_image) {
           dataBytesSent = 0;
           status = bot.sendPhotoByBinary(CHAT_ID, "image/jpeg", jpg_len,
                                          isMoreDataAvailable, nullptr,

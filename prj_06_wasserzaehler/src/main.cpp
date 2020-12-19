@@ -274,8 +274,6 @@ void handleNewMessages(int numNewMessages) {
 void setup() {
   bootCount++;
 
-  rtc_ram_buffer_init();
-
   // turn flash light off
   digitalWrite(flashPin, LOW);
   pinMode(flashPin, OUTPUT);
@@ -332,8 +330,8 @@ void setup() {
   });
   server.on("/log", HTTP_GET, []() {
     server.sendHeader("Connection", "close");
-    server.send_P(200, "application/octet-stream", (const char*)&rtc_buffer,
-                  sizeof(rtc_buffer));
+    server.send_P(200, "application/octet-stream", (const char*)psram_buffer,
+                  PSRAM_BUFFER_SIZE);
   });
   /*handling uploading firmware file */
   server.on(
@@ -372,6 +370,8 @@ void setup() {
   if (psramFound()) {
     Serial.println("PSRAM found and loaded");
   }
+  psram_buffer_init();
+
   ESP_LOGE(TAG, "Free heap after setup: %u", xPortGetFreeHeapSize());
   ESP_LOGE(TAG, "Total heap: %u", ESP.getHeapSize());
   ESP_LOGE(TAG, "Free heap: %u", ESP.getFreeHeap());
@@ -508,7 +508,7 @@ void loop() {
             send_image = false;
             struct timeval tv;
             gettimeofday(&tv, NULL);
-            int8_t res = rtc_ram_buffer_add(
+            int8_t res = psram_buffer_add(
                 tv.tv_sec, reader.pointer[0].angle, reader.pointer[1].angle,
                 reader.pointer[2].angle, reader.pointer[3].angle);
             if (res < 0) {

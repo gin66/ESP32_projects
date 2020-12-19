@@ -61,6 +61,9 @@ uint8_t* raw_image = NULL;
 uint8_t* gray_image = NULL;
 #endif
 
+uint32_t *psram_buffer = NULL;
+uint32_t ps_state = 0;
+
 int id_count;
 struct quirc_code qr_code;
 
@@ -259,6 +262,7 @@ void TaskWebSocket(void* pvParameters) {
       myObject["reset_reason"] =
           (rtc_get_reset_reason(0) << 4) | rtc_get_reset_reason(1);
       myObject["millis"] = millis();
+      myObject["psram"] = ps_state;
       myObject["mem_free"] = (long)ESP.getFreeHeap();
       myObject["stack_free"] = (long)uxTaskGetStackHighWaterMark(NULL);
       myObject["qr_stack_free"] = qr_stack_free;
@@ -319,6 +323,12 @@ void setup() {
   server.on("/serverIndex", HTTP_GET, []() {
     server.sendHeader("Connection", "close");
     server.send_P(200, "text/html", (const char*)server_index_html_start);
+  });
+  server.on("/deepsleep", HTTP_GET, []() {
+    server.sendHeader("Connection", "close");
+    server.send_P(200, "text/html", (const char*)index_html_start);
+        esp_sleep_enable_timer_wakeup(10LL * 1000000LL);
+        esp_deep_sleep_start();
   });
   /*handling uploading firmware file */
   server.on(
@@ -393,6 +403,17 @@ void setup() {
   if (psramFound()) {
     Serial.println("PSRAM found and loaded");
   }
+  psram_buffer = (uint32_t *)ps_malloc(32*4);
+  ps_state = 0;
+  for (uint8_t i=0;i < 32;i++) {
+	  ps_state <<= 1;
+	  if (psram_buffer[i] == (0xdeadbeaf ^ i)) {
+		  ps_state |= 1;
+	  }
+	  psram_buffer[i] = 0xdeadbeaf ^ i;
+  }
+
+
   ESP_LOGE(TAG, "Free heap after setup: %u", xPortGetFreeHeapSize());
   ESP_LOGE(TAG, "Total heap: %u", ESP.getHeapSize());
   ESP_LOGE(TAG, "Free heap: %u", ESP.getFreeHeap());

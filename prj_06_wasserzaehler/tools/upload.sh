@@ -1,8 +1,14 @@
 #!/bin/bash
 
-TARGET=`gawk -F= '/upload_port=esp32_/{print $2}' platformio.ini`
+TARGET=`gawk 'BEGIN{FS=" *= *"} /upload_port/ && /esp32_/{print $2}' platformio.ini`
 
 echo $TARGET
+
+if [ "$TARGET" == "" ]
+then
+	echo Cannot get target
+	exit
+fi
 
 # ensure compilable
 rm -fR .pio
@@ -11,7 +17,7 @@ rm -fR .pio
 
 pio run
 
-# wait esp32_05 coming online
+# wait esp coming online
 while true
 do
 	ping -c 1 $TARGET

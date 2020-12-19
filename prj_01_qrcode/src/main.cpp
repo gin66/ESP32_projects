@@ -11,6 +11,7 @@
 #include <WiFiClient.h>
 #include <base64.h>
 #include <mem.h>
+#include <time.h>
 
 #include "esp32-hal-psram.h"
 #include "esp_log.h"
@@ -21,8 +22,10 @@
 #include "freertos/task.h"
 #include "img_converters.h"
 #include "qrcode_recognize.h"
+#include <hwcrypto/sha.h>
 #include "quirc.h"
 #include "template.h"
+#include "../../private_sha.h"
 
 #define DEBUG_ESP
 
@@ -54,6 +57,8 @@ uint8_t* raw_image = NULL;
 #if OUTPUT_GRAY != 0
 uint8_t* gray_image = NULL;
 #endif
+
+String sha = String("");
 
 int id_count;
 struct quirc_code qr_code;
@@ -248,6 +253,7 @@ void TaskWebSocket(void* pvParameters) {
       myObject["mem_free"] = (long)ESP.getFreeHeap();
       myObject["stack_free"] = (long)uxTaskGetStackHighWaterMark(NULL);
       myObject["qr_stack_free"] = qr_stack_free;
+	  myObject["sha"] = sha;
       // myObject["time"] = formattedTime;
       // myObject["b64"] = base64::encode((uint8_t*)data_buf, data_idx);
       // myObject["button_analog"] = analogRead(BUTTON_PIN);
@@ -397,10 +403,39 @@ void setup() {
     Serial.println(rc);
   }
 
+  Serial.print("Retrieving time: ");
+  configTime(0, 0, "pool.ntp.org");  // get UTC time via NTP
+  time_t now = time(nullptr);
+  while (now < 24 * 3600) {
+    Serial.print(".");
+    delay(100);
+    now = time(nullptr);
+  }
+
   Serial.println("Setup done.");
+}
+
+void calc_sha() {
+  char strftime_buf[64];
+  struct tm timeinfo;
+  time_t now;
+  time(&now);
+  setenv("TZ", "CET-1CEST,M3.5.0/2:00,M10.5.0/3:00", 1);
+  tzset();
+  localtime_r(&now, &timeinfo);
+  strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M ", &timeinfo);
+    uint8_t sha1HashBin[20] = { 0 };
+	// "19.12.20, 21:44 "
+    String data = String(strftime_buf) + SHA_SEED;
+    esp_sha(SHA1, (unsigned char *)data.c_str(), data.length(), &sha1HashBin[0]);
+
+	char result[10];
+	sprintf(result,"%02x%02x",sha1HashBin[0], sha1HashBin[1]);
+	sha = String(result) + String(" ") + data;
 }
 
 void loop() {
   my_wifi_loop(true);
   server.handleClient();
+  calc_sha();
 }

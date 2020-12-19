@@ -32,6 +32,8 @@
 #define DBG(...)
 #endif
 
+#define OUTPUT_GRAY 0
+
 using namespace std;
 
 WebServer server(80);
@@ -52,7 +54,9 @@ uint16_t jpg_width;
 uint16_t jpg_height;
 volatile bool qr_task_busy = false;
 uint8_t* raw_image = NULL;
+#if OUTPUT_GRAY != 0
 uint8_t* gray_image = NULL;
+#endif
 
 int id_count;
 struct quirc_code qr_code;
@@ -99,25 +103,28 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
                   jpg_height = fb->height;
                   qr_task_busy = true;
                 }
-              }
-
-#ifdef OLD
-                uint16_t data[9];
-                data[0] = 1;
-                for (int j = 0; j < 4; j++) {
-                  data[2 * j + 1] = qr_code.corners[j].x;
-                  data[2 * j + 2] = qr_code.corners[j].y;
-                }
-                webSocket.broadcastBIN((uint8_t*)data, 18);
-              uint8_t head[5];
-              head[0] = 0;
-              head[1] = width >> 8;
-              head[2] = width & 0xff;
-              head[3] = height >> 8;
-              head[4] = height & 0xff;
-              webSocket.broadcastBIN(head, 5);
-              webSocket.broadcastBIN(gray_image, width * height);
+#if OUTPUT_GRAY != 0
+				  if (id_count > 0) {
+					uint16_t data[9];
+					data[0] = 1;
+					for (int j = 0; j < 4; j++) {
+					  data[2 * j + 1] = qr_code.corners[j].x;
+					  data[2 * j + 2] = qr_code.corners[j].y;
+					}
+					webSocket.broadcastBIN((uint8_t*)data, 18);
+				  }
+				  if (gray_image != NULL) {
+					  uint8_t head[5];
+					  head[0] = 0;
+					  head[1] = jpg_width >> 8;
+					  head[2] = jpg_width & 0xff;
+					  head[3] = jpg_height >> 8;
+					  head[4] = jpg_height & 0xff;
+					  webSocket.broadcastBIN(head, 5);
+					  webSocket.broadcastBIN(gray_image, jpg_width * jpg_height);
+				  }
 #endif
+			  }
             }
             esp_camera_fb_return(fb);
           }
@@ -148,9 +155,6 @@ void TaskQRreader(void* pvParameters) {
       if (raw_image == NULL) {
         raw_image = (uint8_t*)ps_malloc(width * height * 3);
       }
-      //      if (gray_image == NULL) {
-      //        gray_image = (uint8_t*)ps_malloc(width * height);
-      //      }
       fmt2rgb888(jpg_image, jpg_len, PIXFORMAT_JPEG, raw_image);
       struct quirc* qr_recognizer = quirc_new();
       if (qr_recognizer) {
@@ -160,25 +164,41 @@ void TaskQRreader(void* pvParameters) {
           if (image) {
             uint8_t* rgb = raw_image;
             uint8_t* gray = image;
+#if OUTPUT_GRAY != 0
+			  if (gray_image == NULL) {
+				gray_image = (uint6_t*)ps_malloc(width * height);
+			  }
+            uint8_t* gray2 = gray_image;
+#endif
             for (uint32_t i = width * height; i > 0; i--) {
               uint8_t r = *rgb++;
               uint8_t g = *rgb++;
               uint8_t b = *rgb++;
-              uint8_t out = 0;
 
-              uint16_t avg = 0;
-              avg += r;
-              avg += g;
-              avg += b;
-              avg /= 3;
+			  uint8_t out = (g >> 1) + (b >> 1);
+			   out = (out >> 1) + (r >> 1);
 
-              uint8_t p_max = max(r, max(g, b));
-              uint8_t p_min = min(r, min(g, b));
+//              uint16_t out = 0;
 
-              if ((p_max - p_min <= avg / 4) || (p_max < 64)) {
-                out = avg;
-              }
+ //             uint16_t avg = 0;
+ //             avg += r;
+ //             avg += g;
+ //             avg += b;
+ //             avg /= 3;
+
+//              uint8_t p_max = max(max(r, max(g, b)),(uint8_t)1);
+//              uint8_t p_min = min(r, min(g, b));
+
+//              out = r;
+//			  out *= g;
+//			  out /= p_max;
+//			  out *= b;
+//			  out /= p_max;
+
               *gray++ = out;
+#if OUTPUT_GRAY != 0
+              *gray2++ = out;
+#endif
             }
             quirc_end(qr_recognizer);
               // Return the number of QR-codes identified in the last processed
@@ -191,6 +211,9 @@ void TaskQRreader(void* pvParameters) {
                   qr_code_valid = true;
                 }
               }
+			  else {
+				memset(&qr_data, 0, sizeof(qr_data));
+			  }
           }
         }
         quirc_destroy(qr_recognizer);
@@ -368,6 +391,7 @@ void setup() {
     Serial.println(rc);
   }
 
+  // have observed only 9516 Bytes free...
   rc = xTaskCreatePinnedToCore(TaskQRreader, "QRreader", 65536, (void*)1, 0, NULL, 1);  // Prio 0, Core 1
   if (rc != pdPASS) {
     Serial.print("cannot start task=");

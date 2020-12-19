@@ -48,11 +48,8 @@ bool qrMode = true;
 bool qr_code_valid = false;
 long qr_stack_free = 0;
 struct quirc_data qr_data;
-uint8_t* jpg_image = NULL;
-uint32_t jpg_len = 0;
-uint16_t jpg_width;
-uint16_t jpg_height;
 volatile bool qr_task_busy = false;
+camera_fb_t* fb_image = NULL;
 uint8_t* raw_image = NULL;
 #if OUTPUT_GRAY != 0
 uint8_t* gray_image = NULL;
@@ -94,15 +91,13 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
             if (fb->format == PIXFORMAT_JPEG) {
               webSocket.broadcastBIN(fb->buf, fb->len);
               if (!qr_task_busy) {
-                if (fb->len < 50000) {
-                  if (jpg_image == NULL) {
-                    jpg_image = (uint8_t*)ps_malloc(50000);
-                  }
-                  memcpy(jpg_image, fb->buf, fb->len);
-                  jpg_width = fb->width;
-                  jpg_height = fb->height;
+				  fb_image = fb;
                   qr_task_busy = true;
+				  // QR task need to return fb
                 }
+				else {
+					esp_camera_fb_return(fb);
+				}
 #if OUTPUT_GRAY != 0
 				  if (id_count > 0) {
 					uint16_t data[9];
@@ -116,17 +111,15 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
 				  if (gray_image != NULL) {
 					  uint8_t head[5];
 					  head[0] = 0;
-					  head[1] = jpg_width >> 8;
-					  head[2] = jpg_width & 0xff;
-					  head[3] = jpg_height >> 8;
-					  head[4] = jpg_height & 0xff;
+					  head[1] = fb->width >> 8;
+					  head[2] = fb->width & 0xff;
+					  head[3] = fb->height >> 8;
+					  head[4] = fb->height & 0xff;
 					  webSocket.broadcastBIN(head, 5);
-					  webSocket.broadcastBIN(gray_image, jpg_width * jpg_height);
+					  webSocket.broadcastBIN(gray_image, fb->width * fb->height);
 				  }
 #endif
-			  }
             }
-            esp_camera_fb_return(fb);
           }
         }
       }
@@ -147,15 +140,20 @@ void TaskQRreader(void* pvParameters) {
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
   for (;;) {
     if (qr_task_busy) {
+	if (fb_image != NULL) {
       qr_stack_free = (long)uxTaskGetStackHighWaterMark(NULL);
       pinMode(ledPin, OUTPUT);
       digitalWrite(ledPin, !digitalRead(ledPin));
-      uint32_t width = jpg_width;
-      uint32_t height = jpg_height;
+
+      uint32_t width = fb_image->width;
+      uint32_t height = fb_image->height;
       if (raw_image == NULL) {
         raw_image = (uint8_t*)ps_malloc(width * height * 3);
       }
-      fmt2rgb888(jpg_image, jpg_len, PIXFORMAT_JPEG, raw_image);
+      fmt2rgb888(fb_image->buf, fb_image->len, PIXFORMAT_JPEG, raw_image);
+      esp_camera_fb_return(fb_image);
+	  fb_image = NULL;
+	  
       struct quirc* qr_recognizer = quirc_new();
       if (qr_recognizer) {
         if (quirc_resize(qr_recognizer, width, height) >= 0) {
@@ -218,6 +216,7 @@ void TaskQRreader(void* pvParameters) {
         }
         quirc_destroy(qr_recognizer);
       }
+	}
       qr_task_busy = false;
     }
     vTaskDelay(xDelay);

@@ -1020,6 +1020,8 @@ void quirc_extract(const struct quirc *q, int index, struct quirc_code *code) {
 
   if (index < 0 || index > q->num_grids) return;
 
+return;
+
   memset(code, 0, sizeof(*code));
 
   perspective_map(qr->c, 0.0, 0.0, &code->corners[0]);

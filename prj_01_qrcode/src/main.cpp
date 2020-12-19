@@ -15,6 +15,7 @@
 #include "esp32-hal-psram.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "rom/rtc.h"
 #include "fb_gfx.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -44,7 +45,7 @@ extern const uint8_t server_index_html_start[] asm(
 bool qrMode = true;
 bool qr_code_valid = false;
 long qr_stack_free = 0;
-struct quirc_data qr_code;
+struct quirc_data qr_data;
 uint8_t* jpg_image = NULL;
 uint32_t jpg_len = 0;
 uint16_t jpg_width;
@@ -53,9 +54,8 @@ volatile bool qr_task_busy = false;
 uint8_t* raw_image = NULL;
 uint8_t* gray_image = NULL;
 
-#define MAX_CODES 4
 int id_count;
-struct quirc_code qr_codes[MAX_CODES];
+struct quirc_code qr_code;
 
 WebSocketsServer webSocket = WebSocketsServer(81);
 
@@ -102,15 +102,13 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
               }
 
 #ifdef OLD
-              for (int i = 0; i < id_count; i++) {
                 uint16_t data[9];
                 data[0] = 1;
                 for (int j = 0; j < 4; j++) {
-                  data[2 * j + 1] = qr_codes[i].corners[j].x;
-                  data[2 * j + 2] = qr_codes[i].corners[j].y;
+                  data[2 * j + 1] = qr_code.corners[j].x;
+                  data[2 * j + 2] = qr_code.corners[j].y;
                 }
                 webSocket.broadcastBIN((uint8_t*)data, 18);
-              }
               uint8_t head[5];
               head[0] = 0;
               head[1] = width >> 8;
@@ -154,11 +152,10 @@ void TaskQRreader(void* pvParameters) {
       //        gray_image = (uint8_t*)ps_malloc(width * height);
       //      }
       fmt2rgb888(jpg_image, jpg_len, PIXFORMAT_JPEG, raw_image);
-
       struct quirc* qr_recognizer = quirc_new();
       if (qr_recognizer) {
         if (quirc_resize(qr_recognizer, width, height) >= 0) {
-          int w, h;
+          int w = width, h = height;
           uint8_t* image = quirc_begin(qr_recognizer, &w, &h);
           if (image) {
             uint8_t* rgb = raw_image;
@@ -187,17 +184,14 @@ void TaskQRreader(void* pvParameters) {
               // Return the number of QR-codes identified in the last processed
               // image.
               id_count = quirc_count(qr_recognizer);
-              if (id_count > MAX_CODES) {
-                id_count = MAX_CODES;
-              }
-              for (int i = 0; i < id_count; i++) {
-                quirc_extract(qr_recognizer, i, &qr_codes[i]);
-              }
               if (id_count > 0) {
-                quirc_decode_error_t res = quirc_decode(&qr_codes[0], &qr_code);
+#ifdef OLD
+                quirc_extract(qr_recognizer, i, &qr_code);
+                quirc_decode_error_t res = quirc_decode(&qr_code, &qr_data);
                 if (res == QUIRC_SUCCESS) {
                   qr_code_valid = true;
                 }
+#endif
               }
           }
         }
@@ -229,6 +223,7 @@ void TaskWebSocket(void* pvParameters) {
         data.setCharAt(i, ch);
       }
       DynamicJsonDocument myObject(4096);
+      myObject["reset_reason"] = (rtc_get_reset_reason(0) << 4) | rtc_get_reset_reason(1);
       myObject["millis"] = millis();
       myObject["mem_free"] = (long)ESP.getFreeHeap();
       myObject["stack_free"] = (long)uxTaskGetStackHighWaterMark(NULL);
@@ -238,16 +233,16 @@ void TaskWebSocket(void* pvParameters) {
       // myObject["button_analog"] = analogRead(BUTTON_PIN);
       // myObject["button_digital"] = digitalRead(BUTTON_PIN);
       myObject["digital"] = data;
-      String qr_data = "........................................";
+      String qr_string = "........................................";
       if (qr_code_valid) {
         for (int i = 0; i < 40; i++) {
-          char ch = qr_code.payload[i];
+          char ch = qr_data.payload[i];
           if ((ch >= 32) && (ch <= 127)) {
-            qr_data.setCharAt(i, ch);
+            qr_string.setCharAt(i, ch);
           }
         }
       }
-      myObject["qr"] = qr_data;
+      myObject["qr"] = qr_string;
 	  myObject["codes"] = id_count;
       // myObject["sample_rate"] = I2S_SAMPLE_RATE;
 #define BUFLEN 4096
@@ -357,58 +352,6 @@ void setup() {
     esp_sleep_enable_timer_wakeup(5 * 1000000);
     esp_deep_sleep_start();
   });
-  server.on("/qr", HTTP_GET, []() {
-    bool send_error = true;
-#ifdef NEW
-    app_qr_recognize();
-    sensor_t* sensor = esp_camera_sensor_get();
-    sensor->set_pixformat(sensor, PIXFORMAT_GRAYSCALE);
-    sensor->set_framesize(sensor, FRAMESIZE_QVGA);
-    camera_fb_t* fb = esp_camera_fb_get();
-    if (!fb) {
-      Serial.println("Camera capture failed");
-    } else {
-      struct quirc* qr_recognizer = quirc_new();
-      if (!qr_recognizer) {
-        ESP_LOGE(TAG, "Can't create quirc object");
-
-      } else {
-        if (quirc_resize(qr_recognizer, fb->width, fb->height) < 0) {
-          ESP_LOGE(
-              TAG,
-              "Resize the QR-code recognizer err (cannot allocate memory).");
-        } else {
-          int w, h;
-          uint8_t* image = quirc_begin(qr_recognizer, &w, &h);
-          if (image) {
-            memcpy(image, fb->buf, w * h);
-            quirc_end(qr_recognizer);
-
-            // Return the number of QR-codes identified in the last processed
-            // image.
-            int id_count = quirc_count(qr_recognizer);
-
-            server.sendHeader("Connection", "close");
-            server.send(200, "text/plain",
-                        id_count > 0 ? "QR-CODE" : "NO QR-CODE");
-            send_error = false;
-          } else {
-            ESP_LOGE(TAG, "no image, dimension %d*%d != %d, %d*%d", w, h,
-                     fb->len, fb->width, fb->height);
-          }
-        }
-        ESP_LOGE(TAG, "Deconstruct QR-Code recognizer(quirc)");
-        quirc_destroy(qr_recognizer);
-      }
-      esp_camera_fb_return(fb);
-    }
-#endif
-    if (send_error) {
-      server.send(404);
-      Serial.print("IMAGE ERROR: ");
-      Serial.println(server.uri());
-    }
-  });
   server.begin();
 
   if (psramFound()) {
@@ -427,8 +370,7 @@ void setup() {
     Serial.println(rc);
   }
 
-  rc = xTaskCreatePinnedToCore(TaskQRreader, "QRreader", 65536, (void*)1, 2,
-                               NULL, 1);  // Prio 2, Core 1
+  rc = xTaskCreatePinnedToCore(TaskQRreader, "QRreader", 65536, (void*)1, 0, NULL, 1);  // Prio 0, Core 1
   if (rc != pdPASS) {
     Serial.print("cannot start task=");
     Serial.println(rc);

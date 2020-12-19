@@ -49,7 +49,10 @@ extern const uint8_t server_index_html_start[] asm(
 
 bool qrMode = true;
 bool qr_code_valid = false;
+bool check_qr_unlock = false;
+bool allow_unlock = false;
 long qr_stack_free = 0;
+quirc_decode_error_t qr_decode_res = QUIRC_SUCCESS;
 struct quirc_data qr_data;
 volatile bool qr_task_busy = false;
 camera_fb_t* fb_image = NULL;
@@ -57,8 +60,6 @@ uint8_t* raw_image = NULL;
 #if OUTPUT_GRAY != 0
 uint8_t* gray_image = NULL;
 #endif
-
-String sha = String("");
 
 int id_count;
 struct quirc_code qr_code;
@@ -209,9 +210,10 @@ void TaskQRreader(void* pvParameters) {
               id_count = quirc_count(qr_recognizer);
               if (id_count > 0) {
                 quirc_extract(qr_recognizer, 0, &qr_code);
-                quirc_decode_error_t res = quirc_decode(&qr_code, &qr_data);
-                if (res == QUIRC_SUCCESS) {
+                qr_decode_res = quirc_decode(&qr_code, &qr_data);
+                if (qr_decode_res == QUIRC_SUCCESS) {
                   qr_code_valid = true;
+				  check_qr_unlock = true;
                 }
               }
 			  else {
@@ -253,7 +255,6 @@ void TaskWebSocket(void* pvParameters) {
       myObject["mem_free"] = (long)ESP.getFreeHeap();
       myObject["stack_free"] = (long)uxTaskGetStackHighWaterMark(NULL);
       myObject["qr_stack_free"] = qr_stack_free;
-	  myObject["sha"] = sha;
       // myObject["time"] = formattedTime;
       // myObject["b64"] = base64::encode((uint8_t*)data_buf, data_idx);
       // myObject["button_analog"] = analogRead(BUTTON_PIN);
@@ -269,7 +270,9 @@ void TaskWebSocket(void* pvParameters) {
         }
       }
       myObject["qr"] = qr_string;
+      myObject["qr_decode"] = String(quirc_strerror(qr_decode_res));
 	  myObject["codes"] = id_count;
+	  myObject["unlock"] = allow_unlock;
       // myObject["sample_rate"] = I2S_SAMPLE_RATE;
 #define BUFLEN 4096
       char buffer[BUFLEN];
@@ -411,17 +414,20 @@ void setup() {
     delay(100);
     now = time(nullptr);
   }
+  setenv("TZ", "CET-1CEST,M3.5.0/2:00,M10.5.0/3:00", 1);
+  tzset();
 
   Serial.println("Setup done.");
 }
 
-void calc_sha() {
+void check_unlock(bool prev_minute) {
   char strftime_buf[64];
   struct tm timeinfo;
   time_t now;
   time(&now);
-  setenv("TZ", "CET-1CEST,M3.5.0/2:00,M10.5.0/3:00", 1);
-  tzset();
+  if (prev_minute) {
+	  now -= 60;
+  }
   localtime_r(&now, &timeinfo);
   strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M ", &timeinfo);
     uint8_t sha1HashBin[20] = { 0 };
@@ -431,11 +437,17 @@ void calc_sha() {
 
 	char result[10];
 	sprintf(result,"%02x%02x",sha1HashBin[0], sha1HashBin[1]);
-	sha = String(result) + String(" ") + data;
+	if (strncmp(result,(const char*)qr_data.payload,4) == 0) {
+		allow_unlock = true;
+	}
 }
 
 void loop() {
   my_wifi_loop(true);
   server.handleClient();
-  calc_sha();
+  if (check_qr_unlock) {
+	  check_qr_unlock = false;
+	  check_unlock(false);
+	  check_unlock(true);
+  }
 }

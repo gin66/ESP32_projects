@@ -1,6 +1,6 @@
 #!/bin/bash
 
-TARGET=`gawk 'BEGIN{FS=" *= *"} /upload_port/ && /esp32_/{print $2}' platformio.ini`
+TARGET=`gawk 'BEGIN{FS=" *= *"} /hostname/ && /esp32_/{print $2".local"}' platformio.ini`
 
 echo $TARGET
 
@@ -20,11 +20,12 @@ pio run
 # wait esp coming online
 while true
 do
-	ping -c 1 $TARGET
+	ping -q -c 1 $TARGET
 	if [ $? == 0 ]
 	then
 		break
 	fi
+	sleep 1
 done
 
 wget http://$TARGET/nosleep

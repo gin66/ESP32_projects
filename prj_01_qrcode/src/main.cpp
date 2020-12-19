@@ -185,13 +185,11 @@ void TaskQRreader(void* pvParameters) {
               // image.
               id_count = quirc_count(qr_recognizer);
               if (id_count > 0) {
-#ifdef OLD
-                quirc_extract(qr_recognizer, i, &qr_code);
+                quirc_extract(qr_recognizer, 0, &qr_code);
                 quirc_decode_error_t res = quirc_decode(&qr_code, &qr_data);
                 if (res == QUIRC_SUCCESS) {
                   qr_code_valid = true;
                 }
-#endif
               }
           }
         }

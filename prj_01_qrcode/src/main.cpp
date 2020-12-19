@@ -40,23 +40,25 @@ extern const uint8_t server_index_html_start[] asm(
     "_binary_src_serverindex_html_start");
 
 bool qrMode = true;
+uint8_t* raw_image = NULL;
+uint8_t* gray_image = NULL;
 
 #define MAX_CODES 4
 struct quirc_code qr_codes[MAX_CODES];
-int qr_identify(camera_fb_t* fb) {
+int qr_identify(uint16_t width, uint16_t height) {
   int id_count = 0;
   struct quirc* qr_recognizer = quirc_new();
   if (!qr_recognizer) {
     ESP_LOGE(TAG, "Can't create quirc object");
   } else {
-    if (quirc_resize(qr_recognizer, fb->width, fb->height) < 0) {
+    if (quirc_resize(qr_recognizer, width, height) < 0) {
       ESP_LOGE(TAG,
                "Resize the QR-code recognizer err (cannot allocate memory).");
     } else {
       int w, h;
       uint8_t* image = quirc_begin(qr_recognizer, &w, &h);
       if (image) {
-        memcpy(image, fb->buf, w * h);
+        memcpy(image, gray_image, w * h);
         quirc_end(qr_recognizer);
 
         // Return the number of QR-codes identified in the last processed
@@ -75,8 +77,8 @@ int qr_identify(camera_fb_t* fb) {
                    qr_codes[i].corners[3].y);
         }
       } else {
-        ESP_LOGE(TAG, "no image, dimension %d*%d != %d, %d*%d", w, h, fb->len,
-                 fb->width, fb->height);
+        ESP_LOGE(TAG, "no image, dimension %d*%d != %d*%d", w, h, 
+                 width, height);
       }
     }
     ESP_LOGE(TAG, "Deconstruct QR-Code recognizer(quirc)");
@@ -109,7 +111,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
       if (json.containsKey("image")) {
         uint8_t fail_cnt;
         esp_err_t err =
-            tpl_init_camera(&fail_cnt, PIXFORMAT_GRAYSCALE, FRAMESIZE_QVGA);
+            tpl_init_camera(&fail_cnt, PIXFORMAT_JPEG, FRAMESIZE_QVGA);
         if (err == ESP_OK) {
           camera_fb_t* fb = esp_camera_fb_get();
           if (!fb) {
@@ -117,8 +119,17 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
           } else {
             if (fb->format == PIXFORMAT_JPEG) {
               webSocket.broadcastBIN(fb->buf, fb->len);
-            } else if (fb->format == PIXFORMAT_GRAYSCALE) {
-              int code_cnt = qr_identify(fb);
+			  uint32_t width = fb->width;
+			  uint32_t height = fb->height;
+              if (raw_image == NULL) {
+                raw_image = (uint8_t*)ps_malloc(width * height * 3);
+              }
+              if (gray_image == NULL) {
+                gray_image = (uint8_t*)ps_malloc(width * height);
+              }
+              fmt2rgb888(fb->buf, fb->len, fb->format, raw_image);
+
+              int code_cnt = qr_identify(width, height);
               for (int i = 0; i < code_cnt; i++) {
                 uint16_t data[9];
                 data[0] = 1;
@@ -131,12 +142,12 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
 
               uint8_t head[5];
               head[0] = 0;
-              head[1] = fb->width >> 8;
-              head[2] = fb->width & 0xff;
-              head[3] = fb->height >> 8;
-              head[4] = fb->height & 0xff;
+              head[1] = width >> 8;
+              head[2] = width & 0xff;
+              head[3] = height >> 8;
+              head[4] = height & 0xff;
               webSocket.broadcastBIN(head, 5);
-              webSocket.broadcastBIN(fb->buf, fb->len);
+              webSocket.broadcastBIN(gray_image, width*height);
             }
             esp_camera_fb_return(fb);
           }

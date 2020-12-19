@@ -28,9 +28,8 @@ struct rtc_ram_buffer_s {
 };
 
 void rtc_ram_buffer_init();
-int8_t rtc_ram_buffer_add(uint32_t timestamp,
-                          uint16_t angle0, uint16_t angle1, uint16_t angle2,
-                          uint16_t angle3);
+int8_t rtc_ram_buffer_add(uint32_t timestamp, uint16_t angle0, uint16_t angle1,
+                          uint16_t angle2, uint16_t angle3);
 uint16_t water_consumption();
 
 #define NO_ALARM 0

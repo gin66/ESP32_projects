@@ -1,5 +1,6 @@
-#include <stdio.h>
 #include "evaluate.h"
+
+#include <stdio.h>
 
 RTC_DATA_ATTR struct rtc_ram_buffer_s rtc_buffer;
 
@@ -32,11 +33,10 @@ static uint8_t delta(uint8_t a1, uint8_t a2) {
   return da;
 }
 
-int8_t rtc_ram_buffer_add(uint32_t timestamp,
-                          uint16_t angle0, uint16_t angle1, uint16_t angle2,
-                          uint16_t angle3) {
+int8_t rtc_ram_buffer_add(uint32_t timestamp, uint16_t angle0, uint16_t angle1,
+                          uint16_t angle2, uint16_t angle3) {
   if (rtc_buffer.version != RTC_VERSION) {
-	  return -100;
+    return -100;
   }
   if (rtc_buffer.windex - NUM_ENTRIES == rtc_buffer.rindex) {
     rtc_buffer.rindex++;
@@ -67,8 +67,10 @@ int8_t rtc_ram_buffer_add(uint32_t timestamp,
     err[i] = 0;
   }
   for (uint16_t i = 0; i < window - 1; i++) {
-    uint16_t j1 = (rtc_buffer.windex + NUM_ENTRIES - window + i) & NUM_ENTRIES_MASK;
-    uint16_t j2 = (rtc_buffer.windex + NUM_ENTRIES - window + i + 1) & NUM_ENTRIES_MASK;
+    uint16_t j1 =
+        (rtc_buffer.windex + NUM_ENTRIES - window + i) & NUM_ENTRIES_MASK;
+    uint16_t j2 =
+        (rtc_buffer.windex + NUM_ENTRIES - window + i + 1) & NUM_ENTRIES_MASK;
     uint8_t a1 = rtc_buffer.entry[j1].angle[0];
     uint8_t a2 = rtc_buffer.entry[j2].angle[0];
     uint8_t da = delta(a1, a2);
@@ -107,7 +109,8 @@ int8_t rtc_ram_buffer_add(uint32_t timestamp,
       if (err[i] != 0) {
         continue;
       }
-      uint16_t j = (rtc_buffer.windex + NUM_ENTRIES - window + i) & NUM_ENTRIES_MASK;
+      uint16_t j =
+          (rtc_buffer.windex + NUM_ENTRIES - window + i) & NUM_ENTRIES_MASK;
       uint16_t this_angle = rtc_buffer.entry[j].angle[0];
       while (this_angle + 2 * ANG_STEP < last_angle) {
         this_angle += ANG_RANGE;
@@ -149,7 +152,8 @@ int8_t rtc_ram_buffer_add(uint32_t timestamp,
   } else {
     uint16_t j = (rtc_buffer.windex + NUM_ENTRIES - 2) & NUM_ENTRIES_MASK;
     uint32_t t = rtc_buffer.entry[j].timestamp;
-    rtc_buffer.cumulated_consumption += rtc_buffer.steigung * (timestamp - t) / 3600;
+    rtc_buffer.cumulated_consumption +=
+        rtc_buffer.steigung * (timestamp - t) / 3600;
   }
 
   for (uint8_t i = rtc_buffer.rindex;
@@ -171,7 +175,8 @@ int8_t rtc_ram_buffer_add(uint32_t timestamp,
 }
 
 uint16_t water_consumption() {
-  // return rtc_buffer.entry[(rtc_buffer.windex+NUM_ENTRIES-1) & NUM_ENTRIES_MASK].angle[0];
+  // return rtc_buffer.entry[(rtc_buffer.windex+NUM_ENTRIES-1) &
+  // NUM_ENTRIES_MASK].angle[0];
   return rtc_buffer.cumulated_consumption;
 }
 
@@ -186,8 +191,11 @@ uint8_t have_alarm() {
   if (num_data > NUM_ENTRIES / 2) {
     // 64*10 = 640 minutes => ~10h
     uint32_t timestamp =
-        rtc_buffer.entry[(rtc_buffer.windex + NUM_ENTRIES - 1) & NUM_ENTRIES_MASK].timestamp;
-    if (timestamp - rtc_buffer.last_timestamp_no_consumption_all_pointers > 18 * 3600) {
+        rtc_buffer
+            .entry[(rtc_buffer.windex + NUM_ENTRIES - 1) & NUM_ENTRIES_MASK]
+            .timestamp;
+    if (timestamp - rtc_buffer.last_timestamp_no_consumption_all_pointers >
+        18 * 3600) {
       return ALARM_LEAKAGE_FINE;
     }
     if (timestamp - rtc_buffer.last_timestamp_no_consumption > 18 * 3600) {
@@ -196,12 +204,8 @@ uint8_t have_alarm() {
   }
   return NO_ALARM;
 }
-uint32_t water_steigung() {
-	return rtc_buffer.steigung;
-}
-uint32_t cumulated_consumption() {
-	return rtc_buffer.cumulated_consumption;
-}
+uint32_t water_steigung() { return rtc_buffer.steigung; }
+uint32_t cumulated_consumption() { return rtc_buffer.cumulated_consumption; }
 uint16_t num_entries() {
-	return ((uint16_t)(rtc_buffer.windex - rtc_buffer.rindex));
-}	
+  return ((uint16_t)(rtc_buffer.windex - rtc_buffer.rindex));
+}

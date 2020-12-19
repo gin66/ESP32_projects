@@ -482,21 +482,26 @@ void loop() {
         while ((uint32_t)(millis() - start_ms) < 3000) {
           // let the camera adjust
           camera_fb_t* fb = esp_camera_fb_get();
-          esp_camera_fb_return(fb);
-        }
-        if (jpg_image == NULL) {
-          jpg_image = (uint8_t*)ps_malloc(50000);  // should be enough
-        }
-        if (raw_image == NULL) {
-          raw_image = (uint8_t*)ps_malloc(WIDTH * HEIGHT * 3);
+          if (fb != NULL) {
+            esp_camera_fb_return(fb);
+          }
         }
         bool send_image = true;
         for (uint8_t i = 0; i < 10; i++) {
           camera_fb_t* fb = esp_camera_fb_get();
+          if (fb == NULL) {
+            continue;
+          }
           jpg_len = fb->len;
           if (jpg_len > 50000) {
             esp_camera_fb_return(fb);
             continue;
+          }
+          if (jpg_image == NULL) {
+            jpg_image = (uint8_t*)ps_malloc(50000);  // should be enough
+          }
+          if (raw_image == NULL) {
+            raw_image = (uint8_t*)ps_malloc(WIDTH * HEIGHT * 3);
           }
           memcpy(jpg_image, fb->buf, jpg_len);
           esp_camera_fb_return(fb);
@@ -511,9 +516,8 @@ void loop() {
             struct timeval tv;
             gettimeofday(&tv, NULL);
             int8_t res = rtc_ram_buffer_add(
-                tv.tv_sec, reader.pointer[0].angle,
-                reader.pointer[1].angle, reader.pointer[2].angle,
-                reader.pointer[3].angle);
+                tv.tv_sec, reader.pointer[0].angle, reader.pointer[1].angle,
+                reader.pointer[2].angle, reader.pointer[3].angle);
             if (res < 0) {
               send_image = true;
             }
@@ -545,22 +549,21 @@ void loop() {
                                       String("Wasseralarm: Leck alle Zeiger"));
                 break;
             }
-            bot.sendMessage(CHAT_ID,
-                            String("Result: ") + reader.pointer[0].angle +
-                                String("/") + reader.pointer[1].angle +
-                                String("/") + reader.pointer[2].angle +
-                                String("/") + reader.pointer[3].angle +
-                                String(" Consumption: ") + consumption +
-                                String(" Alarm: ") + alarm +
-                                String(" Buffer_add: ") + res +
-                                String(" entries: ") + num_entries() +
-                                String(" BootCount: ") + bootCount);
+            bot.sendMessage(
+                CHAT_ID,
+                String("Result: ") + reader.pointer[0].angle + String("/") +
+                    reader.pointer[1].angle + String("/") +
+                    reader.pointer[2].angle + String("/") +
+                    reader.pointer[3].angle + String(" Consumption: ") +
+                    consumption + String(" Alarm: ") + alarm +
+                    String(" Buffer_add: ") + res + String(" entries: ") +
+                    num_entries() + String(" BootCount: ") + bootCount);
             reader.candidates = 0;
             break;
           }
         }
         digitalWrite(flashPin, LOW);
-        if ((jpg_len <= 50000) && send_image) {
+        if (send_image && (jpg_image != NULL)) {
           dataBytesSent = 0;
           status = bot.sendPhotoByBinary(CHAT_ID, "image/jpeg", jpg_len,
                                          isMoreDataAvailable, nullptr,

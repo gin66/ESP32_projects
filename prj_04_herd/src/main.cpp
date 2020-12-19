@@ -4,8 +4,8 @@
 //#include "soc/rtc_cntl_reg.h"
 
 #include <Arduino.h>
-#include <ArduinoOTA.h>
 #include <ArduinoJson.h>
+#include <ArduinoOTA.h>
 #include <ESP32Ping.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
@@ -163,14 +163,14 @@ void TaskWebSocket(void* pvParameters) {
       myObject["mean_middle_1"] = channel[1].val[1].val_mean;
       myObject["mean_right_1"] = channel[2].val[1].val_mean;
 
-	  // compute the required size
-	  const size_t CAPACITY = JSON_ARRAY_SIZE(20)*2+JSON_ARRAY_SIZE(2);
-	  //
-	  // allocate the memory for the document
-	  StaticJsonDocument<CAPACITY> ls_summed;
-	  StaticJsonDocument<CAPACITY> ms_summed;
-	  StaticJsonDocument<CAPACITY> rs_summed;
-	  StaticJsonDocument<CAPACITY> sumcnt;
+      // compute the required size
+      const size_t CAPACITY = JSON_ARRAY_SIZE(20) * 2 + JSON_ARRAY_SIZE(2);
+      //
+      // allocate the memory for the document
+      StaticJsonDocument<CAPACITY> ls_summed;
+      StaticJsonDocument<CAPACITY> ms_summed;
+      StaticJsonDocument<CAPACITY> rs_summed;
+      StaticJsonDocument<CAPACITY> sumcnt;
       for (int j = 0; j < 2; j++) {
         for (int k = 0; k < 20; k++) {
           ls_summed[j][k] = (long)channel[0].val[j].summed[k];

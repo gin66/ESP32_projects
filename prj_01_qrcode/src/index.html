@@ -106,6 +106,7 @@
         return uint16Array;
       }
       function process(data) {
+        document.getElementById("qr").innerHTML = data["qr"];
         document.getElementById("mem_free").innerHTML = data["mem_free"];
         document.getElementById("uptime").innerHTML = data["millis"] / 1000;
         return;
@@ -153,7 +154,6 @@
 
             ws.onmessage = function (evt) {
               document.getElementById("state").innerHTML = "receiving";
-              //		     document.getElementById("raw").innerHTML = evt.data;
               var exp_width = grayscale_expect_width;
               var exp_height = grayscale_expect_height;
               grayscale_expect_width = 0;
@@ -168,7 +168,7 @@
                   dv.getUint8(2) == 0xff
                 ) {
                   // is jpeg
-				  console.log("receive jpeg image");
+                  console.log("receive jpeg image");
                   let buf = new Uint8Array(evt.data);
                   const s = buf.reduce((data, byte) => {
                     return data + String.fromCharCode(byte);
@@ -224,6 +224,7 @@
                     grayscale.data[px++] = g;
                     grayscale.data[px++] = 255;
                   }
+                  console.log("qrcodes:" + qr_codes.length);
                   for (i = 0; i < qr_codes.length; i++) {
                     var qr = qr_codes[i];
                     for (j = 0; j < 4; j++) {
@@ -237,7 +238,7 @@
                           var py = (p1_y * f + p2_y * (50 - f)) / 50;
                           var pixel =
                             (Math.round(px) + Math.round(py) * width) * 4;
-                          console.log(pixel);
+                          //console.log(pixel);
                           grayscale.data[pixel++] = 0;
                           grayscale.data[pixel++] = 255;
                           grayscale.data[pixel] = 0;
@@ -251,6 +252,7 @@
                   console.log("unknown binary data");
                 }
               } else {
+                document.getElementById("raw").innerHTML = evt.data;
                 process(JSON.parse(evt.data));
                 var dt = now - last_msg;
                 document.getElementById("debug").innerHTML = dt;
@@ -292,6 +294,14 @@
           }
         }
       }
+      function send_value(k, v) {
+        if (ws != 0 && ws.readyState == 1) {
+          var j = {};
+          j[k] = v;
+          console.log(j);
+          ws.send(JSON.stringify(j));
+        }
+      }
     </script>
   </head>
   <body>
@@ -301,7 +311,7 @@
         <p>
           ESP32-Time: <span id="esp_time"></span> Memory available:
           <span id="mem_free"></span> Uptime: <span id="uptime"></span> Sample
-          Rate: <span id="sample_rate"></span>
+          Rate: <span id="sample_rate"></span> QR: <span id="qr"></span>
         </p>
       </div>
 
@@ -328,21 +338,148 @@
       </div>
       <div id="chartContainer" style="height: 800px; width: 100%" hidden></div>
     </div>
-	<div class="row">
-	<div style="width: 320px; height: 240px">
-		original
-    <canvas id="image" width="0" height="0"> </canvas>
-    </div>
-	<div style="width: 320px; height: 240px">
-		gray
-    <canvas id="gray_image" width="0" height="0"> </canvas>
-    </div>
+    <div class="row" style="height: 300px">
+      <div style="width: 320px; height: 240px">
+        original
+        <canvas id="image" width="0" height="0"> </canvas>
+      </div>
+      <div style="width: 320px; height: 240px">
+        gray
+        <canvas id="gray_image" width="0" height="0"> </canvas>
+      </div>
     </div>
     <div id="raw_image"></div>
+    <span id="raw" style="word-wrap: break-word"></span>
     <span id="debug" style="word-wrap: break-word"></span>
     <span id="state"></span>
     <span id="readystate"></span>
-    <span id="raw" style="word-wrap: break-word"></span>
+    <div class="row">
+      <div>
+        <label for="brightness">Brightness</label>
+        <input
+          type="range"
+          class="custom-range"
+          min="-2"
+          max="2"
+          id="brightness"
+          onchange="send_value('brightness',this.value)"
+        />
+        <br />
+        <label for="contrast">Contrast</label>
+        <input
+          type="range"
+          class="custom-range"
+          min="-2"
+          max="2"
+          id="contrast"
+          onchange="send_value('contrast',this.value)"
+        />
+        <br />
+        <label for="saturation">Saturation</label>
+        <input
+          type="range"
+          class="custom-range"
+          min="-2"
+          max="2"
+          id="saturation"
+          onchange="send_value('saturation',this.value)"
+        />
+        <br />
+        <label for="ae_level">AE Level</label>
+        <input
+          type="range"
+          class="custom-range"
+          min="-2"
+          max="2"
+          id="ae_level"
+          onchange="send_value('ae_level',this.value)"
+        />
+        <br />
+        <label for="aec_value">AEC Value</label>
+        <input
+          type="range"
+          class="custom-range"
+          min="0"
+          max="1200"
+          id="aec_value"
+          onchange="send_value('aec_value',this.value)"
+        />
+        <br />
+        <label for="agc_gain">AGC Gain</label>
+        <input
+          type="range"
+          class="custom-range"
+          min="0"
+          max="30"
+          id="agc_gain"
+          onchange="send_value('agc_gain',this.value)"
+        />
+        <br />
+        <label for="gainceiling">Gain ceiling</label>
+        <input
+          type="range"
+          class="custom-range"
+          min="0"
+          max="6"
+          id="gainceiling"
+          onchange="send_value('gainceiling',this.value)"
+        />
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="bpc"
+          onClick="send_value('bpc',this.checked);"
+        />BPC
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="whitebal"
+          onClick="send_value('whitebal',this.checked);"
+        />White Balance
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="exposure_ctrl"
+          onClick="send_value('exposure_ctrl',this.checked);"
+        />Exposure Ctrl
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="awb_gain"
+          onClick="send_value('awb_gain',this.checked);"
+        />AWB Gain
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="wpc"
+          onClick="send_value('wpc',this.checked);"
+        />WPC
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="dcw"
+          onClick="send_value('dcw',this.checked);"
+        />DCW
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="raw_gma"
+          onClick="send_value('raw_gma',this.checked);"
+        />Raw GMA
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="vflip"
+          onClick="send_value('vflip',this.checked);"
+        />Vflip
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="hmirror"
+          onClick="send_value('hmirror',this.checked);"
+        />Hmirror
+      </div>
+    </div>
 
     <!-- Optional JavaScript -->
     <!-- Popper.js first, then Bootstrap JS -->

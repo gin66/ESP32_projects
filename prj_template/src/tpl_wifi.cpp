@@ -1,7 +1,7 @@
 #include <ArduinoOTA.h>
+#include <ESPmDNS.h>
 #include <WiFi.h>
 #include <WiFiMulti.h>
-#include <ESPmDNS.h>
 
 #include "wifi_secrets.h"
 
@@ -61,8 +61,8 @@ void my_wifi_setup(bool verbose) {
 
   if (MDNS.begin(HOSTNAME)) {
     Serial.println("MDNS responder started");
-	MDNS.addService("http", "tcp", 80);
-	MDNS.addService("ws", "tcp", 81);
+    MDNS.addService("http", "tcp", 80);
+    MDNS.addService("ws", "tcp", 81);
   }
 
   // Port defaults to 3232

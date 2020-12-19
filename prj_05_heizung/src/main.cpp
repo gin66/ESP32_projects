@@ -8,7 +8,6 @@
 #include <ArduinoOTA.h>
 //#include <ArduinoJson.h>  // already included in UniversalTelegramBot.h
 #include <ESP32Ping.h>
-#include <ESPmDNS.h>
 #include <UniversalTelegramBot.h>
 #include <WebServer.h>
 #include <WebSockets.h>
@@ -340,12 +339,6 @@ void setup() {
   }
 
   startNetWatchDog();
-
-  if (MDNS.begin(HOSTNAME)) {
-    Serial.println("MDNS responder started");
-  }
-  MDNS.addService("http", "tcp", 80);
-  MDNS.addService("ws", "tcp", 81);
 
   Serial.print("Retrieving time: ");
   configTime(0, 0, "pool.ntp.org");  // get UTC time via NTP

@@ -6,7 +6,6 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <ArduinoOTA.h>
-#include <ESPmDNS.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
 #include <WiFi.h>
@@ -357,12 +356,6 @@ void setup() {
     Serial.print("cannot start task=");
     Serial.println(rc);
   }
-
-  if (MDNS.begin(HOSTNAME)) {
-    Serial.println("MDNS responder started");
-  }
-  MDNS.addService("http", "tcp", 80);
-  MDNS.addService("ws", "tcp", 81);
 
   Serial.println("Setup done.");
 }

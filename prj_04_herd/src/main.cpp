@@ -7,7 +7,6 @@
 #include <ArduinoOTA.h>
 #include <ArduinoJson.h>
 #include <ESP32Ping.h>
-#include <ESPmDNS.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
 #include <WiFi.h>
@@ -275,11 +274,6 @@ void setup() {
   }
 
   startNetWatchDog();
-
-  if (MDNS.begin(HOSTNAME)) {
-    Serial.println("MDNS responder started");
-  }
-  MDNS.addService("http", "tcp", 80);
 
   pinMode(PIN_LEFT, OUTPUT);
   pinMode(PIN_MIDDLE, OUTPUT);

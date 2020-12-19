@@ -7,7 +7,6 @@
 #include <ArduinoJson.h>
 #include <ArduinoOTA.h>
 #include <ESP32Ping.h>
-#include <ESPmDNS.h>
 #include <WebServer.h>
 #include <WiFi.h>
 #include <WiFiClient.h>
@@ -104,10 +103,6 @@ void setup() {
   ESP_LOGE(TAG, "Free PSRAM: %u", ESP.getFreePsram());
 
   startNetWatchDog();
-
-  if (MDNS.begin(HOSTNAME)) {
-  }
-  MDNS.addService("http", "tcp", 80);
 
   telnet_server = WiFiServer(1234);
   telnet_server.begin();

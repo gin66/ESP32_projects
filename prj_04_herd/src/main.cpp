@@ -5,7 +5,7 @@
 
 #include <Arduino.h>
 #include <ArduinoOTA.h>
-#include <Arduino_JSON.h>
+#include <ArduinoJson.h>
 #include <ESP32Ping.h>
 #include <ESPmDNS.h>
 #include <WebServer.h>
@@ -79,8 +79,9 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
     case WStype_TEXT: {
       Serial.print("received from websocket: ");
       Serial.println((char*)payload);
-      JSONVar json = JSONVar::parse((char*)payload);
-      if (json.hasOwnProperty("garage")) {
+      DynamicJsonDocument json(4096);
+      deserializeJson(json, (char*)payload);
+      if (json.containsKey("garage")) {
       }
     } break;
     case WStype_BIN:
@@ -113,7 +114,7 @@ void TaskWebSocket(void* pvParameters) {
         // char ch = 48 + digitalRead(i);
         // data.setCharAt(i, ch);
       }
-      JSONVar myObject;
+      DynamicJsonDocument myObject(4096);
       myObject["millis"] = millis();
       myObject["mem_free"] = (long)ESP.getFreeHeap();
       myObject["stack_free"] = (long)uxTaskGetStackHighWaterMark(NULL);
@@ -163,10 +164,14 @@ void TaskWebSocket(void* pvParameters) {
       myObject["mean_middle_1"] = channel[1].val[1].val_mean;
       myObject["mean_right_1"] = channel[2].val[1].val_mean;
 
-      JSONVar ls_summed[2];
-      JSONVar ms_summed[2];
-      JSONVar rs_summed[2];
-      JSONVar sumcnt[2];
+	  // compute the required size
+	  const size_t CAPACITY = JSON_ARRAY_SIZE(20)*2+JSON_ARRAY_SIZE(2);
+	  //
+	  // allocate the memory for the document
+	  StaticJsonDocument<CAPACITY> ls_summed;
+	  StaticJsonDocument<CAPACITY> ms_summed;
+	  StaticJsonDocument<CAPACITY> rs_summed;
+	  StaticJsonDocument<CAPACITY> sumcnt;
       for (int j = 0; j < 2; j++) {
         for (int k = 0; k < 20; k++) {
           ls_summed[j][k] = (long)channel[0].val[j].summed[k];
@@ -190,7 +195,10 @@ void TaskWebSocket(void* pvParameters) {
       myObject["wifi_dBm"] = WiFi.RSSI();
       myObject["SSID"] = WiFi.SSID();
 
-      String as_json = JSONVar::stringify(myObject);
+#define BUFLEN 4096
+      char buffer[BUFLEN];
+      /* size_t bx = */ serializeJson(myObject, &buffer, BUFLEN);
+      String as_json = String(buffer);
       webSocket.broadcastTXT(as_json);
     }
     vTaskDelay(xDelay);

@@ -14,9 +14,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifdef __cplusplus
-extern "C" {
-#endif
 #ifndef QUIRC_INTERNAL_H_
 #define QUIRC_INTERNAL_H_
 
@@ -31,7 +28,6 @@ extern "C" {
 #endif
 #define QUIRC_MAX_CAPSTONES 32
 #define QUIRC_MAX_GRIDS 8
-
 #define QUIRC_PERSPECTIVE_PARAMS 8
 
 #if QUIRC_MAX_REGIONS < UINT8_MAX
@@ -115,7 +111,5 @@ struct quirc_version_info {
 };
 
 extern const struct quirc_version_info quirc_version_db[QUIRC_MAX_VERSION + 1];
-#ifdef __cplusplus
-}
-#endif
+
 #endif

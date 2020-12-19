@@ -375,11 +375,10 @@ static void test_capstone(struct quirc *q, int x, int y, int *pb) {
   /* Already detected */
   if (stone_reg->capstone >= 0 || ring_reg->capstone >= 0) return;
 
-  if (ring_reg->count == 0) return;
-
   /* Ratio should ideally be 37.5 */
   ratio = stone_reg->count * 100 / ring_reg->count;
   if (ratio < 10 || ratio > 70) return;
+
   record_capstone(q, ring_left, stone);
 }
 
@@ -413,6 +412,7 @@ static void finder_scan(struct quirc *q, int y) {
         for (i = 0; i < 5; i++)
           if (pb[i] < check[i] * avg - err || pb[i] > check[i] * avg + err)
             ok = 0;
+
         if (ok) test_capstone(q, x, y, pb);
       }
     }
@@ -604,8 +604,11 @@ static int measure_timing_pattern(struct quirc *q, int index) {
   /* Choose the nearest allowable grid size */
   size = scan * 2 + 13;
   ver = (size - 15) / 4;
-  qr->grid_size = ver * 4 + 17;
+  if (ver > QUIRC_MAX_VERSION) {
+    return -1;
+  }
 
+  qr->grid_size = ver * 4 + 17;
   return 0;
 }
 
@@ -1031,11 +1034,10 @@ void quirc_extract(const struct quirc *q, int index, struct quirc_code *code) {
 
   for (y = 0; y < qr->grid_size; y++) {
     int x;
-
     for (x = 0; x < qr->grid_size; x++) {
-      if (read_cell(q, index, x, y) > 0)
+      if (read_cell(q, index, x, y) > 0) {
         code->cell_bitmap[i >> 3] |= (1 << (i & 7));
-
+      }
       i++;
     }
   }

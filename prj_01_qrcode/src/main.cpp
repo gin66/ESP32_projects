@@ -10,22 +10,22 @@
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <base64.h>
+#include <hwcrypto/sha.h>
 #include <mem.h>
 #include <time.h>
 
+#include "../../private_sha.h"
 #include "esp32-hal-psram.h"
 #include "esp_log.h"
 #include "esp_timer.h"
-#include "rom/rtc.h"
 #include "fb_gfx.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "img_converters.h"
 #include "qrcode_recognize.h"
-#include <hwcrypto/sha.h>
 #include "quirc.h"
+#include "rom/rtc.h"
 #include "template.h"
-#include "../../private_sha.h"
 
 #define DEBUG_ESP
 
@@ -97,33 +97,32 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
             if (fb->format == PIXFORMAT_JPEG) {
               webSocket.broadcastBIN(fb->buf, fb->len);
               if (!qr_task_busy) {
-				  fb_image = fb;
-                  qr_task_busy = true;
-				  // QR task need to return fb
-                }
-				else {
-					esp_camera_fb_return(fb);
-				}
+                fb_image = fb;
+                qr_task_busy = true;
+                // QR task need to return fb
+              } else {
+                esp_camera_fb_return(fb);
+              }
 #if OUTPUT_GRAY != 0
-				  if (id_count > 0) {
-					uint16_t data[9];
-					data[0] = 1;
-					for (int j = 0; j < 4; j++) {
-					  data[2 * j + 1] = qr_code.corners[j].x;
-					  data[2 * j + 2] = qr_code.corners[j].y;
-					}
-					webSocket.broadcastBIN((uint8_t*)data, 18);
-				  }
-				  if (gray_image != NULL) {
-					  uint8_t head[5];
-					  head[0] = 0;
-					  head[1] = fb->width >> 8;
-					  head[2] = fb->width & 0xff;
-					  head[3] = fb->height >> 8;
-					  head[4] = fb->height & 0xff;
-					  webSocket.broadcastBIN(head, 5);
-					  webSocket.broadcastBIN(gray_image, fb->width * fb->height);
-				  }
+              if (id_count > 0) {
+                uint16_t data[9];
+                data[0] = 1;
+                for (int j = 0; j < 4; j++) {
+                  data[2 * j + 1] = qr_code.corners[j].x;
+                  data[2 * j + 2] = qr_code.corners[j].y;
+                }
+                webSocket.broadcastBIN((uint8_t*)data, 18);
+              }
+              if (gray_image != NULL) {
+                uint8_t head[5];
+                head[0] = 0;
+                head[1] = fb->width >> 8;
+                head[2] = fb->width & 0xff;
+                head[3] = fb->height >> 8;
+                head[4] = fb->height & 0xff;
+                webSocket.broadcastBIN(head, 5);
+                webSocket.broadcastBIN(gray_image, fb->width * fb->height);
+              }
 #endif
             }
           }
@@ -146,65 +145,66 @@ void TaskQRreader(void* pvParameters) {
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
   for (;;) {
     if (qr_task_busy) {
-	if (fb_image != NULL) {
-      qr_stack_free = (long)uxTaskGetStackHighWaterMark(NULL);
-      pinMode(ledPin, OUTPUT);
-      digitalWrite(ledPin, !digitalRead(ledPin));
+      if (fb_image != NULL) {
+        qr_stack_free = (long)uxTaskGetStackHighWaterMark(NULL);
+        pinMode(ledPin, OUTPUT);
+        digitalWrite(ledPin, !digitalRead(ledPin));
 
-      uint32_t width = fb_image->width;
-      uint32_t height = fb_image->height;
-      if (raw_image == NULL) {
-        raw_image = (uint8_t*)ps_malloc(width * height * 3);
-      }
-      fmt2rgb888(fb_image->buf, fb_image->len, PIXFORMAT_JPEG, raw_image);
-      esp_camera_fb_return(fb_image);
-	  fb_image = NULL;
-	  
-      struct quirc* qr_recognizer = quirc_new();
-      if (qr_recognizer) {
-        if (quirc_resize(qr_recognizer, width, height) >= 0) {
-          int w = width, h = height;
-          uint8_t* image = quirc_begin(qr_recognizer, &w, &h);
-          if (image) {
-            uint8_t* rgb = raw_image;
-            uint8_t* gray = image;
+        uint32_t width = fb_image->width;
+        uint32_t height = fb_image->height;
+        if (raw_image == NULL) {
+          raw_image = (uint8_t*)ps_malloc(width * height * 3);
+        }
+        fmt2rgb888(fb_image->buf, fb_image->len, PIXFORMAT_JPEG, raw_image);
+        esp_camera_fb_return(fb_image);
+        fb_image = NULL;
+
+        struct quirc* qr_recognizer = quirc_new();
+        if (qr_recognizer) {
+          if (quirc_resize(qr_recognizer, width, height) >= 0) {
+            int w = width, h = height;
+            uint8_t* image = quirc_begin(qr_recognizer, &w, &h);
+            if (image) {
+              uint8_t* rgb = raw_image;
+              uint8_t* gray = image;
 #if OUTPUT_GRAY != 0
-			  if (gray_image == NULL) {
-				gray_image = (uint6_t*)ps_malloc(width * height);
-			  }
-            uint8_t* gray2 = gray_image;
+              if (gray_image == NULL) {
+                gray_image = (uint6_t*)ps_malloc(width * height);
+              }
+              uint8_t* gray2 = gray_image;
 #endif
-            for (uint32_t i = width * height; i > 0; i--) {
-              uint8_t r = *rgb++;
-              uint8_t g = *rgb++;
-              uint8_t b = *rgb++;
+              for (uint32_t i = width * height; i > 0; i--) {
+                uint8_t r = *rgb++;
+                uint8_t g = *rgb++;
+                uint8_t b = *rgb++;
 
-			  uint8_t out = (g >> 1) + (b >> 1);
-			   out = (out >> 1) + (r >> 1);
+                uint8_t out = (g >> 1) + (b >> 1);
+                out = (out >> 1) + (r >> 1);
 
-//              uint16_t out = 0;
+                //              uint16_t out = 0;
 
- //             uint16_t avg = 0;
- //             avg += r;
- //             avg += g;
- //             avg += b;
- //             avg /= 3;
+                //             uint16_t avg = 0;
+                //             avg += r;
+                //             avg += g;
+                //             avg += b;
+                //             avg /= 3;
 
-//              uint8_t p_max = max(max(r, max(g, b)),(uint8_t)1);
-//              uint8_t p_min = min(r, min(g, b));
+                //              uint8_t p_max = max(max(r, max(g,
+                //              b)),(uint8_t)1); uint8_t p_min = min(r, min(g,
+                //              b));
 
-//              out = r;
-//			  out *= g;
-//			  out /= p_max;
-//			  out *= b;
-//			  out /= p_max;
+                //              out = r;
+                //			  out *= g;
+                //			  out /= p_max;
+                //			  out *= b;
+                //			  out /= p_max;
 
-              *gray++ = out;
+                *gray++ = out;
 #if OUTPUT_GRAY != 0
-              *gray2++ = out;
+                *gray2++ = out;
 #endif
-            }
-            quirc_end(qr_recognizer);
+              }
+              quirc_end(qr_recognizer);
               // Return the number of QR-codes identified in the last processed
               // image.
               id_count = quirc_count(qr_recognizer);
@@ -213,17 +213,23 @@ void TaskQRreader(void* pvParameters) {
                 qr_decode_res = quirc_decode(&qr_code, &qr_data);
                 if (qr_decode_res == QUIRC_SUCCESS) {
                   qr_code_valid = true;
-				  check_qr_unlock = true;
+                  check_qr_unlock = true;
+                } else {
+                  quirc_flip(&qr_code);
+                  qr_decode_res = quirc_decode(&qr_code, &qr_data);
+                  if (qr_decode_res == QUIRC_SUCCESS) {
+                    qr_code_valid = true;
+                    check_qr_unlock = true;
+                  }
                 }
+              } else {
+                memset(&qr_data, 0, sizeof(qr_data));
               }
-			  else {
-				memset(&qr_data, 0, sizeof(qr_data));
-			  }
+            }
           }
+          quirc_destroy(qr_recognizer);
         }
-        quirc_destroy(qr_recognizer);
       }
-	}
       qr_task_busy = false;
     }
     vTaskDelay(xDelay);
@@ -250,7 +256,8 @@ void TaskWebSocket(void* pvParameters) {
         data.setCharAt(i, ch);
       }
       DynamicJsonDocument myObject(4096);
-      myObject["reset_reason"] = (rtc_get_reset_reason(0) << 4) | rtc_get_reset_reason(1);
+      myObject["reset_reason"] =
+          (rtc_get_reset_reason(0) << 4) | rtc_get_reset_reason(1);
       myObject["millis"] = millis();
       myObject["mem_free"] = (long)ESP.getFreeHeap();
       myObject["stack_free"] = (long)uxTaskGetStackHighWaterMark(NULL);
@@ -271,8 +278,8 @@ void TaskWebSocket(void* pvParameters) {
       }
       myObject["qr"] = qr_string;
       myObject["qr_decode"] = String(quirc_strerror(qr_decode_res));
-	  myObject["codes"] = id_count;
-	  myObject["unlock"] = allow_unlock;
+      myObject["codes"] = id_count;
+      myObject["unlock"] = allow_unlock;
       // myObject["sample_rate"] = I2S_SAMPLE_RATE;
 #define BUFLEN 4096
       char buffer[BUFLEN];
@@ -400,7 +407,8 @@ void setup() {
   }
 
   // have observed only 9516 Bytes free...
-  rc = xTaskCreatePinnedToCore(TaskQRreader, "QRreader", 65536, (void*)1, 0, NULL, 1);  // Prio 0, Core 1
+  rc = xTaskCreatePinnedToCore(TaskQRreader, "QRreader", 65536, (void*)1, 0,
+                               NULL, 1);  // Prio 0, Core 1
   if (rc != pdPASS) {
     Serial.print("cannot start task=");
     Serial.println(rc);
@@ -426,28 +434,28 @@ void check_unlock(bool prev_minute) {
   time_t now;
   time(&now);
   if (prev_minute) {
-	  now -= 60;
+    now -= 60;
   }
   localtime_r(&now, &timeinfo);
   strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M ", &timeinfo);
-    uint8_t sha1HashBin[20] = { 0 };
-	// "19.12.20, 21:44 "
-    String data = String(strftime_buf) + SHA_SEED;
-    esp_sha(SHA1, (unsigned char *)data.c_str(), data.length(), &sha1HashBin[0]);
+  uint8_t sha1HashBin[20] = {0};
+  // "19.12.20, 21:44 "
+  String data = String(strftime_buf) + SHA_SEED;
+  esp_sha(SHA1, (unsigned char*)data.c_str(), data.length(), &sha1HashBin[0]);
 
-	char result[10];
-	sprintf(result,"%02x%02x",sha1HashBin[0], sha1HashBin[1]);
-	if (strncmp(result,(const char*)qr_data.payload,4) == 0) {
-		allow_unlock = true;
-	}
+  char result[10];
+  sprintf(result, "%02x%02x", sha1HashBin[0], sha1HashBin[1]);
+  if (strncmp(result, (const char*)qr_data.payload, 4) == 0) {
+    allow_unlock = true;
+  }
 }
 
 void loop() {
   my_wifi_loop(true);
   server.handleClient();
   if (check_qr_unlock) {
-	  check_qr_unlock = false;
-	  check_unlock(false);
-	  check_unlock(true);
+    check_qr_unlock = false;
+    check_unlock(false);
+    check_unlock(true);
   }
 }

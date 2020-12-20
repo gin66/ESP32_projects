@@ -178,7 +178,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .draw()?;
 
     let mut top_right_chart = ChartBuilder::on(&bottom_right)
-        .caption("Angle", ("sans-serif", 20).into_font())
+        .caption("Winkel Zeiger 1-4 in °", ("sans-serif", 20).into_font())
         .margin(5)
         .x_label_area_size(30)
         .y_label_area_size(50)

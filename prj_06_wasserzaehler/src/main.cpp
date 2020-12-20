@@ -457,6 +457,7 @@ void loop() {
     esp_deep_sleep_start();
   }
 }
+
 void TaskCommandCore1(void* pvParameters) {
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
 
@@ -549,7 +550,7 @@ void TaskCommandCore1(void* pvParameters) {
                   break;
               }
               WATCH(106);
-              char buf[100];
+              char buf[200];
               sprintf(buf,
                       "Result: %d/%d/%d/%d Consumption: %d Alarm: %d "
                       "Buffer_add: %d, entries: %d BootCount: %d",

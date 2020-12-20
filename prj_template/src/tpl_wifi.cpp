@@ -141,6 +141,6 @@ void tpl_wifi_setup(bool verbose) {
   setenv("TZ", "CET-1CEST,M3.5.0/2:00,M10.5.0/3:00", 1);
   tzset();
 
-  xTaskCreatePinnedToCore(TaskWifiManager, "WiFi_Manager", 1024, NULL, 0,
+  xTaskCreatePinnedToCore(TaskWifiManager, "WiFi_Manager", 2688, NULL, 0,
                           &tpl_tasks.task_wifi_manager, CORE_0);
 }

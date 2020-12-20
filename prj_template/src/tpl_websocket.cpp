@@ -67,6 +67,7 @@ void TaskWebSocketCore0(void* pvParameters) {
       myObject["digital"] = data;
       // myObject["sample_rate"] = I2S_SAMPLE_RATE;
       myObject["wifi_dBm"] = WiFi.RSSI();
+	  myObject["IP"] = WiFi.localIP().toString();
       myObject["SSID"] = WiFi.SSID();
 
 	  if (func != NULL) {

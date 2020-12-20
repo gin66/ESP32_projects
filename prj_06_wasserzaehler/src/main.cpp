@@ -41,7 +41,7 @@
 using namespace std;
 
 volatile bool status = false;
-volatile bool deepsleep = true;
+volatile bool allow_sleep = true;
 
 RTC_DATA_ATTR uint16_t bootCount = 0;
 
@@ -231,11 +231,11 @@ void handleNewMessages(int numNewMessages) {
     }
 
     if (text == "/nosleep") {
-      deepsleep = false;
+      allow_sleep = false;
       bot.sendMessage(chat_id, "Prevent sleep");
     }
     if (text == "/allowsleep") {
-      deepsleep = true;
+      allow_sleep = true;
       bot.sendMessage(chat_id, "Allow sleep");
     }
 
@@ -286,7 +286,7 @@ void setup() {
   });
   server.on("/nosleep", HTTP_GET, []() {
     server.sendHeader("Connection", "close");
-    deepsleep = false;
+    allow_sleep = false;
     server.send_P(200, "text/html", (const char*)index_html_start);
   });
   server.on("/serverIndex", HTTP_GET, []() {
@@ -607,7 +607,7 @@ void loop() {
           }
         }
     case CmdDeepSleep:
-      if (deepsleep) {
+      if (allow_sleep) {
         // ensure LEDs and camera module off and pull up/downs set
         // appropriately
 	    WATCH(1000);

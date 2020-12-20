@@ -31,8 +31,16 @@ struct psram_buffer_s {
   uint32_t cumulated_consumption;
   uint32_t last_timestamp_no_consumption;
   uint32_t last_timestamp_no_consumption_all_pointers;
-  uint32_t pad_32;
-  uint32_t overwritten32;
+  uint32_t pad_32_0;
+  uint32_t overwritten32_1;
+  uint32_t pad_32_1;
+  uint32_t pad_32_2;
+  uint32_t pad_32_3;
+  uint32_t pad_32_4;
+  uint32_t pad_32_5;
+  uint32_t pad_32_6;
+  uint32_t pad_32_7;
+  uint32_t overwritten32_2;
 
 #define ENTRY(i) psram_buffer->entry_111X[(i) & NUM_ENTRIES_MASK]
   struct entry_s entry_111X[NUM_ENTRIES];

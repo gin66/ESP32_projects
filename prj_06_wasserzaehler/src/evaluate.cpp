@@ -9,7 +9,7 @@
 #define ps_malloc malloc
 #endif
 
-#if PSRAM_BUFFER_SIZE < (NUM_ENTRIES+NUM_ENTRIES/3+3)*4
+#if PSRAM_BUFFER_SIZE < (NUM_ENTRIES + 2) * 32
 #error BUFFER too small
 #endif
 
@@ -20,11 +20,10 @@ void psram_buffer_init() {
   // check version
   uint8_t is_ok = 1;
   if ((psram_buffer->version & 0xff00) != (PSRAM_VERSION & 0xff00)) {
-	  is_ok = 0;
-  }
-  else if (psram_buffer->version > PSRAM_VERSION) {
-	  // not compatible
-	  is_ok = 0;
+    is_ok = 0;
+  } else if (psram_buffer->version > PSRAM_VERSION) {
+    // not compatible
+    is_ok = 0;
   }
   if (!is_ok) {
     psram_buffer->version = PSRAM_VERSION;
@@ -55,7 +54,7 @@ static uint8_t delta(uint8_t a1, uint8_t a2) {
 }
 
 int8_t psram_buffer_add(uint32_t timestamp, uint16_t angle0, uint16_t angle1,
-                          uint16_t angle2, uint16_t angle3) {
+                        uint16_t angle2, uint16_t angle3) {
   if (psram_buffer->windex - NUM_ENTRIES == psram_buffer->rindex) {
     psram_buffer->rindex++;
   }
@@ -169,7 +168,8 @@ int8_t psram_buffer_add(uint32_t timestamp, uint16_t angle0, uint16_t angle1,
   }
 
   for (uint16_t i = psram_buffer->rindex;
-       (i & NUM_ENTRIES_MASK) != (psram_buffer->windex & NUM_ENTRIES_MASK); i++) {
+       (i & NUM_ENTRIES_MASK) != (psram_buffer->windex & NUM_ENTRIES_MASK);
+       i++) {
     struct entry_s *e = &ENTRY(i);
     if ((e->angle[0] == norm_angle0) && (e->angle[1] == norm_angle1) &&
         (e->angle[2] == norm_angle2) && (e->angle[3] == norm_angle3)) {
@@ -202,7 +202,8 @@ uint8_t have_alarm() {
   uint16_t num_data = psram_buffer->windex - psram_buffer->rindex;
   if (num_data > NUM_ENTRIES / 2) {
     // 64*10 = 640 minutes => ~10h
-    uint32_t timestamp = ENTRY(psram_buffer->windex + NUM_ENTRIES - 1).timestamp;
+    uint32_t timestamp =
+        ENTRY(psram_buffer->windex + NUM_ENTRIES - 1).timestamp;
     if (timestamp - psram_buffer->last_timestamp_no_consumption_all_pointers >
         18 * 3600) {
       return ALARM_LEAKAGE_FINE;

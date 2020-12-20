@@ -61,7 +61,7 @@ uint8_t* raw_image = NULL;
 uint8_t* gray_image = NULL;
 #endif
 
-uint32_t *psram_buffer = NULL;
+uint32_t* psram_buffer = NULL;
 uint32_t ps_state = 0;
 
 int id_count;
@@ -327,8 +327,8 @@ void setup() {
   server.on("/deepsleep", HTTP_GET, []() {
     server.sendHeader("Connection", "close");
     server.send_P(200, "text/html", (const char*)index_html_start);
-        esp_sleep_enable_timer_wakeup(10LL * 1000000LL);
-        esp_deep_sleep_start();
+    esp_sleep_enable_timer_wakeup(10LL * 1000000LL);
+    esp_deep_sleep_start();
   });
   /*handling uploading firmware file */
   server.on(
@@ -403,16 +403,15 @@ void setup() {
   if (psramFound()) {
     Serial.println("PSRAM found and loaded");
   }
-  psram_buffer = (uint32_t *)ps_malloc(32*4);
+  psram_buffer = (uint32_t*)ps_malloc(32 * 4);
   ps_state = 0;
-  for (uint8_t i=0;i < 32;i++) {
-	  ps_state <<= 1;
-	  if (psram_buffer[i] == (0xdeadbeaf ^ i)) {
-		  ps_state |= 1;
-	  }
-	  psram_buffer[i] = 0xdeadbeaf ^ i;
+  for (uint8_t i = 0; i < 32; i++) {
+    ps_state <<= 1;
+    if (psram_buffer[i] == (0xdeadbeaf ^ i)) {
+      ps_state |= 1;
+    }
+    psram_buffer[i] = 0xdeadbeaf ^ i;
   }
-
 
   ESP_LOGE(TAG, "Free heap after setup: %u", xPortGetFreeHeapSize());
   ESP_LOGE(TAG, "Total heap: %u", ESP.getHeapSize());

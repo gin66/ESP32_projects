@@ -63,6 +63,7 @@ uint8_t temp_image[WIDTH * HEIGHT / 8];
 struct read_s reader;
 uint16_t last_seen_watchpoint = 0;
 
+void TaskCommandCore1(void* pvParameters);
 enum Command {
   CmdIdle,
   CmdFlash,
@@ -121,19 +122,18 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
       deserializeJson(json, (char*)payload);
       process_web_socket_cam_settings(&json);
       if (json.containsKey("sleep")) {
-		allow_sleep = json["sleep"];
-		command = CmdDeepSleep;
+        allow_sleep = json["sleep"];
+        command = CmdDeepSleep;
       }
       if (json.containsKey("flash")) {
         command = CmdFlash;
       }
       if (json.containsKey("image")) {
         if (json["image"]) {
-			command = CmdSendRawImage;
-		}
-		else {
-			command = CmdSendImage;
-		}
+          command = CmdSendRawImage;
+        } else {
+          command = CmdSendImage;
+        }
       }
     } break;
     case WStype_BIN:
@@ -148,7 +148,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
   }
 }
 
-void TaskWebSocket(void* pvParameters) {
+void TaskWebSocketCore0(void* pvParameters) {
   const TickType_t xDelay = 1 + 10 / portTICK_PERIOD_MS;
   uint32_t send_status_ms = 0;
 
@@ -358,8 +358,17 @@ void setup() {
 
   BaseType_t rc;
 
-  rc = xTaskCreatePinnedToCore(TaskWebSocket, "WebSocket", 16384, (void*)1, 1,
-                               NULL, 0);
+#define CORE0 0
+#define CORE1 1
+  rc = xTaskCreatePinnedToCore(TaskWebSocketCore0, "WebSocket", 16384, (void*)1, 1,
+                               NULL, CORE0);
+  if (rc != pdPASS) {
+    Serial.print("cannot start websocket task=");
+    Serial.println(rc);
+  }
+
+  rc = xTaskCreatePinnedToCore(TaskCommandCore1, "Command", 16384, (void*)1, 1, NULL,
+                               CORE1);
   if (rc != pdPASS) {
     Serial.print("cannot start websocket task=");
     Serial.println(rc);
@@ -442,136 +451,142 @@ void loop() {
     bot_lasttime = millis() + BOT_MTBS;
   }
 
-  switch (command) {
-    case CmdIdle:
-      break;
-    case CmdMeasure:
-	  WATCH(100);
-      status = bot.sendMessage(CHAT_ID, "Camera capture V2: " +
-                    String(" entries: ") +
-                    num_entries() + String(" BootCount: ") + bootCount +
-					String(" Watchpoint: ") + last_seen_watchpoint);
-      if (init_camera()) {
-	    WATCH(101);
-        digitalWrite(flashPin, HIGH);
-        uint32_t start_ms = millis();
-        while ((uint32_t)(millis() - start_ms) < 3000) {
-          // let the camera adjust
-          camera_fb_t* fb = esp_camera_fb_get();
-          if (fb != NULL) {
-            esp_camera_fb_return(fb);
-          }
-        }
-	    WATCH(102);
-        bool send_image = true;
-        for (uint8_t i = 0; i < 10; i++) {
-          camera_fb_t* fb = esp_camera_fb_get();
-          if (fb == NULL) {
-            continue;
-          }
-          jpg_len = fb->len;
-          if (jpg_len > 50000) {
-            esp_camera_fb_return(fb);
-            continue;
-          }
-          if (jpg_image == NULL) {
-            jpg_image = (uint8_t*)ps_malloc(50000);  // should be enough
-          }
-          if (raw_image == NULL) {
-            raw_image = (uint8_t*)ps_malloc(WIDTH * HEIGHT * 3);
-          }
-          memcpy(jpg_image, fb->buf, jpg_len);
-          esp_camera_fb_return(fb);
-	      WATCH(103);
+  if (millis() > 1000L * 60L * 10L) {
+    // reset every 10 minutes
+    esp_sleep_enable_timer_wakeup(1LL * 1000000LL);
+    esp_deep_sleep_start();
+  }
+}
+void TaskCommandCore1(void* pvParameters) {
+  const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
 
-          fmt2rgb888(jpg_image, jpg_len, PIXFORMAT_JPEG, raw_image);
-          digitize(raw_image, digitized_image, 1);
-          find_pointer(digitized_image, filtered_image, temp_image, &reader);
-          digitize(raw_image, digitized_image, 0);
-          eval_pointer(digitized_image, &reader);
-	      WATCH(104);
-          if (reader.candidates == 4) {
-            send_image = false;
-            struct timeval tv;
-            gettimeofday(&tv, NULL);
-            int8_t res = psram_buffer_add(
-                tv.tv_sec, reader.pointer[0].angle, reader.pointer[1].angle,
-                reader.pointer[2].angle, reader.pointer[3].angle);
-            if (res < 0) {
-              send_image = true;
-            }
-	        WATCH(105);
-            uint16_t consumption = water_consumption();
-            uint8_t alarm = have_alarm();
-            switch (alarm) {
-              case NO_ALARM:
-                break;
-              case ALARM_TOO_HIGH_CONSUMPTION:
-                send_image = true;
-                alarm_bot.sendMessage(CHAT_ID,
-                                      String("Wasseralarm: Hoher Verbrauch:") +
-                                          +water_steigung());
-                break;
-              case ALARM_CUMULATED_CONSUMPTION_TOO_HIGH:
-                send_image = true;
-                alarm_bot.sendMessage(
-                    CHAT_ID,
-                    String("Wasseralarm: Kumulierter Verbrauch zu hoch: ") +
-                        cumulated_consumption());
-                break;
-              case ALARM_LEAKAGE:
-                send_image = true;
-                alarm_bot.sendMessage(CHAT_ID, String("Wasseralarm: Leck"));
-                break;
-              case ALARM_LEAKAGE_FINE:
-                send_image = true;
-                alarm_bot.sendMessage(CHAT_ID,
-                                      String("Wasseralarm: Leck alle Zeiger"));
-                break;
-            }
-	        WATCH(106);
-			char buf[100];
-			sprintf(buf,"Result: %d/%d/%d/%d Consumption: %d Alarm: %d Buffer_add: %d, entries: %d BootCount: %d",
-					reader.pointer[0].angle,
-					reader.pointer[1].angle,
-					reader.pointer[2].angle,
-					reader.pointer[3].angle,
-					consumption,
-					alarm,
-					res,
-					num_entries(),
-					bootCount);
-            bot.sendMessage(CHAT_ID, String(buf));
-            reader.candidates = 0;
-	        WATCH(107);
-            break;
-          }
-        }
-	    WATCH(110);
-        digitalWrite(flashPin, LOW);
-        if (send_image && (jpg_image != NULL)) {
-	      WATCH(111);
-          dataBytesSent = 0;
-          status = bot.sendPhotoByBinary(CHAT_ID, "image/jpeg", jpg_len,
-                                         isMoreDataAvailable, nullptr,
-                                         getNextBuffer, getNextBufferLen);
-        }
-	    WATCH(112);
-        bot.sendMessage(CHAT_ID,
-                        WiFi.SSID() + String(": ") + WiFi.localIP().toString());
-      }
-	  WATCH(121);
-      command = CmdDeepSleep;
-	  WATCH(1);
-      break;
-    case CmdFlash:
-      digitalWrite(flashPin, !digitalRead(flashPin));
-      command = CmdIdle;
-      break;
-	case CmdSendImage:
-	case CmdSendRawImage:
+  for (;;) {
+    switch (command) {
+      case CmdIdle:
+        break;
+      case CmdMeasure:
+        WATCH(100);
+        status = bot.sendMessage(
+            CHAT_ID, "Camera capture V2: " + String(" entries: ") +
+                         num_entries() + String(" BootCount: ") + bootCount +
+                         String(" Watchpoint: ") + last_seen_watchpoint);
         if (init_camera()) {
-		  bool raw = (command == CmdSendRawImage);
+          WATCH(101);
+          digitalWrite(flashPin, HIGH);
+          uint32_t start_ms = millis();
+          while ((uint32_t)(millis() - start_ms) < 3000) {
+            // let the camera adjust
+            camera_fb_t* fb = esp_camera_fb_get();
+            if (fb != NULL) {
+              esp_camera_fb_return(fb);
+            }
+          }
+          WATCH(102);
+          bool send_image = true;
+          for (uint8_t i = 0; i < 10; i++) {
+            camera_fb_t* fb = esp_camera_fb_get();
+            if (fb == NULL) {
+              continue;
+            }
+            jpg_len = fb->len;
+            if (jpg_len > 50000) {
+              esp_camera_fb_return(fb);
+              continue;
+            }
+            if (jpg_image == NULL) {
+              jpg_image = (uint8_t*)ps_malloc(50000);  // should be enough
+            }
+            if (raw_image == NULL) {
+              raw_image = (uint8_t*)ps_malloc(WIDTH * HEIGHT * 3);
+            }
+            memcpy(jpg_image, fb->buf, jpg_len);
+            esp_camera_fb_return(fb);
+            WATCH(103);
+
+            fmt2rgb888(jpg_image, jpg_len, PIXFORMAT_JPEG, raw_image);
+            digitize(raw_image, digitized_image, 1);
+            find_pointer(digitized_image, filtered_image, temp_image, &reader);
+            digitize(raw_image, digitized_image, 0);
+            eval_pointer(digitized_image, &reader);
+            WATCH(104);
+            if (reader.candidates == 4) {
+              send_image = false;
+              struct timeval tv;
+              gettimeofday(&tv, NULL);
+              int8_t res = psram_buffer_add(
+                  tv.tv_sec, reader.pointer[0].angle, reader.pointer[1].angle,
+                  reader.pointer[2].angle, reader.pointer[3].angle);
+              if (res < 0) {
+                send_image = true;
+              }
+              WATCH(105);
+              uint16_t consumption = water_consumption();
+              uint8_t alarm = have_alarm();
+              switch (alarm) {
+                case NO_ALARM:
+                  break;
+                case ALARM_TOO_HIGH_CONSUMPTION:
+                  send_image = true;
+                  alarm_bot.sendMessage(
+                      CHAT_ID, String("Wasseralarm: Hoher Verbrauch:") +
+                                   +water_steigung());
+                  break;
+                case ALARM_CUMULATED_CONSUMPTION_TOO_HIGH:
+                  send_image = true;
+                  alarm_bot.sendMessage(
+                      CHAT_ID,
+                      String("Wasseralarm: Kumulierter Verbrauch zu hoch: ") +
+                          cumulated_consumption());
+                  break;
+                case ALARM_LEAKAGE:
+                  send_image = true;
+                  alarm_bot.sendMessage(CHAT_ID, String("Wasseralarm: Leck"));
+                  break;
+                case ALARM_LEAKAGE_FINE:
+                  send_image = true;
+                  alarm_bot.sendMessage(
+                      CHAT_ID, String("Wasseralarm: Leck alle Zeiger"));
+                  break;
+              }
+              WATCH(106);
+              char buf[100];
+              sprintf(buf,
+                      "Result: %d/%d/%d/%d Consumption: %d Alarm: %d "
+                      "Buffer_add: %d, entries: %d BootCount: %d",
+                      reader.pointer[0].angle, reader.pointer[1].angle,
+                      reader.pointer[2].angle, reader.pointer[3].angle,
+                      consumption, alarm, res, num_entries(), bootCount);
+              bot.sendMessage(CHAT_ID, String(buf));
+              reader.candidates = 0;
+              WATCH(107);
+              break;
+            }
+          }
+          WATCH(110);
+          digitalWrite(flashPin, LOW);
+          if (send_image && (jpg_image != NULL)) {
+            WATCH(111);
+            dataBytesSent = 0;
+            status = bot.sendPhotoByBinary(CHAT_ID, "image/jpeg", jpg_len,
+                                           isMoreDataAvailable, nullptr,
+                                           getNextBuffer, getNextBufferLen);
+          }
+          WATCH(112);
+          bot.sendMessage(
+              CHAT_ID, WiFi.SSID() + String(": ") + WiFi.localIP().toString());
+        }
+        WATCH(121);
+        command = CmdDeepSleep;
+        WATCH(1);
+        break;
+      case CmdFlash:
+        digitalWrite(flashPin, !digitalRead(flashPin));
+        command = CmdIdle;
+        break;
+      case CmdSendImage:
+      case CmdSendRawImage:
+        if (init_camera()) {
+          bool raw = (command == CmdSendRawImage);
           camera_fb_t* fb = esp_camera_fb_get();
           if (!fb) {
             Serial.println("Camera capture failed");
@@ -606,29 +621,25 @@ void loop() {
             }
           }
         }
-    case CmdDeepSleep:
-      if (allow_sleep) {
-        // ensure LEDs and camera module off and pull up/downs set
-        // appropriately
-	    WATCH(1000);
-        digitalWrite(ledPin, HIGH);
-        digitalWrite(flashPin, LOW);
-        pinMode(ledPin, INPUT_PULLUP);
-        pinMode(flashPin, INPUT_PULLDOWN);
-        tpl_camera_off();
-        // wake up every ten minutes
-	    WATCH(1001);
-        esp_sleep_enable_timer_wakeup(600LL * 1000000LL);
-        esp_deep_sleep_start();
-	    WATCH(1002);
-      }
-      command = CmdIdle;
-      break;
-  }
-
-  if (millis() > 1000L * 60L * 10L) {
-    // reset every 10 minutes
-    esp_sleep_enable_timer_wakeup(1LL * 1000000LL);
-    esp_deep_sleep_start();
+      case CmdDeepSleep:
+        if (allow_sleep) {
+          // ensure LEDs and camera module off and pull up/downs set
+          // appropriately
+          WATCH(1000);
+          digitalWrite(ledPin, HIGH);
+          digitalWrite(flashPin, LOW);
+          pinMode(ledPin, INPUT_PULLUP);
+          pinMode(flashPin, INPUT_PULLDOWN);
+          tpl_camera_off();
+          // wake up every ten minutes
+          WATCH(1001);
+          esp_sleep_enable_timer_wakeup(600LL * 1000000LL);
+          esp_deep_sleep_start();
+          WATCH(1002);
+        }
+        command = CmdIdle;
+        break;
+    }
+    vTaskDelay(xDelay);
   }
 }

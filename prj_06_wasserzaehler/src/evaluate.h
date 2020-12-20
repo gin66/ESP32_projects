@@ -42,14 +42,14 @@ struct psram_buffer_s {
   uint32_t pad_32_7;
   uint32_t overwritten32_2;
 
-#define ENTRY(i) psram_buffer->entry_111X[(i) & NUM_ENTRIES_MASK]
+#define ENTRY(i) psram_buffer->entry_111X[(i)&NUM_ENTRIES_MASK]
   struct entry_s entry_111X[NUM_ENTRIES];
 };
 
 // must be called immediately after psramFound()
 void psram_buffer_init();
 int8_t psram_buffer_add(uint32_t timestamp, uint16_t angle0, uint16_t angle1,
-                          uint16_t angle2, uint16_t angle3);
+                        uint16_t angle2, uint16_t angle3);
 uint16_t water_consumption();
 
 #define NO_ALARM 0
@@ -62,7 +62,7 @@ uint32_t water_steigung();
 uint32_t cumulated_consumption();
 uint16_t num_entries();
 
-#define PSRAM_BUFFER_SIZE (NUM_ENTRIES*16+32)
+#define PSRAM_BUFFER_SIZE (NUM_ENTRIES * 32 + 2*32)
 extern struct psram_buffer_s *psram_buffer;
 
 #define WATCH(i) psram_buffer->last_seen_watchpoint = i

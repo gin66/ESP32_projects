@@ -249,23 +249,23 @@ void setup() {
       });
   server.begin();
 
-  BaseType_t rc;
+//  BaseType_t rc;
 
 #define CORE0 0
 #define CORE1 1
-  rc = xTaskCreatePinnedToCore(TaskWebSocketCore0, "WebSocket", 2048, (void*)1, 1,
-                               NULL, CORE0);
-  if (rc != pdPASS) {
-    Serial.print("cannot start websocket task=");
-    Serial.println(rc);
-  }
+//  rc = xTaskCreatePinnedToCore(TaskWebSocketCore0, "WebSocket", 8192, (void*)1, 1,
+//                               NULL, CORE0);
+//  if (rc != pdPASS) {
+//    Serial.print("cannot start websocket task=");
+//    Serial.println(rc);
+//  }
 
-  rc = xTaskCreatePinnedToCore(TaskCommandCore1, "Command", 2048, (void*)1, 1, NULL,
-                               CORE1);
-  if (rc != pdPASS) {
-    Serial.print("cannot start websocket task=");
-    Serial.println(rc);
-  }
+//  rc = xTaskCreatePinnedToCore(TaskCommandCore1, "Command", 2048, (void*)1, 1, NULL,
+//                               CORE1);
+//  if (rc != pdPASS) {
+//    Serial.print("cannot start websocket task=");
+//    Serial.println(rc);
+//  }
 
   startNetWatchDog();
 
@@ -313,6 +313,8 @@ void loop() {
 
     bot_lasttime = millis() + BOT_MTBS;
   }
+  const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
+    vTaskDelay(xDelay);
 }
 
 void TaskCommandCore1(void* pvParameters) {
@@ -326,37 +328,6 @@ void TaskCommandCore1(void* pvParameters) {
       break;
     case DEEPSLEEP:
       if (deepsleep) {
-        // ensure LEDs and camera module off and pull up/downs set
-        // appropriately
-        digitalWrite(ledPin, HIGH);
-        digitalWrite(flashPin, LOW);
-        pinMode(ledPin, INPUT_PULLUP);
-        pinMode(flashPin, INPUT_PULLDOWN);
-
-#ifdef OLD
-        rtc_gpio_isolate(ledPin);
-        rtc_gpio_isolate(flashPin);
-        rtc_gpio_isolate((gpio_num_t)2);
-        rtc_gpio_isolate((gpio_num_t)12);
-        rtc_gpio_isolate((gpio_num_t)13);
-        rtc_gpio_isolate((gpio_num_t)14);
-        rtc_gpio_isolate((gpio_num_t)15);
-        rtc_gpio_isolate((gpio_num_t)26);
-        rtc_gpio_isolate((gpio_num_t)27);
-        rtc_gpio_isolate((gpio_num_t)0);
-#endif
-        pinMode((gpio_num_t)2, INPUT_PULLUP);
-        pinMode((gpio_num_t)12, INPUT_PULLUP);
-        pinMode((gpio_num_t)13, INPUT_PULLUP);
-        pinMode((gpio_num_t)14, INPUT_PULLUP);
-        pinMode((gpio_num_t)15, INPUT_PULLUP);
-        pinMode((gpio_num_t)26, INPUT_PULLUP);
-        pinMode((gpio_num_t)27, INPUT_PULLUP);
-        pinMode((gpio_num_t)0, INPUT_PULLUP);
-
-        tpl_camera_off();
-
-        gpio_deep_sleep_hold_en();
         esp_wifi_stop();
 
         // wake up every four hours

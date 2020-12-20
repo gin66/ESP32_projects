@@ -16,7 +16,15 @@ struct psram_buffer_s *psram_buffer;
 
 void psram_buffer_init() {
   psram_buffer = (struct psram_buffer_s *)ps_malloc(PSRAM_BUFFER_SIZE);
-  if (psram_buffer->version != PSRAM_VERSION) {
+  // check version
+  bool is_ok;
+  if ((psram_buffer->version & 0xff00) != (PSRAM_VERSION & 0xff00)) {
+	  is_ok = false;
+  }
+  else if (psram_buffer->version > PSRAM_VERSION) {
+	  // not compatible
+  }
+  if (!is_ok) {
     psram_buffer->version = PSRAM_VERSION;
     psram_buffer->windex = 0;
     psram_buffer->rindex = 0;
@@ -46,9 +54,6 @@ static uint8_t delta(uint8_t a1, uint8_t a2) {
 
 int8_t psram_buffer_add(uint32_t timestamp, uint16_t angle0, uint16_t angle1,
                           uint16_t angle2, uint16_t angle3) {
-  if (psram_buffer->version != PSRAM_VERSION) {
-    return -100;
-  }
   if (psram_buffer->windex - NUM_ENTRIES == psram_buffer->rindex) {
     psram_buffer->rindex++;
   }

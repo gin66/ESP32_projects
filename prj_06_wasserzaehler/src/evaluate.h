@@ -2,10 +2,10 @@
 //
 #include <stdint.h>
 
-#define NUM_ENTRIES 8192
+#define NUM_ENTRIES 32768
 #define NUM_ENTRIES_MASK (NUM_ENTRIES - 1)
 
-#define PSRAM_VERSION 0x0101
+#define PSRAM_VERSION 0x0201
 
 // Use psram as deepsleep and CPU reset persistent storage.
 // Draw back is:
@@ -14,6 +14,12 @@
 struct entry_s {
   uint32_t timestamp;
   uint8_t angle[4];  // 0..360° encoded as 0-100
+  uint32_t pad1;
+  uint32_t pad2;
+  uint32_t pad3;
+  uint32_t pad4;
+  uint32_t pad5;
+  uint32_t overwritten32;
 };
 struct psram_buffer_s {
   // first 8 u32:
@@ -28,15 +34,8 @@ struct psram_buffer_s {
   uint32_t pad_32;
   uint32_t overwritten32;
 
-  // following entries: every fourth is unusable
-  //
-  // So if have n' entries, only n'*3/4 are usable.
-  // In order to have n usable ones, need to allocate 
-  //	n = n'*3/4
-  //	n' = 4*n/3 = n + n/3
-#define _2ENTRY(i) (((i)/3)*4+(i)%3)
-#define ENTRY(i) psram_buffer->entry_111X[_2ENTRY((i) & NUM_ENTRIES_MASK)]
-  struct entry_s entry_111X[NUM_ENTRIES+NUM_ENTRIES/3+2];
+#define ENTRY(i) psram_buffer->entry_111X[(i) & NUM_ENTRIES_MASK]
+  struct entry_s entry_111X[NUM_ENTRIES];
 };
 
 // must be called immediately after psramFound()
@@ -55,5 +54,5 @@ uint32_t water_steigung();
 uint32_t cumulated_consumption();
 uint16_t num_entries();
 
-#define PSRAM_BUFFER_SIZE 49152
+#define PSRAM_BUFFER_SIZE (NUM_ENTRIES*16+32)
 extern struct psram_buffer_s *psram_buffer;

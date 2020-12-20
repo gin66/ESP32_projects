@@ -47,11 +47,6 @@ volatile bool deepsleep = true;
 
 RTC_DATA_ATTR uint16_t bootCount = 0;
 
-WebServer server(80);
-extern const uint8_t index_html_start[] asm("_binary_src_index_html_start");
-extern const uint8_t server_index_html_start[] asm(
-    "_binary_src_serverindex_html_start");
-
 #define BOTtoken Heizung_BOTtoken
 
 WiFiClientSecure secured_client;
@@ -194,64 +189,13 @@ void setup() {
   // Add root certificate for api.telegram.org
   secured_client.setCACert(TELEGRAM_CERTIFICATE_ROOT);
 
-  server.onNotFound([]() {
-    server.send(404);
-    Serial.print("Not found: ");
-    Serial.println(server.uri());
-  });
-  /*handling uploading firmware file */
-  server.on("/", HTTP_GET, []() {
-    server.sendHeader("Connection", "close");
-    server.send_P(200, "text/html", (const char*)index_html_start);
-  });
-  server.on("/deepsleep", HTTP_GET, []() {
-    command = DEEPSLEEP;
-    server.sendHeader("Connection", "close");
-    server.send_P(200, "text/html", (const char*)index_html_start);
-  });
-  server.on("/serverIndex", HTTP_GET, []() {
-    server.sendHeader("Connection", "close");
-    server.send_P(200, "text/html", (const char*)server_index_html_start);
-  });
-  /*handling uploading firmware file */
-  server.on(
-      "/update", HTTP_POST,
-      []() {
-        server.sendHeader("Connection", "close");
-        server.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
-        ESP.restart();
-      },
-      []() {
-        HTTPUpload& upload = server.upload();
-        if (upload.status == UPLOAD_FILE_START) {
-          Serial.printf("Update: %s\n", upload.filename.c_str());
-          if (!Update.begin(
-                  UPDATE_SIZE_UNKNOWN)) {  // start with max available size
-            Update.printError(Serial);
-          }
-        } else if (upload.status == UPLOAD_FILE_WRITE) {
-          /* flashing firmware to ESP*/
-          if (Update.write(upload.buf, upload.currentSize) !=
-              upload.currentSize) {
-            Update.printError(Serial);
-          }
-        } else if (upload.status == UPLOAD_FILE_END) {
-          if (Update.end(
-                  true)) {  // true to set the size to the current progress
-            Serial.printf("Update Success: %u\nRebooting...\n",
-                          upload.totalSize);
-          } else {
-            Update.printError(Serial);
-          }
-        }
-      });
-  server.begin();
+  tpl_webserver_setup();
 
   BaseType_t rc;
 
 #define CORE0 0
 #define CORE1 1
-  rc = xTaskCreatePinnedToCore(TaskWebSocketCore0, "WebSocket", 2048, NULL, 1,
+  rc = xTaskCreatePinnedToCore(TaskWebSocketCore0, "WebSocket", 4096, NULL, 1,
                                &tpl_tasks.task_web_socket, CORE0);
   if (rc != pdPASS) {
     Serial.print("cannot start websocket task=");
@@ -291,7 +235,9 @@ void loop() {
   Serial.print(" command=");
   Serial.print(uxTaskGetStackHighWaterMark(tpl_tasks.task_command));
   Serial.print(" wifi=");
-  Serial.println(uxTaskGetStackHighWaterMark(tpl_tasks.task_wifi_manager));
+  Serial.print(uxTaskGetStackHighWaterMark(tpl_tasks.task_wifi_manager));
+  Serial.print(" http=");
+  Serial.println(uxTaskGetStackHighWaterMark(tpl_tasks.task_webserver));
 
   uint32_t period = 1000;
   if (fail >= 50) {
@@ -304,8 +250,6 @@ void loop() {
     pinMode(ledPin, OUTPUT);
     digitalWrite(ledPin, LOW);
   }
-  server.handleClient();
-
   if (millis() >= bot_lasttime) {
     int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
 

@@ -30,7 +30,7 @@ void TaskWatchdog(void* pvParameters) {
 bool startNetWatchDog() {
   BaseType_t rc;
 
-  rc = xTaskCreatePinnedToCore(TaskWatchdog, "Net Watchdog", 3192, NULL, 0,
+  rc = xTaskCreatePinnedToCore(TaskWatchdog, "Net Watchdog", 2688, NULL, 0,
                                &tpl_tasks.task_net_watchdog, CORE_0);
   return (rc == pdPASS);
 }

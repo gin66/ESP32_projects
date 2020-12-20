@@ -121,9 +121,10 @@ void tpl_wifi_setup(bool verbose) {
             Serial.println("End Failed");
         });
   } else {
+	  ArduinoOTA
     .onStart([]() { tpl_config.ota_ongoing = true; }).onEnd([]() {
       tpl_config.ota_ongoing = false;
-    })
+    });
   }
 
   ArduinoOTA.begin();

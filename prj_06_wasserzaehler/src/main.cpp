@@ -444,7 +444,7 @@ void loop() {
       status = bot.sendMessage(CHAT_ID, "Camera capture V2: " +
                     String(" entries: ") +
                     num_entries() + String(" BootCount: ") + bootCount +
-					String(" Watchpoint: ") + psram_buffer->last_seen_watchpoint;
+					String(" Watchpoint: ") + psram_buffer->last_seen_watchpoint);
       if (init_camera()) {
 	    WATCH(101);
         digitalWrite(flashPin, HIGH);

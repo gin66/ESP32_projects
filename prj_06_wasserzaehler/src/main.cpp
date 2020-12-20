@@ -63,11 +63,13 @@ uint8_t temp_image[WIDTH * HEIGHT / 8];
 struct read_s reader;
 
 enum Command {
-  IDLE,
-  FLASH,
-  MEASURE,
-  DEEPSLEEP,
-} command = MEASURE;  // make a photo and go to sleep
+  CmdIdle,
+  CmdFlash,
+  CmdMeasure,
+  CmdSendImage,
+  CmdSendRawImage,
+  CmdDeepSleep,
+} command = CmdMeasure;  // make a photo and go to sleep
 
 WebSocketsServer webSocket = WebSocketsServer(81);
 
@@ -118,45 +120,15 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
       deserializeJson(json, (char*)payload);
       process_web_socket_cam_settings(&json);
       if (json.containsKey("flash")) {
-        command = FLASH;
+        command = CmdFlash;
       }
       if (json.containsKey("image")) {
-        if (init_camera()) {
-          camera_fb_t* fb = esp_camera_fb_get();
-          if (!fb) {
-            Serial.println("Camera capture failed");
-            delay(1000);
-            ESP.restart();
-          } else {
-            status = true;
-            bool raw = json["image"];
-            if ((fb->format == PIXFORMAT_JPEG) && raw) {
-              webSocket.broadcastBIN(fb->buf, fb->len);
-              esp_camera_fb_return(fb);
-            } else if ((fb->format == PIXFORMAT_JPEG) && !raw) {
-              if (raw_image == NULL) {
-                raw_image = (uint8_t*)ps_malloc(WIDTH * HEIGHT * 3);
-              }
-              fmt2rgb888(fb->buf, fb->len, fb->format, raw_image);
-              uint8_t head[5];
-              head[0] = 3;
-              head[1] = fb->width >> 8;
-              head[2] = fb->width & 0xff;
-              head[3] = fb->height >> 8;
-              head[4] = fb->height & 0xff;
-              esp_camera_fb_return(fb);
-              digitize(raw_image, digitized_image, 1);
-              find_pointer(digitized_image, filtered_image, temp_image,
-                           &reader);
-              digitize(raw_image, digitized_image, 0);
-              eval_pointer(digitized_image, &reader);
-              webSocket.broadcastBIN(head, 5);
-              webSocket.broadcastBIN(filtered_image, WIDTH * HEIGHT / 8);
-            } else {
-              esp_camera_fb_return(fb);
-            }
-          }
-        }
+        if (json["image"]) {
+			command = CmdSendRawImage;
+		}
+		else {
+			command = CmdSendImage;
+		}
       }
     } break;
     case WStype_BIN:
@@ -455,7 +427,7 @@ void loop() {
     int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
 
     while (numNewMessages) {
-      command = IDLE;
+      command = CmdIdle;
       Serial.println("got response");
       handleNewMessages(numNewMessages);
       numNewMessages = bot.getUpdates(bot.last_message_received + 1);
@@ -465,10 +437,12 @@ void loop() {
   }
 
   switch (command) {
-    case IDLE:
+    case CmdIdle:
       break;
-    case MEASURE:
-      status = bot.sendMessage(CHAT_ID, "Camera capture V1");
+    case CmdMeasure:
+      status = bot.sendMessage(CHAT_ID, "Camera capture V1: " +
+                    String(" entries: ") +
+                    num_entries() + String(" BootCount: ") + bootCount);
       if (init_camera()) {
         digitalWrite(flashPin, HIGH);
         uint32_t start_ms = millis();
@@ -565,13 +539,51 @@ void loop() {
         bot.sendMessage(CHAT_ID,
                         WiFi.SSID() + String(": ") + WiFi.localIP().toString());
       }
-      command = DEEPSLEEP;
+      command = CmdDeepSleep;
       break;
-    case FLASH:
+    case CmdFlash:
       digitalWrite(flashPin, !digitalRead(flashPin));
-      command = IDLE;
+      command = CmdIdle;
       break;
-    case DEEPSLEEP:
+	case CmdSendImage:
+	case CmdSendRawImage:
+        if (init_camera()) {
+		  bool raw = (command == CmdSendRawImage);
+          camera_fb_t* fb = esp_camera_fb_get();
+          if (!fb) {
+            Serial.println("Camera capture failed");
+            delay(1000);
+            ESP.restart();
+          } else {
+            status = true;
+            if ((fb->format == PIXFORMAT_JPEG) && raw) {
+              webSocket.broadcastBIN(fb->buf, fb->len);
+              esp_camera_fb_return(fb);
+            } else if ((fb->format == PIXFORMAT_JPEG) && !raw) {
+              if (raw_image == NULL) {
+                raw_image = (uint8_t*)ps_malloc(WIDTH * HEIGHT * 3);
+              }
+              fmt2rgb888(fb->buf, fb->len, fb->format, raw_image);
+              uint8_t head[5];
+              head[0] = 3;
+              head[1] = fb->width >> 8;
+              head[2] = fb->width & 0xff;
+              head[3] = fb->height >> 8;
+              head[4] = fb->height & 0xff;
+              esp_camera_fb_return(fb);
+              digitize(raw_image, digitized_image, 1);
+              find_pointer(digitized_image, filtered_image, temp_image,
+                           &reader);
+              digitize(raw_image, digitized_image, 0);
+              eval_pointer(digitized_image, &reader);
+              webSocket.broadcastBIN(head, 5);
+              webSocket.broadcastBIN(filtered_image, WIDTH * HEIGHT / 8);
+            } else {
+              esp_camera_fb_return(fb);
+            }
+          }
+        }
+    case CmdDeepSleep:
       if (deepsleep) {
         // ensure LEDs and camera module off and pull up/downs set
         // appropriately
@@ -584,7 +596,7 @@ void loop() {
         esp_sleep_enable_timer_wakeup(600LL * 1000000LL);
         esp_deep_sleep_start();
       }
-      command = IDLE;
+      command = CmdIdle;
       break;
   }
 

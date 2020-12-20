@@ -258,8 +258,8 @@ void setup() {
     Serial.println(rc);
   }
 
-  rc = xTaskCreatePinnedToCore(TaskCommandCore1, "Command", 2048, NULL, 1, &tpl_tasks.task_command,
-                               CORE1);
+  rc = xTaskCreatePinnedToCore(TaskCommandCore1, "Command", 2048, NULL, 1,
+                               &tpl_tasks.task_command, CORE1);
   if (rc != pdPASS) {
     Serial.print("cannot start websocket task=");
     Serial.println(rc);
@@ -319,27 +319,27 @@ void loop() {
     bot_lasttime = millis() + BOT_MTBS;
   }
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
-    vTaskDelay(xDelay);
+  vTaskDelay(xDelay);
 }
 
 void TaskCommandCore1(void* pvParameters) {
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
 
   for (;;) {
-  switch (command) {
-    case IDLE:
-      break;
-    case DEEPSLEEP:
-      if (deepsleep) {
-        esp_wifi_stop();
+    switch (command) {
+      case IDLE:
+        break;
+      case DEEPSLEEP:
+        if (deepsleep) {
+          esp_wifi_stop();
 
-        // wake up every four hours
-        esp_sleep_enable_timer_wakeup(4LL * 3600LL * 1000000LL);
-        esp_deep_sleep_start();
-      }
-      command = IDLE;
-      break;
-  }
+          // wake up every four hours
+          esp_sleep_enable_timer_wakeup(4LL * 3600LL * 1000000LL);
+          esp_deep_sleep_start();
+        }
+        command = IDLE;
+        break;
+    }
     vTaskDelay(xDelay);
   }
 }

@@ -360,15 +360,15 @@ void setup() {
 
 #define CORE0 0
 #define CORE1 1
-  rc = xTaskCreatePinnedToCore(TaskWebSocketCore0, "WebSocket", 16384, (void*)1, 1,
-                               NULL, CORE0);
+  rc = xTaskCreatePinnedToCore(TaskWebSocketCore0, "WebSocket", 16384, (void*)1,
+                               1, NULL, CORE0);
   if (rc != pdPASS) {
     Serial.print("cannot start websocket task=");
     Serial.println(rc);
   }
 
-  rc = xTaskCreatePinnedToCore(TaskCommandCore1, "Command", 16384, (void*)1, 1, NULL,
-                               CORE1);
+  rc = xTaskCreatePinnedToCore(TaskCommandCore1, "Command", 16384, (void*)1, 1,
+                               NULL, CORE1);
   if (rc != pdPASS) {
     Serial.print("cannot start websocket task=");
     Serial.println(rc);

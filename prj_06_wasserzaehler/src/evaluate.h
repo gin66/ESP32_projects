@@ -62,7 +62,7 @@ uint32_t water_steigung();
 uint32_t cumulated_consumption();
 uint16_t num_entries();
 
-#define PSRAM_BUFFER_SIZE (NUM_ENTRIES * 32 + 2*32)
+#define PSRAM_BUFFER_SIZE (NUM_ENTRIES * 32 + 2 * 32)
 extern struct psram_buffer_s *psram_buffer;
 
 #define WATCH(i) psram_buffer->last_seen_watchpoint = i

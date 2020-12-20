@@ -3,8 +3,8 @@
 #include <WiFi.h>
 #include <WiFiMulti.h>
 
-#include "wifi_secrets.h"
 #include "tpl_system.h"
+#include "wifi_secrets.h"
 
 RTC_DATA_ATTR int last_connected_network = -1;
 bool automode = false;
@@ -32,13 +32,13 @@ static void connect() {
   }
 }
 
-void TaskWifiManager(void* pvParameters) {
+void TaskWifiManager(void *pvParameters) {
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
   for (;;) {
-  if (WiFi.status() != WL_CONNECTED) {
-    connect();
-  }
-  ArduinoOTA.handle();
+    if (WiFi.status() != WL_CONNECTED) {
+      connect();
+    }
+    ArduinoOTA.handle();
     vTaskDelay(xDelay);
   }
 }
@@ -120,9 +120,14 @@ void tpl_wifi_setup(bool verbose) {
           else if (error == OTA_END_ERROR)
             Serial.println("End Failed");
         });
+  } else {
+    .onStart([]() { tpl_config.ota_ongoing = true; }).onEnd([]() {
+      tpl_config.ota_ongoing = false;
+    })
   }
 
   ArduinoOTA.begin();
 
-  xTaskCreatePinnedToCore(TaskWifiManager, "WiFi_Manager", 1024, NULL, 0, &tpl_tasks.task_wifi_manager, CORE_0);
+  xTaskCreatePinnedToCore(TaskWifiManager, "WiFi_Manager", 1024, NULL, 0,
+                          &tpl_tasks.task_wifi_manager, CORE_0);
 }

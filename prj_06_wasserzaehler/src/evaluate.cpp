@@ -5,6 +5,7 @@
 #ifdef ARDUINO_ARCH_ESP32
 #include <esp32-hal-psram.h>
 #else
+#include <stdlib.h>
 #define ps_malloc malloc
 #endif
 
@@ -17,12 +18,13 @@ struct psram_buffer_s *psram_buffer;
 void psram_buffer_init() {
   psram_buffer = (struct psram_buffer_s *)ps_malloc(PSRAM_BUFFER_SIZE);
   // check version
-  bool is_ok;
+  uint8_t is_ok = 1;
   if ((psram_buffer->version & 0xff00) != (PSRAM_VERSION & 0xff00)) {
-	  is_ok = false;
+	  is_ok = 0;
   }
   else if (psram_buffer->version > PSRAM_VERSION) {
 	  // not compatible
+	  is_ok = 0;
   }
   if (!is_ok) {
     psram_buffer->version = PSRAM_VERSION;
@@ -110,7 +112,6 @@ int8_t psram_buffer_add(uint32_t timestamp, uint16_t angle0, uint16_t angle1,
   if (ok <= 1) {
     return -2;
   }
-
   uint16_t angle[WINDOW_SIZE];
   for (uint16_t i = 0; i < window; i++) {
     angle[i] = 0;
@@ -167,7 +168,7 @@ int8_t psram_buffer_add(uint32_t timestamp, uint16_t angle0, uint16_t angle1,
         psram_buffer->steigung * (timestamp - t) / 3600;
   }
 
-  for (uint8_t i = psram_buffer->rindex;
+  for (uint16_t i = psram_buffer->rindex;
        (i & NUM_ENTRIES_MASK) != (psram_buffer->windex & NUM_ENTRIES_MASK); i++) {
     struct entry_s *e = &ENTRY(i);
     if ((e->angle[0] == norm_angle0) && (e->angle[1] == norm_angle1) &&

@@ -36,8 +36,8 @@ extern "C" {
     pub fn find_pointer(digitized: *const u8, filtered: *mut u8, temp: *mut u8, r: *mut Reader);
     pub fn eval_pointer(digitized: *const u8, r: *mut Reader);
 
-    pub fn rtc_ram_buffer_init();
-    pub fn rtc_ram_buffer_add(
+    pub fn psram_buffer_init();
+    pub fn psram_buffer_add(
         timestamp: u32,
         angle0: u16,
         angle1: u16,

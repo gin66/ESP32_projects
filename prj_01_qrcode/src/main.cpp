@@ -442,8 +442,6 @@ void setup() {
     delay(100);
     now = time(nullptr);
   }
-  setenv("TZ", "CET-1CEST,M3.5.0/2:00,M10.5.0/3:00", 1);
-  tzset();
 
   Serial.println("Setup done.");
 }

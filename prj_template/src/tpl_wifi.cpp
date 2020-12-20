@@ -129,6 +129,18 @@ void tpl_wifi_setup(bool verbose) {
 
   ArduinoOTA.begin();
 
+  Serial.print("Retrieving time: ");
+  configTime(0, 0, "pool.ntp.org");  // get UTC time via NTP
+  time_t now = time(nullptr);
+  while (now < 24 * 3600) {
+    Serial.print(".");
+    delay(100);
+    now = time(nullptr);
+  }
+
+  setenv("TZ", "CET-1CEST,M3.5.0/2:00,M10.5.0/3:00", 1);
+  tzset();
+
   xTaskCreatePinnedToCore(TaskWifiManager, "WiFi_Manager", 1024, NULL, 0,
                           &tpl_tasks.task_wifi_manager, CORE_0);
 }

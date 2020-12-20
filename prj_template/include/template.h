@@ -5,3 +5,4 @@
 #include "tpl_system.h"
 #include "tpl_wifi.h"
 #include "tpl_webserver.h"
+#include "tpl_websocket.h"

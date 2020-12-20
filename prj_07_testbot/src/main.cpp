@@ -52,8 +52,12 @@ extern const uint8_t index_html_start[] asm("_binary_src_index_html_start");
 extern const uint8_t server_index_html_start[] asm(
     "_binary_src_serverindex_html_start");
 
+#define BOTtoken Heizung_BOTtoken
+
 WiFiClientSecure secured_client;
 UniversalTelegramBot bot(BOTtoken, secured_client);
+
+void TaskCommandCore1(void* pvParameters);
 
 enum Command {
   IDLE,
@@ -93,7 +97,9 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
   }
 }
 
-void TaskWebSocket(void* pvParameters) {
+#define WS_BUFLEN 4096
+char ws_buffer[WS_BUFLEN];
+void TaskWebSocketCore0(void* pvParameters) {
   const TickType_t xDelay = 1 + 10 / portTICK_PERIOD_MS;
   uint32_t send_status_ms = 0;
 
@@ -102,6 +108,8 @@ void TaskWebSocket(void* pvParameters) {
   webSocket.onEvent(webSocketEvent);
 
   for (;;) {
+	Serial.print("WebSocket Stackfree=");
+      Serial.println(uxTaskGetStackHighWaterMark(NULL));
     uint32_t now = millis();
     webSocket.loop();
 
@@ -127,10 +135,8 @@ void TaskWebSocket(void* pvParameters) {
 
       myObject["status"] = status;
       myObject["bootCount"] = bootCount;
-#define BUFLEN 4096
-      char buffer[BUFLEN];
-      /* size_t bx = */ serializeJson(myObject, &buffer, BUFLEN);
-      String as_json = String(buffer);
+      /* size_t bx = */ serializeJson(myObject, &ws_buffer, WS_BUFLEN);
+      String as_json = String(ws_buffer);
       webSocket.broadcastTXT(as_json);
     }
     vTaskDelay(xDelay);
@@ -245,8 +251,17 @@ void setup() {
 
   BaseType_t rc;
 
-  rc = xTaskCreatePinnedToCore(TaskWebSocket, "WebSocket", 8192, (void*)1, 1,
-                               NULL, 0);
+#define CORE0 0
+#define CORE1 1
+  rc = xTaskCreatePinnedToCore(TaskWebSocketCore0, "WebSocket", 2048, (void*)1, 1,
+                               NULL, CORE0);
+  if (rc != pdPASS) {
+    Serial.print("cannot start websocket task=");
+    Serial.println(rc);
+  }
+
+  rc = xTaskCreatePinnedToCore(TaskCommandCore1, "Command", 2048, (void*)1, 1, NULL,
+                               CORE1);
   if (rc != pdPASS) {
     Serial.print("cannot start websocket task=");
     Serial.println(rc);
@@ -269,6 +284,8 @@ void setup() {
 const unsigned long BOT_MTBS = 1000;  // mean time between scan messages
 unsigned long bot_lasttime = 0;       // last time messages' scan has been done
 void loop() {
+	Serial.print("loop Stackfree=");
+      Serial.println(uxTaskGetStackHighWaterMark(NULL));
   my_wifi_loop(true);
 
   uint32_t period = 1000;
@@ -296,7 +313,14 @@ void loop() {
 
     bot_lasttime = millis() + BOT_MTBS;
   }
+}
 
+void TaskCommandCore1(void* pvParameters) {
+  const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
+
+  for (;;) {
+	Serial.print("Command Stackfree=");
+      Serial.println(uxTaskGetStackHighWaterMark(NULL));
   switch (command) {
     case IDLE:
       break;
@@ -341,5 +365,7 @@ void loop() {
       }
       command = IDLE;
       break;
+  }
+    vTaskDelay(xDelay);
   }
 }

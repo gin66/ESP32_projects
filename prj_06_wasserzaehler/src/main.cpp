@@ -440,10 +440,13 @@ void loop() {
     case CmdIdle:
       break;
     case CmdMeasure:
+	  WATCH(100);
       status = bot.sendMessage(CHAT_ID, "Camera capture V1: " +
                     String(" entries: ") +
-                    num_entries() + String(" BootCount: ") + bootCount);
+                    num_entries() + String(" BootCount: ") + bootCount +
+					String(" Watchpoint: ") + psram_buffer->last_seen_watchpoint;
       if (init_camera()) {
+	    WATCH(101);
         digitalWrite(flashPin, HIGH);
         uint32_t start_ms = millis();
         while ((uint32_t)(millis() - start_ms) < 3000) {
@@ -453,6 +456,7 @@ void loop() {
             esp_camera_fb_return(fb);
           }
         }
+	    WATCH(102);
         bool send_image = true;
         for (uint8_t i = 0; i < 10; i++) {
           camera_fb_t* fb = esp_camera_fb_get();
@@ -472,12 +476,14 @@ void loop() {
           }
           memcpy(jpg_image, fb->buf, jpg_len);
           esp_camera_fb_return(fb);
+	      WATCH(103);
 
           fmt2rgb888(jpg_image, jpg_len, PIXFORMAT_JPEG, raw_image);
           digitize(raw_image, digitized_image, 1);
           find_pointer(digitized_image, filtered_image, temp_image, &reader);
           digitize(raw_image, digitized_image, 0);
           eval_pointer(digitized_image, &reader);
+	      WATCH(104);
           if (reader.candidates == 4) {
             send_image = false;
             struct timeval tv;
@@ -488,6 +494,7 @@ void loop() {
             if (res < 0) {
               send_image = true;
             }
+	        WATCH(105);
             uint16_t consumption = water_consumption();
             uint8_t alarm = have_alarm();
             switch (alarm) {
@@ -516,6 +523,7 @@ void loop() {
                                       String("Wasseralarm: Leck alle Zeiger"));
                 break;
             }
+	        WATCH(106);
             bot.sendMessage(
                 CHAT_ID,
                 String("Result: ") + reader.pointer[0].angle + String("/") +
@@ -526,20 +534,26 @@ void loop() {
                     String(" Buffer_add: ") + res + String(" entries: ") +
                     num_entries() + String(" BootCount: ") + bootCount);
             reader.candidates = 0;
+	        WATCH(107);
             break;
           }
         }
+	    WATCH(110);
         digitalWrite(flashPin, LOW);
         if (send_image && (jpg_image != NULL)) {
+	      WATCH(111);
           dataBytesSent = 0;
           status = bot.sendPhotoByBinary(CHAT_ID, "image/jpeg", jpg_len,
                                          isMoreDataAvailable, nullptr,
                                          getNextBuffer, getNextBufferLen);
         }
+	    WATCH(112);
         bot.sendMessage(CHAT_ID,
                         WiFi.SSID() + String(": ") + WiFi.localIP().toString());
       }
+	  WATCH(121);
       command = CmdDeepSleep;
+	  WATCH(1);
       break;
     case CmdFlash:
       digitalWrite(flashPin, !digitalRead(flashPin));
@@ -587,14 +601,17 @@ void loop() {
       if (deepsleep) {
         // ensure LEDs and camera module off and pull up/downs set
         // appropriately
+	    WATCH(1000);
         digitalWrite(ledPin, HIGH);
         digitalWrite(flashPin, LOW);
         pinMode(ledPin, INPUT_PULLUP);
         pinMode(flashPin, INPUT_PULLDOWN);
         tpl_camera_off();
         // wake up every ten minutes
+	    WATCH(1001);
         esp_sleep_enable_timer_wakeup(600LL * 1000000LL);
         esp_deep_sleep_start();
+	    WATCH(1002);
       }
       command = CmdIdle;
       break;

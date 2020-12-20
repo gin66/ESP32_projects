@@ -26,7 +26,7 @@ struct psram_buffer_s {
   uint16_t version;
   uint16_t windex;
   uint16_t rindex;
-  uint16_t pad_16;
+  uint16_t last_seen_watchpoint;
   uint32_t steigung;
   uint32_t cumulated_consumption;
   uint32_t last_timestamp_no_consumption;
@@ -64,3 +64,5 @@ uint16_t num_entries();
 
 #define PSRAM_BUFFER_SIZE (NUM_ENTRIES*16+32)
 extern struct psram_buffer_s *psram_buffer;
+
+#define WATCH(i) psram_buffer->last_seen_watchpoint = i

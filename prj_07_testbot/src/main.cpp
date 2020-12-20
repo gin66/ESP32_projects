@@ -284,8 +284,11 @@ void setup() {
 const unsigned long BOT_MTBS = 1000;  // mean time between scan messages
 unsigned long bot_lasttime = 0;       // last time messages' scan has been done
 void loop() {
-	Serial.print("loop Stackfree=");
-      Serial.println(uxTaskGetStackHighWaterMark(NULL));
+  Serial.print("loop Stackfree=");
+  Serial.println(uxTaskGetStackHighWaterMark(NULL));
+  Serial.print("net watchdog Stackfree=");
+  Serial.println(uxTaskGetStackHighWaterMark(tpl_tasks.task_net_watchdog));
+
   my_wifi_loop(true);
 
   uint32_t period = 1000;

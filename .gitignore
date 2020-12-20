@@ -1,7 +1,8 @@
 */.pio
 */.vscode
+CMakeLists.txt
 private_bot.h
-private_wifi_secrets.cpp
+private_*
 node_modules
 package-lock.json
 prj_[0-9]*/src/serverindex.html

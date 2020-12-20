@@ -1,4 +1,5 @@
 #include "tpl_net_watchdog.h"
+#include "tpl_system.h"
 
 #include <stdint.h>
 
@@ -28,7 +29,7 @@ void TaskWatchdog(void* pvParameters) {
 bool startNetWatchDog() {
   BaseType_t rc;
 
-  rc = xTaskCreatePinnedToCore(TaskWatchdog, "Net Watchdog", 3192, NULL, 1, NULL, 0);
+  rc = xTaskCreatePinnedToCore(TaskWatchdog, "Net Watchdog", 3192, NULL, 0, &tpl_tasks.task_net_watchdog, CORE_0);
   return (rc == pdPASS);
 }
 #elif NO_NET_WATCHDOG

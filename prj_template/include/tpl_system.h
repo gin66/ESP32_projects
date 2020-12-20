@@ -6,3 +6,7 @@
 extern struct tpl_task_s {
 	TaskHandle_t task_net_watchdog;
 } tpl_tasks;
+
+extern struct tpl_config_s {
+	bool allow_deepsleep;
+} tpl_config;

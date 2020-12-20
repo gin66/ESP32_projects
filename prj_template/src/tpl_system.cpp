@@ -3,3 +3,7 @@
 struct tpl_task_s tpl_tasks = {
 	.task_net_watchdog = NULL
 };
+
+struct tpl_config_s tpl_config = {
+	.allow_deepsleep = false;
+};

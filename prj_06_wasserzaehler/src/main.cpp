@@ -468,7 +468,7 @@ void loop() {
     case IDLE:
       break;
     case MEASURE:
-      status = bot.sendMessage(CHAT_ID, "Camera capture");
+      status = bot.sendMessage(CHAT_ID, "Camera capture V1");
       if (init_camera()) {
         digitalWrite(flashPin, HIGH);
         uint32_t start_ms = millis();

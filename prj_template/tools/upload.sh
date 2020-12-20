@@ -20,7 +20,7 @@ pio run
 # wait esp coming online
 while true
 do
-	ping -q -c 1 $TARGET
+	nc -z $TARGET 80
 	if [ $? == 0 ]
 	then
 		break
@@ -28,7 +28,7 @@ do
 	sleep 1
 done
 
-wget http://$TARGET/nosleep
+wget -T 1 http://$TARGET/nosleep
 
 # upload
 pio run --target upload

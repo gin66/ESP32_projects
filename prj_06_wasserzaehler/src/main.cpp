@@ -530,15 +530,18 @@ void loop() {
                 break;
             }
 	        WATCH(106);
-            bot.sendMessage(
-                CHAT_ID,
-                String("Result: ") + reader.pointer[0].angle + String("/") +
-                    reader.pointer[1].angle + String("/") +
-                    reader.pointer[2].angle + String("/") +
-                    reader.pointer[3].angle + String(" Consumption: ") +
-                    consumption + String(" Alarm: ") + alarm +
-                    String(" Buffer_add: ") + res + String(" entries: ") +
-                    num_entries() + String(" BootCount: ") + bootCount);
+			char buf[100];
+			sprintf(buf,"Result: %d/%d/%d/%d Consumption: %d Alarm: %d Buffer_add: %d, entries: %d BootCount: %d",
+					reader.pointer[0].angle,
+					reader.pointer[1].angle,
+					reader.pointer[2].angle,
+					reader.pointer[3].angle,
+					consumption,
+					alarm,
+					res,
+					num_entries(),
+					bootCount);
+            bot.sendMessage(CHAT_ID, String(buf));
             reader.candidates = 0;
 	        WATCH(107);
             break;

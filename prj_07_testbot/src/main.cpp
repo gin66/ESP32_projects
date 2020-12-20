@@ -189,7 +189,7 @@ void setup() {
   esp_log_level_set("*", ESP_LOG_VERBOSE);
   ESP_LOGE(TAG, "Free heap: %u", xPortGetFreeHeapSize());
 
-  my_wifi_setup(true);
+  tpl_wifi_setup(true);
 
   // Add root certificate for api.telegram.org
   secured_client.setCACert(TELEGRAM_CERTIFICATE_ROOT);
@@ -289,9 +289,9 @@ void loop() {
   Serial.print(" websocket=");
   Serial.print(uxTaskGetStackHighWaterMark(tpl_tasks.task_web_socket));
   Serial.print(" command=");
-  Serial.println(uxTaskGetStackHighWaterMark(tpl_tasks.task_command));
-
-  my_wifi_loop(true);
+  Serial.print(uxTaskGetStackHighWaterMark(tpl_tasks.task_command));
+  Serial.print(" wifi=");
+  Serial.println(uxTaskGetStackHighWaterMark(tpl_tasks.task_wifi_manager));
 
   uint32_t period = 1000;
   if (fail >= 50) {

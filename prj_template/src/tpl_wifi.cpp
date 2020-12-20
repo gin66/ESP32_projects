@@ -4,6 +4,7 @@
 #include <WiFiMulti.h>
 
 #include "wifi_secrets.h"
+#include "tpl_system.h"
 
 RTC_DATA_ATTR int last_connected_network = -1;
 bool automode = false;
@@ -31,7 +32,14 @@ static void connect() {
   }
 }
 
-void my_wifi_setup(bool verbose) {
+void TaskWifiManager(void* pvParameters) {
+  if (WiFi.status() != WL_CONNECTED) {
+    connect();
+  }
+  ArduinoOTA.handle();
+}
+
+void tpl_wifi_setup(bool verbose) {
   bool need_connect = true;
   if (last_connected_network != -1) {
     if (verbose) {
@@ -111,10 +119,6 @@ void my_wifi_setup(bool verbose) {
   }
 
   ArduinoOTA.begin();
-}
-void my_wifi_loop(bool verbose) {
-  if (WiFi.status() != WL_CONNECTED) {
-    connect();
-  }
-  ArduinoOTA.handle();
+
+  xTaskCreatePinnedToCore(TaskWifiManager, "WiFi_Manager", 2048, NULL, 0, &tpl_tasks.task_wifi_manager, CORE_0);
 }

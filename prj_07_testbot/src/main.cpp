@@ -108,8 +108,6 @@ void TaskWebSocketCore0(void* pvParameters) {
   webSocket.onEvent(webSocketEvent);
 
   for (;;) {
-	Serial.print("WebSocket Stackfree=");
-      Serial.println(uxTaskGetStackHighWaterMark(NULL));
     uint32_t now = millis();
     webSocket.loop();
 
@@ -249,23 +247,23 @@ void setup() {
       });
   server.begin();
 
-//  BaseType_t rc;
+  BaseType_t rc;
 
 #define CORE0 0
 #define CORE1 1
-//  rc = xTaskCreatePinnedToCore(TaskWebSocketCore0, "WebSocket", 8192, (void*)1, 1,
-//                               NULL, CORE0);
-//  if (rc != pdPASS) {
-//    Serial.print("cannot start websocket task=");
-//    Serial.println(rc);
-//  }
+  rc = xTaskCreatePinnedToCore(TaskWebSocketCore0, "WebSocket", 2048, NULL, 1,
+                               &tpl_tasks.task_web_socket, CORE0);
+  if (rc != pdPASS) {
+    Serial.print("cannot start websocket task=");
+    Serial.println(rc);
+  }
 
-//  rc = xTaskCreatePinnedToCore(TaskCommandCore1, "Command", 2048, (void*)1, 1, NULL,
-//                               CORE1);
-//  if (rc != pdPASS) {
-//    Serial.print("cannot start websocket task=");
-//    Serial.println(rc);
-//  }
+  rc = xTaskCreatePinnedToCore(TaskCommandCore1, "Command", 2048, NULL, 1, &tpl_tasks.task_command,
+                               CORE1);
+  if (rc != pdPASS) {
+    Serial.print("cannot start websocket task=");
+    Serial.println(rc);
+  }
 
   startNetWatchDog();
 
@@ -284,10 +282,14 @@ void setup() {
 const unsigned long BOT_MTBS = 1000;  // mean time between scan messages
 unsigned long bot_lasttime = 0;       // last time messages' scan has been done
 void loop() {
-  Serial.print("loop Stackfree=");
-  Serial.println(uxTaskGetStackHighWaterMark(NULL));
-  Serial.print("net watchdog Stackfree=");
-  Serial.println(uxTaskGetStackHighWaterMark(tpl_tasks.task_net_watchdog));
+  Serial.print("Stackfree: loop=");
+  Serial.print(uxTaskGetStackHighWaterMark(NULL));
+  Serial.print(" net_watchdog=");
+  Serial.print(uxTaskGetStackHighWaterMark(tpl_tasks.task_net_watchdog));
+  Serial.print(" websocket=");
+  Serial.print(uxTaskGetStackHighWaterMark(tpl_tasks.task_web_socket));
+  Serial.print(" command=");
+  Serial.println(uxTaskGetStackHighWaterMark(tpl_tasks.task_command));
 
   my_wifi_loop(true);
 
@@ -324,8 +326,6 @@ void TaskCommandCore1(void* pvParameters) {
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
 
   for (;;) {
-	Serial.print("Command Stackfree=");
-      Serial.println(uxTaskGetStackHighWaterMark(NULL));
   switch (command) {
     case IDLE:
       break;

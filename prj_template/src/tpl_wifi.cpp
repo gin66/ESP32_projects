@@ -33,10 +33,14 @@ static void connect() {
 }
 
 void TaskWifiManager(void* pvParameters) {
+  const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
+  for (;;) {
   if (WiFi.status() != WL_CONNECTED) {
     connect();
   }
   ArduinoOTA.handle();
+    vTaskDelay(xDelay);
+  }
 }
 
 void tpl_wifi_setup(bool verbose) {
@@ -120,5 +124,5 @@ void tpl_wifi_setup(bool verbose) {
 
   ArduinoOTA.begin();
 
-  xTaskCreatePinnedToCore(TaskWifiManager, "WiFi_Manager", 2048, NULL, 0, &tpl_tasks.task_wifi_manager, CORE_0);
+  xTaskCreatePinnedToCore(TaskWifiManager, "WiFi_Manager", 1024, NULL, 0, &tpl_tasks.task_wifi_manager, CORE_0);
 }

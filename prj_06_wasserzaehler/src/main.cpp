@@ -120,6 +120,13 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
       DynamicJsonDocument json(4096);
       deserializeJson(json, (char*)payload);
       process_web_socket_cam_settings(&json);
+      if (json.containsKey("nosleep")) {
+        allowsleep = false;
+      }
+      if (json.containsKey("sleep")) {
+		allowsleep = json["sleep"];
+		command = CmdDeepSleep;
+      }
       if (json.containsKey("flash")) {
         command = CmdFlash;
       }

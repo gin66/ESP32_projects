@@ -441,7 +441,7 @@ void loop() {
       break;
     case CmdMeasure:
 	  WATCH(100);
-      status = bot.sendMessage(CHAT_ID, "Camera capture V1: " +
+      status = bot.sendMessage(CHAT_ID, "Camera capture V2: " +
                     String(" entries: ") +
                     num_entries() + String(" BootCount: ") + bootCount +
 					String(" Watchpoint: ") + psram_buffer->last_seen_watchpoint;

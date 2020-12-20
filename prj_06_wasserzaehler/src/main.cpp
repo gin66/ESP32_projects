@@ -61,6 +61,7 @@ uint8_t digitized_image[WIDTH * HEIGHT / 8];
 uint8_t filtered_image[WIDTH * HEIGHT / 8];
 uint8_t temp_image[WIDTH * HEIGHT / 8];
 struct read_s reader;
+uint16_t last_seen_watchpoint = 0;
 
 enum Command {
   CmdIdle,
@@ -343,6 +344,7 @@ void setup() {
     Serial.println("PSRAM found and loaded");
   }
   psram_buffer_init();
+  last_seen_watchpoint = psram_buffer->last_seen_watchpoint;
 
   ESP_LOGE(TAG, "Free heap after setup: %u", xPortGetFreeHeapSize());
   ESP_LOGE(TAG, "Total heap: %u", ESP.getHeapSize());
@@ -444,7 +446,7 @@ void loop() {
       status = bot.sendMessage(CHAT_ID, "Camera capture V2: " +
                     String(" entries: ") +
                     num_entries() + String(" BootCount: ") + bootCount +
-					String(" Watchpoint: ") + psram_buffer->last_seen_watchpoint);
+					String(" Watchpoint: ") + last_seen_watchpoint);
       if (init_camera()) {
 	    WATCH(101);
         digitalWrite(flashPin, HIGH);

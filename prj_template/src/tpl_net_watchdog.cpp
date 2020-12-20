@@ -6,28 +6,28 @@
 
 #ifdef NET_WATCHDOG
 #include <ESP32Ping.h>
-uint8_t fail = 0;
+uint8_t tpl_fail = 0;
 void TaskWatchdog(void* pvParameters) {
   const TickType_t xDelay = 1000 / portTICK_PERIOD_MS;
   for (;;) {
     bool success = Ping.ping(NET_WATCHDOG, 1);
     if (!success) {
-      fail++;
+      tpl_fail++;
       Serial.println("Ping failed");
-      if (fail >= 5 * 60) {  // 5 minutes
+      if (tpl_fail >= 5 * 60) {  // 5 minutes
                              // use deep sleep to reset
         esp_sleep_enable_timer_wakeup(1LL * 1000000LL);
         esp_deep_sleep_start();
         // ESP.restart();
       }
     } else {
-      fail = 0;
+      tpl_fail = 0;
     }
     vTaskDelay(xDelay);
   }
 }
 
-bool startNetWatchDog() {
+bool tpl_net_watchdog_setup() {
   BaseType_t rc;
 
   rc = xTaskCreatePinnedToCore(TaskWatchdog, "Net Watchdog", 2688, NULL, 0,

@@ -9,6 +9,7 @@ extern struct tpl_task_s {
   TaskHandle_t task_websocket;
   TaskHandle_t task_webserver;
   TaskHandle_t task_command;
+  TaskHandle_t task_telegram;
 } tpl_tasks;
 
 extern struct tpl_config_s {

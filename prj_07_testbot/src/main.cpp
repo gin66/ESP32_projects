@@ -8,7 +8,6 @@
 #include <ArduinoOTA.h>
 //#include <ArduinoJson.h>  // already included in UniversalTelegramBot.h
 #include <ESP32Ping.h>
-#include <UniversalTelegramBot.h>
 #include <WebServer.h>
 #include <WebSockets.h>
 #include <WebSocketsClient.h>
@@ -38,20 +37,13 @@
 #define DBG(...)
 #endif
 
-#define ledPin ((gpio_num_t)33)
-#define flashPin ((gpio_num_t)4)
+#define ledPin ((gpio_num_t)2)
+//#define ledPin ((gpio_num_t)33)
+//#define flashPin ((gpio_num_t)4)
 
 using namespace std;
 
-volatile bool status = false;
-volatile bool deepsleep = true;
-
 RTC_DATA_ATTR uint16_t bootCount = 0;
-
-#define BOTtoken Heizung_BOTtoken
-
-WiFiClientSecure secured_client;
-UniversalTelegramBot bot(BOTtoken, secured_client);
 
 void TaskCommandCore1(void* pvParameters);
 
@@ -60,43 +52,6 @@ enum Command {
   DEEPSLEEP,
 } command = IDLE;
 
-void handleNewMessages(int numNewMessages) {
-  Serial.println("handleNewMessages");
-  Serial.println(String(numNewMessages));
-
-  for (int i = 0; i < numNewMessages; i++) {
-    String chat_id = bot.messages[i].chat_id;
-    String text = bot.messages[i].text;
-
-    String from_name = bot.messages[i].from_name;
-    if (from_name == "") from_name = "Guest";
-
-    if (text == "/test") {
-      bot.sendChatAction(chat_id, "typing");
-      delay(4000);
-      bot.sendMessage(chat_id, "Did you see the action message?");
-    }
-
-    if (text == "/nosleep") {
-      deepsleep = false;
-      bot.sendMessage(chat_id, "Prevent sleep");
-    }
-    if (text == "/allowsleep") {
-      deepsleep = true;
-      bot.sendMessage(chat_id, "Allow sleep");
-    }
-
-    if (text == "/start") {
-      String welcome = "Welcome to Universal Arduino Telegram Bot library, " +
-                       from_name + ".\n";
-      welcome += "This is Chat Action Bot example.\n\n";
-      welcome += "/test : Show typing, then eply\n";
-      welcome += "/nosleep : Prevent deep slep\n";
-      welcome += "/allowsleep : Allow deep slep\n";
-      bot.sendMessage(chat_id, welcome);
-    }
-  }
-}
 //---------------------------------------------------
 void setup() {
   bootCount++;
@@ -110,11 +65,20 @@ void setup() {
 
   tpl_wifi_setup(true);
 
-  // Add root certificate for api.telegram.org
-  secured_client.setCACert(TELEGRAM_CERTIFICATE_ROOT);
+  // Wait OTA
+  pinMode(ledPin, OUTPUT);
+  uint32_t till = millis() + 10000;
+  Serial.println("Wait for OTA");
+  while ((millis() < till) || tpl_config.ota_ongoing) {
+	digitalWrite(ledPin, digitalRead(ledPin) == HIGH ? LOW:HIGH);
+    delay(200);
+  }
+  Serial.println("done");
+  digitalWrite(ledPin, HIGH);
 
   tpl_webserver_setup();
   tpl_websocket_setup(NULL);
+  tpl_telegram_setup(Heizung_BOTtoken, CHAT_ID);
 
   BaseType_t rc;
 
@@ -126,23 +90,11 @@ void setup() {
     Serial.print("cannot start websocket task=");
     Serial.println(rc);
   }
-
-  startNetWatchDog();
-
-  Serial.print("Retrieving time: ");
-  configTime(0, 0, "pool.ntp.org");  // get UTC time via NTP
-  time_t now = time(nullptr);
-  while (now < 24 * 3600) {
-    Serial.print(".");
-    delay(100);
-    now = time(nullptr);
-  }
+  tpl_net_watchdog_setup();
 
   Serial.println("Setup done.");
 }
 
-const unsigned long BOT_MTBS = 1000;  // mean time between scan messages
-unsigned long bot_lasttime = 0;       // last time messages' scan has been done
 void loop() {
   Serial.print("Stackfree: loop=");
   Serial.print(uxTaskGetStackHighWaterMark(NULL));
@@ -155,10 +107,12 @@ void loop() {
   Serial.print(" wifi=");
   Serial.print(uxTaskGetStackHighWaterMark(tpl_tasks.task_wifi_manager));
   Serial.print(" http=");
-  Serial.println(uxTaskGetStackHighWaterMark(tpl_tasks.task_webserver));
+  Serial.print(uxTaskGetStackHighWaterMark(tpl_tasks.task_webserver));
+  Serial.print(" bot=");
+  Serial.println(uxTaskGetStackHighWaterMark(tpl_tasks.task_telegram));
 
   uint32_t period = 1000;
-  if (fail >= 50) {
+  if (tpl_fail >= 50) {
     period = 300;
   }
   if ((millis() / period) & 1) {
@@ -167,18 +121,6 @@ void loop() {
   } else {
     pinMode(ledPin, OUTPUT);
     digitalWrite(ledPin, LOW);
-  }
-  if (millis() >= bot_lasttime) {
-    int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
-
-    while (numNewMessages) {
-      command = IDLE;
-      Serial.println("got response");
-      handleNewMessages(numNewMessages);
-      numNewMessages = bot.getUpdates(bot.last_message_received + 1);
-    }
-
-    bot_lasttime = millis() + BOT_MTBS;
   }
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
   vTaskDelay(xDelay);
@@ -192,7 +134,7 @@ void TaskCommandCore1(void* pvParameters) {
       case IDLE:
         break;
       case DEEPSLEEP:
-        if (deepsleep) {
+        if (tpl_config.allow_deepsleep && !tpl_config.ota_ongoing) {
           esp_wifi_stop();
 
           // wake up every four hours

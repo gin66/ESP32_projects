@@ -468,7 +468,7 @@ void TaskCommandCore1(void* pvParameters) {
       case CmdMeasure:
         WATCH(100);
         status = bot.sendMessage(
-            CHAT_ID, "Camera capture V2: " + String(" entries: ") +
+            CHAT_ID, "Camera capture V3: " + String(" entries: ") +
                          num_entries() + String(" BootCount: ") + bootCount +
                          String(" Watchpoint: ") + last_seen_watchpoint);
         if (init_camera()) {

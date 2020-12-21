@@ -22,8 +22,6 @@ static uint32_t dataBytesSent;
 static bool isMoreDataAvailable() {
   if (photo_fb) {
     if (dataBytesSent >= photo_fb->len) {
-      esp_camera_fb_return(photo_fb);
-      photo_fb = NULL;
       return false;
     } else {
       return true;
@@ -132,15 +130,16 @@ void TaskTelegramCore1(void *pvParameters) {
     }
 #ifdef IS_ESP32CAM
     if (tpl_config.bot_send_jpg_image) {
-      tpl_config.bot_send_jpg_image = false;
-      // digitalWrite(flashPin, HIGH);
-      // for (uint8_t i = 0; i < 10; i++) {
-      // let the camera adjust
-      //   photo_fb = esp_camera_fb_get();
-      //   esp_camera_fb_return(photo_fb);
-      //   photo_fb = NULL;
-      // }
       if (photo_fb == NULL) {
+        // digitalWrite(flashPin, HIGH);
+        for (uint8_t i = 0; i < 10; i++) {
+          // let the camera adjust
+          photo_fb = esp_camera_fb_get();
+		  if (photo_fb) {
+            esp_camera_fb_return(photo_fb);
+            photo_fb = NULL;
+		  }
+        }
         photo_fb = esp_camera_fb_get();
         // digitalWrite(flashPin, LOW);
         if (!photo_fb) {
@@ -150,8 +149,11 @@ void TaskTelegramCore1(void *pvParameters) {
           bot.sendPhotoByBinary(chatId, "image/jpeg", photo_fb->len,
                                 isMoreDataAvailable, nullptr, getNextBuffer,
                                 getNextBufferLen);
+          esp_camera_fb_return(photo_fb);
+		  photo_fb = NULL;
         }
       }
+      tpl_config.bot_send_jpg_image = false;
     }
 #endif
     vTaskDelay(xDelay);

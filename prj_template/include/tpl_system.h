@@ -32,7 +32,7 @@ extern struct tpl_config_s {
   uint16_t reset_reason;
   const char *reset_reason_cpu0;
   const char *reset_reason_cpu1;
-  uint32_t deepsleep_time;  // =0 means off
+  uint64_t deepsleep_time;  // =0 means off
   const char *stack_info;
 } tpl_config;
 

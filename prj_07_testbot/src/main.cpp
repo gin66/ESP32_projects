@@ -45,13 +45,6 @@ using namespace std;
 
 RTC_DATA_ATTR uint16_t bootCount = 0;
 
-void TaskCommandCore1(void* pvParameters);
-
-enum Command {
-  IDLE,
-  DEEPSLEEP,
-} command = IDLE;
-
 //---------------------------------------------------
 void setup() {
   bootCount++;
@@ -68,18 +61,8 @@ void setup() {
   tpl_webserver_setup();
   tpl_websocket_setup(NULL);
   tpl_telegram_setup(Heizung_BOTtoken, CHAT_ID);
-
-  BaseType_t rc;
-
-#define CORE0 0
-#define CORE1 1
-  rc = xTaskCreatePinnedToCore(TaskCommandCore1, "Command", 2048, NULL, 1,
-                               &tpl_tasks.task_command, CORE1);
-  if (rc != pdPASS) {
-    Serial.print("cannot start websocket task=");
-    Serial.println(rc);
-  }
   tpl_net_watchdog_setup();
+  tpl_command_setup(NULL);
 
   Serial.println("Setup done.");
 }
@@ -113,26 +96,4 @@ void loop() {
   }
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
   vTaskDelay(xDelay);
-}
-
-void TaskCommandCore1(void* pvParameters) {
-  const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
-
-  for (;;) {
-    switch (command) {
-      case IDLE:
-        break;
-      case DEEPSLEEP:
-        if (tpl_config.allow_deepsleep && !tpl_config.ota_ongoing) {
-          esp_wifi_stop();
-
-          // wake up every four hours
-          esp_sleep_enable_timer_wakeup(4LL * 3600LL * 1000000LL);
-          esp_deep_sleep_start();
-        }
-        command = IDLE;
-        break;
-    }
-    vTaskDelay(xDelay);
-  }
 }

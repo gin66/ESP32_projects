@@ -1,5 +1,6 @@
 #include <stdint.h>
 
+#include "tpl_command.h"
 #include "tpl_esp_camera.h"
 #include "tpl_net_watchdog.h"
 #include "tpl_system.h"

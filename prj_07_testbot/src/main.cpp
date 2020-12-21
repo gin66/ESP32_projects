@@ -67,28 +67,15 @@ void setup() {
   Serial.println("Setup done.");
 }
 
-
 uint32_t next_stack_info = 0;
 
 void loop() {
-uint32_t ms = millis();
-if ((int32_t)(ms - next_stack_info) > 0) {
-	next_stack_info = ms+500;
-  Serial.print("Stackfree: loop=");
-  Serial.print(uxTaskGetStackHighWaterMark(NULL));
-  Serial.print(" net_watchdog=");
-  Serial.print(uxTaskGetStackHighWaterMark(tpl_tasks.task_net_watchdog));
-  Serial.print(" websocket=");
-  Serial.print(uxTaskGetStackHighWaterMark(tpl_tasks.task_websocket));
-  Serial.print(" command=");
-  Serial.print(uxTaskGetStackHighWaterMark(tpl_tasks.task_command));
-  Serial.print(" wifi=");
-  Serial.print(uxTaskGetStackHighWaterMark(tpl_tasks.task_wifi_manager));
-  Serial.print(" http=");
-  Serial.print(uxTaskGetStackHighWaterMark(tpl_tasks.task_webserver));
-  Serial.print(" bot=");
-  Serial.println(uxTaskGetStackHighWaterMark(tpl_tasks.task_telegram));
-}
+  uint32_t ms = millis();
+  if ((int32_t)(ms - next_stack_info) > 0) {
+    next_stack_info = ms + 500;
+	tpl_update_stack_info();
+	Serial.println(tpl_config.stack_info);
+  }
 
   uint32_t period = 1000;
   if (tpl_fail >= 50) {

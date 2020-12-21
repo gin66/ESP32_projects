@@ -15,4 +15,7 @@ extern struct tpl_task_s {
 extern struct tpl_config_s {
   bool allow_deepsleep;
   bool ota_ongoing;
+  const char *stack_info;
 } tpl_config;
+
+void tpl_update_stack_info();

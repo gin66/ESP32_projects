@@ -317,6 +317,24 @@ void check_unlock(bool prev_minute) {
 }
 
 void loop() {
+	if(!qr_task_busy) {
+	uint8_t fail_cnt = 0;
+        esp_err_t err =
+            tpl_init_camera(&fail_cnt, PIXFORMAT_JPEG, FRAMESIZE_QVGA);
+        if (err == ESP_OK) {
+          camera_fb_t* fb = esp_camera_fb_get();
+          if (!fb) {
+            Serial.println("Camera capture failed");
+          } else {
+            if (fb->format == PIXFORMAT_JPEG) {
+                fb_image = fb;
+                qr_task_busy = true;
+                // QR task need to return fb
+			}
+		  }
+		}
+	}
+
   if (check_qr_unlock) {
     check_qr_unlock = false;
     check_unlock(false);

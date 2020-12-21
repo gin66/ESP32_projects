@@ -55,7 +55,8 @@ esp_err_t tpl_init_camera(uint8_t* fail_cnt, pixformat_t format,
     // quality of JPEG output. 0-63 lower means higher quality
     camera_config.jpeg_quality = 5;
     // 1: Wait for V-Synch // 2: Continous Capture (Video)
-    camera_config.fb_count = 1;
+	//   count=3 : one for websocket, one for processing, one for recording
+    camera_config.fb_count = 3;
     err = esp_camera_init(&camera_config);
     if (err == ESP_OK) {
       *fail_cnt = i;

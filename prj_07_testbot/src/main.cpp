@@ -67,7 +67,13 @@ void setup() {
   Serial.println("Setup done.");
 }
 
+
+uint32_t next_stack_info = 0;
+
 void loop() {
+uint32_t ms = millis();
+if ((int32_t)(ms - next_stack_info) > 0) {
+	next_stack_info = ms+500;
   Serial.print("Stackfree: loop=");
   Serial.print(uxTaskGetStackHighWaterMark(NULL));
   Serial.print(" net_watchdog=");
@@ -82,6 +88,7 @@ void loop() {
   Serial.print(uxTaskGetStackHighWaterMark(tpl_tasks.task_webserver));
   Serial.print(" bot=");
   Serial.println(uxTaskGetStackHighWaterMark(tpl_tasks.task_telegram));
+}
 
   uint32_t period = 1000;
   if (tpl_fail >= 50) {

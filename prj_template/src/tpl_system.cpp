@@ -52,35 +52,35 @@ void tpl_update_stack_info() {
 static RTC_DATA_ATTR uint32_t bootCount = 0;
 
 static const char *reason[] = {
-	"OK",
-        "POWERON_RESET",
-	"?",
-        "SW_RESET",
-        "OWDT_RESET",
-        "DEEPSLEEP_RESET",
-        "SDIO_RESET",
-        "TG0WDT_SYS_RESET",
-        "TG1WDT_SYS_RESET",
-        "RTCWDT_SYS_RESET",
-        "INTRUSION_RESET",
-        "TGWDT_CPU_RESET",
-        "SW_CPU_RESET",
-        "RTCWDT_CPU_RESET",
-        "EXT_CPU_RESET",
-        "RTCWDT_BROWN_OUT_RESET",
-        "RTCWDT_RTC_RESET",
+    "OK",
+    "POWERON_RESET",
+    "?",
+    "SW_RESET",
+    "OWDT_RESET",
+    "DEEPSLEEP_RESET",
+    "SDIO_RESET",
+    "TG0WDT_SYS_RESET",
+    "TG1WDT_SYS_RESET",
+    "RTCWDT_SYS_RESET",
+    "INTRUSION_RESET",
+    "TGWDT_CPU_RESET",
+    "SW_CPU_RESET",
+    "RTCWDT_CPU_RESET",
+    "EXT_CPU_RESET",
+    "RTCWDT_BROWN_OUT_RESET",
+    "RTCWDT_RTC_RESET",
 };
 
 void tpl_system_setup() {
   bootCount++;
   tpl_config.bootCount = bootCount;
-  uint16_t r0 =  rtc_get_reset_reason(0);
+  uint16_t r0 = rtc_get_reset_reason(0);
   uint16_t r1 = rtc_get_reset_reason(1);
-  tpl_config.reset_reason = (r0<<8) | r1;
+  tpl_config.reset_reason = (r0 << 8) | r1;
   if (r0 <= 16) {
-	  tpl_config.reset_reason_cpu0 = reason[r0];
+    tpl_config.reset_reason_cpu0 = reason[r0];
   }
   if (r1 <= 16) {
-	  tpl_config.reset_reason_cpu1 = reason[r1];
+    tpl_config.reset_reason_cpu1 = reason[r1];
   }
 }

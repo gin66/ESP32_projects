@@ -237,9 +237,9 @@ void setup() {
   psram_buffer = (uint32_t*)ps_malloc(32 * 4);
   print_info();
 
-  // have observed only 9516 Bytes free...
+  // better to start task before camera setup
   tpl_tasks.app_name1 = "QRreader";
-  if (pdPASS != xTaskCreatePinnedToCore(TaskQRreader, "QRreader", 65536, NULL,
+  if (pdPASS != xTaskCreatePinnedToCore(TaskQRreader, "QRreader", 40000, NULL,
                                         1, &tpl_tasks.task_app1,
                                         CORE_1)) {  // Prio 1, Core 1
     Serial.println("Failed to start task.");

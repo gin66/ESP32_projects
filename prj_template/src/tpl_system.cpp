@@ -21,6 +21,7 @@ struct tpl_config_s tpl_config = {.bootCount = 0,
                                   .ws_send_jpg_image = false,
 #endif
                                   .reset_reason = 0,
+								  .deepsleep_time = 0,
                                   .stack_info = stack_info};
 
 #define ADD_STACK_INFO(info_fmt, task)                              \

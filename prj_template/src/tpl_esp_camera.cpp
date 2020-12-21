@@ -1,6 +1,7 @@
 #ifdef IS_ESP32CAM
 #define FROM_TEMPLATE 1
 #include "tpl_esp_camera.h"
+#include "tpl_system.h"
 
 #include <Arduino.h>
 #include <driver/gpio.h>
@@ -87,6 +88,10 @@ const struct {
              {RESET_GPIO_NUM, INPUT_PULLDOWN}, 127};
 
 void tpl_camera_off() {
+        digitalWrite(tpl_ledPin, HIGH);
+        digitalWrite(tpl_flashPin, LOW);
+        pinMode(tpl_ledPin, INPUT_PULLUP);
+        pinMode(tpl_flashPin, INPUT_PULLDOWN);
   if (PWDN_GPIO_NUM >= 0) {
     // power off the camera and try again
     digitalWrite(PWDN_GPIO_NUM, HIGH);

@@ -24,6 +24,13 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
       Serial.println((char *)payload);
       DynamicJsonDocument json(4096);
       deserializeJson(json, (char *)payload);
+      if (json.containsKey("sleep")) {
+		tpl_config.allow_deepsleep = json["sleep"];
+      }
+      if (json.containsKey("deepsleep")) {
+		tpl_config.allow_deepsleep = true;
+		tpl_command = CmdDeepSleep;
+      }
 #ifdef IS_ESP32CAM
       tpl_process_web_socket_cam_settings(&json);
       if (json.containsKey("image")) {

@@ -4,8 +4,8 @@
 #define CORE_1 1
 
 #ifdef IS_ESP32CAM
-//#define ledPin ((gpio_num_t)33)
-//#define flashPin ((gpio_num_t)4)
+#define tpl_ledPin 33
+#define tpl_flashPin 4
 #endif
 
 extern struct tpl_task_s {
@@ -25,6 +25,7 @@ extern struct tpl_config_s {
   bool ws_send_jpg_image;
 #endif
   uint16_t reset_reason;
+  uint32_t deepsleep_time; // =0 means off
   const char *stack_info;
 } tpl_config;
 

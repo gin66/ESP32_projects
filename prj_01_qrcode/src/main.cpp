@@ -35,8 +35,6 @@
 #define OUTPUT_GRAY 0
 
 using namespace std;
-#define ledPin ((gpio_num_t)33)
-#define flashPin ((gpio_num_t)4)
 
 bool qrMode = true;
 bool qr_code_valid = false;
@@ -119,8 +117,8 @@ void TaskQRreader(void* pvParameters) {
     if (qr_task_busy) {
       if (fb_image != NULL) {
         qr_stack_free = (long)uxTaskGetStackHighWaterMark(NULL);
-        pinMode(ledPin, OUTPUT);
-        digitalWrite(ledPin, !digitalRead(ledPin));
+        pinMode(tpl_ledPin, OUTPUT);
+        digitalWrite(tpl_ledPin, !digitalRead(tpl_ledPin));
 
         uint32_t width = fb_image->width;
         uint32_t height = fb_image->height;
@@ -234,7 +232,7 @@ void setup() {
   Serial.setDebugOutput(true);
 
   // Wait OTA
-  tpl_wifi_setup(true, true, ledPin);
+  tpl_wifi_setup(true, true, (gpio_num_t)tpl_ledPin);
   tpl_webserver_setup();
   tpl_websocket_setup(add_ws_info);
   // tpl_telegram_setup(BOTtoken, CHAT_ID);
@@ -242,15 +240,9 @@ void setup() {
   tpl_command_setup(NULL);
 
   // turn flash light off
-  digitalWrite(flashPin, LOW);
-  pinMode(flashPin, OUTPUT);
+  digitalWrite(tpl_flashPin, LOW);
+  pinMode(tpl_flashPin, OUTPUT);
 
-  tpl_server.on("/deepsleep", HTTP_GET, []() {
-    tpl_server.sendHeader("Connection", "close");
-    tpl_server.send_P(200, "text/html", (const char*)index_html_start);
-    esp_sleep_enable_timer_wakeup(10LL * 1000000LL);
-    esp_deep_sleep_start();
-  });
   tpl_server.on("/image", HTTP_GET, []() {
     bool send_error = true;
     sensor_t* sensor = esp_camera_sensor_get();
@@ -286,6 +278,8 @@ void setup() {
     Serial.println("PSRAM found and loaded");
   }
   psram_buffer = (uint32_t*)ps_malloc(32 * 4);
+
+  tpl_config.deepsleep_time = 1000000LL*10; // 10 s
 
   // have observed only 9516 Bytes free...
   xTaskCreatePinnedToCore(TaskQRreader, "QRreader", 65536, (void*)1, 0, NULL,

@@ -451,10 +451,6 @@ void loop() {
       if (deepsleep) {
         // ensure LEDs and camera module off and pull up/downs set
         // appropriately
-        digitalWrite(ledPin, HIGH);
-        digitalWrite(flashPin, LOW);
-        pinMode(ledPin, INPUT_PULLUP);
-        pinMode(flashPin, INPUT_PULLDOWN);
         tpl_camera_off();
         // wake up every four hours
         esp_sleep_enable_timer_wakeup(4LL * 3600LL * 1000000LL);

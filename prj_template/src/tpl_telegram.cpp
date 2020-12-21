@@ -8,8 +8,8 @@
 #include <WiFi.h>
 
 #include "string.h"
-#include "tpl_system.h"
 #include "tpl_command.h"
+#include "tpl_system.h"
 #ifdef IS_ESP32CAM
 #include "tpl_esp_camera.h"
 #endif
@@ -17,27 +17,26 @@
 static const char *BOTtoken = NULL;
 static const char *chatId = NULL;
 
-static camera_fb_t* photo_fb = NULL;
+static camera_fb_t *photo_fb = NULL;
 static uint32_t dataBytesSent;
 static bool isMoreDataAvailable() {
   if (photo_fb) {
-	  if (dataBytesSent >= photo_fb->len) {
-          esp_camera_fb_return(photo_fb);
-          photo_fb = NULL;
-		  return false;
-	  }
-	  else {
-		  return true;
-	  }
+    if (dataBytesSent >= photo_fb->len) {
+      esp_camera_fb_return(photo_fb);
+      photo_fb = NULL;
+      return false;
+    } else {
+      return true;
+    }
   } else {
     return false;
   }
 }
 #define CHUNKSIZE 512
-static byte* getNextBuffer() {
+static byte *getNextBuffer() {
   if (photo_fb) {
-    byte* buf = &photo_fb->buf[dataBytesSent];
-    //dataBytesSent += CHUNKSIZE;
+    byte *buf = &photo_fb->buf[dataBytesSent];
+    // dataBytesSent += CHUNKSIZE;
     return buf;
   } else {
     return nullptr;
@@ -46,7 +45,7 @@ static byte* getNextBuffer() {
 static int getNextBufferLen() {
   if (photo_fb) {
     uint32_t rem = photo_fb->len - dataBytesSent;
-    dataBytesSent += CHUNKSIZE; // getNextBuffer is called first !!!!
+    dataBytesSent += CHUNKSIZE;  // getNextBuffer is called first !!!!
     if (rem > CHUNKSIZE) {
       return CHUNKSIZE;
     } else {
@@ -75,7 +74,7 @@ void handleNewMessages(UniversalTelegramBot *bot, int numNewMessages) {
     }
     if (text == "/deepsleep") {
       tpl_config.allow_deepsleep = true;
-	  tpl_command = CmdDeepSleep;
+      tpl_command = CmdDeepSleep;
       bot->sendMessage(chat_id, "Go to sleep");
     }
     if (text == "/nosleep") {
@@ -132,26 +131,28 @@ void TaskTelegramCore1(void *pvParameters) {
       bot_lasttime = millis() + BOT_MTBS;
     }
 #ifdef IS_ESP32CAM
-	if (tpl_config.bot_send_jpg_image) {
-		tpl_config.bot_send_jpg_image = false;
-        // digitalWrite(flashPin, HIGH);
-        // for (uint8_t i = 0; i < 10; i++) {
-          // let the camera adjust
-        //   photo_fb = esp_camera_fb_get();
-        //   esp_camera_fb_return(photo_fb);
-        //   photo_fb = NULL;
-        // }
-		if (photo_fb == NULL) {
+    if (tpl_config.bot_send_jpg_image) {
+      tpl_config.bot_send_jpg_image = false;
+      // digitalWrite(flashPin, HIGH);
+      // for (uint8_t i = 0; i < 10; i++) {
+      // let the camera adjust
+      //   photo_fb = esp_camera_fb_get();
+      //   esp_camera_fb_return(photo_fb);
+      //   photo_fb = NULL;
+      // }
+      if (photo_fb == NULL) {
         photo_fb = esp_camera_fb_get();
-        //digitalWrite(flashPin, LOW);
+        // digitalWrite(flashPin, LOW);
         if (!photo_fb) {
           bot.sendMessage(chatId, "Camera capture failed");
         } else {
           dataBytesSent = 0;
-          bot.sendPhotoByBinary(chatId, "image/jpeg", photo_fb->len, isMoreDataAvailable, nullptr, getNextBuffer, getNextBufferLen);
+          bot.sendPhotoByBinary(chatId, "image/jpeg", photo_fb->len,
+                                isMoreDataAvailable, nullptr, getNextBuffer,
+                                getNextBufferLen);
         }
-		}
-	}
+      }
+    }
 #endif
     vTaskDelay(xDelay);
   }

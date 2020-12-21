@@ -7,7 +7,8 @@
 
 #include "tpl_system.h"
 
-esp_err_t tpl_camera_setup(uint8_t* fail_cnt, framesize_t frame_size, uint8_t fb_count) {
+esp_err_t tpl_camera_setup(uint8_t* fail_cnt, framesize_t frame_size,
+                           uint8_t fb_count) {
   *fail_cnt = 0;
   esp_err_t err = ESP_OK;
 

@@ -36,7 +36,7 @@
 
 using namespace std;
 
-extern const uint8_t *index_html_start;
+extern const uint8_t* index_html_start;
 
 //---------------------------------------------------
 void setup() {

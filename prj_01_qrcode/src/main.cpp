@@ -13,8 +13,8 @@
 #include <mem.h>
 #include <time.h>
 
-#include "../../private_sha.h"
 #include "../../private_bot.h"
+#include "../../private_sha.h"
 #include "esp32-hal-psram.h"
 #include "esp_log.h"
 #include "esp_timer.h"

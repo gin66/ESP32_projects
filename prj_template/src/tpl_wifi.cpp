@@ -36,12 +36,11 @@ void TaskWifiManager(void *pvParameters) {
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
   for (;;) {
     if (WiFi.status() != WL_CONNECTED) {
-	  Serial.println("not connected: reconnect");
+      Serial.println("not connected: reconnect");
       connect();
+    } else {
+      ArduinoOTA.handle();
     }
-	else {
-    ArduinoOTA.handle();
-	}
     vTaskDelay(xDelay);
   }
 }
@@ -105,11 +104,12 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
           // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS
           // using SPIFFS.end()
           Serial.println("Start updating " + type);
-		  tpl_config.ota_ongoing = true;
+          tpl_config.ota_ongoing = true;
         })
-        .onEnd([]() { Serial.println("\nEnd");
-		  tpl_config.ota_ongoing = false;
-			   	})
+        .onEnd([]() {
+          Serial.println("\nEnd");
+          tpl_config.ota_ongoing = false;
+        })
         .onProgress([](unsigned int progress, unsigned int total) {
           Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
         })
@@ -165,12 +165,11 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
       if (ledPin != 255) {
         digitalWrite(ledPin, digitalRead(ledPin) == HIGH ? LOW : HIGH);
       }
-	  if (tpl_config.ota_ongoing) {
-      delay(100);
-	  }
-	  else {
-      delay(200);
-	  }
+      if (tpl_config.ota_ongoing) {
+        delay(100);
+      } else {
+        delay(200);
+      }
     }
     if (ledPin != 255) {
       digitalWrite(ledPin, HIGH);

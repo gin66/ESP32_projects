@@ -12,11 +12,11 @@
 #ifdef BOTtoken
 esp_err_t tpl_camera_setup(uint8_t* fail_cnt,
                            framesize_t frame_size = FRAMESIZE_VGA,
-						   fb_count = 1);
+                           fb_count = 1);
 #else
 esp_err_t tpl_camera_setup(uint8_t* fail_cnt,
                            framesize_t frame_size = FRAMESIZE_VGA,
-						   fb_count = 3);
+                           fb_count = 3);
 #endif
 
 void tpl_camera_off();

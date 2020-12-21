@@ -1,7 +1,7 @@
 #include "tpl_websocket.h"
 
-#include "tpl_system.h"
 #include "tpl_command.h"
+#include "tpl_system.h"
 #ifdef IS_ESP32CAM
 #include "tpl_esp_camera.h"
 #endif
@@ -27,7 +27,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
 #ifdef IS_ESP32CAM
       tpl_process_web_socket_cam_settings(&json);
       if (json.containsKey("image")) {
-		  tpl_command = CmdSendJpg;
+        tpl_command = CmdSendJpg;
       }
 #endif
     } break;
@@ -90,12 +90,12 @@ void TaskWebSocketCore0(void *pvParameters) {
       webSocket.broadcastTXT(as_json);
     }
 #ifdef IS_ESP32CAM
-	if (tpl_config.ws_send_jpg_image) {
-          camera_fb_t* fb = esp_camera_fb_get();
-              webSocket.broadcastBIN(fb->buf, fb->len);
-                esp_camera_fb_return(fb);
-				tpl_config.ws_send_jpg_image = false;
-	}
+    if (tpl_config.ws_send_jpg_image) {
+      camera_fb_t *fb = esp_camera_fb_get();
+      webSocket.broadcastBIN(fb->buf, fb->len);
+      esp_camera_fb_return(fb);
+      tpl_config.ws_send_jpg_image = false;
+    }
 #endif
     vTaskDelay(xDelay);
   }

@@ -1,9 +1,10 @@
 #include "tpl_websocket.h"
+
 #include "tpl_system.h"
 
 WebSocketsServer webSocket = WebSocketsServer(81);
 
-void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
                     size_t length) {
   switch (type) {
     case WStype_DISCONNECTED:
@@ -16,9 +17,9 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
       break;
     case WStype_TEXT: {
       Serial.print("received from websocket: ");
-      Serial.println((char*)payload);
+      Serial.println((char *)payload);
       DynamicJsonDocument json(4096);
-      deserializeJson(json, (char*)payload);
+      deserializeJson(json, (char *)payload);
       if (json.containsKey("image")) {
       }
     } break;
@@ -36,8 +37,9 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
 
 #define WS_BUFLEN 4096
 char ws_buffer[WS_BUFLEN];
-void TaskWebSocketCore0(void* pvParameters) {
-  void (*func)(DynamicJsonDocument *json) = (void (*)(DynamicJsonDocument *))pvParameters;
+void TaskWebSocketCore0(void *pvParameters) {
+  void (*func)(DynamicJsonDocument * json) =
+      (void (*)(DynamicJsonDocument *))pvParameters;
   const TickType_t xDelay = 1 + 10 / portTICK_PERIOD_MS;
   uint32_t send_status_ms = 0;
 
@@ -67,12 +69,12 @@ void TaskWebSocketCore0(void* pvParameters) {
       myObject["digital"] = data;
       // myObject["sample_rate"] = I2S_SAMPLE_RATE;
       myObject["wifi_dBm"] = WiFi.RSSI();
-	  myObject["IP"] = WiFi.localIP().toString();
+      myObject["IP"] = WiFi.localIP().toString();
       myObject["SSID"] = WiFi.SSID();
 
-	  if (func != NULL) {
-		  func(&myObject);
-	  }
+      if (func != NULL) {
+        func(&myObject);
+      }
 
       /* size_t bx = */ serializeJson(myObject, &ws_buffer, WS_BUFLEN);
       String as_json = String(ws_buffer);
@@ -85,7 +87,6 @@ void TaskWebSocketCore0(void* pvParameters) {
 //---------------------------------------------------
 //
 void tpl_websocket_setup(void (*func)(DynamicJsonDocument *json)) {
-  xTaskCreatePinnedToCore(TaskWebSocketCore0, "WebSocket", 4096, (void *)func, 1,
-                               &tpl_tasks.task_websocket, CORE_0);
+  xTaskCreatePinnedToCore(TaskWebSocketCore0, "WebSocket", 4096, (void *)func,
+                          1, &tpl_tasks.task_websocket, CORE_0);
 }
-

@@ -1,11 +1,12 @@
-#include "string.h"
+#include "tpl_telegram.h"
 
 #include <Arduino.h>
 #include <UniversalTelegramBot.h>
-#include <WiFi.h>
 #include <WebSockets.h>
 #include <WebSocketsClient.h>
-#include "tpl_telegram.h"
+#include <WiFi.h>
+
+#include "string.h"
 #include "tpl_system.h"
 
 using namespace std;
@@ -13,7 +14,6 @@ using namespace std;
 WiFiClientSecure secured_client;
 static const char *BOTtoken = NULL;
 static const char *chatId = NULL;
-
 
 void handleNewMessages(UniversalTelegramBot *bot, int numNewMessages) {
   Serial.println("handleNewMessages");
@@ -53,34 +53,34 @@ void handleNewMessages(UniversalTelegramBot *bot, int numNewMessages) {
   }
 }
 
-void TaskTelegramCore1(void* pvParameters) {
+void TaskTelegramCore1(void *pvParameters) {
   const unsigned long BOT_MTBS = 1000;  // mean time between scan messages
-  unsigned long bot_lasttime = 0;       // last time messages' scan has been done
+  unsigned long bot_lasttime = 0;  // last time messages' scan has been done
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
 
   UniversalTelegramBot bot(BOTtoken, secured_client);
 
   for (;;) {
-  if (millis() >= bot_lasttime) {
-    int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+    if (millis() >= bot_lasttime) {
+      int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
 
-    while (numNewMessages) {
-      handleNewMessages(&bot, numNewMessages);
-      numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+      while (numNewMessages) {
+        handleNewMessages(&bot, numNewMessages);
+        numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+      }
+
+      bot_lasttime = millis() + BOT_MTBS;
     }
-
-    bot_lasttime = millis() + BOT_MTBS;
-  }
     vTaskDelay(xDelay);
   }
 }
 //---------------------------------------------------
-void tpl_telegram_setup(const char* bot_token, const char *chat_id) {
+void tpl_telegram_setup(const char *bot_token, const char *chat_id) {
   // Add root certificate for api.telegram.org
   secured_client.setCACert(TELEGRAM_CERTIFICATE_ROOT);
   BOTtoken = bot_token;
   chatId = chat_id;
 
   xTaskCreatePinnedToCore(TaskTelegramCore1, "Telegram", 6144, NULL, 1,
-                               &tpl_tasks.task_telegram, CORE_1);
+                          &tpl_tasks.task_telegram, CORE_1);
 }

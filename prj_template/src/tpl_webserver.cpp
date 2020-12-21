@@ -1,7 +1,8 @@
+#include "tpl_webserver.h"
+
 #include <ArduinoOTA.h>
 #include <WebServer.h>
 
-#include "tpl_webserver.h"
 #include "tpl_system.h"
 
 WebServer tpl_server(80);
@@ -14,7 +15,7 @@ void TaskWebServerCore0(void* pvParameters) {
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
 
   for (;;) {
-	tpl_server.handleClient();
+    tpl_server.handleClient();
     vTaskDelay(xDelay);
   }
 }
@@ -79,6 +80,5 @@ void tpl_webserver_setup() {
   tpl_server.begin();
 
   xTaskCreatePinnedToCore(TaskWebServerCore0, "WebServer", 3072, NULL, 1,
-                               &tpl_tasks.task_webserver, CORE_1);
+                          &tpl_tasks.task_webserver, CORE_1);
 }
-

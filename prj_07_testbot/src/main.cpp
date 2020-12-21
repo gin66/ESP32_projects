@@ -63,19 +63,8 @@ void setup() {
   esp_log_level_set("*", ESP_LOG_VERBOSE);
   ESP_LOGE(TAG, "Free heap: %u", xPortGetFreeHeapSize());
 
-  tpl_wifi_setup(true);
-
   // Wait OTA
-  pinMode(ledPin, OUTPUT);
-  uint32_t till = millis() + 10000;
-  Serial.println("Wait for OTA");
-  while ((millis() < till) || tpl_config.ota_ongoing) {
-	digitalWrite(ledPin, digitalRead(ledPin) == HIGH ? LOW:HIGH);
-    delay(200);
-  }
-  Serial.println("done");
-  digitalWrite(ledPin, HIGH);
-
+  tpl_wifi_setup(true, true, ledPin);
   tpl_webserver_setup();
   tpl_websocket_setup(NULL);
   tpl_telegram_setup(Heizung_BOTtoken, CHAT_ID);

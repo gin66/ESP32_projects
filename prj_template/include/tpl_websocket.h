@@ -1,7 +1,7 @@
+#include <ArduinoJson.h>  // already included in UniversalTelegramBot.h
 #include <WebSockets.h>
 #include <WebSocketsClient.h>
 #include <WebSocketsServer.h>
-#include <ArduinoJson.h>  // already included in UniversalTelegramBot.h
 
 extern WebSocketsServer webSocket;
 

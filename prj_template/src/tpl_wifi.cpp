@@ -43,7 +43,7 @@ void TaskWifiManager(void *pvParameters) {
   }
 }
 
-void tpl_wifi_setup(bool verbose) {
+void tpl_wifi_setup(bool verbose, bool waitOTA, uint8_t ledPin) {
   bool need_connect = true;
   if (last_connected_network != -1) {
     if (verbose) {
@@ -121,8 +121,7 @@ void tpl_wifi_setup(bool verbose) {
             Serial.println("End Failed");
         });
   } else {
-	  ArduinoOTA
-    .onStart([]() { tpl_config.ota_ongoing = true; }).onEnd([]() {
+    ArduinoOTA.onStart([]() { tpl_config.ota_ongoing = true; }).onEnd([]() {
       tpl_config.ota_ongoing = false;
     });
   }
@@ -143,4 +142,21 @@ void tpl_wifi_setup(bool verbose) {
 
   xTaskCreatePinnedToCore(TaskWifiManager, "WiFi_Manager", 2688, NULL, 0,
                           &tpl_tasks.task_wifi_manager, CORE_0);
+
+  if (waitOTA) {
+    // Wait OTA
+    if (ledPin != 255) {
+      pinMode(ledPin, OUTPUT);
+    }
+    uint32_t till = millis() + 10000;
+    while ((millis() < till) || tpl_config.ota_ongoing) {
+      if (ledPin != 255) {
+        digitalWrite(ledPin, digitalRead(ledPin) == HIGH ? LOW : HIGH);
+      }
+      delay(200);
+    }
+    if (ledPin != 255) {
+      digitalWrite(ledPin, HIGH);
+    }
+  }
 }

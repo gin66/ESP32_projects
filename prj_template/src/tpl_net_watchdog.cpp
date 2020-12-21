@@ -15,7 +15,7 @@ void TaskWatchdog(void* pvParameters) {
       tpl_fail++;
       Serial.println("Ping failed");
       if (tpl_fail >= 5 * 60) {  // 5 minutes
-                             // use deep sleep to reset
+                                 // use deep sleep to reset
         esp_sleep_enable_timer_wakeup(1LL * 1000000LL);
         esp_deep_sleep_start();
         // ESP.restart();

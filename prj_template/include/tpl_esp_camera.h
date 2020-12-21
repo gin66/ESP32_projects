@@ -9,9 +9,7 @@
 #define CONFIG_CAMERA_MODEL_AI_THINKER 1
 #include "tpl_app_camera.h"
 
-extern volatile bool camera_in_use;
-esp_err_t tpl_init_camera(uint8_t* fail_cnt,
-                          pixformat_t format = PIXFORMAT_JPEG,
+esp_err_t tpl_camera_setup(uint8_t* fail_cnt,
                           framesize_t frame_size = FRAMESIZE_VGA);
 void tpl_camera_off();
 void tpl_process_web_socket_cam_settings(DynamicJsonDocument* json);

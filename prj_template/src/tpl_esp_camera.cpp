@@ -6,15 +6,11 @@
 #include <Arduino.h>
 #include <driver/gpio.h>
 
-volatile bool camera_in_use = false;
-
-esp_err_t tpl_init_camera(uint8_t* fail_cnt, pixformat_t format,
+esp_err_t tpl_camera_setup(uint8_t* fail_cnt, 
                           framesize_t frame_size) {
   *fail_cnt = 0;
   esp_err_t err = ESP_OK;
-  if (camera_in_use) {
-    return ESP_OK;
-  }
+
   // try camera init for max 20 times
   for (uint8_t i = 0; i < 20; i++) {
     camera_config_t camera_config;
@@ -50,7 +46,7 @@ esp_err_t tpl_init_camera(uint8_t* fail_cnt, pixformat_t format,
     camera_config.pin_pwdn = -1;  // PWDN_GPIO_NUM;
     camera_config.pin_reset = RESET_GPIO_NUM;
     camera_config.xclk_freq_hz = 10000000;
-    camera_config.pixel_format = format;
+    camera_config.pixel_format = PIXFORMAT_JPEG;
     camera_config.frame_size = frame_size;
 
     // quality of JPEG output. 0-63 lower means higher quality
@@ -64,7 +60,6 @@ esp_err_t tpl_init_camera(uint8_t* fail_cnt, pixformat_t format,
       sensor_t* sensor = esp_camera_sensor_get();
       sensor->set_hmirror(sensor, 1);
       sensor->set_vflip(sensor, 1);
-      camera_in_use = true;
       return ESP_OK;
     }
     // power off the camera and try again
@@ -107,7 +102,6 @@ void tpl_camera_off() {
 }
 
 void tpl_process_web_socket_cam_settings(DynamicJsonDocument* json) {
-  if (camera_in_use) {
     if (json->containsKey("brightness")) {
       int8_t brightness = (*json)["brightness"];
       sensor_t* sensor = esp_camera_sensor_get();
@@ -188,7 +182,6 @@ void tpl_process_web_socket_cam_settings(DynamicJsonDocument* json) {
       sensor_t* sensor = esp_camera_sensor_get();
       sensor->set_hmirror(sensor, v ? 1 : 0);
     }
-  }
 }
 
 #endif

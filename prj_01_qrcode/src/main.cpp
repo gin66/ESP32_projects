@@ -59,28 +59,6 @@ struct quirc_code qr_code;
 extern const uint8_t index_html_start[] asm("_binary_src_index_html_start");
 
 #ifdef OLD
-void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
-                    size_t length) {
-  switch (type) {
-    case WStype_TEXT: {
-      if (json.containsKey("image")) {
-        uint8_t fail_cnt;
-        esp_err_t err =
-            tpl_init_camera(&fail_cnt, PIXFORMAT_JPEG, FRAMESIZE_QVGA);
-        if (err == ESP_OK) {
-          camera_fb_t* fb = esp_camera_fb_get();
-          if (!fb) {
-            Serial.println("Camera capture failed");
-          } else {
-            if (fb->format == PIXFORMAT_JPEG) {
-              webSocket.broadcastBIN(fb->buf, fb->len);
-              if (!qr_task_busy) {
-                fb_image = fb;
-                qr_task_busy = true;
-                // QR task need to return fb
-              } else {
-                esp_camera_fb_return(fb);
-              }
 #if OUTPUT_GRAY != 0
               if (id_count > 0) {
                 uint16_t data[9];
@@ -102,13 +80,6 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
                 webSocket.broadcastBIN(gray_image, fb->width * fb->height);
               }
 #endif
-            }
-          }
-        }
-      }
-    } break;
-  }
-}
 #endif
 
 void TaskQRreader(void* pvParameters) {
@@ -116,6 +87,7 @@ void TaskQRreader(void* pvParameters) {
   for (;;) {
     if (qr_task_busy) {
       if (fb_image != NULL) {
+		  Serial.println("analyze");
         qr_stack_free = (long)uxTaskGetStackHighWaterMark(NULL);
         pinMode(tpl_ledPin, OUTPUT);
         digitalWrite(tpl_ledPin, !digitalRead(tpl_ledPin));
@@ -179,15 +151,18 @@ void TaskQRreader(void* pvParameters) {
               // image.
               id_count = quirc_count(qr_recognizer);
               if (id_count > 0) {
+				Serial.println("codes found");
                 quirc_extract(qr_recognizer, 0, &qr_code);
                 qr_decode_res = quirc_decode(&qr_code, &qr_data);
                 if (qr_decode_res == QUIRC_SUCCESS) {
+				  Serial.println("valid code");
                   qr_code_valid = true;
                   check_qr_unlock = true;
                 } else {
                   quirc_flip(&qr_code);
                   qr_decode_res = quirc_decode(&qr_code, &qr_data);
                   if (qr_decode_res == QUIRC_SUCCESS) {
+				    Serial.println("valid code after flip");
                     qr_code_valid = true;
                     check_qr_unlock = true;
                   }
@@ -225,8 +200,19 @@ void add_ws_info(DynamicJsonDocument* myObject) {
 }
 
 //---------------------------------------------------
+void print_info() {
+    Serial.print("Total heap: ");
+	Serial.print(ESP.getHeapSize());
+    Serial.print(" Free heap: "); Serial.print(ESP.getFreeHeap());
+    Serial.print(" Total PSRAM: "); Serial.print(ESP.getPsramSize());
+    Serial.print(" Free PSRAM: "); Serial.println(ESP.getFreePsram());
+}
 void setup() {
   tpl_system_setup();
+  tpl_config.deepsleep_time = 1000000LL*10; // 10 s
+  // turn flash light off
+  digitalWrite(tpl_flashPin, LOW);
+  pinMode(tpl_flashPin, OUTPUT);
 
   Serial.begin(115200);
   Serial.setDebugOutput(true);
@@ -237,53 +223,44 @@ void setup() {
   tpl_websocket_setup(add_ws_info);
   // tpl_telegram_setup(BOTtoken, CHAT_ID);
   tpl_net_watchdog_setup();
+  print_info();
   tpl_command_setup(NULL);
-
-  // turn flash light off
-  digitalWrite(tpl_flashPin, LOW);
-  pinMode(tpl_flashPin, OUTPUT);
-
-  tpl_server.on("/image", HTTP_GET, []() {
-    bool send_error = true;
-    sensor_t* sensor = esp_camera_sensor_get();
-    sensor->set_pixformat(sensor, PIXFORMAT_JPEG);
-    sensor->set_framesize(sensor, FRAMESIZE_UXGA);
-    camera_fb_t* fb = esp_camera_fb_get();
-    if (!fb) {
-      Serial.println("Camera capture failed");
-    } else {
-      if (fb->width > 100) {
-        if (fb->format != PIXFORMAT_JPEG) {
-          //          bool jpeg_converted = frame2jpg(fb, 80, &_jpg_buf,
-          //          &_jpg_buf_len); fb = NULL; if(!jpeg_converted){
-          //            Serial.println("JPEG compression failed");
-          //          }
-        } else {
-          tpl_server.sendHeader("Connection", "close");
-          tpl_server.send_P(200, "Content-Type: image/jpeg",
-                            (const char*)fb->buf, fb->len);
-          send_error = false;
-        }
-      }
-      esp_camera_fb_return(fb);
-    }
-    if (send_error) {
-      tpl_server.send(404);
-      Serial.print("IMAGE ERROR: ");
-      Serial.println(tpl_server.uri());
-    }
-  });
+  print_info();
 
   if (psramFound()) {
     Serial.println("PSRAM found and loaded");
   }
+  print_info();
   psram_buffer = (uint32_t*)ps_malloc(32 * 4);
-
-  tpl_config.deepsleep_time = 1000000LL*10; // 10 s
+  print_info();
 
   // have observed only 9516 Bytes free...
-  xTaskCreatePinnedToCore(TaskQRreader, "QRreader", 65536, (void*)1, 0, NULL,
-                          1);  // Prio 0, Core 1
+  if (pdPASS != xTaskCreatePinnedToCore(TaskQRreader, "QRreader", 65536, NULL, 1, NULL, CORE_1)) {  // Prio 1, Core 1
+	Serial.println("Failed to start task.");
+  }
+  print_info();
+
+    uint8_t fail_cnt = 0;
+  tpl_camera_setup(&fail_cnt, FRAMESIZE_QVGA);
+Serial.print("camera fail count=");
+Serial.println(fail_cnt);
+  print_info();
+
+  tpl_server.on("/image", HTTP_GET, []() {
+    camera_fb_t* fb = esp_camera_fb_get();
+    if (fb) {
+	  tpl_server.sendHeader("Connection", "close");
+	  tpl_server.send_P(200, "Content-Type: image/jpeg",
+                            (const char*)fb->buf, fb->len);
+      esp_camera_fb_return(fb);
+    } else {
+      Serial.print("IMAGE ERROR: ");
+      Serial.println(tpl_server.uri());
+      Serial.println("Camera capture failed");
+      tpl_server.send(404);
+    }
+  });
+
 
   Serial.println("Setup done.");
 }
@@ -312,20 +289,14 @@ void check_unlock(bool prev_minute) {
 
 void loop() {
   if (!qr_task_busy) {
-    uint8_t fail_cnt = 0;
-    esp_err_t err = tpl_init_camera(&fail_cnt, PIXFORMAT_JPEG, FRAMESIZE_QVGA);
-    if (err == ESP_OK) {
       camera_fb_t* fb = esp_camera_fb_get();
       if (!fb) {
         Serial.println("Camera capture failed");
       } else {
-        if (fb->format == PIXFORMAT_JPEG) {
           fb_image = fb;
           qr_task_busy = true;
           // QR task need to return fb
-        }
       }
-    }
   }
 
   if (check_qr_unlock) {

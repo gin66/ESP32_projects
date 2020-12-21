@@ -34,7 +34,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
 #ifdef IS_ESP32CAM
       tpl_process_web_socket_cam_settings(&json);
       if (json.containsKey("image")) {
-        tpl_command = CmdSendJpg;
+        tpl_command = CmdSendJpg2Ws;
       }
 #endif
     } break;

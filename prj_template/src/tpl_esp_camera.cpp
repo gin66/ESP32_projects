@@ -7,7 +7,7 @@
 
 #include "tpl_system.h"
 
-esp_err_t tpl_camera_setup(uint8_t* fail_cnt, framesize_t frame_size) {
+esp_err_t tpl_camera_setup(uint8_t* fail_cnt, framesize_t frame_size, uint8_t fb_count) {
   *fail_cnt = 0;
   esp_err_t err = ESP_OK;
 
@@ -53,11 +53,7 @@ esp_err_t tpl_camera_setup(uint8_t* fail_cnt, framesize_t frame_size) {
     camera_config.jpeg_quality = 5;
     // 1: Wait for V-Synch // 2: Continous Capture (Video)
     //   count=3 : one for websocket, one for processing, one for recording
-#ifdef BOTtoken
-    camera_config.fb_count = 1;
-#else
-    camera_config.fb_count = 3;
-#endif
+    camera_config.fb_count = fb_count;
     err = esp_camera_init(&camera_config);
     if (err == ESP_OK) {
       *fail_cnt = i;

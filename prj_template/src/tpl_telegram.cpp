@@ -35,7 +35,6 @@ static bool isMoreDataAvailable() {
 }
 #define CHUNKSIZE 512
 static byte* getNextBuffer() {
-	Serial.println(dataBytesSent);
   if (photo_fb) {
     byte* buf = &photo_fb->buf[dataBytesSent];
     //dataBytesSent += CHUNKSIZE;

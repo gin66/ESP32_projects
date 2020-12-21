@@ -10,7 +10,7 @@
 #include "tpl_app_camera.h"
 
 esp_err_t tpl_camera_setup(uint8_t* fail_cnt,
-                          framesize_t frame_size = FRAMESIZE_VGA);
+                           framesize_t frame_size = FRAMESIZE_VGA);
 void tpl_camera_off();
 void tpl_process_web_socket_cam_settings(DynamicJsonDocument* json);
 #endif

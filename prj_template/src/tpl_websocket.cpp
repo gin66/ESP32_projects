@@ -25,11 +25,11 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
       DynamicJsonDocument json(4096);
       deserializeJson(json, (char *)payload);
       if (json.containsKey("sleep")) {
-		tpl_config.allow_deepsleep = json["sleep"];
+        tpl_config.allow_deepsleep = json["sleep"];
       }
       if (json.containsKey("deepsleep")) {
-		tpl_config.allow_deepsleep = true;
-		tpl_command = CmdDeepSleep;
+        tpl_config.allow_deepsleep = true;
+        tpl_command = CmdDeepSleep;
       }
 #ifdef IS_ESP32CAM
       tpl_process_web_socket_cam_settings(&json);
@@ -77,7 +77,8 @@ void TaskWebSocketCore0(void *pvParameters) {
       myObject["millis"] = millis();
       myObject["mem_free"] = (long)ESP.getFreeHeap();
       myObject["stack_free"] = (long)uxTaskGetStackHighWaterMark(NULL);
-      myObject["reset_reason"] = tpl_config.reset_reason;
+      myObject["reset_cpu0"] = tpl_config.reset_reason_cpu0;
+      myObject["reset_cpu1"] = tpl_config.reset_reason_cpu1;
       // myObject["time"] = formattedTime;
       // myObject["b64"] = base64::encode((uint8_t*)data_buf, data_idx);
       // myObject["button_analog"] = analogRead(BUTTON_PIN);

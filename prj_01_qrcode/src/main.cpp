@@ -60,25 +60,25 @@ extern const uint8_t index_html_start[] asm("_binary_src_index_html_start");
 
 #ifdef OLD
 #if OUTPUT_GRAY != 0
-              if (id_count > 0) {
-                uint16_t data[9];
-                data[0] = 1;
-                for (int j = 0; j < 4; j++) {
-                  data[2 * j + 1] = qr_code.corners[j].x;
-                  data[2 * j + 2] = qr_code.corners[j].y;
-                }
-                webSocket.broadcastBIN((uint8_t*)data, 18);
-              }
-              if (gray_image != NULL) {
-                uint8_t head[5];
-                head[0] = 0;
-                head[1] = fb->width >> 8;
-                head[2] = fb->width & 0xff;
-                head[3] = fb->height >> 8;
-                head[4] = fb->height & 0xff;
-                webSocket.broadcastBIN(head, 5);
-                webSocket.broadcastBIN(gray_image, fb->width * fb->height);
-              }
+if (id_count > 0) {
+  uint16_t data[9];
+  data[0] = 1;
+  for (int j = 0; j < 4; j++) {
+    data[2 * j + 1] = qr_code.corners[j].x;
+    data[2 * j + 2] = qr_code.corners[j].y;
+  }
+  webSocket.broadcastBIN((uint8_t*)data, 18);
+}
+if (gray_image != NULL) {
+  uint8_t head[5];
+  head[0] = 0;
+  head[1] = fb->width >> 8;
+  head[2] = fb->width & 0xff;
+  head[3] = fb->height >> 8;
+  head[4] = fb->height & 0xff;
+  webSocket.broadcastBIN(head, 5);
+  webSocket.broadcastBIN(gray_image, fb->width * fb->height);
+}
 #endif
 #endif
 
@@ -87,7 +87,7 @@ void TaskQRreader(void* pvParameters) {
   for (;;) {
     if (qr_task_busy) {
       if (fb_image != NULL) {
-		  Serial.println("analyze");
+        Serial.println("analyze");
         qr_stack_free = (long)uxTaskGetStackHighWaterMark(NULL);
         pinMode(tpl_ledPin, OUTPUT);
         digitalWrite(tpl_ledPin, !digitalRead(tpl_ledPin));
@@ -151,18 +151,18 @@ void TaskQRreader(void* pvParameters) {
               // image.
               id_count = quirc_count(qr_recognizer);
               if (id_count > 0) {
-				Serial.println("codes found");
+                Serial.println("codes found");
                 quirc_extract(qr_recognizer, 0, &qr_code);
                 qr_decode_res = quirc_decode(&qr_code, &qr_data);
                 if (qr_decode_res == QUIRC_SUCCESS) {
-				  Serial.println("valid code");
+                  Serial.println("valid code");
                   qr_code_valid = true;
                   check_qr_unlock = true;
                 } else {
                   quirc_flip(&qr_code);
                   qr_decode_res = quirc_decode(&qr_code, &qr_data);
                   if (qr_decode_res == QUIRC_SUCCESS) {
-				    Serial.println("valid code after flip");
+                    Serial.println("valid code after flip");
                     qr_code_valid = true;
                     check_qr_unlock = true;
                   }
@@ -201,15 +201,18 @@ void add_ws_info(DynamicJsonDocument* myObject) {
 
 //---------------------------------------------------
 void print_info() {
-    Serial.print("Total heap: ");
-	Serial.print(ESP.getHeapSize());
-    Serial.print(" Free heap: "); Serial.print(ESP.getFreeHeap());
-    Serial.print(" Total PSRAM: "); Serial.print(ESP.getPsramSize());
-    Serial.print(" Free PSRAM: "); Serial.println(ESP.getFreePsram());
+  Serial.print("Total heap: ");
+  Serial.print(ESP.getHeapSize());
+  Serial.print(" Free heap: ");
+  Serial.print(ESP.getFreeHeap());
+  Serial.print(" Total PSRAM: ");
+  Serial.print(ESP.getPsramSize());
+  Serial.print(" Free PSRAM: ");
+  Serial.println(ESP.getFreePsram());
 }
 void setup() {
   tpl_system_setup();
-  tpl_config.deepsleep_time = 1000000LL*10; // 10 s
+  tpl_config.deepsleep_time = 1000000LL * 10;  // 10 s
   // turn flash light off
   digitalWrite(tpl_flashPin, LOW);
   pinMode(tpl_flashPin, OUTPUT);
@@ -235,23 +238,26 @@ void setup() {
   print_info();
 
   // have observed only 9516 Bytes free...
-  if (pdPASS != xTaskCreatePinnedToCore(TaskQRreader, "QRreader", 65536, NULL, 1, NULL, CORE_1)) {  // Prio 1, Core 1
-	Serial.println("Failed to start task.");
+  tpl_tasks.app_name1 = "QRreader";
+  if (pdPASS != xTaskCreatePinnedToCore(TaskQRreader, "QRreader", 65536, NULL,
+                                        1, &tpl_tasks.task_app1,
+                                        CORE_1)) {  // Prio 1, Core 1
+    Serial.println("Failed to start task.");
   }
   print_info();
 
-    uint8_t fail_cnt = 0;
+  uint8_t fail_cnt = 0;
   tpl_camera_setup(&fail_cnt, FRAMESIZE_QVGA);
-Serial.print("camera fail count=");
-Serial.println(fail_cnt);
+  Serial.print("camera fail count=");
+  Serial.println(fail_cnt);
   print_info();
 
   tpl_server.on("/image", HTTP_GET, []() {
     camera_fb_t* fb = esp_camera_fb_get();
     if (fb) {
-	  tpl_server.sendHeader("Connection", "close");
-	  tpl_server.send_P(200, "Content-Type: image/jpeg",
-                            (const char*)fb->buf, fb->len);
+      tpl_server.sendHeader("Connection", "close");
+      tpl_server.send_P(200, "Content-Type: image/jpeg", (const char*)fb->buf,
+                        fb->len);
       esp_camera_fb_return(fb);
     } else {
       Serial.print("IMAGE ERROR: ");
@@ -260,7 +266,6 @@ Serial.println(fail_cnt);
       tpl_server.send(404);
     }
   });
-
 
   Serial.println("Setup done.");
 }
@@ -289,14 +294,16 @@ void check_unlock(bool prev_minute) {
 
 void loop() {
   if (!qr_task_busy) {
-      camera_fb_t* fb = esp_camera_fb_get();
-      if (!fb) {
-        Serial.println("Camera capture failed");
-      } else {
-          fb_image = fb;
-          qr_task_busy = true;
-          // QR task need to return fb
-      }
+    tpl_update_stack_info();
+    Serial.println(tpl_config.stack_info);
+    camera_fb_t* fb = esp_camera_fb_get();
+    if (!fb) {
+      Serial.println("Camera capture failed");
+    } else {
+      fb_image = fb;
+      qr_task_busy = true;
+      // QR task need to return fb
+    }
   }
 
   if (check_qr_unlock) {

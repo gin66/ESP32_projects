@@ -3,8 +3,8 @@
 #include <ArduinoOTA.h>
 #include <WebServer.h>
 
-#include "tpl_system.h"
 #include "tpl_command.h"
+#include "tpl_system.h"
 
 WebServer tpl_server(80);
 
@@ -39,7 +39,7 @@ void tpl_webserver_setup() {
   });
   tpl_server.on("/deepsleep", HTTP_GET, []() {
     tpl_config.allow_deepsleep = true;
-	tpl_command = CmdDeepSleep;
+    tpl_command = CmdDeepSleep;
     tpl_server.sendHeader("Connection", "close");
     tpl_server.send_P(200, "text/html", (const char*)index_html_start);
   });

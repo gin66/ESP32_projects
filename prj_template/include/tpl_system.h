@@ -15,6 +15,10 @@ extern struct tpl_task_s {
   TaskHandle_t task_webserver;
   TaskHandle_t task_command;
   TaskHandle_t task_telegram;
+  TaskHandle_t task_app1;
+  const char *app_name1;
+  TaskHandle_t task_app2;
+  const char *app_name2;
 } tpl_tasks;
 
 extern struct tpl_config_s {
@@ -25,7 +29,9 @@ extern struct tpl_config_s {
   bool ws_send_jpg_image;
 #endif
   uint16_t reset_reason;
-  uint32_t deepsleep_time; // =0 means off
+  const char *reset_reason_cpu0;
+  const char *reset_reason_cpu1;
+  uint32_t deepsleep_time;  // =0 means off
   const char *stack_info;
 } tpl_config;
 

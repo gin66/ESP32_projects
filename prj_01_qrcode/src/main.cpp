@@ -225,8 +225,7 @@ void setup() {
   tpl_wifi_setup(true, true, (gpio_num_t)tpl_ledPin);
   tpl_webserver_setup();
   tpl_websocket_setup(add_ws_info);
-//  tpl_telegram_setup(BOTtoken, CHAT_ID);
-//  tpl_net_watchdog_setup();
+  tpl_net_watchdog_setup();
   tpl_command_setup(NULL);
 
   if (psramFound()) {
@@ -248,6 +247,8 @@ void setup() {
   tpl_camera_setup(&fail_cnt, FRAMESIZE_QVGA);
   Serial.print("camera fail count=");
   Serial.println(fail_cnt);
+
+  tpl_telegram_setup(BOTtoken, CHAT_ID);
 
   print_info();
 

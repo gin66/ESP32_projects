@@ -39,7 +39,9 @@ void TaskWifiManager(void *pvParameters) {
 	  Serial.println("not connected: reconnect");
       connect();
     }
+	else {
     ArduinoOTA.handle();
+	}
     vTaskDelay(xDelay);
   }
 }
@@ -143,6 +145,17 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
 
   setenv("TZ", "CET-1CEST,M3.5.0/2:00,M10.5.0/3:00", 1);
   tzset();
+
+  char strftime_buf[64];
+  struct tm timeinfo;
+  time_t now;
+  time(&now);
+  if (prev_minute) {
+    now -= 60;
+  }
+  localtime_r(&now, &timeinfo);
+  strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M ", &timeinfo);
+  Serial.println(strftime_buf);
 
   xTaskCreatePinnedToCore(TaskWifiManager, "WiFi_Manager", 2688, NULL, 0,
                           &tpl_tasks.task_wifi_manager, CORE_0);

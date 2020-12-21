@@ -17,6 +17,9 @@ static char stack_info[] =
 struct tpl_config_s tpl_config = {.bootCount = 0,
                                   .allow_deepsleep = false,
                                   .ota_ongoing = false,
+#ifdef IS_ESP32CAM
+  .ws_send_jpg_image = false,
+#endif
                                   .reset_reason = 0,
                                   .stack_info = stack_info};
 

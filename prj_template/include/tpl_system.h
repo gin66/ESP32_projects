@@ -21,6 +21,9 @@ extern struct tpl_config_s {
   uint32_t bootCount;
   bool allow_deepsleep;
   bool ota_ongoing;
+#ifdef IS_ESP32CAM
+  bool ws_send_jpg_image;
+#endif
   uint16_t reset_reason;
   const char *stack_info;
 } tpl_config;

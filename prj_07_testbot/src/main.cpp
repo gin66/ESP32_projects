@@ -1,41 +1,29 @@
-#include "string.h"
-//#include "soc/soc.h"
-//#include "soc/rtc_cntl_reg.h"
-
 #include "template.h"
 #undef ARDUINOJSON_USE_LONG_LONG
 #include <Arduino.h>
-#include <ArduinoOTA.h>
+//#include <ArduinoOTA.h>
 //#include <ArduinoJson.h>  // already included in UniversalTelegramBot.h
-#include <ESP32Ping.h>
-#include <WebServer.h>
-#include <WebSockets.h>
-#include <WebSocketsClient.h>
-#include <WebSocketsServer.h>
-#include <WiFi.h>
-#include <WiFiClient.h>
-#include <base64.h>
-#include <esp_wifi.h>
-#include <mem.h>
+//#include <ESP32Ping.h>
+//#include <WebServer.h>
+//#include <WebSockets.h>
+//#include <WebSocketsClient.h>
+//#include <WebSocketsServer.h>
+//#include <WiFi.h>
+//#include <WiFiClient.h>
+//#include <base64.h>
+//#include <esp_wifi.h>
+//#include <mem.h>
 
 #include "../../private_bot.h"
-#include "driver/gpio.h"
-#include "driver/rtc_io.h"
-#include "esp32-hal-psram.h"
-#include "esp_log.h"
-#include "esp_timer.h"
-#include "fb_gfx.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "img_converters.h"
-
-#define DEBUG_ESP
-
-#ifdef DEBUG_ESP
-#define DBG(x) Serial.println(x)
-#else
-#define DBG(...)
-#endif
+//#include "driver/gpio.h"
+//#include "driver/rtc_io.h"
+//#include "esp32-hal-psram.h"
+//#include "esp_log.h"
+//#include "esp_timer.h"
+//#include "fb_gfx.h"
+//#include "freertos/FreeRTOS.h"
+//#include "freertos/task.h"
+//#include "img_converters.h"
 
 #define ledPin ((gpio_num_t)2)
 
@@ -45,12 +33,8 @@ using namespace std;
 void setup() {
   tpl_system_setup();
 
-#ifdef DEBUG_ESP
   Serial.begin(115200);
   Serial.setDebugOutput(true);
-#endif
-  esp_log_level_set("*", ESP_LOG_VERBOSE);
-  ESP_LOGE(TAG, "Free heap: %u", xPortGetFreeHeapSize());
 
   // Wait OTA
   tpl_wifi_setup(true, true, ledPin);

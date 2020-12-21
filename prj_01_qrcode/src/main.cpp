@@ -208,22 +208,22 @@ void TaskQRreader(void* pvParameters) {
   }
 }
 
-void add_ws_info(DynamicJsonDocument *myObject) {
-     String qr_string = "........................................";
-     if (qr_code_valid) {
-       for (int i = 0; i < 40; i++) {
-         char ch = qr_data.payload[i];
-         if ((ch >= 32) && (ch <= 127)) {
-            qr_string.setCharAt(i, ch);
-          }
-        }
+void add_ws_info(DynamicJsonDocument* myObject) {
+  String qr_string = "........................................";
+  if (qr_code_valid) {
+    for (int i = 0; i < 40; i++) {
+      char ch = qr_data.payload[i];
+      if ((ch >= 32) && (ch <= 127)) {
+        qr_string.setCharAt(i, ch);
       }
+    }
+  }
 
-      (*myObject)["qr_stack_free"] = qr_stack_free;
-      (*myObject)["qr"] = qr_string;
-      (*myObject)["qr_decode"] = String(quirc_strerror(qr_decode_res));
-      (*myObject)["codes"] = id_count;
-      (*myObject)["unlock"] = allow_unlock;
+  (*myObject)["qr_stack_free"] = qr_stack_free;
+  (*myObject)["qr"] = qr_string;
+  (*myObject)["qr_decode"] = String(quirc_strerror(qr_decode_res));
+  (*myObject)["codes"] = id_count;
+  (*myObject)["unlock"] = allow_unlock;
 }
 
 //---------------------------------------------------
@@ -237,7 +237,7 @@ void setup() {
   tpl_wifi_setup(true, true, ledPin);
   tpl_webserver_setup();
   tpl_websocket_setup(add_ws_info);
-  //tpl_telegram_setup(BOTtoken, CHAT_ID);
+  // tpl_telegram_setup(BOTtoken, CHAT_ID);
   tpl_net_watchdog_setup();
   tpl_command_setup(NULL);
 
@@ -268,8 +268,8 @@ void setup() {
           //          }
         } else {
           tpl_server.sendHeader("Connection", "close");
-          tpl_server.send_P(200, "Content-Type: image/jpeg", (const char*)fb->buf,
-                        fb->len);
+          tpl_server.send_P(200, "Content-Type: image/jpeg",
+                            (const char*)fb->buf, fb->len);
           send_error = false;
         }
       }
@@ -288,8 +288,8 @@ void setup() {
   psram_buffer = (uint32_t*)ps_malloc(32 * 4);
 
   // have observed only 9516 Bytes free...
-  xTaskCreatePinnedToCore(TaskQRreader, "QRreader", 65536, (void*)1, 0,
-                               NULL, 1);  // Prio 0, Core 1
+  xTaskCreatePinnedToCore(TaskQRreader, "QRreader", 65536, (void*)1, 0, NULL,
+                          1);  // Prio 0, Core 1
 
   Serial.println("Setup done.");
 }
@@ -317,23 +317,22 @@ void check_unlock(bool prev_minute) {
 }
 
 void loop() {
-	if(!qr_task_busy) {
-	uint8_t fail_cnt = 0;
-        esp_err_t err =
-            tpl_init_camera(&fail_cnt, PIXFORMAT_JPEG, FRAMESIZE_QVGA);
-        if (err == ESP_OK) {
-          camera_fb_t* fb = esp_camera_fb_get();
-          if (!fb) {
-            Serial.println("Camera capture failed");
-          } else {
-            if (fb->format == PIXFORMAT_JPEG) {
-                fb_image = fb;
-                qr_task_busy = true;
-                // QR task need to return fb
-			}
-		  }
-		}
-	}
+  if (!qr_task_busy) {
+    uint8_t fail_cnt = 0;
+    esp_err_t err = tpl_init_camera(&fail_cnt, PIXFORMAT_JPEG, FRAMESIZE_QVGA);
+    if (err == ESP_OK) {
+      camera_fb_t* fb = esp_camera_fb_get();
+      if (!fb) {
+        Serial.println("Camera capture failed");
+      } else {
+        if (fb->format == PIXFORMAT_JPEG) {
+          fb_image = fb;
+          qr_task_busy = true;
+          // QR task need to return fb
+        }
+      }
+    }
+  }
 
   if (check_qr_unlock) {
     check_qr_unlock = false;

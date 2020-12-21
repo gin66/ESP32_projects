@@ -53,8 +53,8 @@ void loop() {
   uint32_t ms = millis();
   if ((int32_t)(ms - next_stack_info) > 0) {
     next_stack_info = ms + 500;
-	tpl_update_stack_info();
-	Serial.println(tpl_config.stack_info);
+    tpl_update_stack_info();
+    Serial.println(tpl_config.stack_info);
   }
 
   uint32_t period = 1000;

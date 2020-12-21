@@ -14,19 +14,16 @@
 #include "tpl_esp_camera.h"
 #endif
 
-WiFiClientSecure secured_client;
 static const char *BOTtoken = NULL;
 static const char *chatId = NULL;
 
 static camera_fb_t* photo_fb = NULL;
 static uint32_t dataBytesSent;
 static bool isMoreDataAvailable() {
-	Serial.println("isMoreDataAvailable");
   if (photo_fb) {
 	  if (dataBytesSent >= photo_fb->len) {
           esp_camera_fb_return(photo_fb);
           photo_fb = NULL;
-	Serial.println("Done");
 		  return false;
 	  }
 	  else {
@@ -36,22 +33,23 @@ static bool isMoreDataAvailable() {
     return false;
   }
 }
+#define CHUNKSIZE 512
 static byte* getNextBuffer() {
-	Serial.println("getNextBuffer");
+	Serial.println(dataBytesSent);
   if (photo_fb) {
     byte* buf = &photo_fb->buf[dataBytesSent];
-    dataBytesSent += 1024;
+    //dataBytesSent += CHUNKSIZE;
     return buf;
   } else {
     return nullptr;
   }
 }
 static int getNextBufferLen() {
-	Serial.println("getNextBufferLen");
   if (photo_fb) {
     uint32_t rem = photo_fb->len - dataBytesSent;
-    if (rem > 1024) {
-      return 1024;
+    dataBytesSent += CHUNKSIZE; // getNextBuffer is called first !!!!
+    if (rem > CHUNKSIZE) {
+      return CHUNKSIZE;
     } else {
       return rem;
     }
@@ -120,6 +118,9 @@ void TaskTelegramCore1(void *pvParameters) {
   unsigned long bot_lasttime = 0;  // last time messages' scan has been done
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
 
+  WiFiClientSecure secured_client;
+  // Add root certificate for api.telegram.org
+  secured_client.setCACert(TELEGRAM_CERTIFICATE_ROOT);
   UniversalTelegramBot bot(BOTtoken, secured_client);
 
   for (;;) {
@@ -158,12 +159,10 @@ void TaskTelegramCore1(void *pvParameters) {
 }
 //---------------------------------------------------
 void tpl_telegram_setup(const char *bot_token, const char *chat_id) {
-  // Add root certificate for api.telegram.org
-  secured_client.setCACert(TELEGRAM_CERTIFICATE_ROOT);
   BOTtoken = bot_token;
   chatId = chat_id;
 
-  xTaskCreatePinnedToCore(TaskTelegramCore1, "Telegram", 6192, NULL, 1,
+  xTaskCreatePinnedToCore(TaskTelegramCore1, "Telegram", 6072, NULL, 1,
                           &tpl_tasks.task_telegram, CORE_1);
 }
 #endif

@@ -148,11 +148,6 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
 
   char strftime_buf[64];
   struct tm timeinfo;
-  time_t now;
-  time(&now);
-  if (prev_minute) {
-    now -= 60;
-  }
   localtime_r(&now, &timeinfo);
   strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M ", &timeinfo);
   Serial.println(strftime_buf);

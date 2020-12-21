@@ -286,6 +286,7 @@ void loop() {
     tpl_update_stack_info();
     Serial.println(tpl_config.stack_info);
   }
+#ifdef ENABLE_QRreader
   if (!qr_task_busy) {
     camera_fb_t* fb = esp_camera_fb_get();
     if (!fb) {
@@ -296,6 +297,7 @@ void loop() {
       // QR task need to return fb
     }
   }
+#endif
 
   if (check_qr_unlock) {
     check_qr_unlock = false;

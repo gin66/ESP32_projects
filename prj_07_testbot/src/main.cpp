@@ -40,7 +40,7 @@ void setup() {
   tpl_wifi_setup(true, true, ledPin);
   tpl_webserver_setup();
   tpl_websocket_setup(NULL);
-  tpl_telegram_setup(Heizung_BOTtoken, CHAT_ID);
+  tpl_telegram_setup(BOTtoken, CHAT_ID);
   tpl_net_watchdog_setup();
   tpl_command_setup(NULL);
 

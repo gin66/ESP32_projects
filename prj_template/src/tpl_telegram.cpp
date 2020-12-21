@@ -1,3 +1,4 @@
+#ifdef BOTtoken
 #include "tpl_telegram.h"
 
 #include <Arduino.h>
@@ -84,3 +85,4 @@ void tpl_telegram_setup(const char *bot_token, const char *chat_id) {
   xTaskCreatePinnedToCore(TaskTelegramCore1, "Telegram", 6144, NULL, 1,
                           &tpl_tasks.task_telegram, CORE_1);
 }
+#endif

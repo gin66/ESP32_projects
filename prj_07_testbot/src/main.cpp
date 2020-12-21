@@ -38,16 +38,12 @@
 #endif
 
 #define ledPin ((gpio_num_t)2)
-//#define ledPin ((gpio_num_t)33)
-//#define flashPin ((gpio_num_t)4)
 
 using namespace std;
 
-RTC_DATA_ATTR uint16_t bootCount = 0;
-
 //---------------------------------------------------
 void setup() {
-  bootCount++;
+  tpl_system_setup();
 
 #ifdef DEBUG_ESP
   Serial.begin(115200);

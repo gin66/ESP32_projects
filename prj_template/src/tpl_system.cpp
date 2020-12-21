@@ -11,7 +11,8 @@ static char stack_info[] = "----------------------------------------------------
 	"----------------------------------------------------"\
 	"----------------------------------------------------";
 
-struct tpl_config_s tpl_config = {.allow_deepsleep = false,
+struct tpl_config_s tpl_config = {.bootCount = 0,
+								  .allow_deepsleep = false,
                                   .ota_ongoing = false,
 								  .stack_info = stack_info};
 
@@ -31,4 +32,11 @@ void tpl_update_stack_info() {
     uxTaskGetStackHighWaterMark(tpl_tasks.task_wifi_manager),
     uxTaskGetStackHighWaterMark(tpl_tasks.task_webserver),
     uxTaskGetStackHighWaterMark(tpl_tasks.task_telegram));
+}
+
+static RTC_DATA_ATTR uint32_t bootCount = 0;
+
+void tpl_system_setup() {
+   bootCount++;
+   tpl_config.bootCount = bootCount;
 }

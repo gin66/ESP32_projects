@@ -23,6 +23,7 @@ struct tpl_config_s tpl_config = {.bootCount = 0,
                                   .ota_ongoing = false,
 #ifdef IS_ESP32CAM
                                   .ws_send_jpg_image = false,
+                                  .bot_send_jpg_image = false,
 #endif
                                   .reset_reason = 0,
                                   .reset_reason_cpu0 = "",

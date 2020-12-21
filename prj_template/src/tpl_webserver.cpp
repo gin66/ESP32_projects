@@ -5,6 +5,9 @@
 
 #include "tpl_command.h"
 #include "tpl_system.h"
+#ifdef IS_ESP32CAM
+#include "tpl_esp_camera.h"
+#endif
 
 WebServer tpl_server(80);
 
@@ -84,6 +87,22 @@ void tpl_webserver_setup() {
           }
         }
       });
+#ifdef IS_ESP32CAM
+  tpl_server.on("/image", HTTP_GET, []() {
+    camera_fb_t* fb = esp_camera_fb_get();
+    if (fb) {
+      tpl_server.sendHeader("Connection", "close");
+      tpl_server.send_P(200, "Content-Type: image/jpeg", (const char*)fb->buf,
+                        fb->len);
+      esp_camera_fb_return(fb);
+    } else {
+      Serial.print("IMAGE ERROR: ");
+      Serial.println(tpl_server.uri());
+      Serial.println("Camera capture failed");
+      tpl_server.send(404);
+    }
+  });
+#endif
   tpl_server.begin();
 
   xTaskCreatePinnedToCore(TaskWebServerCore0, "WebServer", 3072, NULL, 1,

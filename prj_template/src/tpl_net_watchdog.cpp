@@ -13,7 +13,8 @@ void TaskWatchdog(void* pvParameters) {
     bool success = Ping.ping(NET_WATCHDOG, 1);
     if (!success) {
       tpl_fail++;
-      Serial.println("Ping failed");
+      Serial.print("Ping failed: ");
+      Serial.println(tpl_fail);
       if (tpl_fail >= 5 * 60) {  // 5 minutes
                                  // use deep sleep to reset
         esp_sleep_enable_timer_wakeup(1LL * 1000000LL);

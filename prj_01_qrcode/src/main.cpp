@@ -14,6 +14,7 @@
 #include <time.h>
 
 #include "../../private_sha.h"
+#include "../../private_bot.h"
 #include "esp32-hal-psram.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -224,48 +225,31 @@ void setup() {
   tpl_wifi_setup(true, true, (gpio_num_t)tpl_ledPin);
   tpl_webserver_setup();
   tpl_websocket_setup(add_ws_info);
-  // tpl_telegram_setup(BOTtoken, CHAT_ID);
-  tpl_net_watchdog_setup();
-  print_info();
+//  tpl_telegram_setup(BOTtoken, CHAT_ID);
+//  tpl_net_watchdog_setup();
   tpl_command_setup(NULL);
-  print_info();
 
   if (psramFound()) {
     Serial.println("PSRAM found and loaded");
   }
-  print_info();
   psram_buffer = (uint32_t*)ps_malloc(32 * 4);
-  print_info();
 
   // better to start task before camera setup
+#ifdef ENABLE_QRreader
   tpl_tasks.app_name1 = "QRreader";
   if (pdPASS != xTaskCreatePinnedToCore(TaskQRreader, "QRreader", 40000, NULL,
                                         1, &tpl_tasks.task_app1,
                                         CORE_1)) {  // Prio 1, Core 1
     Serial.println("Failed to start task.");
   }
-  print_info();
+#endif
 
   uint8_t fail_cnt = 0;
   tpl_camera_setup(&fail_cnt, FRAMESIZE_QVGA);
   Serial.print("camera fail count=");
   Serial.println(fail_cnt);
-  print_info();
 
-  tpl_server.on("/image", HTTP_GET, []() {
-    camera_fb_t* fb = esp_camera_fb_get();
-    if (fb) {
-      tpl_server.sendHeader("Connection", "close");
-      tpl_server.send_P(200, "Content-Type: image/jpeg", (const char*)fb->buf,
-                        fb->len);
-      esp_camera_fb_return(fb);
-    } else {
-      Serial.print("IMAGE ERROR: ");
-      Serial.println(tpl_server.uri());
-      Serial.println("Camera capture failed");
-      tpl_server.send(404);
-    }
-  });
+  print_info();
 
   Serial.println("Setup done.");
 }
@@ -292,10 +276,16 @@ void check_unlock(bool prev_minute) {
   }
 }
 
+uint32_t next_stack_info = 0;
+
 void loop() {
-  if (!qr_task_busy) {
+  uint32_t ms = millis();
+  if ((int32_t)(ms - next_stack_info) > 0) {
+    next_stack_info = ms + 2000;
     tpl_update_stack_info();
     Serial.println(tpl_config.stack_info);
+  }
+  if (!qr_task_busy) {
     camera_fb_t* fb = esp_camera_fb_get();
     if (!fb) {
       Serial.println("Camera capture failed");

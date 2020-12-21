@@ -27,6 +27,7 @@ extern struct tpl_config_s {
   bool ota_ongoing;
 #ifdef IS_ESP32CAM
   bool ws_send_jpg_image;
+  bool bot_send_jpg_image;
 #endif
   uint16_t reset_reason;
   const char *reset_reason_cpu0;

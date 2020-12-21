@@ -1,9 +1,8 @@
 #include <string.h>
-//#include "soc/soc.h"
-//#include "soc/rtc_cntl_reg.h"
 
+#include "template.h"
+#undef ARDUINOJSON_USE_LONG_LONG
 #include <Arduino.h>
-#include <ArduinoJson.h>
 #include <ArduinoOTA.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
@@ -24,8 +23,6 @@
 #include "img_converters.h"
 #include "qrcode_recognize.h"
 #include "quirc.h"
-#include "rom/rtc.h"
-#include "template.h"
 
 #define DEBUG_ESP
 
@@ -38,14 +35,8 @@
 #define OUTPUT_GRAY 0
 
 using namespace std;
-
-WebServer server(80);
-extern const uint8_t index_html_start[] asm("_binary_src_index_html_start");
-extern const uint8_t server_index_html_start[] asm(
-    "_binary_src_serverindex_html_start");
-
-#define flashPin 4
-#define ledPin 33
+#define ledPin ((gpio_num_t)33)
+#define flashPin ((gpio_num_t)4)
 
 bool qrMode = true;
 bool qr_code_valid = false;
@@ -67,27 +58,13 @@ uint32_t ps_state = 0;
 int id_count;
 struct quirc_code qr_code;
 
-WebSocketsServer webSocket = WebSocketsServer(81);
+extern const uint8_t index_html_start[] asm("_binary_src_index_html_start");
 
+#ifdef OLD
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
                     size_t length) {
   switch (type) {
-    case WStype_DISCONNECTED:
-      Serial.print("websocket disconnected: ");
-      Serial.println(num);
-      break;
-    case WStype_CONNECTED:
-      Serial.print("websocket connected: ");
-      Serial.println(num);
-      break;
     case WStype_TEXT: {
-      Serial.print("received from websocket: ");
-      Serial.println((char*)payload);
-      DynamicJsonDocument json(4096);
-      deserializeJson(json, (char*)payload);
-      process_web_socket_cam_settings(&json);
-      if (json.containsKey("light")) {
-      }
       if (json.containsKey("image")) {
         uint8_t fail_cnt;
         esp_err_t err =
@@ -132,17 +109,9 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
         }
       }
     } break;
-    case WStype_BIN:
-    case WStype_ERROR:
-    case WStype_FRAGMENT:
-    case WStype_FRAGMENT_FIN:
-    case WStype_FRAGMENT_TEXT_START:
-    case WStype_FRAGMENT_BIN_START:
-    case WStype_PING:
-    case WStype_PONG:
-      break;
   }
 }
+#endif
 
 void TaskQRreader(void* pvParameters) {
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
@@ -239,130 +208,50 @@ void TaskQRreader(void* pvParameters) {
   }
 }
 
-void TaskWebSocket(void* pvParameters) {
-  const TickType_t xDelay = 1 + 10 / portTICK_PERIOD_MS;
-  uint32_t send_status_ms = 0;
-
-  Serial.println("WebSocket Task started");
-  webSocket.begin();
-  webSocket.onEvent(webSocketEvent);
-
-  for (;;) {
-    uint32_t now = millis();
-    webSocket.loop();
-
-    if (now > send_status_ms) {
-      send_status_ms = now + 100;
-      String data = "........................................";
-      for (int i = 0; i < 40; i++) {
-        char ch = 48 + digitalRead(i);
-        data.setCharAt(i, ch);
-      }
-      DynamicJsonDocument myObject(4096);
-      myObject["reset_reason"] =
-          (rtc_get_reset_reason(0) << 4) | rtc_get_reset_reason(1);
-      myObject["millis"] = millis();
-      myObject["psram"] = ps_state;
-      myObject["mem_free"] = (long)ESP.getFreeHeap();
-      myObject["stack_free"] = (long)uxTaskGetStackHighWaterMark(NULL);
-      myObject["qr_stack_free"] = qr_stack_free;
-      // myObject["time"] = formattedTime;
-      // myObject["b64"] = base64::encode((uint8_t*)data_buf, data_idx);
-      // myObject["button_analog"] = analogRead(BUTTON_PIN);
-      // myObject["button_digital"] = digitalRead(BUTTON_PIN);
-      myObject["digital"] = data;
-      String qr_string = "........................................";
-      if (qr_code_valid) {
-        for (int i = 0; i < 40; i++) {
-          char ch = qr_data.payload[i];
-          if ((ch >= 32) && (ch <= 127)) {
+void add_ws_info(DynamicJsonDocument *myObject) {
+     String qr_string = "........................................";
+     if (qr_code_valid) {
+       for (int i = 0; i < 40; i++) {
+         char ch = qr_data.payload[i];
+         if ((ch >= 32) && (ch <= 127)) {
             qr_string.setCharAt(i, ch);
           }
         }
       }
-      myObject["qr"] = qr_string;
-      myObject["qr_decode"] = String(quirc_strerror(qr_decode_res));
-      myObject["codes"] = id_count;
-      myObject["unlock"] = allow_unlock;
-      // myObject["sample_rate"] = I2S_SAMPLE_RATE;
-#define BUFLEN 4096
-      char buffer[BUFLEN];
-      /* size_t bx = */ serializeJson(myObject, &buffer, BUFLEN);
-      String as_json = String(buffer);
-      webSocket.broadcastTXT(as_json);
-    }
-    vTaskDelay(xDelay);
-  }
+
+      (*myObject)["qr_stack_free"] = qr_stack_free;
+      (*myObject)["qr"] = qr_string;
+      (*myObject)["qr_decode"] = String(quirc_strerror(qr_decode_res));
+      (*myObject)["codes"] = id_count;
+      (*myObject)["unlock"] = allow_unlock;
 }
 
 //---------------------------------------------------
 void setup() {
-#ifdef DEBUG_ESP
+  tpl_system_setup();
+
   Serial.begin(115200);
   Serial.setDebugOutput(true);
-#endif
-  esp_log_level_set("*", ESP_LOG_VERBOSE);
-  ESP_LOGE(TAG, "Free heap: %u", xPortGetFreeHeapSize());
+
+  // Wait OTA
+  tpl_wifi_setup(true, true, ledPin);
+  tpl_webserver_setup();
+  tpl_websocket_setup(add_ws_info);
+  //tpl_telegram_setup(BOTtoken, CHAT_ID);
+  tpl_net_watchdog_setup();
+  tpl_command_setup(NULL);
 
   // turn flash light off
   digitalWrite(flashPin, LOW);
   pinMode(flashPin, OUTPUT);
 
-  my_wifi_setup(true);
-
-  server.onNotFound([]() {
-    server.send(404);
-    Serial.print("Not found: ");
-    Serial.println(server.uri());
-  });
-  /*handling uploading firmware file */
-  server.on("/", HTTP_GET, []() {
-    server.sendHeader("Connection", "close");
-    server.send_P(200, "text/html", (const char*)index_html_start);
-  });
-  server.on("/serverIndex", HTTP_GET, []() {
-    server.sendHeader("Connection", "close");
-    server.send_P(200, "text/html", (const char*)server_index_html_start);
-  });
-  server.on("/deepsleep", HTTP_GET, []() {
-    server.sendHeader("Connection", "close");
-    server.send_P(200, "text/html", (const char*)index_html_start);
+  tpl_server.on("/deepsleep", HTTP_GET, []() {
+    tpl_server.sendHeader("Connection", "close");
+    tpl_server.send_P(200, "text/html", (const char*)index_html_start);
     esp_sleep_enable_timer_wakeup(10LL * 1000000LL);
     esp_deep_sleep_start();
   });
-  /*handling uploading firmware file */
-  server.on(
-      "/update", HTTP_POST,
-      []() {
-        server.sendHeader("Connection", "close");
-        server.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
-        ESP.restart();
-      },
-      []() {
-        HTTPUpload& upload = server.upload();
-        if (upload.status == UPLOAD_FILE_START) {
-          Serial.printf("Update: %s\n", upload.filename.c_str());
-          if (!Update.begin(
-                  UPDATE_SIZE_UNKNOWN)) {  // start with max available size
-            Update.printError(Serial);
-          }
-        } else if (upload.status == UPLOAD_FILE_WRITE) {
-          /* flashing firmware to ESP*/
-          if (Update.write(upload.buf, upload.currentSize) !=
-              upload.currentSize) {
-            Update.printError(Serial);
-          }
-        } else if (upload.status == UPLOAD_FILE_END) {
-          if (Update.end(
-                  true)) {  // true to set the size to the current progress
-            Serial.printf("Update Success: %u\nRebooting...\n",
-                          upload.totalSize);
-          } else {
-            Update.printError(Serial);
-          }
-        }
-      });
-  server.on("/image", HTTP_GET, []() {
+  tpl_server.on("/image", HTTP_GET, []() {
     bool send_error = true;
     sensor_t* sensor = esp_camera_sensor_get();
     sensor->set_pixformat(sensor, PIXFORMAT_JPEG);
@@ -378,8 +267,8 @@ void setup() {
           //            Serial.println("JPEG compression failed");
           //          }
         } else {
-          server.sendHeader("Connection", "close");
-          server.send_P(200, "Content-Type: image/jpeg", (const char*)fb->buf,
+          tpl_server.sendHeader("Connection", "close");
+          tpl_server.send_P(200, "Content-Type: image/jpeg", (const char*)fb->buf,
                         fb->len);
           send_error = false;
         }
@@ -387,61 +276,20 @@ void setup() {
       esp_camera_fb_return(fb);
     }
     if (send_error) {
-      server.send(404);
+      tpl_server.send(404);
       Serial.print("IMAGE ERROR: ");
-      Serial.println(server.uri());
+      Serial.println(tpl_server.uri());
     }
   });
-  server.on("/sleep", HTTP_GET, []() {
-    server.sendHeader("Connection", "close");
-    server.send(200, "text/plain", "SLEEP");
-    esp_sleep_enable_timer_wakeup(5 * 1000000);
-    esp_deep_sleep_start();
-  });
-  server.begin();
 
   if (psramFound()) {
     Serial.println("PSRAM found and loaded");
   }
   psram_buffer = (uint32_t*)ps_malloc(32 * 4);
-  ps_state = 0;
-  for (uint8_t i = 0; i < 32; i++) {
-    ps_state <<= 1;
-    if (psram_buffer[i] == (0xdeadbeaf ^ i)) {
-      ps_state |= 1;
-    }
-    psram_buffer[i] = 0xdeadbeaf ^ i;
-  }
-
-  ESP_LOGE(TAG, "Free heap after setup: %u", xPortGetFreeHeapSize());
-  ESP_LOGE(TAG, "Total heap: %u", ESP.getHeapSize());
-  ESP_LOGE(TAG, "Free heap: %u", ESP.getFreeHeap());
-  ESP_LOGE(TAG, "Total PSRAM: %u", ESP.getPsramSize());
-  ESP_LOGE(TAG, "Free PSRAM: %u", ESP.getFreePsram());
-
-  BaseType_t rc = xTaskCreatePinnedToCore(TaskWebSocket, "WebSocket", 16384,
-                                          (void*)1, 1, NULL, 0);
-  if (rc != pdPASS) {
-    Serial.print("cannot start task=");
-    Serial.println(rc);
-  }
 
   // have observed only 9516 Bytes free...
-  rc = xTaskCreatePinnedToCore(TaskQRreader, "QRreader", 65536, (void*)1, 0,
+  xTaskCreatePinnedToCore(TaskQRreader, "QRreader", 65536, (void*)1, 0,
                                NULL, 1);  // Prio 0, Core 1
-  if (rc != pdPASS) {
-    Serial.print("cannot start task=");
-    Serial.println(rc);
-  }
-
-  Serial.print("Retrieving time: ");
-  configTime(0, 0, "pool.ntp.org");  // get UTC time via NTP
-  time_t now = time(nullptr);
-  while (now < 24 * 3600) {
-    Serial.print(".");
-    delay(100);
-    now = time(nullptr);
-  }
 
   Serial.println("Setup done.");
 }
@@ -469,11 +317,11 @@ void check_unlock(bool prev_minute) {
 }
 
 void loop() {
-  my_wifi_loop(true);
-  server.handleClient();
   if (check_qr_unlock) {
     check_qr_unlock = false;
     check_unlock(false);
     check_unlock(true);
   }
+  const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
+  vTaskDelay(xDelay);
 }

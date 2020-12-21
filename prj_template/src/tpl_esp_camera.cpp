@@ -100,7 +100,7 @@ void tpl_camera_off() {
   }
 }
 
-void process_web_socket_cam_settings(DynamicJsonDocument* json) {
+void tpl_process_web_socket_cam_settings(DynamicJsonDocument* json) {
   if (camera_in_use) {
     if (json->containsKey("brightness")) {
       int8_t brightness = (*json)["brightness"];

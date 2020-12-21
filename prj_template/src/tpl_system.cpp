@@ -1,4 +1,5 @@
 #include "tpl_system.h"
+#include "rom/rtc.h"
 
 struct tpl_task_s tpl_tasks = {.task_wifi_manager = NULL,
                                .task_net_watchdog = NULL,
@@ -14,6 +15,7 @@ static char stack_info[] = "----------------------------------------------------
 struct tpl_config_s tpl_config = {.bootCount = 0,
 								  .allow_deepsleep = false,
                                   .ota_ongoing = false,
+								  .reset_reason = 0,
 								  .stack_info = stack_info};
 
 #define ADD_STACK_INFO(info_fmt,task) {\
@@ -37,4 +39,6 @@ static RTC_DATA_ATTR uint32_t bootCount = 0;
 void tpl_system_setup() {
    bootCount++;
    tpl_config.bootCount = bootCount;
+   tpl_config.reset_reason =
+          (rtc_get_reset_reason(0) << 4) | rtc_get_reset_reason(1);
 }

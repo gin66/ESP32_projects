@@ -43,7 +43,7 @@ void TaskWifiManager(void *pvParameters) {
   }
 }
 
-void tpl_wifi_setup(bool verbose, bool waitOTA, uint8_t ledPin) {
+void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
   bool need_connect = true;
   if (last_connected_network != -1) {
     if (verbose) {

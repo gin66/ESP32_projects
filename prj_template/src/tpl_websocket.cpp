@@ -1,6 +1,9 @@
 #include "tpl_websocket.h"
 
 #include "tpl_system.h"
+#ifdef IS_ESP32CAM
+#include "tpl_esp_camera.h"
+#endif
 
 WebSocketsServer webSocket = WebSocketsServer(81);
 
@@ -20,6 +23,9 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
       Serial.println((char *)payload);
       DynamicJsonDocument json(4096);
       deserializeJson(json, (char *)payload);
+#ifdef IS_ESP32CAM
+      tpl_process_web_socket_cam_settings(&json);
+#endif
       if (json.containsKey("image")) {
       }
     } break;
@@ -62,6 +68,7 @@ void TaskWebSocketCore0(void *pvParameters) {
       myObject["millis"] = millis();
       myObject["mem_free"] = (long)ESP.getFreeHeap();
       myObject["stack_free"] = (long)uxTaskGetStackHighWaterMark(NULL);
+      myObject["reset_reason"] = tpl_config.reset_reason;
       // myObject["time"] = formattedTime;
       // myObject["b64"] = base64::encode((uint8_t*)data_buf, data_idx);
       // myObject["button_analog"] = analogRead(BUTTON_PIN);

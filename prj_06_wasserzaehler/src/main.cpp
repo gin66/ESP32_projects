@@ -43,8 +43,12 @@ void print_info() {
 }
 
 void setup() {
-  psram_buffer_init();
-  last_seen_watchpoint = psram_buffer->last_seen_watchpoint;
+  if (psramFound()) {
+    psram_buffer_init();
+    last_seen_watchpoint = psram_buffer->last_seen_watchpoint;
+  } else {
+    last_seen_watchpoint = 0;
+  }
 
   tpl_system_setup();
   tpl_config.deepsleep_time = 1000000LL * 600LL;  // 10 minutes
@@ -59,6 +63,8 @@ void setup() {
 
   Serial.begin(115200);
   Serial.setDebugOutput(true);
+  Serial.print("Last watchpoint=");
+  Serial.println(last_seen_watchpoint);
 
   // Wait OTA
   tpl_wifi_setup(true, true, (gpio_num_t)tpl_ledPin);
@@ -83,7 +89,7 @@ void setup() {
 
   // turn on flash
   digitalWrite(tpl_flashPin, HIGH);
-      WATCH(100);
+  WATCH(100);
   // activate cam
   {
     uint32_t settle_till = millis() + 10000;
@@ -114,25 +120,96 @@ void setup() {
   esp_camera_deinit();
   print_info();
 
-  if (tpl_config.curr_jpg != NULL) {
-    tpl_telegram_setup(BOTtoken, CHAT_ID);
-	char buf[100];
-    tpl_config.bot_message = buf;
-    sprintf(buf,
-          "Camera capture V1, entries: %d BootCount: %d Watchpoint: %d",
-				num_entries(), tpl_config.bootCount, last_seen_watchpoint);
-	tpl_config.bot_send_message = true;
-    while (tpl_config.bot_send_message) {
-      vTaskDelay(xDelay);
-    }
-    tpl_command = CmdSendJpg2Bot;
-  }
-  while (tpl_command != CmdIdle) {
+  tpl_telegram_setup(BOTtoken, CHAT_ID);
+  char buf[200];
+  tpl_config.bot_message = buf;
+  sprintf(buf, "Camera capture V1, entries: %d BootCount: %d Watchpoint: %d",
+          num_entries(), tpl_config.bootCount, last_seen_watchpoint);
+  tpl_config.bot_send_message = true;
+  while (tpl_config.bot_send_message) {
     vTaskDelay(xDelay);
   }
-  // enter deep sleep
-  WATCH(9999);
-  tpl_command = CmdDeepSleep;
+
+  if (tpl_config.curr_jpg != NULL) {
+    Serial.println("Image captured");
+    bool send_image = true;
+    // process image
+    raw_image = (uint8_t *)ps_malloc(WIDTH * HEIGHT * 3);
+    fmt2rgb888(tpl_config.curr_jpg, tpl_config.curr_jpg_len, PIXFORMAT_JPEG,
+               raw_image);
+    digitize(raw_image, digitized_image, 1);
+    find_pointer(digitized_image, filtered_image, temp_image, &reader);
+    digitize(raw_image, digitized_image, 0);
+    eval_pointer(digitized_image, &reader);
+    WATCH(104);
+    Serial.print("Reader candidates=");
+    Serial.println(reader.candidates);
+    if (reader.candidates == 4) {
+      send_image = false;
+      struct timeval tv;
+      gettimeofday(&tv, NULL);
+      int8_t res = psram_buffer_add(
+          tv.tv_sec, reader.pointer[0].angle, reader.pointer[1].angle,
+          reader.pointer[2].angle, reader.pointer[3].angle);
+      if (res < 0) {
+        send_image = true;
+      }
+      WATCH(105);
+      uint16_t consumption = water_consumption();
+      uint8_t alarm = have_alarm();
+#ifdef ALARM
+      switch (alarm) {
+        case NO_ALARM:
+          break;
+        case ALARM_TOO_HIGH_CONSUMPTION:
+          send_image = true;
+          alarm_bot.sendMessage(
+              CHAT_ID,
+              String("Wasseralarm: Hoher Verbrauch:") + +water_steigung());
+          break;
+        case ALARM_CUMULATED_CONSUMPTION_TOO_HIGH:
+          send_image = true;
+          alarm_bot.sendMessage(
+              CHAT_ID, String("Wasseralarm: Kumulierter Verbrauch zu hoch: ") +
+                           cumulated_consumption());
+          break;
+        case ALARM_LEAKAGE:
+          send_image = true;
+          alarm_bot.sendMessage(CHAT_ID, String("Wasseralarm: Leck"));
+          break;
+        case ALARM_LEAKAGE_FINE:
+          send_image = true;
+          alarm_bot.sendMessage(CHAT_ID,
+                                String("Wasseralarm: Leck alle Zeiger"));
+          break;
+      }
+#endif
+      WATCH(106);
+      sprintf(buf,
+              "Result: %d/%d/%d/%d Consumption: %d Alarm: %d "
+              "Buffer_add: %d, entries: %d BootCount: %d",
+              reader.pointer[0].angle, reader.pointer[1].angle,
+              reader.pointer[2].angle, reader.pointer[3].angle, consumption,
+              alarm, res, num_entries(), tpl_config.bootCount);
+      tpl_config.bot_send_message = true;
+      reader.candidates = 0;
+      WATCH(107);
+
+      while (tpl_config.bot_send_message) {
+        vTaskDelay(xDelay);
+      }
+    }
+    if (send_image) {
+      tpl_command = CmdSendJpg2Bot;
+    }
+
+    while (tpl_command != CmdIdle) {
+      vTaskDelay(xDelay);
+    }
+    // enter deep sleep
+    WATCH(9999);
+    tpl_command = CmdDeepSleep;
+  }
 }
 
 void loop() {
@@ -141,135 +218,19 @@ void loop() {
 }
 
 #ifdef OLD
-void execute(enum Command command {
-  switch (command) {
-    case CmdMeasure:
-      if (init_camera()) {
-        WATCH(101);
-          }
-          if (jpg_image == NULL) {
-            jpg_image = (uint8_t *)ps_malloc(50000);  // should be enough
-          }
-          if (raw_image == NULL) {
-            raw_image = (uint8_t *)ps_malloc(WIDTH * HEIGHT * 3);
-          }
-          memcpy(jpg_image, fb->buf, jpg_len);
-          esp_camera_fb_return(fb);
-          WATCH(103);
-
-          fmt2rgb888(jpg_image, jpg_len, PIXFORMAT_JPEG, raw_image);
-          digitize(raw_image, digitized_image, 1);
-          find_pointer(digitized_image, filtered_image, temp_image, &reader);
-          digitize(raw_image, digitized_image, 0);
-          eval_pointer(digitized_image, &reader);
-          WATCH(104);
-          if (reader.candidates == 4) {
-            send_image = false;
-            struct timeval tv;
-            gettimeofday(&tv, NULL);
-            int8_t res = psram_buffer_add(
-                tv.tv_sec, reader.pointer[0].angle, reader.pointer[1].angle,
-                reader.pointer[2].angle, reader.pointer[3].angle);
-            if (res < 0) {
-              send_image = true;
-            }
-            WATCH(105);
-            uint16_t consumption = water_consumption();
-            uint8_t alarm = have_alarm();
-            switch (alarm) {
-              case NO_ALARM:
-                break;
-              case ALARM_TOO_HIGH_CONSUMPTION:
-                send_image = true;
-                alarm_bot.sendMessage(CHAT_ID,
-                                      String("Wasseralarm: Hoher Verbrauch:") +
-                                          +water_steigung());
-                break;
-              case ALARM_CUMULATED_CONSUMPTION_TOO_HIGH:
-                send_image = true;
-                alarm_bot.sendMessage(
-                    CHAT_ID,
-                    String("Wasseralarm: Kumulierter Verbrauch zu hoch: ") +
-                        cumulated_consumption());
-                break;
-              case ALARM_LEAKAGE:
-                send_image = true;
-                alarm_bot.sendMessage(CHAT_ID, String("Wasseralarm: Leck"));
-                break;
-              case ALARM_LEAKAGE_FINE:
-                send_image = true;
-                alarm_bot.sendMessage(CHAT_ID,
-                                      String("Wasseralarm: Leck alle Zeiger"));
-                break;
-            }
-            WATCH(106);
-            char buf[200];
-            sprintf(buf,
-                    "Result: %d/%d/%d/%d Consumption: %d Alarm: %d "
-                    "Buffer_add: %d, entries: %d BootCount: %d",
-                    reader.pointer[0].angle, reader.pointer[1].angle,
-                    reader.pointer[2].angle, reader.pointer[3].angle,
-                    consumption, alarm, res, num_entries(), bootCount);
-            bot.sendMessage(CHAT_ID, String(buf));
-            reader.candidates = 0;
-            WATCH(107);
-            break;
-          }
-        }
-        WATCH(110);
-        digitalWrite(flashPin, LOW);
-        if (send_image && (jpg_image != NULL)) {
-          WATCH(111);
-          dataBytesSent = 0;
-          status = bot.sendPhotoByBinary(CHAT_ID, "image/jpeg", jpg_len,
-                                         isMoreDataAvailable, nullptr,
-                                         getNextBuffer, getNextBufferLen);
-        }
-        WATCH(112);
-        bot.sendMessage(CHAT_ID,
-                        WiFi.SSID() + String(": ") + WiFi.localIP().toString());
-      }
-      WATCH(121);
-      command = CmdDeepSleep;
-      WATCH(1);
-      break;
-    case CmdSendImage:
-    case CmdSendRawImage:
-      if (init_camera()) {
-        bool raw = (command == CmdSendRawImage);
-        camera_fb_t *fb = esp_camera_fb_get();
-        if (!fb) {
-          Serial.println("Camera capture failed");
-          delay(1000);
-          ESP.restart();
-        } else {
-          status = true;
-          if ((fb->format == PIXFORMAT_JPEG) && raw) {
-            webSocket.broadcastBIN(fb->buf, fb->len);
-            esp_camera_fb_return(fb);
-          } else if ((fb->format == PIXFORMAT_JPEG) && !raw) {
-            if (raw_image == NULL) {
-              raw_image = (uint8_t *)ps_malloc(WIDTH * HEIGHT * 3);
-            }
-            fmt2rgb888(fb->buf, fb->len, fb->format, raw_image);
-            uint8_t head[5];
-            head[0] = 3;
-            head[1] = fb->width >> 8;
-            head[2] = fb->width & 0xff;
-            head[3] = fb->height >> 8;
-            head[4] = fb->height & 0xff;
-            esp_camera_fb_return(fb);
-            digitize(raw_image, digitized_image, 1);
-            find_pointer(digitized_image, filtered_image, temp_image, &reader);
-            digitize(raw_image, digitized_image, 0);
-            eval_pointer(digitized_image, &reader);
-            webSocket.broadcastBIN(head, 5);
-            webSocket.broadcastBIN(filtered_image, WIDTH * HEIGHT / 8);
-          } else {
-            esp_camera_fb_return(fb);
-          }
-        }
-      }
-  }
+break;
+}
+WATCH(110);
+digitalWrite(flashPin, LOW);
+if (send_image && (jpg_image != NULL)) {
+  WATCH(111);
+  dataBytesSent = 0;
+  status =
+      bot.sendPhotoByBinary(CHAT_ID, "image/jpeg", jpg_len, isMoreDataAvailable,
+                            nullptr, getNextBuffer, getNextBufferLen);
+}
+WATCH(112);
+bot.sendMessage(CHAT_ID,
+                WiFi.SSID() + String(": ") + WiFi.localIP().toString());
 }
 #endif

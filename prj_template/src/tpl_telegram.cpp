@@ -171,10 +171,12 @@ void TaskTelegramCore1(void *pvParameters) {
     }
 #endif
     if (tpl_config.bot_send_message) {
-		if (tpl_config.bot_message) {
-      bot.sendMessage(chatId, tpl_config.bot_message);
-		}
-		tpl_config.bot_message = NULL;
+      if (tpl_config.bot_message) {
+        Serial.print("Send message: ");
+        Serial.println(tpl_config.bot_message);
+        bot.sendMessage(chatId, tpl_config.bot_message);
+      }
+      tpl_config.bot_message = NULL;
       tpl_config.bot_send_message = false;
     }
     vTaskDelay(xDelay);

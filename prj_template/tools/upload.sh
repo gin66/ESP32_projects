@@ -25,16 +25,8 @@ pio run
 # wait esp coming online
 while true
 do
-	nc -z $TARGET 80
-	if [ $? == 0 ]
-	then
-		break
-	fi
-	sleep 1
-done
-while true
-do
-	nc -z $TARGET 81
+	echo -n p
+	ping -c 1 $TARGET
 	if [ $? == 0 ]
 	then
 		break
@@ -42,8 +34,17 @@ do
 	sleep 1
 done
 
-echo '{"sleep":false}' | websocat -1u ws://$TARGET:81
-wget -T 1 http://$TARGET/nosleep
+while true
+do
+	echo -n n
+	nc -z $TARGET 3232
+	echo $?
+	if [ $? == 0 ]
+	then
+		break
+	fi
+	sleep 1
+done
 
 # upload
 pio run --target upload

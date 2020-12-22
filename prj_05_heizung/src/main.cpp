@@ -59,7 +59,7 @@ void setup() {
   digitalWrite(tpl_flashPin, HIGH);
   // activate cam
   {
-    uint32_t settle_till = millis() + 4000;
+    uint32_t settle_till = millis() + 10000;
     while ((int32_t)(settle_till - millis()) > 0) {
       // let the camera adjust
       camera_fb_t *fb = esp_camera_fb_get();
@@ -85,6 +85,8 @@ void setup() {
   }
   // Free memory for bot
   esp_camera_deinit();
+  print_info();
+
   if (tpl_config.curr_jpg != NULL) {
     tpl_telegram_setup(BOTtoken, CHAT_ID);
     tpl_command = CmdSendJpg2Bot;
@@ -94,6 +96,7 @@ void setup() {
   }
 
   print_info();
+
   Serial.println("Done.");
   // enter deep sleep
   tpl_command = CmdDeepSleep;

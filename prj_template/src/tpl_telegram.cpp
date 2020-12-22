@@ -136,7 +136,7 @@ void TaskTelegramCore1(void *pvParameters) {
       camera_fb_t *fb = NULL;
       if (jpeg_to_send == NULL) {
         // take picture if needed
-		Serial.println("take picture");
+        Serial.println("take picture");
         uint32_t settle_till = millis() + 1000;
         while ((int32_t)(settle_till - millis()) > 0) {
           // let the camera adjust
@@ -154,13 +154,13 @@ void TaskTelegramCore1(void *pvParameters) {
         }
       }
       if (jpeg_to_send != NULL) {
-		  Serial.print("send image in bytes=");
-		  Serial.println(jpeg_len);
+        Serial.print("send image in bytes=");
+        Serial.println(jpeg_len);
         dataBytesSent = 0;
         bot.sendMessage(chatId, "Send image");
         Serial.println(bot.sendPhotoByBinary(chatId, "image/jpeg", jpeg_len,
-                              isMoreDataAvailable, nullptr, getNextBuffer,
-                              getNextBufferLen));
+                                             isMoreDataAvailable, nullptr,
+                                             getNextBuffer, getNextBufferLen));
       } else {
         bot.sendMessage(chatId, "Camera capture failed");
       }

@@ -1,5 +1,5 @@
-#define HEIGHT 296
-#define WIDTH 400
+#define HEIGHT 480
+#define WIDTH 640
 
 #include <stdint.h>
 

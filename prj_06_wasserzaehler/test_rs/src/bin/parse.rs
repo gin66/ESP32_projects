@@ -4,8 +4,8 @@ use std::io::BufWriter;
 use std::io::Write;
 use std::path::Path;
 
-const HEIGHT: usize = 296;
-const WIDTH: usize = 400;
+const HEIGHT: usize = 480;
+const WIDTH: usize = 640;
 
 use test_rs::*;
 
@@ -27,6 +27,7 @@ fn bits_to_rgb888(image: &Vec<u8>) -> Vec<u8> {
 }
 
 fn mark(image: &mut Vec<u8>, r: &Reader, ps: &PointerShape) {
+    const FRAME: i16 = 50;
     for i in 0..r.candidates {
         let row_from = r.pointer[i as usize].row_from;
         let col_from = r.pointer[i as usize].col_from;
@@ -35,12 +36,12 @@ fn mark(image: &mut Vec<u8>, r: &Reader, ps: &PointerShape) {
         let row_center = r.pointer[i as usize].row_center2 / 2;
         let col_center = r.pointer[i as usize].col_center2 / 2;
 
-        if row_center < 32
-            || row_from < 32
-            || row_to < 32
-            || col_center < 32
-            || col_from < 32
-            || col_to < 32
+        if row_center < FRAME
+            || row_from < FRAME
+            || row_to < FRAME
+            || col_center < FRAME
+            || col_from < FRAME
+            || col_to < FRAME
         {
             println!("INVALID DATA");
             return;
@@ -65,8 +66,8 @@ fn mark(image: &mut Vec<u8>, r: &Reader, ps: &PointerShape) {
             }
         }
 
-        for row in row_from - 32..=(row_to + 32).min(HEIGHT as i16 - 1) {
-            for col in col_from - 32..=(col_to + 32).min(WIDTH as i16 - 1) {
+        for row in row_from - FRAME..=(row_to + FRAME).min(HEIGHT as i16 - 1) {
+            for col in col_from - FRAME..=(col_to + FRAME).min(WIDTH as i16 - 1) {
                 let dr = row as i32 - row_center as i32;
                 let dc = col as i32 - col_center as i32;
 
@@ -97,10 +98,30 @@ fn mark(image: &mut Vec<u8>, r: &Reader, ps: &PointerShape) {
 
         // draw pointer shape
         let shape = &ps.shapes[r.pointer[i as usize].angle as usize / 18];
+        for (y, x_min, x_max) in shape.iter().step_by(shape.len() - 1) {
+            for x in *x_min..=*x_max {
+                let row = row_center + y;
+
+                let col = col_center + x;
+                if row < 0 || col < 0 {
+                    continue;
+                }
+                if row >= HEIGHT as i16 || col >= WIDTH as i16 {
+                    continue;
+                }
+                let ind = (row as usize * WIDTH + col as usize) * 3;
+                image[ind + 0] = 127;
+                image[ind + 1] = 127;
+                image[ind + 2] = 127;
+            }
+        }
         for (y, x_min, x_max) in shape.iter() {
             let row = row_center + y;
 
             let col = col_center + x_min;
+            if row < 0 || col < 0 {
+                continue;
+            }
             if row >= HEIGHT as i16 || col >= WIDTH as i16 {
                 continue;
             }
@@ -110,6 +131,9 @@ fn mark(image: &mut Vec<u8>, r: &Reader, ps: &PointerShape) {
             image[ind + 2] = 127;
 
             let col = col_center + x_max;
+            if row < 0 || col < 0 {
+                continue;
+            }
             if row >= HEIGHT as i16 || col >= WIDTH as i16 {
                 continue;
             }
@@ -126,24 +150,26 @@ struct PointerShape {
 }
 
 impl PointerShape {
+    const ANGLES: usize = 20;
+    const CENTER: usize = 60;
     fn make_pointer() -> std::io::Result<PointerShape> {
         let mut shapes = vec![];
-        for angle_i in 0..20 {
-            let mut x_min = vec![10000; 40];
-            let mut x_max = vec![-10000; 40];
+        for angle_i in 0..PointerShape::ANGLES {
+            let mut x_min = vec![10000; 2 * PointerShape::CENTER + 1];
+            let mut x_max = vec![-10000; 2 * PointerShape::CENTER + 1];
 
-            let angle = angle_i as f64 / 10.0 * std::f64::consts::PI;
-            for radius_i in -120..150 {
+            let angle = angle_i as f64 / PointerShape::ANGLES as f64 * 2.0 * std::f64::consts::PI;
+            for radius_i in -210..260 {
                 let radius = radius_i as f64 / 10.0;
 
                 let half_width = if radius_i < 0 {
-                    8.0
+                    16.0
                 } else {
-                    8.0 - radius / 2.0
+                    16.0 - radius / 2.0
                 };
 
-                for w_i in -100..=100 {
-                    let w = w_i as f64 * half_width / 100.0;
+                for w_i in -300..=300 {
+                    let w = w_i as f64 * half_width / 350.0;
 
                     let r_y = (radius * angle.sin()).floor() as i16;
                     let r_x = (radius * angle.cos()).floor() as i16;
@@ -154,8 +180,8 @@ impl PointerShape {
                     let y_2 = r_y + (w as f64 * f64::cos(angle)).floor() as i16;
                     let x_2 = r_x - (w as f64 * f64::sin(angle)).floor() as i16;
 
-                    let yi_1 = (y_1 + 20) as usize;
-                    let yi_2 = (y_2 + 20) as usize;
+                    let yi_1 = (y_1 + PointerShape::CENTER as i16) as usize;
+                    let yi_2 = (y_2 + PointerShape::CENTER as i16) as usize;
 
                     x_min[yi_1] = i16::min(x_min[yi_1], x_1);
                     x_max[yi_1] = i16::max(x_max[yi_1], x_1);
@@ -166,9 +192,13 @@ impl PointerShape {
             }
 
             let mut shape = vec![];
-            for i in 0..40 {
+            for i in 0..(2 * PointerShape::CENTER + 1) {
                 if x_min[i] <= x_max[i] {
-                    shape.push((i as i16 - 20, x_min[i], x_max[i]));
+                    shape.push((
+                        i as i16 - PointerShape::CENTER as i16 - 1,
+                        x_min[i],
+                        x_max[i],
+                    ));
                 }
             }
             shapes.push(shape);
@@ -188,30 +218,41 @@ impl PointerShape {
         let mut w = BufWriter::new(file);
         writeln!(w, "{}", r#"#include <stdint.h>"#)?;
         writeln!(w)?;
+        writeln!(w, "#define ANGLES {}", PointerShape::ANGLES)?;
+        writeln!(w)?;
         writeln!(w, "{}", r#"struct shape_s {"#)?;
-        writeln!(w, "{}", r#"   int16_t y_min; "#)?;
-        writeln!(w, "{}", r#"   int16_t y_max; "#)?;
-        writeln!(w, "{}", r#"   int16_t x_min[40]; "#)?;
-        writeln!(w, "{}", r#"   int16_t x_max[40]; "#)?;
+        writeln!(w, "   int16_t y_min; ")?;
+        writeln!(w, "   int16_t y_max; ")?;
+        writeln!(w, "   int16_t x_min[{}]; ", 2 * PointerShape::CENTER + 1)?;
+        writeln!(w, "   int16_t x_max[{}]; ", 2 * PointerShape::CENTER + 1)?;
         writeln!(w, "{}", r#"};"#)?;
         writeln!(w)?;
-        writeln!(w, "{}", r#"extern const struct shape_s shapes[20];"#)?;
+        writeln!(
+            w,
+            "extern const struct shape_s shapes[{}];",
+            PointerShape::ANGLES
+        )?;
 
         let path = Path::new("../src/pointer_shape.cpp");
         let file = File::create(path).unwrap();
         let mut w = BufWriter::new(file);
         writeln!(w, "{}", r#"#include "pointer_shape.h""#)?;
         writeln!(w)?;
-        writeln!(w, "{}", r#"const struct shape_s shapes[20] = {"#)?;
+        writeln!(
+            w,
+            "const struct shape_s shapes[{}] = ",
+            PointerShape::ANGLES
+        )?;
+        writeln!(w, "{}", r#"{"#)?;
         for shape in self.shapes.iter() {
             writeln!(w, "{}", r#"   {"#)?;
-            writeln!(w, r#"      .y_min = {},"#, shape[0].0)?;
-            writeln!(w, r#"      .y_max = {},"#, shape[shape.len() - 1].0)?;
+            writeln!(w, "      .y_min = {},", shape[0].0)?;
+            writeln!(w, "      .y_max = {},", shape[shape.len() - 1].0)?;
             writeln!(w, "{}", r#"      .x_min = {"#)?;
             for (_, x_min, _) in shape.iter() {
                 writeln!(w, "         {},", x_min)?;
             }
-            for _ in shape.len()..40 {
+            for _ in shape.len()..80 {
                 writeln!(w, "         0,")?;
             }
             writeln!(w, "{}", r#"      },"#)?;
@@ -219,7 +260,7 @@ impl PointerShape {
             for (_, _, x_max) in shape.iter() {
                 writeln!(w, "         {},", x_max)?;
             }
-            for _ in shape.len()..40 {
+            for _ in shape.len()..80 {
                 writeln!(w, "         0,")?;
             }
             writeln!(w, "{}", r#"      },"#)?;

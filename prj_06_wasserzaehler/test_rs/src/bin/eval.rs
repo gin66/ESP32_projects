@@ -75,7 +75,10 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let (top_right, bottom_right) = right.split_vertically(300);
 
     let mut top_left_chart = ChartBuilder::on(&top_left)
-        .caption("Rohzeiger 0.1m3 als Winkel °", ("sans-serif", 20).into_font())
+        .caption(
+            "Rohzeiger 0.1m3 als Winkel °",
+            ("sans-serif", 20).into_font(),
+        )
         .margin(5)
         .x_label_area_size(30)
         .y_label_area_size(30)
@@ -149,7 +152,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .draw()?;
 
     //let y_max: i32 = results.results.iter().map(|e| e.r.pointer[0].row_center2 as i32).max().unwrap();
-    let y_max=3*240;
+    let y_max = 3 * 240;
     let mut top_right_chart = ChartBuilder::on(&top_right)
         .caption("Position", ("sans-serif", 20).into_font())
         .margin(5)
@@ -159,17 +162,21 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     top_right_chart.configure_mesh().draw()?;
 
-    top_right_chart.draw_series(
-        results.results
-            .iter()
-            .map(|e| Circle::new((e.timestamp as i64, e.r.pointer[0].row_center2 as i32), 2, BLUE.filled())),
-    )?;
+    top_right_chart.draw_series(results.results.iter().map(|e| {
+        Circle::new(
+            (e.timestamp as i64, e.r.pointer[0].row_center2 as i32),
+            2,
+            BLUE.filled(),
+        )
+    }))?;
 
-    top_right_chart.draw_series(
-        results.results
-            .iter()
-            .map(|e| Circle::new((e.timestamp as i64, e.r.pointer[3].row_center2 as i32), 2, BLACK.filled())),
-    )?;
+    top_right_chart.draw_series(results.results.iter().map(|e| {
+        Circle::new(
+            (e.timestamp as i64, e.r.pointer[3].row_center2 as i32),
+            2,
+            BLACK.filled(),
+        )
+    }))?;
 
     top_right_chart
         .configure_series_labels()
@@ -178,7 +185,10 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .draw()?;
 
     let mut top_right_chart = ChartBuilder::on(&bottom_right)
-        .caption("Winkel Zeiger 0->3 und 1->2 in °", ("sans-serif", 20).into_font())
+        .caption(
+            "Winkel Zeiger 0->3 und 1->2 in °",
+            ("sans-serif", 20).into_font(),
+        )
         .margin(5)
         .x_label_area_size(30)
         .y_label_area_size(50)
@@ -186,27 +196,21 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     top_right_chart.configure_mesh().draw()?;
 
-    top_right_chart.draw_series(
-        results.results
-            .iter()
-            .map(|e| {
-                let dy = e.r.pointer[2].row_center2 as i32 - e.r.pointer[1].row_center2 as i32;
-                let dx = e.r.pointer[2].col_center2 as i32 - e.r.pointer[1].col_center2 as i32;
-                let a = (dy as f64).atan2(dx as f64);
-                let a = (a*180.0/std::f64::consts::PI).round() as i32;
-                Circle::new((e.timestamp as i64, a as i32), 2, BLACK.filled())}),
-    )?;
+    top_right_chart.draw_series(results.results.iter().map(|e| {
+        let dy = e.r.pointer[2].row_center2 as i32 - e.r.pointer[1].row_center2 as i32;
+        let dx = e.r.pointer[2].col_center2 as i32 - e.r.pointer[1].col_center2 as i32;
+        let a = (dy as f64).atan2(dx as f64);
+        let a = (a * 180.0 / std::f64::consts::PI).round() as i32;
+        Circle::new((e.timestamp as i64, a as i32), 2, BLACK.filled())
+    }))?;
 
-    top_right_chart.draw_series(
-        results.results
-            .iter()
-            .map(|e| {
-                let dy = e.r.pointer[3].row_center2 as i32 - e.r.pointer[0].row_center2 as i32;
-                let dx = e.r.pointer[3].col_center2 as i32 - e.r.pointer[0].col_center2 as i32;
-                let a = (dy as f64).atan2(dx as f64);
-                let a = (a*180.0/std::f64::consts::PI).round() as i32;
-                Circle::new((e.timestamp as i64, a as i32), 2, BLUE.filled())}),
-    )?;
+    top_right_chart.draw_series(results.results.iter().map(|e| {
+        let dy = e.r.pointer[3].row_center2 as i32 - e.r.pointer[0].row_center2 as i32;
+        let dx = e.r.pointer[3].col_center2 as i32 - e.r.pointer[0].col_center2 as i32;
+        let a = (dy as f64).atan2(dx as f64);
+        let a = (a * 180.0 / std::f64::consts::PI).round() as i32;
+        Circle::new((e.timestamp as i64, a as i32), 2, BLUE.filled())
+    }))?;
 
     top_right_chart
         .configure_series_labels()

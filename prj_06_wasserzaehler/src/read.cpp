@@ -315,7 +315,8 @@ void filter_by_geometry(struct read_s *read) {
 
     if (ds1_2 < ds4_2) {
       // c1 is the 0.0001m³ pointer. So swap
-      uint8_t tmp = c_1;
+      uint8_t tmp;
+      tmp = c4;
       c4 = c1;
       c1 = tmp;
       tmp = c2;
@@ -389,12 +390,12 @@ int16_t calc_match(const uint8_t *digitized, const struct pointer_s *px,
   int16_t in_ok_points = 0;
   int16_t in_miss_points = 0;
   int16_t out_wrong_points = 0;
-  for (int16_t dr = -40; dr < 40; dr++) {
+  for (int16_t dr = -50; dr < 50; dr++) {
     int16_t drr = dr * dr;
     if (drr > radius2) {
       continue;
     }
-    for (int16_t dc = -40; dc < 40; dc++) {
+    for (int16_t dc = -50; dc < 50; dc++) {
       int16_t dcc = dc * dc;
       if (dcc > radius2) {
         continue;
@@ -442,14 +443,14 @@ void find_direction(const uint8_t *digitized, struct pointer_s *px,
                     int16_t radius2) {
   uint8_t best_angle = 0;
   int32_t max_mom = 0;
-  for (uint8_t angle = 0; angle < 20; angle++) {
+  for (uint8_t angle = 0; angle < ANGLES; angle++) {
     int32_t mom = calc_match(digitized, px, radius2, angle);
     if (mom > max_mom) {
       max_mom = mom;
       best_angle = angle;
     }
   }
-  px->angle = best_angle * 18;
+  px->angle = best_angle * 360 / ANGLES;
   // printf("=> %d\n", best_angle);
 }
 

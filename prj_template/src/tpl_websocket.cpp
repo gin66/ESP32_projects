@@ -36,6 +36,10 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
       if (json.containsKey("image")) {
         tpl_command = CmdSendJpg2Ws;
       }
+      tpl_process_web_socket_cam_settings(&json);
+      if (json.containsKey("flash")) {
+        tpl_command = CmdFlash;
+      }
 #endif
     } break;
     case WStype_BIN:

@@ -132,13 +132,15 @@ void TaskTelegramCore1(void *pvParameters) {
     if (tpl_config.bot_send_jpg_image) {
       if (photo_fb == NULL) {
         // digitalWrite(flashPin, HIGH);
-        for (uint8_t i = 0; i < 10; i++) {
+		uint32_t settle_till = millis() + 4000;
+        while ((int32_t)(settle_till - millis()) > 0) {
           // let the camera adjust
           photo_fb = esp_camera_fb_get();
 		  if (photo_fb) {
             esp_camera_fb_return(photo_fb);
             photo_fb = NULL;
 		  }
+		  vTaskDelay(xDelay);
         }
         photo_fb = esp_camera_fb_get();
         // digitalWrite(flashPin, LOW);

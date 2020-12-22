@@ -282,11 +282,6 @@
         }
       }
       window.setInterval(repeating, 1000);
-      function send_light(light_state) {
-        if (ws != 0 && ws.readyState == 1) {
-          ws.send(JSON.stringify({ light: light_state }));
-        }
-      }
       function request_video() {
         if (ws != 0 && ws.readyState == 1) {
           if (document.getElementById("video_on").checked) {
@@ -320,7 +315,7 @@
           class="button-primary"
           type="button"
           id="led_on"
-          onClick="send_light(true);"
+          onClick="send_value('flash',true);"
         >
           LED on
         </button>

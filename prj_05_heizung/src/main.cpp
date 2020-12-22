@@ -29,6 +29,7 @@ void print_info() {
 void setup() {
   tpl_system_setup();
   tpl_config.deepsleep_time = 1000000LL * 3600LL * 4LL;  // 4 h
+  tpl_config.allow_deepsleep = true;
   // turn flash light off
   digitalWrite(tpl_flashPin, LOW);
   pinMode(tpl_flashPin, OUTPUT);
@@ -48,42 +49,57 @@ void setup() {
   }
 
   uint8_t fail_cnt = 0;
-  tpl_camera_setup(&fail_cnt, FRAMESIZE_QVGA);
+  tpl_camera_setup(&fail_cnt, FRAMESIZE_VGA);
   Serial.print("camera fail count=");
   Serial.println(fail_cnt);
 
-  tpl_telegram_setup(BOTtoken, CHAT_ID);
+  const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
+
+  // turn on flash
+  digitalWrite(tpl_flashPin, HIGH);
+  // activate cam
+  {
+    uint32_t settle_till = millis() + 4000;
+    while ((int32_t)(settle_till - millis()) > 0) {
+      // let the camera adjust
+      camera_fb_t *fb = esp_camera_fb_get();
+      if (fb) {
+        esp_camera_fb_return(fb);
+      }
+      vTaskDelay(xDelay);
+    }
+    {
+      // take picture
+      camera_fb_t *fb = esp_camera_fb_get();
+      // flash off
+      digitalWrite(tpl_flashPin, LOW);
+      if (fb) {
+        tpl_config.curr_jpg_len = fb->len;
+        tpl_config.curr_jpg = (uint8_t *)ps_malloc(fb->len);
+        if (tpl_config.curr_jpg) {
+          memcpy(tpl_config.curr_jpg, fb->buf, fb->len);
+        }
+        esp_camera_fb_return(fb);
+      }
+    }
+  }
+  // Free memory for bot
+  esp_camera_deinit();
+  if (tpl_config.curr_jpg != NULL) {
+    tpl_telegram_setup(BOTtoken, CHAT_ID);
+    tpl_command = CmdSendJpg2Bot;
+  }
+  while (tpl_command != CmdIdle) {
+    vTaskDelay(xDelay);
+  }
 
   print_info();
-
-  tpl_config.allow_deepsleep = true;
-
-  Serial.println("Setup done.");
+  Serial.println("Done.");
+  // enter deep sleep
+  tpl_command = CmdDeepSleep;
 }
 
-uint32_t next_stack_info = 0;
-uint32_t next_command = 0;
-uint8_t cmd_i = 0;
-enum Command commands[] = {
-	CmdFlash,
-	CmdSendJpg2Bot,
-	CmdDeepSleep,
-};
-
-
 void loop() {
-  uint32_t ms = millis();
-  if ((int32_t)(ms - next_stack_info) > 0) {
-    next_stack_info = ms + 2000;
-    tpl_update_stack_info();
-    Serial.println(tpl_config.stack_info);
-  }
-  if ((int32_t)(ms - next_command) > 0) {
-    next_command = ms + 1000;
-	if (tpl_command == CmdIdle) {
-		tpl_command = commands[cmd_i++];
-	}
-  }
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
   vTaskDelay(xDelay);
 }

@@ -5,10 +5,13 @@ private_bot.h
 private_*
 node_modules
 package-lock.json
-prj_[0-9]*/src/serverindex.html
-prj_[0-9]*/src/wifi_secrets.cpp
 prj_[0-9]*/*/template.h
 prj_[0-9]*/*/tpl*
+prj_[0-9]*/src/serverindex.html
+prj_[0-9]*/src/wifi_secrets.cpp
+prj_[0-9]*/tools/Esp*
+prj_[0-9]*/tools/stacktrace.sh
+prj_[0-9]*/tools/upload.sh
 prj_06_wasserzaehler/test/*read*
 prj_06_wasserzaehler/test/image*
 Cargo.lock

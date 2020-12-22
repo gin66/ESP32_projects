@@ -107,9 +107,9 @@ void TaskWebSocketCore0(void *pvParameters) {
 #ifdef IS_ESP32CAM
     if (tpl_config.ws_send_jpg_image) {
       camera_fb_t *fb = esp_camera_fb_get();
-	  if (fb) {
-		  webSocket.broadcastBIN(fb->buf, fb->len);
-		  esp_camera_fb_return(fb);
+      if (fb) {
+        webSocket.broadcastBIN(fb->buf, fb->len);
+        esp_camera_fb_return(fb);
       }
       tpl_config.ws_send_jpg_image = false;
     }

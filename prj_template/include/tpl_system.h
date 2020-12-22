@@ -34,6 +34,8 @@ extern struct tpl_config_s {
   const char *reset_reason_cpu1;
   uint64_t deepsleep_time;  // =0 means off
   const char *stack_info;
+  uint8_t *curr_jpg;
+  size_t curr_jpg_len;
 } tpl_config;
 
 void tpl_update_stack_info();

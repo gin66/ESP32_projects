@@ -29,7 +29,9 @@ struct tpl_config_s tpl_config = {.bootCount = 0,
                                   .reset_reason_cpu0 = "",
                                   .reset_reason_cpu1 = "",
                                   .deepsleep_time = 0,
-                                  .stack_info = stack_info};
+                                  .stack_info = stack_info,
+                                  .curr_jpg = NULL,
+                                  .curr_jpg_len = 0};
 
 #define ADD_STACK_INFO(name, task)                                        \
   {                                                                       \

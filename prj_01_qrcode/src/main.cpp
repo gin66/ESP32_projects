@@ -235,7 +235,7 @@ void setup() {
   // better to start task before camera setup
 #ifdef ENABLE_QRreader
   tpl_tasks.app_name1 = "QRreader";
-  // 40000 too low. 
+  // 40000 too low.
   // with 2 QR codes and 65536 stack, only 3852 left
   if (pdPASS != xTaskCreatePinnedToCore(TaskQRreader, "QRreader", 65536, NULL,
                                         1, &tpl_tasks.task_app1,

@@ -5,7 +5,7 @@
 #define NUM_ENTRIES 32768
 #define NUM_ENTRIES_MASK (NUM_ENTRIES - 1)
 
-#define PSRAM_VERSION 0x0201
+#define PSRAM_VERSION 0x0301
 
 // Use psram as deepsleep and CPU reset persistent storage.
 // Draw back is:
@@ -13,7 +13,7 @@
 
 struct entry_s {
   uint32_t timestamp;
-  uint8_t angle[4];  // 0..360° encoded as 0-100
+  uint8_t angle[4];  // 0..360° encoded as 0-200
   uint32_t pad1;
   uint32_t pad2;
   uint32_t pad3;

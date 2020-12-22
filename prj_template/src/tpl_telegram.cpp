@@ -170,6 +170,10 @@ void TaskTelegramCore1(void *pvParameters) {
       tpl_config.bot_send_jpg_image = false;
     }
 #endif
+    if (tpl_config.bot_send_message) {
+      bot.sendMessage(chatId, tpl_config.bot_message_80);
+      tpl_config.bot_send_message = false;
+    }
     vTaskDelay(xDelay);
   }
 }

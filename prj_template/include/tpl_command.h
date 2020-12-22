@@ -12,6 +12,6 @@ enum Command {
 #endif
 };
 
-extern enum Command tpl_command;
+extern volatile enum Command tpl_command;
 
 void tpl_command_setup(void (*func)(enum Command command));

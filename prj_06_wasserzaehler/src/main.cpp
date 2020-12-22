@@ -83,6 +83,7 @@ void setup() {
 
   // turn on flash
   digitalWrite(tpl_flashPin, HIGH);
+      WATCH(100);
   // activate cam
   {
     uint32_t settle_till = millis() + 10000;
@@ -115,12 +116,20 @@ void setup() {
 
   if (tpl_config.curr_jpg != NULL) {
     tpl_telegram_setup(BOTtoken, CHAT_ID);
+    sprintf(tpl_config.bot_message_80,
+          "Camera capture V1, entries: %d BootCount: %d Watchpoint: %d",
+				num_entries(), tpl_config.bootCount, last_seen_watchpoint);
+	tpl_config.bot_send_message = true;
+    while (tpl_config.bot_send_message) {
+      vTaskDelay(xDelay);
+    }
     tpl_command = CmdSendJpg2Bot;
   }
   while (tpl_command != CmdIdle) {
     vTaskDelay(xDelay);
   }
   // enter deep sleep
+  WATCH(9999);
   tpl_command = CmdDeepSleep;
 }
 
@@ -133,33 +142,8 @@ void loop() {
 void execute(enum Command command {
   switch (command) {
     case CmdMeasure:
-      WATCH(100);
-      status = bot.sendMessage(
-          CHAT_ID, "Camera capture V3: " + String(" entries: ") +
-                       num_entries() + String(" BootCount: ") + bootCount +
-                       String(" Watchpoint: ") + last_seen_watchpoint);
       if (init_camera()) {
         WATCH(101);
-        digitalWrite(flashPin, HIGH);
-        uint32_t start_ms = millis();
-        while ((uint32_t)(millis() - start_ms) < 3000) {
-          // let the camera adjust
-          camera_fb_t *fb = esp_camera_fb_get();
-          if (fb != NULL) {
-            esp_camera_fb_return(fb);
-          }
-        }
-        WATCH(102);
-        bool send_image = true;
-        for (uint8_t i = 0; i < 10; i++) {
-          camera_fb_t *fb = esp_camera_fb_get();
-          if (fb == NULL) {
-            continue;
-          }
-          jpg_len = fb->len;
-          if (jpg_len > 50000) {
-            esp_camera_fb_return(fb);
-            continue;
           }
           if (jpg_image == NULL) {
             jpg_image = (uint8_t *)ps_malloc(50000);  // should be enough

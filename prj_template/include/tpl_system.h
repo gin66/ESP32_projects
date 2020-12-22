@@ -23,12 +23,14 @@ extern struct tpl_task_s {
 
 extern struct tpl_config_s {
   uint32_t bootCount;
-  bool allow_deepsleep;
-  bool ota_ongoing;
+  volatile bool allow_deepsleep;
+  volatile bool ota_ongoing;
 #ifdef IS_ESP32CAM
-  bool ws_send_jpg_image;
-  bool bot_send_jpg_image;
+  volatile bool ws_send_jpg_image;
+  volatile bool bot_send_jpg_image;
 #endif
+  char *bot_message_80;
+  volatile bool bot_send_message;
   uint16_t reset_reason;
   const char *reset_reason_cpu0;
   const char *reset_reason_cpu1;

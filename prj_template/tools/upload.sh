@@ -47,5 +47,6 @@ do
 done
 
 # upload
-pio run --target upload
+#pio run --target upload
+~/.platformio/packages/framework-arduinoespressif32/tools/espota.py --debug --progress -i $TARGET -f .pio/build/esp32ota/firmware.bin
 

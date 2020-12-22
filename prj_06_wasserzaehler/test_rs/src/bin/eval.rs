@@ -184,7 +184,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .border_style(&BLACK)
         .draw()?;
 
-    let mut top_right_chart = ChartBuilder::on(&bottom_right)
+    let mut bottom_right_chart = ChartBuilder::on(&bottom_right)
         .caption(
             "Winkel Zeiger 0->3 und 1->2 in °",
             ("sans-serif", 20).into_font(),
@@ -192,11 +192,11 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .margin(5)
         .x_label_area_size(30)
         .y_label_area_size(50)
-        .build_cartesian_2d(from_t as i64..to_t as i64, 80..120)?;
+        .build_cartesian_2d(from_t as i64..to_t as i64, -90..-70)?;
 
-    top_right_chart.configure_mesh().draw()?;
+    bottom_right_chart.configure_mesh().draw()?;
 
-    top_right_chart.draw_series(results.results.iter().map(|e| {
+    bottom_right_chart.draw_series(results.results.iter().map(|e| {
         let dy = e.r.pointer[2].row_center2 as i32 - e.r.pointer[1].row_center2 as i32;
         let dx = e.r.pointer[2].col_center2 as i32 - e.r.pointer[1].col_center2 as i32;
         let a = (dy as f64).atan2(dx as f64);
@@ -204,7 +204,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         Circle::new((e.timestamp as i64, a as i32), 2, BLACK.filled())
     }))?;
 
-    top_right_chart.draw_series(results.results.iter().map(|e| {
+    bottom_right_chart.draw_series(results.results.iter().map(|e| {
         let dy = e.r.pointer[3].row_center2 as i32 - e.r.pointer[0].row_center2 as i32;
         let dx = e.r.pointer[3].col_center2 as i32 - e.r.pointer[0].col_center2 as i32;
         let a = (dy as f64).atan2(dx as f64);
@@ -212,7 +212,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         Circle::new((e.timestamp as i64, a as i32), 2, BLUE.filled())
     }))?;
 
-    top_right_chart
+    bottom_right_chart
         .configure_series_labels()
         .background_style(&WHITE.mix(0.8))
         .border_style(&BLACK)

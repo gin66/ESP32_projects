@@ -36,7 +36,7 @@ void psram_buffer_init() {
   }
 }
 
-#define ANG_RANGE 100
+#define ANG_RANGE 200
 #define ANG_STEP 5
 
 static uint8_t delta(uint8_t a1, uint8_t a2) {
@@ -61,10 +61,10 @@ int8_t psram_buffer_add(uint32_t timestamp, uint16_t angle0, uint16_t angle1,
   struct entry_s *e = &ENTRY(psram_buffer->windex);
   psram_buffer->windex++;
   e->timestamp = timestamp;
-  uint8_t norm_angle0 = angle0 * ANG_STEP / 18;
-  uint8_t norm_angle1 = angle1 * ANG_STEP / 18;
-  uint8_t norm_angle2 = angle2 * ANG_STEP / 18;
-  uint8_t norm_angle3 = angle3 * ANG_STEP / 18;
+  uint8_t norm_angle0 = angle0 * ANG_STEP / 9;
+  uint8_t norm_angle1 = angle1 * ANG_STEP / 9;
+  uint8_t norm_angle2 = angle2 * ANG_STEP / 9;
+  uint8_t norm_angle3 = angle3 * ANG_STEP / 9;
   e->angle[0] = norm_angle0;
   e->angle[1] = norm_angle1;
   e->angle[2] = norm_angle2;

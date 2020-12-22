@@ -7,7 +7,7 @@
 #include "tpl_esp_camera.h"
 #include "tpl_system.h"
 
-enum Command tpl_command = CmdIdle;
+volatile enum Command tpl_command = CmdIdle;
 
 void TaskCommandCore1(void* pvParameters) {
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;

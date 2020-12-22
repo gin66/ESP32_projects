@@ -11,7 +11,7 @@
 
 #ifdef BOTtoken
 esp_err_t tpl_camera_setup(uint8_t* fail_cnt,
-                           framesize_t frame_size = FRAMESIZE_VGA,
+                           framesize_t frame_size = FRAMESIZE_QVGA,
                            uint8_t fb_count = 1);
 #else
 esp_err_t tpl_camera_setup(uint8_t* fail_cnt,

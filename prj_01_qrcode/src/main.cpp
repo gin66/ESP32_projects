@@ -22,7 +22,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "img_converters.h"
-#include "qrcode_recognize.h"
 #include "quirc.h"
 
 #define DEBUG_ESP
@@ -236,7 +235,9 @@ void setup() {
   // better to start task before camera setup
 #ifdef ENABLE_QRreader
   tpl_tasks.app_name1 = "QRreader";
-  if (pdPASS != xTaskCreatePinnedToCore(TaskQRreader, "QRreader", 40000, NULL,
+  // 40000 too low. 
+  // with 2 QR codes and 65536 stack, only 3852 left
+  if (pdPASS != xTaskCreatePinnedToCore(TaskQRreader, "QRreader", 65536, NULL,
                                         1, &tpl_tasks.task_app1,
                                         CORE_1)) {  // Prio 1, Core 1
     Serial.println("Failed to start task.");
@@ -244,11 +245,17 @@ void setup() {
 #endif
 
   uint8_t fail_cnt = 0;
+#ifdef BOTtoken
   tpl_camera_setup(&fail_cnt, FRAMESIZE_QVGA);
+#else
+  tpl_camera_setup(&fail_cnt, FRAMESIZE_VGA);
+#endif
   Serial.print("camera fail count=");
   Serial.println(fail_cnt);
 
+#ifdef BOTtoken
   tpl_telegram_setup(BOTtoken, CHAT_ID);
+#endif
 
   print_info();
 

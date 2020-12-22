@@ -76,6 +76,9 @@ void TaskWebSocketCore0(void *pvParameters) {
       DynamicJsonDocument myObject(4096);
       myObject["millis"] = millis();
       myObject["mem_free"] = (long)ESP.getFreeHeap();
+#ifdef IS_ESP32CAM
+      myObject["ps_free"] = (long)ESP.getFreePsram();
+#endif
       myObject["stack_free"] = (long)uxTaskGetStackHighWaterMark(NULL);
       myObject["reset_cpu0"] = tpl_config.reset_reason_cpu0;
       myObject["reset_cpu1"] = tpl_config.reset_reason_cpu1;

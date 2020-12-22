@@ -39,6 +39,7 @@ void TaskCommandCore1(void* pvParameters) {
       case CmdDeepSleep:
         if (tpl_config.allow_deepsleep && !tpl_config.ota_ongoing &&
             (tpl_config.deepsleep_time != 0)) {
+		  vTaskSuspend(tpl_tasks.task_wifi_manager);
           esp_wifi_stop();
 #ifdef IS_ESP32CAM
           Serial.println("Prepare esp32cam for deepsleep");

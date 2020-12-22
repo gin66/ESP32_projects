@@ -116,7 +116,9 @@ void setup() {
 
   if (tpl_config.curr_jpg != NULL) {
     tpl_telegram_setup(BOTtoken, CHAT_ID);
-    sprintf(tpl_config.bot_message_80,
+	char buf[100];
+    tpl_config.bot_message = buf;
+    sprintf(buf,
           "Camera capture V1, entries: %d BootCount: %d Watchpoint: %d",
 				num_entries(), tpl_config.bootCount, last_seen_watchpoint);
 	tpl_config.bot_send_message = true;

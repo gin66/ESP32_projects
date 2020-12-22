@@ -29,7 +29,7 @@ extern struct tpl_config_s {
   volatile bool ws_send_jpg_image;
   volatile bool bot_send_jpg_image;
 #endif
-  char *bot_message_80;
+  char *bot_message;
   volatile bool bot_send_message;
   uint16_t reset_reason;
   const char *reset_reason_cpu0;

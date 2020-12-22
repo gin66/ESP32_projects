@@ -98,6 +98,11 @@ void setup() {
   print_info();
 
   Serial.println("Done.");
+
+  // wait lower level finish transmission !?
+  const TickType_t vDelay = 10000 / portTICK_PERIOD_MS;
+  vTaskDelay(vDelay);
+
   // enter deep sleep
   tpl_command = CmdDeepSleep;
 }

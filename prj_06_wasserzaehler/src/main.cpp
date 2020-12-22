@@ -19,12 +19,6 @@ using namespace std;
 
 // UniversalTelegramBot alarm_bot(ALARM_BOTtoken, secured_client);
 
-uint8_t *jpg_image = NULL;
-uint32_t jpg_len = 0;
-uint8_t *raw_image = NULL;
-uint8_t *digitized_image;
-uint8_t *filtered_image;
-uint8_t *temp_image;
 struct read_s reader;
 uint16_t last_seen_watchpoint = 0;
 
@@ -75,10 +69,6 @@ void setup() {
   //  tpl_command_setup(execute);
 
   Serial.println("Setup done.");
-
-  digitized_image = (uint8_t *)ps_malloc(WIDTH * HEIGHT / 8);
-  filtered_image = (uint8_t *)ps_malloc(WIDTH * HEIGHT / 8);
-  temp_image = (uint8_t *)ps_malloc(WIDTH * HEIGHT / 8);
 
   uint8_t fail_cnt = 0;
   tpl_camera_setup(&fail_cnt, FRAMESIZE_VGA);
@@ -134,69 +124,77 @@ void setup() {
     Serial.println("Image captured");
     bool send_image = true;
     // process image
-    raw_image = (uint8_t *)ps_malloc(WIDTH * HEIGHT * 3);
-    fmt2rgb888(tpl_config.curr_jpg, tpl_config.curr_jpg_len, PIXFORMAT_JPEG,
-               raw_image);
-    digitize(raw_image, digitized_image, 1);
-    find_pointer(digitized_image, filtered_image, temp_image, &reader);
-    digitize(raw_image, digitized_image, 0);
-    eval_pointer(digitized_image, &reader);
-    WATCH(104);
-    Serial.print("Reader candidates=");
-    Serial.println(reader.candidates);
-    if (reader.candidates == 4) {
-      send_image = false;
-      struct timeval tv;
-      gettimeofday(&tv, NULL);
-      int8_t res = psram_buffer_add(
-          tv.tv_sec, reader.pointer[0].angle, reader.pointer[1].angle,
-          reader.pointer[2].angle, reader.pointer[3].angle);
-      if (res < 0) {
-        send_image = true;
-      }
-      WATCH(105);
-      uint16_t consumption = water_consumption();
-      uint8_t alarm = have_alarm();
-#ifdef ALARM
-      switch (alarm) {
-        case NO_ALARM:
-          break;
-        case ALARM_TOO_HIGH_CONSUMPTION:
-          send_image = true;
-          alarm_bot.sendMessage(
-              CHAT_ID,
-              String("Wasseralarm: Hoher Verbrauch:") + +water_steigung());
-          break;
-        case ALARM_CUMULATED_CONSUMPTION_TOO_HIGH:
-          send_image = true;
-          alarm_bot.sendMessage(
-              CHAT_ID, String("Wasseralarm: Kumulierter Verbrauch zu hoch: ") +
-                           cumulated_consumption());
-          break;
-        case ALARM_LEAKAGE:
-          send_image = true;
-          alarm_bot.sendMessage(CHAT_ID, String("Wasseralarm: Leck"));
-          break;
-        case ALARM_LEAKAGE_FINE:
-          send_image = true;
-          alarm_bot.sendMessage(CHAT_ID,
-                                String("Wasseralarm: Leck alle Zeiger"));
-          break;
-      }
-#endif
-      WATCH(106);
-      sprintf(buf,
-              "Result: %d/%d/%d/%d Consumption: %d Alarm: %d "
-              "Buffer_add: %d, entries: %d BootCount: %d",
-              reader.pointer[0].angle, reader.pointer[1].angle,
-              reader.pointer[2].angle, reader.pointer[3].angle, consumption,
-              alarm, res, num_entries(), tpl_config.bootCount);
-      tpl_config.bot_send_message = true;
-      reader.candidates = 0;
-      WATCH(107);
+    uint8_t *raw_image = (uint8_t *)ps_malloc(WIDTH * HEIGHT * 3);
+    uint8_t *digitized_image = (uint8_t *)ps_malloc(WIDTH * HEIGHT / 8);
+    uint8_t *filtered_image = (uint8_t *)ps_malloc(WIDTH * HEIGHT / 8);
+    uint8_t *temp_image = (uint8_t *)ps_malloc(WIDTH * HEIGHT / 8);
 
-      while (tpl_config.bot_send_message) {
-        vTaskDelay(xDelay);
+    if (raw_image && digitized_image && filtered_image && temp_image) {
+      fmt2rgb888(tpl_config.curr_jpg, tpl_config.curr_jpg_len, PIXFORMAT_JPEG,
+                 raw_image);
+      digitize(raw_image, digitized_image, 1);
+      find_pointer(digitized_image, filtered_image, temp_image, &reader);
+      digitize(raw_image, digitized_image, 0);
+      eval_pointer(digitized_image, &reader);
+      WATCH(104);
+      Serial.print("Reader candidates=");
+      Serial.println(reader.candidates);
+      if (reader.candidates == 4) {
+        send_image = false;
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        int8_t res = psram_buffer_add(
+            tv.tv_sec, reader.pointer[0].angle, reader.pointer[1].angle,
+            reader.pointer[2].angle, reader.pointer[3].angle);
+        if (res < 0) {
+          send_image = true;
+        }
+        WATCH(105);
+        uint16_t consumption = water_consumption();
+        uint8_t alarm = have_alarm();
+#ifdef ALARM
+        switch (alarm) {
+          case NO_ALARM:
+            break;
+          case ALARM_TOO_HIGH_CONSUMPTION:
+            send_image = true;
+            alarm_bot.sendMessage(
+                CHAT_ID,
+                String("Wasseralarm: Hoher Verbrauch:") + +water_steigung());
+            break;
+          case ALARM_CUMULATED_CONSUMPTION_TOO_HIGH:
+            send_image = true;
+            alarm_bot.sendMessage(
+                CHAT_ID,
+                String("Wasseralarm: Kumulierter Verbrauch zu hoch: ") +
+                    cumulated_consumption());
+            break;
+          case ALARM_LEAKAGE:
+            send_image = true;
+            alarm_bot.sendMessage(CHAT_ID, String("Wasseralarm: Leck"));
+            break;
+          case ALARM_LEAKAGE_FINE:
+            send_image = true;
+            alarm_bot.sendMessage(CHAT_ID,
+                                  String("Wasseralarm: Leck alle Zeiger"));
+            break;
+        }
+#endif
+        WATCH(106);
+        sprintf(buf,
+                "Result: %d/%d/%d/%d Consumption: %d Alarm: %d "
+                "Buffer_add: %d, entries: %d BootCount: %d",
+                reader.pointer[0].angle, reader.pointer[1].angle,
+                reader.pointer[2].angle, reader.pointer[3].angle, consumption,
+                alarm, res, num_entries(), tpl_config.bootCount);
+		tpl_config.bot_message = buf;
+        tpl_config.bot_send_message = true;
+        reader.candidates = 0;
+        WATCH(107);
+
+        while (tpl_config.bot_send_message) {
+          vTaskDelay(xDelay);
+        }
       }
     }
     if (send_image) {

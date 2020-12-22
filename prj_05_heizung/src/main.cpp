@@ -56,6 +56,8 @@ void setup() {
 
   print_info();
 
+  tpl_config.allow_deepsleep = true;
+
   Serial.println("Setup done.");
 }
 

@@ -51,7 +51,7 @@ void setup() {
   //if ((tpl_config.bootCount % 24) == 1) {
   {
     uint8_t fail_cnt = 0;
-    tpl_camera_setup(&fail_cnt, FRAMESIZE_VGA);
+    tpl_camera_setup(&fail_cnt, FRAMESIZE_QVGA);
     Serial.print("camera fail count=");
     Serial.println(fail_cnt);
 
@@ -92,13 +92,13 @@ void setup() {
     if (tpl_config.curr_jpg != NULL) {
       tpl_telegram_setup(CHAT_ID);
       tpl_command = CmdSendJpg2Bot;
+      while (tpl_command != CmdIdle) {
+        vTaskDelay(xDelay);
+      }
+      // wait lower level finish transmission !?
+      const TickType_t vDelay = 10000 / portTICK_PERIOD_MS;
+      vTaskDelay(vDelay);
     }
-    while (tpl_command != CmdIdle) {
-      vTaskDelay(xDelay);
-    }
-    // wait lower level finish transmission !?
-    const TickType_t vDelay = 10000 / portTICK_PERIOD_MS;
-    vTaskDelay(vDelay);
   }
   print_info();
 

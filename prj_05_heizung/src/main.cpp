@@ -48,7 +48,8 @@ void setup() {
   }
 
   // take picture only every 8th boot => every 4 hours
-  if ((tpl_config.bootCount % 8) == 1) {
+  //if ((tpl_config.bootCount % 8) == 1) {
+  {
     uint8_t fail_cnt = 0;
     tpl_camera_setup(&fail_cnt, FRAMESIZE_VGA);
     Serial.print("camera fail count=");

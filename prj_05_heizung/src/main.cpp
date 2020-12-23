@@ -27,7 +27,7 @@ void print_info() {
   Serial.println(ESP.getFreePsram());
 }
 void setup() {
-  tpl_system_setup(30 * 60);  // 30mins deep sleep time
+  tpl_system_setup(10 * 60);  // 10mins deep sleep time
 
   // turn flash light off
   digitalWrite(tpl_flashPin, LOW);
@@ -47,8 +47,8 @@ void setup() {
     Serial.println("PSRAM found and loaded");
   }
 
-  // take picture only every 8th boot => every 4 hours
-  //if ((tpl_config.bootCount % 8) == 1) {
+  // take picture only every 24th boot => every 4 hours
+  //if ((tpl_config.bootCount % 24) == 1) {
   {
     uint8_t fail_cnt = 0;
     tpl_camera_setup(&fail_cnt, FRAMESIZE_VGA);

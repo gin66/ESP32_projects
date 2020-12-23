@@ -34,11 +34,11 @@ extern struct tpl_config_s {
   uint16_t reset_reason;
   const char *reset_reason_cpu0;
   const char *reset_reason_cpu1;
-  uint64_t deepsleep_time;  // =0 means off
+  uint32_t deepsleep_time_secs;  // =0 means off
   const char *stack_info;
   uint8_t *curr_jpg;
   size_t curr_jpg_len;
 } tpl_config;
 
 void tpl_update_stack_info();
-void tpl_system_setup();
+void tpl_system_setup(uint32_t deep_sleep_secs = 0);

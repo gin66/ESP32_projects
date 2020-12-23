@@ -211,8 +211,8 @@ void print_info() {
   Serial.println(ESP.getFreePsram());
 }
 void setup() {
-  tpl_system_setup();
-  tpl_config.deepsleep_time = 1000000LL * 10;  // 10 s
+  tpl_system_setup(10); // 10 s deep sleep
+
   // turn flash light off
   digitalWrite(tpl_flashPin, LOW);
   pinMode(tpl_flashPin, OUTPUT);

@@ -44,9 +44,8 @@ void setup() {
     last_seen_watchpoint = 0;
   }
 
-  tpl_system_setup();
-  tpl_config.deepsleep_time = 1000000LL * 600LL;  // 10 minutes
-  tpl_config.allow_deepsleep = true;
+  tpl_system_setup(600); // 10 minutes deep sleep
+
   // turn flash light off
   digitalWrite(tpl_flashPin, LOW);
   pinMode(tpl_flashPin, OUTPUT);
@@ -215,20 +214,3 @@ void loop() {
   vTaskDelay(xDelay);
 }
 
-#ifdef OLD
-break;
-}
-WATCH(110);
-digitalWrite(flashPin, LOW);
-if (send_image && (jpg_image != NULL)) {
-  WATCH(111);
-  dataBytesSent = 0;
-  status =
-      bot.sendPhotoByBinary(CHAT_ID, "image/jpeg", jpg_len, isMoreDataAvailable,
-                            nullptr, getNextBuffer, getNextBufferLen);
-}
-WATCH(112);
-bot.sendMessage(CHAT_ID,
-                WiFi.SSID() + String(": ") + WiFi.localIP().toString());
-}
-#endif

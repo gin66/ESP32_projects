@@ -159,10 +159,10 @@ void TaskTelegramCore1(void *pvParameters) {
         dataBytesSent = 0;
         bot.sendMessage(chatId, "Send image");
         for (uint8_t retry = 0; retry < 5; retry++) {
-          Serial res = bot.sendPhotoByBinary(chatId, "image/jpeg", jpeg_len,
+          String res = bot.sendPhotoByBinary(chatId, "image/jpeg", jpeg_len,
                                              isMoreDataAvailable, nullptr,
                                              getNextBuffer, getNextBufferLen);
-          if (res.len() > 0) break;
+          if (res.length() > 0) break;
         }
       } else {
         bot.sendMessage(chatId, "Camera capture failed");

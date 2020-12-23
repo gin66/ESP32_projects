@@ -30,7 +30,7 @@ struct tpl_config_s tpl_config = {.bootCount = 0,
                                   .reset_reason = 0,
                                   .reset_reason_cpu0 = "",
                                   .reset_reason_cpu1 = "",
-                                  .deepsleep_time = 0,
+                                  .deepsleep_time_secs = 0,
                                   .stack_info = stack_info,
                                   .curr_jpg = NULL,
                                   .curr_jpg_len = 0};
@@ -76,7 +76,7 @@ static const char *reason[] = {
     "RTCWDT_RTC_RESET",
 };
 
-void tpl_system_setup() {
+void tpl_system_setup(uint32_t deep_sleep_secs) {
   bootCount++;
   tpl_config.bootCount = bootCount;
   uint16_t r0 = rtc_get_reset_reason(0);
@@ -87,5 +87,12 @@ void tpl_system_setup() {
   }
   if (r1 <= 16) {
     tpl_config.reset_reason_cpu1 = reason[r1];
+  }
+  tpl_config.deepsleep_time_secs = deep_sleep_secs;
+  if (deep_sleep_secs == 0) {
+	  tpl_config.allow_deepsleep = false;
+  }
+  else {
+	  tpl_config.allow_deepsleep = true;
   }
 }

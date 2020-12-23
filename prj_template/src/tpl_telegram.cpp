@@ -14,7 +14,6 @@
 #include "tpl_esp_camera.h"
 #endif
 
-static const char *BOTtoken = NULL;
 static const char *chatId = NULL;
 
 static uint8_t *jpeg_to_send = NULL;
@@ -118,10 +117,11 @@ void TaskTelegramCore1(void *pvParameters) {
   WiFiClientSecure secured_client;
   // Add root certificate for api.telegram.org
   secured_client.setCACert(TELEGRAM_CERTIFICATE_ROOT);
-  UniversalTelegramBot bot(BOTtoken, secured_client);
+  UniversalTelegramBot bot(tpl_config.receive_bot_token, secured_client);
 
   for (;;) {
     if (millis() >= bot_lasttime) {
+	  bot.updateToken(tpl_config.receive_bot_token);
       int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
 
       if (numNewMessages) {
@@ -131,6 +131,7 @@ void TaskTelegramCore1(void *pvParameters) {
     }
 #ifdef IS_ESP32CAM
     if (tpl_config.bot_send_jpg_image) {
+	  bot.updateToken(tpl_config.send_bot_token);
       jpeg_to_send = tpl_config.curr_jpg;
       jpeg_len = tpl_config.curr_jpg_len;
       camera_fb_t *fb = NULL;
@@ -174,6 +175,7 @@ void TaskTelegramCore1(void *pvParameters) {
     }
 #endif
     if (tpl_config.bot_send_message) {
+	  bot.updateToken(tpl_config.send_bot_token);
       if (tpl_config.bot_message) {
         Serial.print("Send message: ");
         Serial.println(tpl_config.bot_message);
@@ -186,8 +188,7 @@ void TaskTelegramCore1(void *pvParameters) {
   }
 }
 //---------------------------------------------------
-void tpl_telegram_setup(const char *bot_token, const char *chat_id) {
-  BOTtoken = bot_token;
+void tpl_telegram_setup(const char *chat_id) {
   chatId = chat_id;
 
   xTaskCreatePinnedToCore(TaskTelegramCore1, "Telegram", 6072, NULL, 1,

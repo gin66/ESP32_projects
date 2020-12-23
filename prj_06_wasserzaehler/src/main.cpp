@@ -9,8 +9,6 @@
 #include <WiFi.h>
 #include <WiFiClient.h>
 
-#include "../../private_bot.h"
-#include "../../private_sha.h"
 #include "esp32-hal-psram.h"
 #include "evaluate.h"
 #include "read.h"
@@ -109,7 +107,7 @@ void setup() {
   esp_camera_deinit();
   print_info();
 
-  tpl_telegram_setup(BOTtoken, CHAT_ID);
+  tpl_telegram_setup(CHAT_ID);
   char buf[200];
   tpl_config.bot_message = buf;
   sprintf(buf, "Camera capture V1, entries: %d BootCount: %d Watchpoint: %d",

@@ -1,5 +1,8 @@
 #include <Arduino.h>
 
+#include "../../private_bot.h"
+#include "../../private_sha.h"
+
 #define CORE_0 0
 #define CORE_1 1
 
@@ -29,8 +32,12 @@ extern struct tpl_config_s {
   volatile bool ws_send_jpg_image;
   volatile bool bot_send_jpg_image;
 #endif
+#ifdef BOTtoken
+  const char *receive_bot_token; // do not change
+  const char *send_bot_token;
   char *bot_message;
   volatile bool bot_send_message;
+#endif
   uint16_t reset_reason;
   const char *reset_reason_cpu0;
   const char *reset_reason_cpu1;

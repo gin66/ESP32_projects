@@ -25,8 +25,12 @@ struct tpl_config_s tpl_config = {.bootCount = 0,
                                   .ws_send_jpg_image = false,
                                   .bot_send_jpg_image = false,
 #endif
+#ifdef BOTtoken
+								  .receive_bot_token = BOTtoken,
+								  .send_bot_token = BOTtoken,
                                   .bot_message = NULL,
                                   .bot_send_message = false,
+#endif
                                   .reset_reason = 0,
                                   .reset_reason_cpu0 = "",
                                   .reset_reason_cpu1 = "",

@@ -30,7 +30,7 @@ static bool isMoreDataAvailable() {
     return false;
   }
 }
-#define CHUNKSIZE 512
+#define CHUNKSIZE 1024
 static byte *getNextBuffer() {
   if (jpeg_to_send) {
     byte *buf = &jpeg_to_send[dataBytesSent];
@@ -121,7 +121,7 @@ void TaskTelegramCore1(void *pvParameters) {
 
   for (;;) {
     if (millis() >= bot_lasttime) {
-	  bot.updateToken(tpl_config.receive_bot_token);
+      bot.updateToken(tpl_config.receive_bot_token);
       int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
 
       if (numNewMessages) {
@@ -131,7 +131,7 @@ void TaskTelegramCore1(void *pvParameters) {
     }
 #ifdef IS_ESP32CAM
     if (tpl_config.bot_send_jpg_image) {
-	  bot.updateToken(tpl_config.send_bot_token);
+      bot.updateToken(tpl_config.send_bot_token);
       jpeg_to_send = tpl_config.curr_jpg;
       jpeg_len = tpl_config.curr_jpg_len;
       camera_fb_t *fb = NULL;
@@ -158,15 +158,16 @@ void TaskTelegramCore1(void *pvParameters) {
         Serial.print("send image in bytes=");
         Serial.println(jpeg_len);
         dataBytesSent = 0;
-        bot.sendMessage(chatId, String("Send image: ") + jpeg_len);
+        bot.sendMessage(chatId, String("Send image: ") + jpeg_len
+						+String(" BootCnt=") + tpl_config.bootCount);
         for (uint8_t retry = 0; retry < 5; retry++) {
           String res = bot.sendPhotoByBinary(chatId, "image/jpeg", jpeg_len,
                                              isMoreDataAvailable, nullptr,
                                              getNextBuffer, getNextBufferLen);
           if (res.length() > 0) {
-			  bot.sendMessage(chatId, res);
-			  break;
-		  }
+            bot.sendMessage(chatId, res);
+            break;
+          }
         }
       } else {
         bot.sendMessage(chatId, "Camera capture failed");
@@ -178,7 +179,7 @@ void TaskTelegramCore1(void *pvParameters) {
     }
 #endif
     if (tpl_config.bot_send_message) {
-	  bot.updateToken(tpl_config.send_bot_token);
+      bot.updateToken(tpl_config.send_bot_token);
       if (tpl_config.bot_message) {
         Serial.print("Send message: ");
         Serial.println(tpl_config.bot_message);

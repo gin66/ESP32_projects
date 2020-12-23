@@ -4,6 +4,7 @@
 #undef ARDUINOJSON_USE_LONG_LONG
 #include <Arduino.h>
 #include <ArduinoOTA.h>
+#include <Esp.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
 #include <WiFi.h>
@@ -16,6 +17,52 @@
 using namespace std;
 
 //---------------------------------------------------
+
+#define MAGIC_IMAGE 0xdeadbeaf
+
+struct ps_image_s {
+  uint32_t buf_1111111X[50000];
+  size_t img_len;
+  uint32_t magic;
+};
+
+void store_image(struct ps_image_s *p, uint8_t *jpeg, size_t jpeg_len) {
+  uint32_t *in = (uint32_t *)jpeg;
+  uint32_t *out = p->buf_1111111X;
+  uint32_t transferred = 0;
+  while (transferred < jpeg_len) {
+    for (uint8_t i = 0; i < 7; i++) {
+      *out++ = *in++;
+    }
+    // skip damaged line
+    out++;
+    transferred += 7 * 4;
+  }
+  p->img_len = jpeg_len;
+  p->magic = MAGIC_IMAGE;
+}
+size_t check_image(struct ps_image_s *p) {
+  if (p->magic != MAGIC_IMAGE) {
+    return 0;
+  }
+  return p->img_len;
+}
+void read_image(struct ps_image_s *p, uint8_t *jpeg, size_t jpeg_len) {
+  uint32_t *in = p->buf_1111111X;
+  uint32_t *out = (uint32_t *)jpeg;
+  uint32_t transferred = 0;
+  while (transferred < jpeg_len) {
+    for (uint8_t i = 0; i < 7; i++) {
+      *out++ = *in++;
+    }
+    // skip damaged line
+    in++;
+    transferred += 7 * 4;
+  }
+  p->img_len = 0;
+  p->magic = 0;
+}
+
 void print_info() {
   Serial.print("Total heap: ");
   Serial.print(ESP.getHeapSize());
@@ -46,58 +93,62 @@ void setup() {
   if (psramFound()) {
     Serial.println("PSRAM found and loaded");
   }
-
-  // take picture only every 24th boot => every 4 hours
-  //if ((tpl_config.bootCount % 24) == 1) {
-  {
-    uint8_t fail_cnt = 0;
-    tpl_camera_setup(&fail_cnt, FRAMESIZE_QVGA);
-    Serial.print("camera fail count=");
-    Serial.println(fail_cnt);
-
+  struct ps_image_s *p = (struct ps_image_s *) ps_malloc(sizeof(ps_image_s));
+  if (p) {
     const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
+    size_t img_len = check_image(p);
+    if (img_len > 0) {
+      // have image, then send
+      tpl_config.curr_jpg_len = img_len;
+      tpl_config.curr_jpg = (uint8_t *)ps_malloc(img_len + 8 * 32);
+      if (tpl_config.curr_jpg) {
+        read_image(p, tpl_config.curr_jpg, img_len);
 
-    // turn on flash
-    digitalWrite(tpl_flashPin, HIGH);
-    // activate cam
-    {
-      uint32_t settle_till = millis() + 10000;
-      while ((int32_t)(settle_till - millis()) > 0) {
-        // let the camera adjust
-        camera_fb_t *fb = esp_camera_fb_get();
-        if (fb) {
-          esp_camera_fb_return(fb);
+        tpl_telegram_setup(CHAT_ID);
+        tpl_command = CmdSendJpg2Bot;
+        while (tpl_command != CmdIdle) {
+          vTaskDelay(xDelay);
         }
-        vTaskDelay(xDelay);
+        // wait lower level finish transmission !?
+        const TickType_t vDelay = 10000 / portTICK_PERIOD_MS;
+        vTaskDelay(vDelay);
       }
+    } else {
+      // take picture only every 24th boot => every 4 hours
+      // if ((tpl_config.bootCount % 24) == 1) {
       {
-        // take picture
-        camera_fb_t *fb = esp_camera_fb_get();
-        // flash off
-        digitalWrite(tpl_flashPin, LOW);
-        if (fb) {
-          tpl_config.curr_jpg_len = fb->len;
-          tpl_config.curr_jpg = (uint8_t *)ps_malloc(fb->len);
-          if (tpl_config.curr_jpg) {
-            memcpy(tpl_config.curr_jpg, fb->buf, fb->len);
-          }
-          esp_camera_fb_return(fb);
-        }
-      }
-    }
-    // Free memory for bot
-    esp_camera_deinit();
-    print_info();
+        uint8_t fail_cnt = 0;
+        tpl_camera_setup(&fail_cnt, FRAMESIZE_VGA);
+        Serial.print("camera fail count=");
+        Serial.println(fail_cnt);
 
-    if (tpl_config.curr_jpg != NULL) {
-      tpl_telegram_setup(CHAT_ID);
-      tpl_command = CmdSendJpg2Bot;
-      while (tpl_command != CmdIdle) {
-        vTaskDelay(xDelay);
+        // turn on flash
+        digitalWrite(tpl_flashPin, HIGH);
+        // activate cam
+        {
+          uint32_t settle_till = millis() + 10000;
+          while ((int32_t)(settle_till - millis()) > 0) {
+            // let the camera adjust
+            camera_fb_t *fb = esp_camera_fb_get();
+            if (fb) {
+              esp_camera_fb_return(fb);
+            }
+            vTaskDelay(xDelay);
+          }
+          // take picture
+          camera_fb_t *fb = esp_camera_fb_get();
+          // flash off
+          digitalWrite(tpl_flashPin, LOW);
+          if (fb) {
+            store_image(p, fb->buf, fb->len);
+            esp_camera_fb_return(fb);
+          }
+        }
+        // Free memory for bot
+        // esp_camera_deinit();
+        print_info();
+        ESP.restart();
       }
-      // wait lower level finish transmission !?
-      const TickType_t vDelay = 10000 / portTICK_PERIOD_MS;
-      vTaskDelay(vDelay);
     }
   }
   print_info();

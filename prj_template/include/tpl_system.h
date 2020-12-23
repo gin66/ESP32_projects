@@ -33,7 +33,7 @@ extern struct tpl_config_s {
   volatile bool bot_send_jpg_image;
 #endif
 #ifdef BOTtoken
-  const char *receive_bot_token; // do not change
+  const char *receive_bot_token;  // do not change
   const char *send_bot_token;
   char *bot_message;
   volatile bool bot_send_message;

@@ -1,19 +1,17 @@
-#include "template.h"
-
 #include <GxEPD.h>
 #include <GxGDEH0213B73/GxGDEH0213B73.h>  // 2.13" b/w newer panel
+
+#include "template.h"
 // FreeFonts from Adafruit_GFX
-#include <Fonts/FreeMonoBold9pt7b.h>
 #include <Fonts/FreeMonoBold12pt7b.h>
 #include <Fonts/FreeMonoBold18pt7b.h>
 #include <Fonts/FreeMonoBold24pt7b.h>
-
+#include <Fonts/FreeMonoBold9pt7b.h>
+#include <GxIO/GxIO.h>
+#include <GxIO/GxIO_SPI/GxIO_SPI.h>
 #include <SD.h>
 #include <SPI.h>
 #include <qrcode.h>
-
-#include <GxIO/GxIO_SPI/GxIO_SPI.h>
-#include <GxIO/GxIO.h>
 
 #define SPI_MOSI 23
 #define SPI_MISO -1
@@ -34,8 +32,8 @@ using namespace std;
 #define LED_PIN 19
 #define BUTTON_PIN 39 /* analog read 4095 unpressed, 0 pressed */
 
-GxIO_Class io(SPI, /*CS=5*/ ELINK_SS, /*DC=*/ ELINK_DC, /*RST=*/ ELINK_RESET);
-GxEPD_Class display(io, /*RST=*/ ELINK_RESET, /*BUSY=*/ ELINK_BUSY);
+GxIO_Class io(SPI, /*CS=5*/ ELINK_SS, /*DC=*/ELINK_DC, /*RST=*/ELINK_RESET);
+GxEPD_Class display(io, /*RST=*/ELINK_RESET, /*BUSY=*/ELINK_BUSY);
 
 SPIClass sdSPI(VSPI);
 
@@ -49,7 +47,7 @@ void setup() {
   Serial.setDebugOutput(false);
 
   // Wait OTA
-//  tpl_wifi_setup(true, true, (gpio_num_t)tpl_ledPin);
+  //  tpl_wifi_setup(true, true, (gpio_num_t)tpl_ledPin);
   tpl_wifi_setup(true, true, (gpio_num_t)LED_PIN);
   tpl_webserver_setup();
   tpl_websocket_setup(NULL);
@@ -70,7 +68,7 @@ void setup() {
 #endif
 
   SPI.begin(SPI_CLK, SPI_MISO, SPI_MOSI, ELINK_SS);
-  display.init(); // enable diagnostic output on Serial
+  display.init();  // enable diagnostic output on Serial
 
   display.setRotation(1);
   display.fillScreen(GxEPD_WHITE);
@@ -114,24 +112,24 @@ void update_display() {
 
   display.setCursor(0, display.height() - 10);
 
-  uint8_t x_off = display.width() - qrcode.size*2;
-  uint8_t y_off = display.height() - qrcode.size*2;
+  uint8_t x_off = display.width() - qrcode.size * 2;
+  uint8_t y_off = display.height() - qrcode.size * 2;
   for (uint8_t y = 0; y < qrcode.size; y++) {
-      for (uint8_t x = 0; x < qrcode.size; x++) {
-        if (qrcode_getModule(&qrcode, x, y)) {
-           display.drawPixel(x_off+2*x  ,y_off+2*y  ,GxEPD_BLACK);
-           display.drawPixel(x_off+2*x+1,y_off+2*y  ,GxEPD_BLACK);
-           display.drawPixel(x_off+2*x  ,y_off+2*y+1,GxEPD_BLACK);
-           display.drawPixel(x_off+2*x+1,y_off+2*y+1,GxEPD_BLACK);
-        }
+    for (uint8_t x = 0; x < qrcode.size; x++) {
+      if (qrcode_getModule(&qrcode, x, y)) {
+        display.drawPixel(x_off + 2 * x, y_off + 2 * y, GxEPD_BLACK);
+        display.drawPixel(x_off + 2 * x + 1, y_off + 2 * y, GxEPD_BLACK);
+        display.drawPixel(x_off + 2 * x, y_off + 2 * y + 1, GxEPD_BLACK);
+        display.drawPixel(x_off + 2 * x + 1, y_off + 2 * y + 1, GxEPD_BLACK);
       }
+    }
   }
 
   if (sdOK) {
-      uint32_t cardSize = SD.cardSize() / (1024 * 1024);
-      display.println("SDCard:" + String(cardSize) + "MB");
+    uint32_t cardSize = SD.cardSize() / (1024 * 1024);
+    display.println("SDCard:" + String(cardSize) + "MB");
   } else {
-      display.println("SDCard  None");
+    display.println("SDCard  None");
   }
   display.update();
 }

@@ -54,24 +54,24 @@ void tpl_webserver_setup() {
   tpl_server.on("/digital", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
     String data = "................................................";
-    for (int i = 0;i < 48;i++) {
-       char ch = 48 + digitalRead(i);
-       data.setCharAt(i, ch);
+    for (int i = 0; i < 48; i++) {
+      char ch = 48 + digitalRead(i);
+      data.setCharAt(i, ch);
     }
     tpl_server.send(200, "text/html", data);
   });
   tpl_server.on("/digitalwrite", HTTP_GET, []() {
-	// http://esp/digitalwrite?pin=1&value=0
+    // http://esp/digitalwrite?pin=1&value=0
     tpl_server.sendHeader("Connection", "close");
     long pin = tpl_server.arg("pin").toInt();
     long val = tpl_server.arg("value").toInt();
-	pinMode(pin, OUTPUT);
-	digitalWrite(pin, val);
+    pinMode(pin, OUTPUT);
+    digitalWrite(pin, val);
     val = digitalRead(pin);
     tpl_server.send(200, "text/html", String(val));
   });
   tpl_server.on("/analog", HTTP_GET, []() {
-	// http://esp/analog?pin=1
+    // http://esp/analog?pin=1
     tpl_server.sendHeader("Connection", "close");
     long pin = tpl_server.arg("pin").toInt();
     long val = analogRead(pin);

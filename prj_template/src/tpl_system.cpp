@@ -26,8 +26,8 @@ struct tpl_config_s tpl_config = {.bootCount = 0,
                                   .bot_send_jpg_image = false,
 #endif
 #ifdef BOTtoken
-								  .receive_bot_token = BOTtoken,
-								  .send_bot_token = BOTtoken,
+                                  .receive_bot_token = BOTtoken,
+                                  .send_bot_token = BOTtoken,
                                   .bot_message = NULL,
                                   .bot_send_message = false,
 #endif

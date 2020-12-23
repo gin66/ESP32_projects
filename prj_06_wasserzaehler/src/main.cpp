@@ -187,7 +187,7 @@ void setup() {
                 reader.pointer[0].angle, reader.pointer[1].angle,
                 reader.pointer[2].angle, reader.pointer[3].angle, consumption,
                 alarm, res, num_entries(), tpl_config.bootCount);
-		tpl_config.bot_message = buf;
+        tpl_config.bot_message = buf;
         tpl_config.bot_send_message = true;
         reader.candidates = 0;
         WATCH(107);

@@ -333,162 +333,162 @@
       </div>
       <div id="chartContainer" style="height: 800px; width: 100%" hidden></div>
     </div>
-	<div class="container-fluid">
-	<div class="row">
-      <div class="col-sm" style="width: 320px; height: 240px">
-        original
-        <canvas id="image" width="0" height="0"> </canvas>
+    <div class="container-fluid">
+      <div class="row">
+        <div class="col-sm" style="width: 320px; height: 240px">
+          original
+          <canvas id="image" width="0" height="0"> </canvas>
+        </div>
+        <div class="col-sm" style="width: 320px; height: 240px">
+          gray
+          <canvas id="gray_image" width="0" height="0"> </canvas>
+        </div>
+        <div class="col-sm">
+          <div>
+            <label for="brightness">Brightness</label>
+            <input
+              type="range"
+              class="custom-range"
+              min="-2"
+              max="2"
+              id="brightness"
+              onchange="send_value('brightness',this.value)"
+            />
+            <br />
+            <label for="contrast">Contrast</label>
+            <input
+              type="range"
+              class="custom-range"
+              min="-2"
+              max="2"
+              id="contrast"
+              onchange="send_value('contrast',this.value)"
+            />
+            <br />
+            <label for="saturation">Saturation</label>
+            <input
+              type="range"
+              class="custom-range"
+              min="-2"
+              max="2"
+              id="saturation"
+              onchange="send_value('saturation',this.value)"
+            />
+            <br />
+            <label for="ae_level">AE Level</label>
+            <input
+              type="range"
+              class="custom-range"
+              min="-2"
+              max="2"
+              id="ae_level"
+              onchange="send_value('ae_level',this.value)"
+            />
+            <br />
+            <label for="aec_value">AEC Value</label>
+            <input
+              type="range"
+              class="custom-range"
+              min="0"
+              max="1200"
+              id="aec_value"
+              onchange="send_value('aec_value',this.value)"
+            />
+            <br />
+            <label for="agc_gain">AGC Gain</label>
+            <input
+              type="range"
+              class="custom-range"
+              min="0"
+              max="30"
+              id="agc_gain"
+              onchange="send_value('agc_gain',this.value)"
+            />
+            <br />
+            <label for="gainceiling">Gain ceiling</label>
+            <input
+              type="range"
+              class="custom-range"
+              min="0"
+              max="6"
+              id="gainceiling"
+              onchange="send_value('gainceiling',this.value)"
+            />
+            <br />
+            <input
+              class="button-primary"
+              type="checkbox"
+              id="bpc"
+              onClick="send_value('bpc',this.checked);"
+            />BPC
+            <br />
+            <input
+              class="button-primary"
+              type="checkbox"
+              id="whitebal"
+              onClick="send_value('whitebal',this.checked);"
+            />White Balance
+            <br />
+            <input
+              class="button-primary"
+              type="checkbox"
+              id="exposure_ctrl"
+              onClick="send_value('exposure_ctrl',this.checked);"
+            />Exposure Ctrl
+            <br />
+            <input
+              class="button-primary"
+              type="checkbox"
+              id="awb_gain"
+              onClick="send_value('awb_gain',this.checked);"
+            />AWB Gain
+            <br />
+            <input
+              class="button-primary"
+              type="checkbox"
+              id="wpc"
+              onClick="send_value('wpc',this.checked);"
+            />WPC
+            <br />
+            <input
+              class="button-primary"
+              type="checkbox"
+              id="dcw"
+              onClick="send_value('dcw',this.checked);"
+            />DCW
+            <br />
+            <input
+              class="button-primary"
+              type="checkbox"
+              id="raw_gma"
+              onClick="send_value('raw_gma',this.checked);"
+            />Raw GMA
+            <br />
+            <input
+              class="button-primary"
+              type="checkbox"
+              id="vflip"
+              onClick="send_value('vflip',this.checked);"
+            />Vflip
+            <br />
+            <input
+              class="button-primary"
+              type="checkbox"
+              id="hmirror"
+              onClick="send_value('hmirror',this.checked);"
+            />Hmirror
+          </div>
+          <div class="col-sm" id="raw_image"></div>
+        </div>
       </div>
-      <div class="col-sm" style="width: 320px; height: 240px">
-        gray
-        <canvas id="gray_image" width="0" height="0"> </canvas>
-      </div>
-    <div class="col-sm">
-      <div>
-        <label for="brightness">Brightness</label>
-        <input
-          type="range"
-          class="custom-range"
-          min="-2"
-          max="2"
-          id="brightness"
-          onchange="send_value('brightness',this.value)"
-        />
-        <br />
-        <label for="contrast">Contrast</label>
-        <input
-          type="range"
-          class="custom-range"
-          min="-2"
-          max="2"
-          id="contrast"
-          onchange="send_value('contrast',this.value)"
-        />
-        <br />
-        <label for="saturation">Saturation</label>
-        <input
-          type="range"
-          class="custom-range"
-          min="-2"
-          max="2"
-          id="saturation"
-          onchange="send_value('saturation',this.value)"
-        />
-        <br />
-        <label for="ae_level">AE Level</label>
-        <input
-          type="range"
-          class="custom-range"
-          min="-2"
-          max="2"
-          id="ae_level"
-          onchange="send_value('ae_level',this.value)"
-        />
-        <br />
-        <label for="aec_value">AEC Value</label>
-        <input
-          type="range"
-          class="custom-range"
-          min="0"
-          max="1200"
-          id="aec_value"
-          onchange="send_value('aec_value',this.value)"
-        />
-        <br />
-        <label for="agc_gain">AGC Gain</label>
-        <input
-          type="range"
-          class="custom-range"
-          min="0"
-          max="30"
-          id="agc_gain"
-          onchange="send_value('agc_gain',this.value)"
-        />
-        <br />
-        <label for="gainceiling">Gain ceiling</label>
-        <input
-          type="range"
-          class="custom-range"
-          min="0"
-          max="6"
-          id="gainceiling"
-          onchange="send_value('gainceiling',this.value)"
-        />
-        <br />
-        <input
-          class="button-primary"
-          type="checkbox"
-          id="bpc"
-          onClick="send_value('bpc',this.checked);"
-        />BPC
-        <br />
-        <input
-          class="button-primary"
-          type="checkbox"
-          id="whitebal"
-          onClick="send_value('whitebal',this.checked);"
-        />White Balance
-        <br />
-        <input
-          class="button-primary"
-          type="checkbox"
-          id="exposure_ctrl"
-          onClick="send_value('exposure_ctrl',this.checked);"
-        />Exposure Ctrl
-        <br />
-        <input
-          class="button-primary"
-          type="checkbox"
-          id="awb_gain"
-          onClick="send_value('awb_gain',this.checked);"
-        />AWB Gain
-        <br />
-        <input
-          class="button-primary"
-          type="checkbox"
-          id="wpc"
-          onClick="send_value('wpc',this.checked);"
-        />WPC
-        <br />
-        <input
-          class="button-primary"
-          type="checkbox"
-          id="dcw"
-          onClick="send_value('dcw',this.checked);"
-        />DCW
-        <br />
-        <input
-          class="button-primary"
-          type="checkbox"
-          id="raw_gma"
-          onClick="send_value('raw_gma',this.checked);"
-        />Raw GMA
-        <br />
-        <input
-          class="button-primary"
-          type="checkbox"
-          id="vflip"
-          onClick="send_value('vflip',this.checked);"
-        />Vflip
-        <br />
-        <input
-          class="button-primary"
-          type="checkbox"
-          id="hmirror"
-          onClick="send_value('hmirror',this.checked);"
-        />Hmirror
-	</div>
-    <div class="col-sm" id="raw_image"></div>
-      </div>
-      </div>
-	</div>
-	<div class="container-fluid">
-	<div class="row">
-    <span id="raw" style="word-wrap: break-word"></span>
-    <span id="debug" style="word-wrap: break-word"></span>
-    <span id="state"></span>
-    <span id="readystate"></span>
     </div>
+    <div class="container-fluid">
+      <div class="row">
+        <span id="raw" style="word-wrap: break-word"></span>
+        <span id="debug" style="word-wrap: break-word"></span>
+        <span id="state"></span>
+        <span id="readystate"></span>
+      </div>
     </div>
 
     <!-- Optional JavaScript -->

@@ -60,6 +60,16 @@ void tpl_webserver_setup() {
     }
     tpl_server.send(200, "text/html", data);
   });
+  tpl_server.on("/digitalwrite", HTTP_GET, []() {
+	// http://esp/digitalwrite?pin=1&value=0
+    tpl_server.sendHeader("Connection", "close");
+    long pin = tpl_server.arg("pin").toInt();
+    long val = tpl_server.arg("value").toInt();
+	pinMode(pin, OUTPUT);
+	digitalWrite(pin, val);
+    val = digitalRead(pin);
+    tpl_server.send(200, "text/html", String(val));
+  });
   tpl_server.on("/analog", HTTP_GET, []() {
 	// http://esp/analog?pin=1
     tpl_server.sendHeader("Connection", "close");

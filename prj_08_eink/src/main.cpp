@@ -31,7 +31,7 @@
 
 using namespace std;
 
-#define LED_PIN 22
+#define LED_PIN 19
 #define BUTTON_PIN 39 /* analog read 4095 unpressed, 0 pressed */
 
 GxIO_Class io(SPI, /*CS=5*/ ELINK_SS, /*DC=*/ ELINK_DC, /*RST=*/ ELINK_RESET);

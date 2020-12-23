@@ -29,80 +29,19 @@ WiFiServer telnet_server;
 #define BUFFER_SIZE 1024
 uint8_t buff[BUFFER_SIZE];
 
-WebServer server(80);
-extern const uint8_t index_html_start[] asm("_binary_src_index_html_start");
-extern const uint8_t server_index_html_start[] asm(
-    "_binary_src_serverindex_html_start");
-
-bool qrMode = true;
-
-enum Command {
-  IDLE,
-} command = IDLE;
-
 //---------------------------------------------------
 void setup() {
+  tpl_system_setup(0);  // no deep sleep
+
   Serial.begin(115200);
   Serial.setDebugOutput(false);
 
-  esp_log_level_set("*", ESP_LOG_NONE);
-  ESP_LOGE(TAG, "Free heap: %u", xPortGetFreeHeapSize());
-
-  my_wifi_setup(false);
-
-  server.onNotFound([]() { server.send(404); });
-  /*handling uploading firmware file */
-  server.on("/", HTTP_GET, []() {
-    server.sendHeader("Connection", "close");
-    server.send_P(200, "text/html", (const char*)index_html_start);
-  });
-  server.on("/serverIndex", HTTP_GET, []() {
-    server.sendHeader("Connection", "close");
-    server.send_P(200, "text/html", (const char*)server_index_html_start);
-  });
-  /*handling uploading firmware file */
-  server.on(
-      "/update", HTTP_POST,
-      []() {
-        server.sendHeader("Connection", "close");
-        server.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
-        ESP.restart();
-      },
-      []() {
-        HTTPUpload& upload = server.upload();
-        if (upload.status == UPLOAD_FILE_START) {
-          Serial.printf("Update: %s\n", upload.filename.c_str());
-          if (!Update.begin(
-                  UPDATE_SIZE_UNKNOWN)) {  // start with max available size
-            Update.printError(Serial);
-          }
-        } else if (upload.status == UPLOAD_FILE_WRITE) {
-          /* flashing firmware to ESP*/
-          if (Update.write(upload.buf, upload.currentSize) !=
-              upload.currentSize) {
-            Update.printError(Serial);
-          }
-        } else if (upload.status == UPLOAD_FILE_END) {
-          if (Update.end(
-                  true)) {  // true to set the size to the current progress
-            Serial.printf("Update Success: %u\nRebooting...\n",
-                          upload.totalSize);
-          } else {
-            Update.printError(Serial);
-          }
-        }
-      });
-  server.begin();
-
-  if (psramFound()) {
-  }
-  ESP_LOGE(TAG, "Free heap after setup: %u", xPortGetFreeHeapSize());
-  ESP_LOGE(TAG, "Total heap: %u", ESP.getHeapSize());
-  ESP_LOGE(TAG, "Free heap: %u", ESP.getFreeHeap());
-  ESP_LOGE(TAG, "Total PSRAM: %u", ESP.getPsramSize());
-  ESP_LOGE(TAG, "Free PSRAM: %u", ESP.getFreePsram());
-
-  startNetWatchDog();
+  // Wait OTA
+  tpl_wifi_setup(true, true, (gpio_num_t)tpl_ledPin);
+  tpl_webserver_setup();
+  tpl_websocket_setup(NULL);
+  tpl_net_watchdog_setup();
+  tpl_command_setup(NULL);
 
   telnet_server = WiFiServer(1234);
   telnet_server.begin();
@@ -111,21 +50,6 @@ void setup() {
 WiFiClient telnet_client = 0;
 
 void loop() {
-  my_wifi_loop(false);
-
-  uint32_t period = 1000;
-  if (fail >= 50) {
-    period = 300;
-  }
-  if ((millis() / period) & 1) {
-    pinMode(ledPin, OUTPUT);
-    digitalWrite(ledPin, HIGH);
-  } else {
-    pinMode(ledPin, OUTPUT);
-    digitalWrite(ledPin, LOW);
-  }
-  server.handleClient();
-
   if (telnet_client) {
     size_t size;
     if (telnet_client.connected()) {
@@ -147,10 +71,4 @@ void loop() {
   } else {
     telnet_client = telnet_server.available();
   }
-
-  switch (command) {
-    case IDLE:
-      break;
-  }
-  command = IDLE;
 }

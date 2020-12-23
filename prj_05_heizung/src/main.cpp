@@ -89,7 +89,7 @@ void setup() {
     print_info();
 
     if (tpl_config.curr_jpg != NULL) {
-      tpl_telegram_setup(BOTtoken, CHAT_ID);
+      tpl_telegram_setup(CHAT_ID);
       tpl_command = CmdSendJpg2Bot;
     }
     while (tpl_command != CmdIdle) {

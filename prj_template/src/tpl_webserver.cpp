@@ -51,6 +51,22 @@ void tpl_webserver_setup() {
     tpl_server.sendHeader("Connection", "close");
     tpl_server.send_P(200, "text/html", (const char*)index_html_start);
   });
+  tpl_server.on("/digital", HTTP_GET, []() {
+    tpl_server.sendHeader("Connection", "close");
+    String data = "................................................";
+    for (int i = 0;i < 48;i++) {
+       char ch = 48 + digitalRead(i);
+       data.setCharAt(i, ch);
+    }
+    tpl_server.send(200, "text/html", data);
+  });
+  tpl_server.on("/analog", HTTP_GET, []() {
+	// http://esp/analog?pin=1
+    tpl_server.sendHeader("Connection", "close");
+    long pin = tpl_server.arg("pin").toInt();
+    long val = analogRead(pin);
+    tpl_server.send(200, "text/html", String(val));
+  });
   tpl_server.on("/serverIndex", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
     tpl_server.send_P(200, "text/html", (const char*)server_index_html_start);

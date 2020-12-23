@@ -72,8 +72,8 @@ void TaskWebSocketCore0(void *pvParameters) {
 
     if (now > send_status_ms) {
       send_status_ms = now + 100;
-      String data = "........................................";
-      for (int i = 0; i < 40; i++) {
+      String data = "................................................";
+      for (int i = 0; i < 48; i++) {
         char ch = 48 + digitalRead(i);
         data.setCharAt(i, ch);
       }

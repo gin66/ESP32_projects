@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8" />
+    <title>Garage</title>
+    <meta name="esp32_08" content="" />
+    <meta name="Jochen Kiemes" content="" />
+
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- FONT
+		–––––––––––––––––––––––––––––––––––––––––––––––––– -->
+    <link
+      href="//fonts.googleapis.com/css?family=Raleway:400,300,600"
+      rel="stylesheet"
+      type="text/css"
+    />
+
+    <!-- Bootstrap CSS -->
+    <link
+      rel="stylesheet"
+      href="https://stackpath.bootstrapcdn.com/bootstrap/5.0.0-alpha1/css/bootstrap.min.css"
+      integrity="sha384-r4NyP46KrjDleawBgD5tp8Y7UzmLA05oM1iAEQ17CSuDqnUK2+k9luXQOfXJCJ4I"
+      crossorigin="anonymous"
+    />
+
+    <script
+      type="text/javascript"
+      src="https://cdnjs.cloudflare.com/ajax/libs/canvasjs/1.7.0/canvasjs.js"
+    ></script>
+    <script type="text/javascript">
+      /** new chart  **/
+      var yVal,
+        xVal = 0;
+      var updateCount = 0;
+      var dataPoints = [];
+      var chart;
+      window.onload = function () {
+        chart = new CanvasJS.Chart("chartContainer", {
+          zoomEnabled: true,
+          //      rangeChanging: customInterval,
+          title: {
+            text: "Osc_Test",
+          },
+          data: [
+            {
+              type: "line",
+              dataPoints: dataPoints,
+            },
+          ],
+          axisY: {
+            includeZero: false,
+          },
+        });
+        chart.render();
+      };
+
+      var image = new Image();
+      var image_update = false;
+      var grayscale;
+      var grayscale_update = false;
+      var grayscale_expect_width = 0;
+      var grayscale_expect_height = 0;
+      var qr_codes = new Array();
+      function renderFunction() {
+        var canvas = document.getElementById("image");
+        var context = canvas.getContext("2d");
+        if (!document.getElementById("video_on").checked) {
+          canvas.width = 0;
+          canvas.height = 0;
+        } else if (image_update) {
+          image_update = false;
+          context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        } else if (grayscale_update) {
+          grayscale_update = false;
+          context.putImageData(grayscale, 0, 0);
+        }
+        requestAnimationFrame(renderFunction);
+      }
+      requestAnimationFrame(renderFunction);
+
+      image.onload = () => {
+        var canvas = document.getElementById("image");
+        canvas.width = image.width;
+        canvas.height = image.height;
+        image_update = true;
+      };
+
+      var updateChart = function () {
+        updateCount++;
+        chart.options.title.text = "Update " + updateCount;
+        chart.render();
+      };
+      function b64_to_u16(b64) {
+        var rawString = window.atob(b64);
+        var uint8Array = new Uint8Array(rawString.length);
+        for (var i = 0; i < rawString.length; i++) {
+          uint8Array[i] = rawString.charCodeAt(i);
+        }
+        var uint16Array = new Uint16Array(uint8Array.buffer);
+        return uint16Array;
+      }
+      function process(data) {
+        document.getElementById("mem_free").innerHTML = data["mem_free"];
+        document.getElementById("uptime").innerHTML = data["millis"] / 1000;
+        document.getElementById("ssid").innerHTML = data["SSID"];
+        document.getElementById("dbm").innerHTML = data["wifi_dBm"];
+        return;
+        document.getElementById("esp_time").innerHTML = data["time"];
+        document.getElementById("sample_rate").innerHTML = data["sample_rate"];
+        var ticks = 1.0 / data["sample_rate"];
+        var data = b64_to_u16(data["b64"]);
+        dataPoints.length = 0;
+        var smooth = 2;
+        for (var i = smooth; i < data.length - smooth; i++) {
+          yVal = data[i];
+          if (smooth == 2) {
+            yVal =
+              (data[i - 2] + data[i - 1] + yVal + data[i + 1] + data[i + 2]) /
+              5;
+          }
+
+          xVal = i * ticks;
+          dataPoints.push({
+            y: yVal,
+            x: xVal,
+          });
+        }
+        updateChart();
+      }
+      var ws = 0;
+      var last_msg = 0;
+      function repeating() {
+        if ("WebSocket" in window) {
+          if (ws == 0 || ws.readyState >= 2) {
+            // Let us open a web socket
+            var url = "ws://" + location.hostname + ":81/";
+            if (location.hostname == "") {
+              url = "ws://esp32_08.local:81/";
+            }
+            document.getElementById("state").innerHTML = "connecting " + url;
+            ws = new WebSocket(url);
+            ws.binaryType = "arraybuffer";
+            last_msg = Date.now();
+            ws.onopen = function () {
+              document.getElementById("state").innerHTML = "open";
+              var now = Date.now();
+              last_msg = now;
+            };
+
+            ws.onmessage = function (evt) {
+              document.getElementById("state").innerHTML = "receiving";
+              var exp_width = grayscale_expect_width;
+              var exp_height = grayscale_expect_height;
+              grayscale_expect_width = 0;
+              grayscale_expect_height = 0;
+              var now = Date.now();
+              if (evt.data instanceof ArrayBuffer) {
+                var data = evt.data;
+                var dv = new DataView(data);
+                if (
+                  dv.getUint8(0) == 0xff &&
+                  dv.getUint8(1) == 0xd8 &&
+                  dv.getUint8(2) == 0xff
+                ) {
+                  // is jpeg
+                  let buf = new Uint8Array(evt.data);
+                  const s = buf.reduce((data, byte) => {
+                    return data + String.fromCharCode(byte);
+                  }, "");
+                  var img_src = "data:image/jpeg;base64," + btoa(s);
+                  image.src = img_src;
+                  //document.getElementById("raw_image").innerText = img_src;
+                  console.log("image received: " + dv.byteLength);
+                  request_video();
+                } else if (dv.getUint8(0) == 0 && dv.byteLength == 5) {
+                  // expect next grayscale image
+                  grayscale_expect_width = dv.getUint16(1);
+                  grayscale_expect_height = dv.getUint16(3);
+                } else if (dv.getUint8(0) == 1 && dv.byteLength == 18) {
+                  // expect qr_code info
+                  qr = [
+                    [0, 0],
+                    [0, 0],
+                    [0, 0],
+                    [0, 0],
+                  ];
+                  qr[0][0] = dv.getInt16(1, false);
+                  qr[0][1] = dv.getInt16(3, false);
+                  qr[1][0] = dv.getInt16(5, false);
+                  qr[1][1] = dv.getInt16(7, false);
+                  qr[2][0] = dv.getInt16(9, false);
+                  qr[2][1] = dv.getInt16(11, false);
+                  qr[3][0] = dv.getInt16(13, false);
+                  qr[3][1] = dv.getInt16(15, false);
+                  qr_codes[qr_codes.length] = qr;
+                } else if (exp_width * exp_height == dv.byteLength) {
+                  // gray scale image with width/height/pixel data
+                  request_video(); // request early
+                  var canvas = document.getElementById("image");
+                  var width = exp_width;
+                  var height = exp_height;
+                  console.log(
+                    "We have width: " +
+                      width +
+                      "px, height: " +
+                      height +
+                      "px, length: " +
+                      dv.byteLength
+                  );
+                  canvas.width = width;
+                  canvas.height = height;
+                  context = canvas.getContext("2d");
+                  grayscale = context.getImageData(0, 0, width, height);
+                  var px = 0;
+                  for (i = 0; i < dv.byteLength; i++) {
+                    var g = dv.getUint8(i);
+                    grayscale.data[px++] = g;
+                    grayscale.data[px++] = g;
+                    grayscale.data[px++] = g;
+                    grayscale.data[px++] = 255;
+                  }
+                  for (i = 0; i < qr_codes.length; i++) {
+                    var qr = qr_codes[i];
+                    for (j = 0; j < 4; j++) {
+                      for (k = j + 1; k < 4; k++) {
+                        var p1_x = qr[j][0];
+                        var p1_y = qr[j][1];
+                        var p2_x = qr[k][0];
+                        var p2_y = qr[k][1];
+                        for (f = 0; f <= 50; f++) {
+                          var px = (p1_x * f + p2_x * (50 - f)) / 50;
+                          var py = (p1_y * f + p2_y * (50 - f)) / 50;
+                          var pixel =
+                            (Math.round(px) + Math.round(py) * width) * 4;
+                          console.log(pixel);
+                          grayscale.data[pixel++] = 0;
+                          grayscale.data[pixel++] = 255;
+                          grayscale.data[pixel] = 0;
+                        }
+                      }
+                    }
+                  }
+                  qr_codes = new Array();
+                  grayscale_update = true;
+                } else {
+                  console.log("unknown binary data");
+                }
+              } else {
+                if (document.getElementById("show_raw").checked) {
+                  document.getElementById("raw").innerHTML = evt.data;
+                }
+                process(JSON.parse(evt.data));
+                var dt = now - last_msg;
+                document.getElementById("debug").innerHTML = dt;
+              }
+              last_msg = now;
+            };
+            ws.onerror = function () {
+              //ws.close();
+            };
+
+            ws.onclose = function () {
+              // websocket is closed.
+              document.getElementById("state").innerHTML = "closed";
+              document.getElementById("raw").innerHTML = "";
+            };
+          } else {
+            var dt = Date.now() - last_msg;
+            if (dt > 5000) {
+              ws.close();
+            }
+            document.getElementById("debug").innerHTML = dt;
+            document.getElementById("readystate").innerHTML = ws.readyState;
+          }
+        } else {
+          // The browser doesn't support WebSocket
+          alert("WebSocket NOT supported by your Browser!");
+        }
+      }
+      window.setInterval(repeating, 1000);
+      function send_garage() {
+        if (ws != 0 && ws.readyState == 1) {
+          ws.send(JSON.stringify({ garage: true }));
+        }
+      }
+      function request_video() {
+        if (ws != 0 && ws.readyState == 1) {
+          if (document.getElementById("video_on").checked) {
+            ws.send(JSON.stringify({ image: true }));
+          }
+        }
+      }
+      function send_value(k, v) {
+        if (ws != 0 && ws.readyState == 1) {
+          var j = {};
+          j[k] = v;
+          console.log(j);
+          ws.send(JSON.stringify(j));
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div class="container-fluid">
+      <div class="row">
+        <h2>esp32_08</h2>
+        <p>
+          ESP32-Time: <span id="esp_time"></span> Memory available:
+          <span id="mem_free"></span> Uptime: <span id="uptime"></span> Sample
+          Rate: <span id="sample_rate"></span> SSID:
+          <span id="ssid"></span> dBm: <span id="dbm"></span>
+        </p>
+      </div>
+
+      <div class="row row-cols-1 row-cols-sm-2 row-cols-md-4">
+        <form action="/garage">
+          <button class="button-primary">Garage</button>
+        </form>
+        <form>
+          <button class="button-primary" type="button" onClick="send_garage();">
+            Garage via ws
+          </button>
+        </form>
+        <form>
+          <input
+            class="button-primary"
+            type="checkbox"
+            id="video_on"
+            onClick="request_video();"
+          />Video on
+          <input class="button-primary" type="checkbox" id="show_raw" />Show raw
+          messages
+        </form>
+        <form action="/serverIndex">
+          <button>SW Update</button>
+        </form>
+      </div>
+      <div id="chartContainer" style="height: 800px; width: 100%" hidden></div>
+    </div>
+    <div class="row">
+      <div>
+        <label for="brightness">Brightness</label>
+        <input
+          type="range"
+          class="custom-range"
+          min="-2"
+          max="2"
+          id="brightness"
+          onchange="send_value('brightness',this.value)"
+        />
+        <br />
+        <label for="contrast">Contrast</label>
+        <input
+          type="range"
+          class="custom-range"
+          min="-2"
+          max="2"
+          id="contrast"
+          onchange="send_value('contrast',this.value)"
+        />
+        <br />
+        <label for="saturation">Saturation</label>
+        <input
+          type="range"
+          class="custom-range"
+          min="-2"
+          max="2"
+          id="saturation"
+          onchange="send_value('saturation',this.value)"
+        />
+        <br />
+        <label for="ae_level">AE Level</label>
+        <input
+          type="range"
+          class="custom-range"
+          min="-2"
+          max="2"
+          id="ae_level"
+          onchange="send_value('ae_level',this.value)"
+        />
+        <br />
+        <label for="aec_value">AEC Value</label>
+        <input
+          type="range"
+          class="custom-range"
+          min="0"
+          max="1200"
+          id="aec_value"
+          onchange="send_value('aec_value',this.value)"
+        />
+        <br />
+        <label for="agc_gain">AGC Gain</label>
+        <input
+          type="range"
+          class="custom-range"
+          min="0"
+          max="30"
+          id="agc_gain"
+          onchange="send_value('agc_gain',this.value)"
+        />
+        <br />
+        <label for="gainceiling">Gain ceiling</label>
+        <input
+          type="range"
+          class="custom-range"
+          min="0"
+          max="6"
+          id="gainceiling"
+          onchange="send_value('gainceiling',this.value)"
+        />
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="bpc"
+          onClick="send_value('bpc',this.checked);"
+        />BPC
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="whitebal"
+          onClick="send_value('whitebal',this.checked);"
+        />White Balance
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="exposure_ctrl"
+          onClick="send_value('exposure_ctrl',this.checked);"
+        />Exposure Ctrl
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="awb_gain"
+          onClick="send_value('awb_gain',this.checked);"
+        />AWB Gain
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="wpc"
+          onClick="send_value('wpc',this.checked);"
+        />WPC
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="dcw"
+          onClick="send_value('dcw',this.checked);"
+        />DCW
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="raw_gma"
+          onClick="send_value('raw_gma',this.checked);"
+        />Raw GMA
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="vflip"
+          onClick="send_value('vflip',this.checked);"
+        />Vflip
+        <input
+          class="button-primary"
+          type="checkbox"
+          id="hmirror"
+          onClick="send_value('hmirror',this.checked);"
+        />Hmirror
+      </div>
+    </div>
+    <canvas id="image" width="0" height="0"> </canvas>
+    <div id="raw_image"></div>
+    <span id="debug" style="word-wrap: break-word"></span>
+    <span id="state"></span>
+    <span id="readystate"></span>
+    <span id="raw" style="word-wrap: break-word"></span>
+
+    <!-- Optional JavaScript -->
+    <!-- Popper.js first, then Bootstrap JS -->
+    <script
+      src="https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js"
+      integrity="sha384-Q6E9RHvbIyZFJoft+2mJbHaEWldlvI9IOYy5n3zV9zzTtmI3UksdQRVvoxMfooAo"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://stackpath.bootstrapcdn.com/bootstrap/5.0.0-alpha1/js/bootstrap.min.js"
+      integrity="sha384-oesi62hOLfzrys4LxRF63OJCXdXDipiYWBnvTl9Y9/TRlw5xlKIEHpNyvvDShgf/"
+      crossorigin="anonymous"
+    ></script>
+  </body>
+</html>

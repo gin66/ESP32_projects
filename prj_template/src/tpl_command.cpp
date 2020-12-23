@@ -45,8 +45,8 @@ void TaskCommandCore1(void* pvParameters) {
           Serial.println("Prepare esp32cam for deepsleep");
           tpl_camera_off();
 #endif
-		  uint64_t sleep = tpl_config.deepsleep_time_secs;
-		  sleep *= 1000000LL;
+          uint64_t sleep = tpl_config.deepsleep_time_secs;
+          sleep *= 1000000LL;
           esp_sleep_enable_timer_wakeup(sleep);
           esp_deep_sleep_start();
         }

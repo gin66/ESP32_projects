@@ -90,9 +90,8 @@ void tpl_system_setup(uint32_t deep_sleep_secs) {
   }
   tpl_config.deepsleep_time_secs = deep_sleep_secs;
   if (deep_sleep_secs == 0) {
-	  tpl_config.allow_deepsleep = false;
-  }
-  else {
-	  tpl_config.allow_deepsleep = true;
+    tpl_config.allow_deepsleep = false;
+  } else {
+    tpl_config.allow_deepsleep = true;
   }
 }

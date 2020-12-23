@@ -44,7 +44,7 @@ void setup() {
     last_seen_watchpoint = 0;
   }
 
-  tpl_system_setup(600); // 10 minutes deep sleep
+  tpl_system_setup(600);  // 10 minutes deep sleep
 
   // turn flash light off
   digitalWrite(tpl_flashPin, LOW);
@@ -213,4 +213,3 @@ void loop() {
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
   vTaskDelay(xDelay);
 }
-

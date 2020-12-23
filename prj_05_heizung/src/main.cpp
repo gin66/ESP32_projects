@@ -27,7 +27,7 @@ void print_info() {
   Serial.println(ESP.getFreePsram());
 }
 void setup() {
-  tpl_system_setup(4*3600); // 4h deep sleep time
+  tpl_system_setup(30 * 60);  // 30mins deep sleep time
 
   // turn flash light off
   digitalWrite(tpl_flashPin, LOW);
@@ -47,60 +47,61 @@ void setup() {
     Serial.println("PSRAM found and loaded");
   }
 
-  uint8_t fail_cnt = 0;
-  tpl_camera_setup(&fail_cnt, FRAMESIZE_VGA);
-  Serial.print("camera fail count=");
-  Serial.println(fail_cnt);
+  // take picture only every 8th boot => every 4 hours
+  if ((tpl_config.bootCount % 8) == 1) {
+    uint8_t fail_cnt = 0;
+    tpl_camera_setup(&fail_cnt, FRAMESIZE_VGA);
+    Serial.print("camera fail count=");
+    Serial.println(fail_cnt);
 
-  const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
+    const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
 
-  // turn on flash
-  digitalWrite(tpl_flashPin, HIGH);
-  // activate cam
-  {
-    uint32_t settle_till = millis() + 10000;
-    while ((int32_t)(settle_till - millis()) > 0) {
-      // let the camera adjust
-      camera_fb_t *fb = esp_camera_fb_get();
-      if (fb) {
-        esp_camera_fb_return(fb);
+    // turn on flash
+    digitalWrite(tpl_flashPin, HIGH);
+    // activate cam
+    {
+      uint32_t settle_till = millis() + 10000;
+      while ((int32_t)(settle_till - millis()) > 0) {
+        // let the camera adjust
+        camera_fb_t *fb = esp_camera_fb_get();
+        if (fb) {
+          esp_camera_fb_return(fb);
+        }
+        vTaskDelay(xDelay);
       }
+      {
+        // take picture
+        camera_fb_t *fb = esp_camera_fb_get();
+        // flash off
+        digitalWrite(tpl_flashPin, LOW);
+        if (fb) {
+          tpl_config.curr_jpg_len = fb->len;
+          tpl_config.curr_jpg = (uint8_t *)ps_malloc(fb->len);
+          if (tpl_config.curr_jpg) {
+            memcpy(tpl_config.curr_jpg, fb->buf, fb->len);
+          }
+          esp_camera_fb_return(fb);
+        }
+      }
+    }
+    // Free memory for bot
+    esp_camera_deinit();
+    print_info();
+
+    if (tpl_config.curr_jpg != NULL) {
+      tpl_telegram_setup(BOTtoken, CHAT_ID);
+      tpl_command = CmdSendJpg2Bot;
+    }
+    while (tpl_command != CmdIdle) {
       vTaskDelay(xDelay);
     }
-    {
-      // take picture
-      camera_fb_t *fb = esp_camera_fb_get();
-      // flash off
-      digitalWrite(tpl_flashPin, LOW);
-      if (fb) {
-        tpl_config.curr_jpg_len = fb->len;
-        tpl_config.curr_jpg = (uint8_t *)ps_malloc(fb->len);
-        if (tpl_config.curr_jpg) {
-          memcpy(tpl_config.curr_jpg, fb->buf, fb->len);
-        }
-        esp_camera_fb_return(fb);
-      }
-    }
+    // wait lower level finish transmission !?
+    const TickType_t vDelay = 10000 / portTICK_PERIOD_MS;
+    vTaskDelay(vDelay);
   }
-  // Free memory for bot
-  esp_camera_deinit();
-  print_info();
-
-  if (tpl_config.curr_jpg != NULL) {
-    tpl_telegram_setup(BOTtoken, CHAT_ID);
-    tpl_command = CmdSendJpg2Bot;
-  }
-  while (tpl_command != CmdIdle) {
-    vTaskDelay(xDelay);
-  }
-
   print_info();
 
   Serial.println("Done.");
-
-  // wait lower level finish transmission !?
-  const TickType_t vDelay = 10000 / portTICK_PERIOD_MS;
-  vTaskDelay(vDelay);
 
   // enter deep sleep
   tpl_command = CmdDeepSleep;

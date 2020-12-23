@@ -15,8 +15,6 @@
 
 using namespace std;
 
-// UniversalTelegramBot alarm_bot(ALARM_BOTtoken, secured_client);
-
 struct read_s reader;
 uint16_t last_seen_watchpoint = 0;
 
@@ -149,17 +147,18 @@ void setup() {
         WATCH(105);
         uint16_t consumption = water_consumption();
         uint8_t alarm = have_alarm();
-#ifdef ALARM
         switch (alarm) {
           case NO_ALARM:
             break;
           case ALARM_TOO_HIGH_CONSUMPTION:
+			tpl_config.send_bot_token = ALARM_bOTtoken;
             send_image = true;
             alarm_bot.sendMessage(
                 CHAT_ID,
                 String("Wasseralarm: Hoher Verbrauch:") + +water_steigung());
             break;
           case ALARM_CUMULATED_CONSUMPTION_TOO_HIGH:
+			tpl_config.send_bot_token = ALARM_BOTtoken;
             send_image = true;
             alarm_bot.sendMessage(
                 CHAT_ID,
@@ -167,27 +166,33 @@ void setup() {
                     cumulated_consumption());
             break;
           case ALARM_LEAKAGE:
+			tpl_config.send_bot_token = ALARM_BOTtoken;
             send_image = true;
             alarm_bot.sendMessage(CHAT_ID, String("Wasseralarm: Leck"));
             break;
           case ALARM_LEAKAGE_FINE:
+			tpl_config.send_bot_token = ALARM_BOTtoken;
             send_image = true;
             alarm_bot.sendMessage(CHAT_ID,
                                   String("Wasseralarm: Leck alle Zeiger"));
             break;
         }
-#endif
         WATCH(106);
+        while (tpl_config.bot_send_message) {
+          vTaskDelay(xDelay);
+        }
+        WATCH(107);
         sprintf(buf,
                 "Result: %d/%d/%d/%d Consumption: %d Alarm: %d "
                 "Buffer_add: %d, entries: %d BootCount: %d",
                 reader.pointer[0].angle, reader.pointer[1].angle,
                 reader.pointer[2].angle, reader.pointer[3].angle, consumption,
                 alarm, res, num_entries(), tpl_config.bootCount);
+		tpl_config.send_bot_token = BOTtoken;
         tpl_config.bot_message = buf;
         tpl_config.bot_send_message = true;
         reader.candidates = 0;
-        WATCH(107);
+        WATCH(108);
 
         while (tpl_config.bot_send_message) {
           vTaskDelay(xDelay);

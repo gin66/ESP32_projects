@@ -16,6 +16,8 @@
 
 using namespace std;
 
+uint32_t *p = NULL;
+
 //---------------------------------------------------
 
 void print_info() {
@@ -44,13 +46,20 @@ void setup() {
   tpl_websocket_setup(NULL);
   tpl_net_watchdog_setup();
   tpl_command_setup(NULL);
+  tpl_telegram_setup(CHAT_ID);
 
   if (psramFound()) {
     Serial.println("PSRAM found and loaded");
   }
 #define MAGIC 0xdeadbeaf
 #define PROBE_SIZE (1024)
-  uint32_t *p = (uint32_t *) ps_malloc(PROBE_SIZE);
+  p = (uint32_t *) ps_malloc(PROBE_SIZE);
+
+  tpl_server.on("/dump", HTTP_GET, []() {
+    tpl_server.sendHeader("Connection", "close");
+    tpl_server.send_P(200, "Content-Type: application/octet-stream", (const char*)p,PROBE_SIZE);
+  });
+
   if (tpl_config.bootCount == 1) {
 	  // init RAM
 	for (uint32_t i = 0;i < PROBE_SIZE/4;i++) {
@@ -63,7 +72,7 @@ void setup() {
 	uint32_t good = 0;
 	uint32_t bad = 0;
 	for (uint32_t i = 0;i < PROBE_SIZE/4;i++) {
-		if (*p++ == MAGIC ^ ((i << 16) + i)) {
+		if (*p++ == (MAGIC ^ ((i << 16) + i))) {
 			good++;
 		}
 		else {
@@ -71,7 +80,7 @@ void setup() {
 		}
 	}
 	char buf[100];
-	sprintf(buf, "good=%d,, bad=%d", good,bad);
+	sprintf(buf, "good=%d, bad=%d, total=%d", good,bad,PROBE_SIZE/4);
 	tpl_config.bot_message = buf;
 	tpl_config.bot_send_message = true;
   }

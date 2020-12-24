@@ -9,10 +9,10 @@
 #include <WebSocketsServer.h>
 #include <WiFi.h>
 #include <WiFiClient.h>
+#include <esp32-hal-psram.h>
 
 #include "../../private_bot.h"
 #include "../../private_sha.h"
-#include "esp32-hal-psram.h"
 
 using namespace std;
 
@@ -63,22 +63,6 @@ size_t have_image(struct ps_image_s *p) {
     return 0;
   }
   return p->img_len;
-}
-bool check_image(struct ps_image_s *p) {
-  uint32_t jpeg_len = p->img_len;
-  uint32_t *in = p->buf_1111111X;
-  uint32_t transferred = 0;
-  uint32_t checksum = 0;
-  while (transferred < jpeg_len) {
-    for (uint8_t i = 0; i < OK_WORDS; i++) {
-      uint32_t x = *in++;
-      checksum += x;
-      transferred += 4;
-    }
-    // skip damaged line
-    in++;
-  }
-  return (checksum == p->checksum);
 }
 bool read_image(struct ps_image_s *p, uint8_t *jpeg) {
   uint32_t jpeg_len = p->img_len;
@@ -193,19 +177,9 @@ void setup() {
             esp_camera_fb_return(fb);
           }
         }
-        // Free memory for bot
-        // esp_camera_deinit();
-
-        // wait psram cache written !!!
-        // hope to write out cache
-        if (!check_image(p)) {
-          ESP.restart();
-        }
-        const TickType_t vDelay = 10000 / portTICK_PERIOD_MS;
-        vTaskDelay(vDelay);
-
         print_info();
         tpl_config.deepsleep_time_secs = 1;
+		// psram cache will be flashed in tpl_command.cpp before entering deepsleep
       }
     }
   } else {

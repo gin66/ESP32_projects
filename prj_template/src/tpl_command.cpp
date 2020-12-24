@@ -9,6 +9,22 @@
 
 volatile enum Command tpl_command = CmdIdle;
 
+#ifdef IS_ESP32CAM
+void psram_flush_cache() {
+        volatile uint8_t *psram = (volatile uint8_t *)SOC_EXTRAM_DATA_LOW;
+        /*
+         *     Single-core and even/odd mode only have 32K of cache evenly
+         * distributed over the address lines. We can clear the cache by just
+         * reading 64K worth of cache lines.
+         *             */
+        uint8_t scrap = 0;
+        for (uint16_t x = 0; x < 1024 * 64; x += 32) {
+          scrap += psram[x];
+          scrap += psram[x + (1024 * 1024 * 2)];
+        }
+}
+#endif
+
 void TaskCommandCore1(void* pvParameters) {
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
   void (*func)(enum Command command) = (void (*)(enum Command))pvParameters;
@@ -44,6 +60,7 @@ void TaskCommandCore1(void* pvParameters) {
 #ifdef IS_ESP32CAM
           Serial.println("Prepare esp32cam for deepsleep");
           tpl_camera_off();
+		  psram_flush_cache();
 #endif
           uint64_t sleep = tpl_config.deepsleep_time_secs;
           sleep *= 1000000LL;

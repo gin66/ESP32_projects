@@ -1,6 +1,10 @@
 #!/bin/bash
 
-TARGET=`gawk 'BEGIN{FS=" *= *"} /hostname/ && /esp32_/{print $2".local"}' platformio.ini`
+TARGET=$1
+if [ "$TARGET" == "" ]
+then
+	TARGET=`gawk 'BEGIN{FS=" *= *"} /hostname/ && /esp32_/{print $2".local"}' platformio.ini`
+fi
 
 echo $TARGET
 
@@ -25,7 +29,7 @@ pio run
 # wait esp coming online
 while true
 do
-	echo -n p
+	echo -n .
 	ping -c 1 $TARGET
 	if [ $? == 0 ]
 	then
@@ -36,7 +40,7 @@ done
 
 while true
 do
-	echo -n n
+	echo -n .
 	nc -z $TARGET 3232
 	echo $?
 	if [ $? == 0 ]

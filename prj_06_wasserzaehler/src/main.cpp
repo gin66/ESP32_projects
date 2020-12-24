@@ -147,34 +147,37 @@ void setup() {
         WATCH(105);
         uint16_t consumption = water_consumption();
         uint8_t alarm = have_alarm();
+		char msg[100];
         switch (alarm) {
           case NO_ALARM:
             break;
           case ALARM_TOO_HIGH_CONSUMPTION:
-            tpl_config.send_bot_token = ALARM_bOTtoken;
+            tpl_config.send_bot_token = ALARM_BOTtoken;
             send_image = true;
-            alarm_bot.sendMessage(
-                CHAT_ID,
-                String("Wasseralarm: Hoher Verbrauch:") + +water_steigung());
+			tpl_config.bot_message = msg;
+            sprintf(msg, "Wasseralarm: Hoher Verbrauch: %d",water_steigung());
+			tpl_config.bot_send_message = true;
             break;
           case ALARM_CUMULATED_CONSUMPTION_TOO_HIGH:
             tpl_config.send_bot_token = ALARM_BOTtoken;
             send_image = true;
-            alarm_bot.sendMessage(
-                CHAT_ID,
-                String("Wasseralarm: Kumulierter Verbrauch zu hoch: ") +
-                    cumulated_consumption());
+			tpl_config.bot_message = msg;
+            sprintf(msg, "Wasseralarm: Kumulierter Verbrauch zu hoch: %d", cumulated_consumption());
+			tpl_config.bot_send_message = true;
             break;
           case ALARM_LEAKAGE:
             tpl_config.send_bot_token = ALARM_BOTtoken;
             send_image = true;
-            alarm_bot.sendMessage(CHAT_ID, String("Wasseralarm: Leck"));
+			tpl_config.bot_message = msg;
+            sprintf(msg, "Wasseralarm: Leck");
+			tpl_config.bot_send_message = true;
             break;
           case ALARM_LEAKAGE_FINE:
             tpl_config.send_bot_token = ALARM_BOTtoken;
             send_image = true;
-            alarm_bot.sendMessage(CHAT_ID,
-                                  String("Wasseralarm: Leck alle Zeiger"));
+			tpl_config.bot_message = msg;
+            sprintf(msg, "Wasseralarm: Leck alle Zeiger");
+			tpl_config.bot_send_message = true;
             break;
         }
         WATCH(106);

@@ -18,9 +18,9 @@ void psram_flush_cache() {
          * reading 64K worth of cache lines.
          *             */
         uint8_t scrap = 0;
-        for (uint16_t x = 0; x < 1024 * 64; x += 32) {
+        for (uint32_t x = 0; x < 1024 * 64; x += 32) {
           scrap += psram[x];
-          scrap += psram[x + (1024 * 1024 * 2)];
+		  scrap += psram[x + (1024 * 1024 * 2)];
         }
 }
 #endif
@@ -60,7 +60,9 @@ void TaskCommandCore1(void* pvParameters) {
 #ifdef IS_ESP32CAM
           Serial.println("Prepare esp32cam for deepsleep");
           tpl_camera_off();
+          Serial.println("Start psram flush");
 		  psram_flush_cache();
+          Serial.println("Flushed");
 #endif
           uint64_t sleep = tpl_config.deepsleep_time_secs;
           sleep *= 1000000LL;

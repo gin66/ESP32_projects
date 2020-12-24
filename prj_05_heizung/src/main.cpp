@@ -21,7 +21,8 @@ using namespace std;
 #define MAGIC_IMAGE 0xbeafdead
 
 struct ps_image_s {
-  uint32_t damaged_on_restart[16]; // apparently restart damages more and with deep sleep this is not damaged
+  uint32_t damaged_on_restart[16];  // apparently restart damages more and with
+                                    // deep sleep this is not damaged
   uint32_t magic;
   uint32_t img_len;
   uint32_t checksum;
@@ -183,18 +184,17 @@ void setup() {
         vTaskDelay(vDelay);
 
         print_info();
-		tpl_config.deepsleep_time_secs = 1;
+        tpl_config.deepsleep_time_secs = 1;
       }
     }
+  } else {
+    tpl_telegram_setup(CHAT_ID);
+    tpl_config.bot_message = "no psram";
+    tpl_config.bot_send_message = true;
+    // wait lower level finish transmission !?
+    const TickType_t vDelay = 10000 / portTICK_PERIOD_MS;
+    vTaskDelay(vDelay);
   }
-	else {
-        tpl_telegram_setup(CHAT_ID);
-          tpl_config.bot_message = "no psram";
-          tpl_config.bot_send_message = true;
-        // wait lower level finish transmission !?
-        const TickType_t vDelay = 10000 / portTICK_PERIOD_MS;
-        vTaskDelay(vDelay);
-	}
   print_info();
 
   Serial.println("Done.");

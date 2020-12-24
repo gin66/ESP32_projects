@@ -35,7 +35,7 @@ extern struct tpl_config_s {
 #ifdef BOTtoken
   const char *receive_bot_token;  // do not change
   const char *send_bot_token;
-  char *bot_message;
+  const char *bot_message;
   volatile bool bot_send_message;
 #endif
   uint16_t reset_reason;

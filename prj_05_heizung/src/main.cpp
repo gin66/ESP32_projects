@@ -93,8 +93,9 @@ void print_info() {
   Serial.print(" Free PSRAM: ");
   Serial.println(ESP.getFreePsram());
 }
+struct ps_image_s *p = NULL;
+
 void setup() {
-  struct ps_image_s *p = NULL;
   if (psramFound()) {
     p = (struct ps_image_s *)ps_malloc(sizeof(ps_image_s));
   }
@@ -114,6 +115,12 @@ void setup() {
   tpl_websocket_setup(NULL);
   tpl_net_watchdog_setup();
   tpl_command_setup(NULL);
+
+  tpl_server.on("/dump", HTTP_GET, []() {
+    tpl_server.sendHeader("Connection", "close");
+    tpl_server.send_P(200, "Content-Type: application/octet-stream",
+                      (const char *)p, sizeof(struct ps_image_s));
+  });
 
   if (p) {
     const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
@@ -170,6 +177,11 @@ void setup() {
         }
         // Free memory for bot
         // esp_camera_deinit();
+
+        // wait psram cache written ?
+        const TickType_t vDelay = 10000 / portTICK_PERIOD_MS;
+        vTaskDelay(vDelay);
+
         print_info();
 		tpl_config.deepsleep_time_secs = 1;
       }

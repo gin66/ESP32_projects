@@ -165,6 +165,7 @@ void TaskTelegramCore1(void *pvParameters) {
                                              isMoreDataAvailable, nullptr,
                                              getNextBuffer, getNextBufferLen);
           if (res.length() > 0) {
+            bot.sendMessage(chatId, String("sent=") + dataBytesSent);
             bot.sendMessage(chatId, res);
             break;
           }

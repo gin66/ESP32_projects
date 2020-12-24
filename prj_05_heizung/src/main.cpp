@@ -24,7 +24,7 @@ struct ps_image_s {
   uint32_t buf_1111111X[50000];
   size_t img_len;
   uint32_t magic;
-  uint32_t pad1;
+  uint32_t checksum;
   uint32_t pad2;
   uint32_t pad3;
   uint32_t pad4;
@@ -32,18 +32,23 @@ struct ps_image_s {
   uint32_t overwritten;
 };
 
+#define OK_WORDS 3
 void store_image(struct ps_image_s *p, uint8_t *jpeg, size_t jpeg_len) {
   uint32_t *in = (uint32_t *)jpeg;
   uint32_t *out = p->buf_1111111X;
   uint32_t transferred = 0;
+  uint32_t checksum = 0;
   while (transferred < jpeg_len) {
-    for (uint8_t i = 0; i < 7; i++) {
-      *out++ = *in++;
+    for (uint8_t i = 0; i < OK_WORDS; i++) {
+      uint32_t x = *in++;
+      *out++ = x;
+	  checksum += x;
+      transferred += 4;
     }
     // skip damaged line
     out++;
-    transferred += 7 * 4;
   }
+  p->checksum = checksum;
   p->img_len = jpeg_len;
   p->magic = MAGIC_IMAGE;
   p->overwritten = MAGIC_IMAGE;
@@ -57,20 +62,24 @@ size_t check_image(struct ps_image_s *p) {
   }
   return p->img_len;
 }
-void read_image(struct ps_image_s *p, uint8_t *jpeg, size_t jpeg_len) {
+bool read_image(struct ps_image_s *p, uint8_t *jpeg, size_t jpeg_len) {
   uint32_t *in = p->buf_1111111X;
   uint32_t *out = (uint32_t *)jpeg;
   uint32_t transferred = 0;
+  uint32_t checksum = 0;
   while (transferred < jpeg_len) {
-    for (uint8_t i = 0; i < 7; i++) {
-      *out++ = *in++;
+    for (uint8_t i = 0; i < OK_WORDS; i++) {
+      uint32_t x = *in++;
+      *out++ = x;
+	  checksum += x;
+      transferred += 4;
     }
     // skip damaged line
     in++;
-    transferred += 7 * 4;
   }
   p->img_len = 0;
   p->magic = 0;
+  return (checksum == p->checksum);
 }
 
 void print_info() {
@@ -110,15 +119,20 @@ void setup() {
     if (img_len > 0) {
       // have image, then send
       tpl_config.curr_jpg_len = img_len;
-      tpl_config.curr_jpg = (uint8_t *)ps_malloc(img_len + 8 * 32);
+      tpl_config.curr_jpg = (uint8_t *)malloc(img_len + 8 * 32);
       if (tpl_config.curr_jpg) {
-        read_image(p, tpl_config.curr_jpg, img_len);
-
         tpl_telegram_setup(CHAT_ID);
+        if (read_image(p, tpl_config.curr_jpg, img_len)) {
+
         tpl_command = CmdSendJpg2Bot;
         while (tpl_command != CmdIdle) {
           vTaskDelay(xDelay);
         }
+		}
+		else {
+			tpl_config.bot_message = "error";
+			tpl_config.bot_send_message = true;
+		}
         // wait lower level finish transmission !?
         const TickType_t vDelay = 10000 / portTICK_PERIOD_MS;
         vTaskDelay(vDelay);

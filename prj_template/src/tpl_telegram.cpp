@@ -30,7 +30,7 @@ static bool isMoreDataAvailable() {
     return false;
   }
 }
-#define CHUNKSIZE 1024
+#define CHUNKSIZE 256
 static byte *getNextBuffer() {
   if (jpeg_to_send) {
     byte *buf = &jpeg_to_send[dataBytesSent];
@@ -157,10 +157,10 @@ void TaskTelegramCore1(void *pvParameters) {
       if (jpeg_to_send != NULL) {
         Serial.print("send image in bytes=");
         Serial.println(jpeg_len);
-        dataBytesSent = 0;
         bot.sendMessage(chatId, String("Send image: ") + jpeg_len
 						+String(" BootCnt=") + tpl_config.bootCount);
         for (uint8_t retry = 0; retry < 5; retry++) {
+          dataBytesSent = 0;
           String res = bot.sendPhotoByBinary(chatId, "image/jpeg", jpeg_len,
                                              isMoreDataAvailable, nullptr,
                                              getNextBuffer, getNextBufferLen);

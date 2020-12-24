@@ -19,13 +19,6 @@ then
 	cargo install websocat
 fi
 
-# ensure compilable
-rm -fR .pio
-
-(cd ..;make links)
-
-pio run
-
 # wait esp coming online
 while true
 do

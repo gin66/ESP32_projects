@@ -40,7 +40,7 @@ void tpl_webserver_setup() {
     tpl_server.sendHeader("Connection", "close");
     tpl_server.send_P(200, "text/html", (const char*)index_html_start);
   });
-  tpl_server.on("/reset", HTTP_GET, []() { ESP.restart(); });
+  tpl_server.on("/restart", HTTP_GET, []() { ESP.restart(); });
   tpl_server.on("/deepsleep", HTTP_GET, []() {
     tpl_config.allow_deepsleep = true;
     tpl_command = CmdDeepSleep;

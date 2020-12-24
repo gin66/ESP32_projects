@@ -179,7 +179,7 @@ void setup() {
         // Free memory for bot
         // esp_camera_deinit();
 
-        // wait psram cache written ?
+        // wait psram cache written !!!
         const TickType_t vDelay = 10000 / portTICK_PERIOD_MS;
         vTaskDelay(vDelay);
 

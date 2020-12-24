@@ -157,8 +157,8 @@ void TaskTelegramCore1(void *pvParameters) {
       if (jpeg_to_send != NULL) {
         Serial.print("send image in bytes=");
         Serial.println(jpeg_len);
-        bot.sendMessage(chatId, String("Send image: ") + jpeg_len
-						+String(" BootCnt=") + tpl_config.bootCount);
+        bot.sendMessage(chatId, String("Send image: ") + jpeg_len +
+                                    String(" BootCnt=") + tpl_config.bootCount);
         for (uint8_t retry = 0; retry < 5; retry++) {
           dataBytesSent = 0;
           String res = bot.sendPhotoByBinary(chatId, "image/jpeg", jpeg_len,

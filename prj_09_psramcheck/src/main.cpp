@@ -31,6 +31,10 @@ void print_info() {
   Serial.println(ESP.getFreePsram());
 }
 void setup() {
+#define MAGIC 0xdeadbeaf
+#define PROBE_SIZE (1024 * 1024)
+  p = (uint32_t *)ps_malloc(PROBE_SIZE);
+
   tpl_system_setup(10);  // 10secs deep sleep time
 
   // turn flash light off
@@ -46,45 +50,23 @@ void setup() {
   tpl_websocket_setup(NULL);
   tpl_net_watchdog_setup();
   tpl_command_setup(NULL);
-  tpl_telegram_setup(CHAT_ID);
 
   if (psramFound()) {
     Serial.println("PSRAM found and loaded");
   }
-#define MAGIC 0xdeadbeaf
-#define PROBE_SIZE (1024)
-  p = (uint32_t *) ps_malloc(PROBE_SIZE);
 
+  tpl_server.on("/init", HTTP_GET, []() {
+    tpl_server.sendHeader("Connection", "close");
+    tpl_server.send_P(200, "text/html", "OK");
+    for (uint32_t i = 0; i < PROBE_SIZE / 4; i++) {
+      p[i] = MAGIC ^ ((i << 16) + i);
+    }
+  });
   tpl_server.on("/dump", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
-    tpl_server.send_P(200, "Content-Type: application/octet-stream", (const char*)p,PROBE_SIZE);
+    tpl_server.send_P(200, "Content-Type: application/octet-stream",
+                      (const char *)p, PROBE_SIZE);
   });
-
-  if (tpl_config.bootCount == 1) {
-	  // init RAM
-	for (uint32_t i = 0;i < PROBE_SIZE/4;i++) {
-		*p++ = MAGIC ^ ((i << 16) + i);
-	}
-    // enter deep sleep for restart
-    tpl_command = CmdDeepSleep;
-  }
-  else {
-	uint32_t good = 0;
-	uint32_t bad = 0;
-	for (uint32_t i = 0;i < PROBE_SIZE/4;i++) {
-		if (*p++ == (MAGIC ^ ((i << 16) + i))) {
-			good++;
-		}
-		else {
-			bad++;
-		}
-	}
-	char buf[100];
-	sprintf(buf, "good=%d, bad=%d, total=%d", good,bad,PROBE_SIZE/4);
-	tpl_config.bot_message = buf;
-	tpl_config.bot_send_message = true;
-  }
-  print_info();
 
   Serial.println("Done.");
 }

@@ -18,21 +18,22 @@ using namespace std;
 
 //---------------------------------------------------
 
-#define MAGIC_IMAGE 0xdeadbeaf
+#define MAGIC_IMAGE 0xbeafdead
 
 struct ps_image_s {
-  uint32_t buf_1111111X[50000];
-  size_t img_len;
+  uint32_t damaged_on_restart[8];
   uint32_t magic;
+  size_t img_len;
   uint32_t checksum;
+  uint32_t pad1;
   uint32_t pad2;
   uint32_t pad3;
   uint32_t pad4;
-  uint32_t pad5;
   uint32_t overwritten;
+  uint32_t buf_1111111X[50000];
 };
 
-#define OK_WORDS 3
+#define OK_WORDS 7
 void store_image(struct ps_image_s *p, uint8_t *jpeg, size_t jpeg_len) {
   uint32_t *in = (uint32_t *)jpeg;
   uint32_t *out = p->buf_1111111X;
@@ -42,7 +43,7 @@ void store_image(struct ps_image_s *p, uint8_t *jpeg, size_t jpeg_len) {
     for (uint8_t i = 0; i < OK_WORDS; i++) {
       uint32_t x = *in++;
       *out++ = x;
-	  checksum += x;
+      checksum += x;
       transferred += 4;
     }
     // skip damaged line
@@ -71,7 +72,7 @@ bool read_image(struct ps_image_s *p, uint8_t *jpeg, size_t jpeg_len) {
     for (uint8_t i = 0; i < OK_WORDS; i++) {
       uint32_t x = *in++;
       *out++ = x;
-	  checksum += x;
+      checksum += x;
       transferred += 4;
     }
     // skip damaged line
@@ -93,6 +94,11 @@ void print_info() {
   Serial.println(ESP.getFreePsram());
 }
 void setup() {
+  struct ps_image_s *p = NULL;
+  if (psramFound()) {
+    p = (struct ps_image_s *)ps_malloc(sizeof(ps_image_s));
+  }
+
   tpl_system_setup(10 * 60);  // 10mins deep sleep time
 
   // turn flash light off
@@ -109,10 +115,6 @@ void setup() {
   tpl_net_watchdog_setup();
   tpl_command_setup(NULL);
 
-  if (psramFound()) {
-    Serial.println("PSRAM found and loaded");
-  }
-  struct ps_image_s *p = (struct ps_image_s *) ps_malloc(sizeof(ps_image_s));
   if (p) {
     const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
     size_t img_len = check_image(p);
@@ -123,16 +125,14 @@ void setup() {
       if (tpl_config.curr_jpg) {
         tpl_telegram_setup(CHAT_ID);
         if (read_image(p, tpl_config.curr_jpg, img_len)) {
-
-        tpl_command = CmdSendJpg2Bot;
-        while (tpl_command != CmdIdle) {
-          vTaskDelay(xDelay);
+          tpl_command = CmdSendJpg2Bot;
+          while (tpl_command != CmdIdle) {
+            vTaskDelay(xDelay);
+          }
+        } else {
+          tpl_config.bot_message = "error";
+          tpl_config.bot_send_message = true;
         }
-		}
-		else {
-			tpl_config.bot_message = "error";
-			tpl_config.bot_send_message = true;
-		}
         // wait lower level finish transmission !?
         const TickType_t vDelay = 10000 / portTICK_PERIOD_MS;
         vTaskDelay(vDelay);
@@ -175,6 +175,14 @@ void setup() {
       }
     }
   }
+	else {
+        tpl_telegram_setup(CHAT_ID);
+          tpl_config.bot_message = "no psram";
+          tpl_config.bot_send_message = true;
+        // wait lower level finish transmission !?
+        const TickType_t vDelay = 10000 / portTICK_PERIOD_MS;
+        vTaskDelay(vDelay);
+	}
   print_info();
 
   Serial.println("Done.");

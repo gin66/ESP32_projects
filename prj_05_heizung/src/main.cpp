@@ -24,6 +24,12 @@ struct ps_image_s {
   uint32_t buf_1111111X[50000];
   size_t img_len;
   uint32_t magic;
+  uint32_t pad1;
+  uint32_t pad2;
+  uint32_t pad3;
+  uint32_t pad4;
+  uint32_t pad5;
+  uint32_t overwritten;
 };
 
 void store_image(struct ps_image_s *p, uint8_t *jpeg, size_t jpeg_len) {
@@ -40,9 +46,13 @@ void store_image(struct ps_image_s *p, uint8_t *jpeg, size_t jpeg_len) {
   }
   p->img_len = jpeg_len;
   p->magic = MAGIC_IMAGE;
+  p->overwritten = MAGIC_IMAGE;
 }
 size_t check_image(struct ps_image_s *p) {
   if (p->magic != MAGIC_IMAGE) {
+    return 0;
+  }
+  if (p->overwritten == MAGIC_IMAGE) {
     return 0;
   }
   return p->img_len;

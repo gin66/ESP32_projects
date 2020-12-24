@@ -21,9 +21,9 @@ using namespace std;
 #define MAGIC_IMAGE 0xbeafdead
 
 struct ps_image_s {
-  uint32_t damaged_on_restart[8];
+  uint32_t damaged_on_restart[16]; // apparently restart damages more and with deep sleep this is not damaged
   uint32_t magic;
-  size_t img_len;
+  uint32_t img_len;
   uint32_t checksum;
   uint32_t pad1;
   uint32_t pad2;
@@ -171,7 +171,7 @@ void setup() {
         // Free memory for bot
         // esp_camera_deinit();
         print_info();
-        ESP.restart();
+		tpl_config.deepsleep_time_secs = 1;
       }
     }
   }

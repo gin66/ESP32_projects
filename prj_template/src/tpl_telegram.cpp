@@ -164,6 +164,7 @@ void TaskTelegramCore1(void *pvParameters) {
           String res = bot.sendPhotoByBinary(chatId, "image/jpeg", jpeg_len,
                                              isMoreDataAvailable, nullptr,
                                              getNextBuffer, getNextBufferLen);
+          if (res.length() > 0) break;
         }
       } else {
         bot.sendMessage(chatId, "Camera capture failed");

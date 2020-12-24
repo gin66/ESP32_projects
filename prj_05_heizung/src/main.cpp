@@ -55,7 +55,7 @@ void store_image(struct ps_image_s *p, uint8_t *jpeg, size_t jpeg_len) {
   p->magic = MAGIC_IMAGE;
   p->overwritten = MAGIC_IMAGE;
 }
-size_t check_image(struct ps_image_s *p) {
+size_t have_image(struct ps_image_s *p) {
   if (p->magic != MAGIC_IMAGE) {
     return 0;
   }
@@ -64,7 +64,24 @@ size_t check_image(struct ps_image_s *p) {
   }
   return p->img_len;
 }
-bool read_image(struct ps_image_s *p, uint8_t *jpeg, size_t jpeg_len) {
+bool check_image(struct ps_image_s *p) {
+  uint32_t jpeg_len = p->img_len;
+  uint32_t *in = p->buf_1111111X;
+  uint32_t transferred = 0;
+  uint32_t checksum = 0;
+  while (transferred < jpeg_len) {
+    for (uint8_t i = 0; i < OK_WORDS; i++) {
+      uint32_t x = *in++;
+      checksum += x;
+      transferred += 4;
+    }
+    // skip damaged line
+    in++;
+  }
+  return (checksum == p->checksum);
+}
+bool read_image(struct ps_image_s *p, uint8_t *jpeg) {
+  uint32_t jpeg_len = p->img_len;
   uint32_t *in = p->buf_1111111X;
   uint32_t *out = (uint32_t *)jpeg;
   uint32_t transferred = 0;
@@ -125,14 +142,14 @@ void setup() {
 
   if (p) {
     const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
-    size_t img_len = check_image(p);
+    size_t img_len = have_image(p);
     if (img_len > 0) {
       // have image, then send
       tpl_config.curr_jpg_len = img_len;
       tpl_config.curr_jpg = (uint8_t *)malloc(img_len + 8 * 32);
       if (tpl_config.curr_jpg) {
         tpl_telegram_setup(CHAT_ID);
-        if (read_image(p, tpl_config.curr_jpg, img_len)) {
+        if (read_image(p, tpl_config.curr_jpg)) {
           tpl_command = CmdSendJpg2Bot;
           while (tpl_command != CmdIdle) {
             vTaskDelay(xDelay);
@@ -180,6 +197,10 @@ void setup() {
         // esp_camera_deinit();
 
         // wait psram cache written !!!
+        // hope to write out cache
+        if (!check_image(p)) {
+          ESP.restart();
+        }
         const TickType_t vDelay = 10000 / portTICK_PERIOD_MS;
         vTaskDelay(vDelay);
 

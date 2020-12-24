@@ -18,11 +18,9 @@ using namespace std;
 
 //---------------------------------------------------
 
-#define MAGIC_IMAGE 0xbeafdead
+#define MAGIC_IMAGE 0xdeadbeaf
 
 struct ps_image_s {
-  uint32_t damaged_on_restart[16];  // apparently restart damages more and with
-                                    // deep sleep this is not damaged
   uint32_t magic;
   uint32_t img_len;
   uint32_t checksum;
@@ -147,8 +145,11 @@ void setup() {
         vTaskDelay(vDelay);
       }
     } else {
-      // take picture only every 24th boot => every 4 hours
-      // if ((tpl_config.bootCount % 24) == 1) {
+      // take picture only every 25th boot => 24*10 = 4 hours
+	  //     first boot %25 == 1 => take pic
+	  //     second boot %25 == 2 => send pic
+	  //     other boots till 24 => sleep
+      if ((tpl_config.bootCount % 25) == 1) {
       {
         uint8_t fail_cnt = 0;
         tpl_camera_setup(&fail_cnt, FRAMESIZE_VGA);

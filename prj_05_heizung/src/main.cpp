@@ -123,6 +123,7 @@ void setup() {
   });
 
   if (p) {
+    WATCH(1)
     const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
     size_t img_len = have_image(p);
     if (img_len > 0) {
@@ -130,12 +131,15 @@ void setup() {
       tpl_config.curr_jpg_len = img_len;
       tpl_config.curr_jpg = (uint8_t *)malloc(img_len + 8 * 32);
       if (tpl_config.curr_jpg) {
+        WATCH(101)
         tpl_telegram_setup(CHAT_ID);
         if (read_image(p, tpl_config.curr_jpg)) {
+          WATCH(102)
           tpl_command = CmdSendJpg2Bot;
           while (tpl_command != CmdIdle) {
             vTaskDelay(xDelay);
           }
+          WATCH(103)
         } else {
           tpl_config.bot_message = "error";
           tpl_config.bot_send_message = true;
@@ -143,13 +147,16 @@ void setup() {
         // wait lower level finish transmission !?
         const TickType_t vDelay = 10000 / portTICK_PERIOD_MS;
         vTaskDelay(vDelay);
+        WATCH(104)
       }
     } else {
       // take picture only every 25th boot => 24*10 = 4 hours
       //     first boot %25 == 1 => take pic
       //     second boot %25 == 2 => send pic
       //     other boots till 24 => sleep
+      WATCH(201)
       if ((tpl_config.bootCount % 25) == 1) {
+        WATCH(202)
         uint8_t fail_cnt = 0;
         tpl_camera_setup(&fail_cnt, FRAMESIZE_VGA);
         Serial.print("camera fail count=");
@@ -177,6 +184,7 @@ void setup() {
             esp_camera_fb_return(fb);
           }
         }
+        WATCH(203)
         print_info();
         tpl_config.deepsleep_time_secs = 1;
         // psram cache will be flashed in tpl_command.cpp before entering

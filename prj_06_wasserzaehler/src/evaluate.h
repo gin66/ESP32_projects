@@ -64,4 +64,3 @@ uint16_t num_entries();
 
 #define PSRAM_BUFFER_SIZE (NUM_ENTRIES * 32 + 2 * 32)
 extern struct psram_buffer_s *psram_buffer;
-

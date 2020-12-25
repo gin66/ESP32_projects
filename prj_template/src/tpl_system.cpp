@@ -93,7 +93,7 @@ static const char *reason[] = {
 };
 
 #ifdef MAX_ON_TIME_S
-void TaskOnTimeWatchdog(void* pvParameters) {
+void TaskOnTimeWatchdog(void *pvParameters) {
   const TickType_t xDelay = MAX_ON_TIME_S * 1000 / portTICK_PERIOD_MS;
   vTaskDelay(xDelay);
   ESP.restart();
@@ -121,6 +121,6 @@ void tpl_system_setup(uint32_t deep_sleep_secs) {
   }
 #ifdef MAX_ON_TIME_S
   xTaskCreatePinnedToCore(TaskOnTimeWatchdog, "On Time Watchdog", 1024, NULL, 0,
-                               &tpl_tasks.task_on_time_watchdog, CORE_0);
+                          &tpl_tasks.task_on_time_watchdog, CORE_0);
 #endif
 }

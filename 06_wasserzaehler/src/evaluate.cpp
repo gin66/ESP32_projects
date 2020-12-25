@@ -17,10 +17,9 @@ struct psram_buffer_s *psram_buffer;
 
 void psram_buffer_init(struct psram_buffer_s *old_psram_buffer) {
   if (old_psram_buffer == NULL) {
-	  psram_buffer = (struct psram_buffer_s *)ps_malloc(PSRAM_BUFFER_SIZE);
-  }
-  else {
-	  psram_buffer = old_psram_buffer;
+    psram_buffer = (struct psram_buffer_s *)ps_malloc(PSRAM_BUFFER_SIZE);
+  } else {
+    psram_buffer = old_psram_buffer;
   }
   // check version
   uint8_t is_ok = 1;
@@ -59,7 +58,11 @@ static uint8_t delta(uint8_t a1, uint8_t a2) {
 }
 
 int8_t psram_buffer_add(uint32_t timestamp, uint16_t angle0, uint16_t angle1,
-                        uint16_t angle2, uint16_t angle3) {
+                        uint16_t angle2, uint16_t angle3, int16_t row_center0,
+                        int16_t col_center0, int16_t row_center1,
+                        int16_t col_center1, int16_t row_center2,
+                        int16_t col_center2, int16_t row_center3,
+                        int16_t col_center3) {
   if (psram_buffer->windex - NUM_ENTRIES == psram_buffer->rindex) {
     psram_buffer->rindex++;
   }
@@ -74,6 +77,14 @@ int8_t psram_buffer_add(uint32_t timestamp, uint16_t angle0, uint16_t angle1,
   e->angle[1] = norm_angle1;
   e->angle[2] = norm_angle2;
   e->angle[3] = norm_angle3;
+  e->row_center[0] = row_center0;
+  e->row_center[1] = row_center1;
+  e->row_center[2] = row_center2;
+  e->row_center[3] = row_center3;
+  e->col_center[0] = col_center0;
+  e->col_center[1] = col_center1;
+  e->col_center[2] = col_center2;
+  e->col_center[3] = col_center3;
 
   uint16_t num_data = psram_buffer->windex - psram_buffer->rindex;
   if (num_data < 5) {
@@ -225,9 +236,8 @@ uint16_t num_entries() {
   return ((uint16_t)(psram_buffer->windex - psram_buffer->rindex));
 }
 struct entry_s *get_entry(uint16_t i) {
-	if (i >= num_entries()) {
-		return NULL;
-	}
-	return &ENTRY(psram_buffer->rindex + i);
+  if (i >= num_entries()) {
+    return NULL;
+  }
+  return &ENTRY(psram_buffer->rindex + i);
 }
-

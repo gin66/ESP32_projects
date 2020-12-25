@@ -144,7 +144,15 @@ void setup() {
         gettimeofday(&tv, NULL);
         int8_t res = psram_buffer_add(
             tv.tv_sec, reader.pointer[0].angle, reader.pointer[1].angle,
-            reader.pointer[2].angle, reader.pointer[3].angle);
+            reader.pointer[2].angle, reader.pointer[3].angle,
+            reader.pointer[0].row_center2 >> 1,
+            reader.pointer[1].row_center2 >> 1,
+            reader.pointer[2].row_center2 >> 1,
+            reader.pointer[3].row_center2 >> 1,
+            reader.pointer[0].col_center2 >> 1,
+            reader.pointer[1].col_center2 >> 1,
+            reader.pointer[2].col_center2 >> 1,
+            reader.pointer[3].col_center2 >> 1);
         if (res < 0) {
           send_image = true;
         }

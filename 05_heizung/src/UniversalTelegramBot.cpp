@@ -250,14 +250,14 @@ String UniversalTelegramBot::sendMultipartFormDataToTelegram(
     int contentLength =
         fileSize + start_request.length() + end_request.length();
 
-// have observed this error:
-//  [BOT Client]Connecting to server
-//  [14:13:55:703] Content-Length: 21328
-//  [14:13:55:712] [E][ssl_client.cpp:36] _handle_error(): [send_ssl_data():300]: (-26752) SSL - Connection requires a write call
-//  [14:13:55:721] Start request: --------------------------b8f610217e83e29b
-//
-//  then always 0 bytes are sent
-
+    // have observed this error:
+    //  [BOT Client]Connecting to server
+    //  [14:13:55:703] Content-Length: 21328
+    //  [14:13:55:712] [E][ssl_client.cpp:36] _handle_error():
+    //  [send_ssl_data():300]: (-26752) SSL - Connection requires a write call
+    //  [14:13:55:721] Start request: --------------------------b8f610217e83e29b
+    //
+    //  then always 0 bytes are sent
 
 #ifdef TELEGRAM_DEBUG
     Serial.println("Content-Length: " + String(contentLength));

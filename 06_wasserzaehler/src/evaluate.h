@@ -5,20 +5,18 @@
 #define NUM_ENTRIES 32768
 #define NUM_ENTRIES_MASK (NUM_ENTRIES - 1)
 
-#define PSRAM_VERSION 0x0301
+#define PSRAM_VERSION 0x0401
 
 // Use psram as deepsleep and CPU reset persistent storage.
 // Draw back is:
 //		Every 8th u32 is overwritten by psram_test...
 
-struct entry_s {
+struct entry_s {  // 8 u32
   uint32_t timestamp;
   uint8_t angle[4];  // 0..360° encoded as 0-200
-  uint32_t pad1;
-  uint32_t pad2;
-  uint32_t pad3;
-  uint32_t pad4;
-  uint32_t pad5;
+  int16_t row_center[4];
+  int16_t col_center[4];
+  uint32_t pad;
   uint32_t overwritten32;
 };
 struct psram_buffer_s {
@@ -49,7 +47,11 @@ struct psram_buffer_s {
 // must be called immediately after psramFound()
 void psram_buffer_init(struct psram_buffer_s *psram_buffer);
 int8_t psram_buffer_add(uint32_t timestamp, uint16_t angle0, uint16_t angle1,
-                        uint16_t angle2, uint16_t angle3);
+                        uint16_t angle2, uint16_t angle3, int16_t row_center0,
+                        int16_t col_center0, int16_t row_center1,
+                        int16_t col_center1, int16_t row_center2,
+                        int16_t col_center2, int16_t row_center3,
+                        int16_t col_center3);
 uint16_t water_consumption();
 
 #define NO_ALARM 0

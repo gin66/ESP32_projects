@@ -37,6 +37,14 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 r.pointer[1].angle,
                 r.pointer[2].angle,
                 r.pointer[3].angle,
+                r.pointer[0].row_center2 >>1,
+                r.pointer[1].row_center2 >>1,
+                r.pointer[2].row_center2 >>1,
+                r.pointer[3].row_center2 >>1,
+                r.pointer[0].col_center2 >>1,
+                r.pointer[1].col_center2 >>1,
+                r.pointer[2].col_center2 >>1,
+                r.pointer[3].col_center2 >>1,
             );
             let predict = water_consumption();
             let alarm = have_alarm();

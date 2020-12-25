@@ -146,9 +146,9 @@ void setup() {
       }
     } else {
       // take picture only every 25th boot => 24*10 = 4 hours
-	  //     first boot %25 == 1 => take pic
-	  //     second boot %25 == 2 => send pic
-	  //     other boots till 24 => sleep
+      //     first boot %25 == 1 => take pic
+      //     second boot %25 == 2 => send pic
+      //     other boots till 24 => sleep
       if ((tpl_config.bootCount % 25) == 1) {
         uint8_t fail_cnt = 0;
         tpl_camera_setup(&fail_cnt, FRAMESIZE_VGA);
@@ -179,7 +179,8 @@ void setup() {
         }
         print_info();
         tpl_config.deepsleep_time_secs = 1;
-		// psram cache will be flashed in tpl_command.cpp before entering deepsleep
+        // psram cache will be flashed in tpl_command.cpp before entering
+        // deepsleep
       }
     }
   } else {

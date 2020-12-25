@@ -16,7 +16,6 @@
 using namespace std;
 
 struct read_s reader;
-uint16_t last_seen_watchpoint = 0;
 
 // void execute(enum Command command);
 
@@ -35,9 +34,10 @@ void print_info() {
 void setup() {
   if (psramFound()) {
     psram_buffer_init();
-    last_seen_watchpoint = psram_buffer->last_seen_watchpoint;
+    tpl_config.last_seen_watchpoint =
+        psram_buffer->tpl_config.last_seen_watchpoint;
   } else {
-    last_seen_watchpoint = 0;
+    tpl_config.last_seen_watchpoint = 0;
   }
 
   tpl_system_setup(600);  // 10 minutes deep sleep
@@ -53,7 +53,7 @@ void setup() {
   Serial.begin(115200);
   Serial.setDebugOutput(true);
   Serial.print("Last watchpoint=");
-  Serial.println(last_seen_watchpoint);
+  Serial.println(tpl_config.last_seen_watchpoint);
 
   // Wait OTA
   tpl_wifi_setup(true, true, (gpio_num_t)tpl_ledPin);
@@ -109,7 +109,7 @@ void setup() {
   char buf[200];
   tpl_config.bot_message = buf;
   sprintf(buf, "Camera capture V1, entries: %d BootCount: %d Watchpoint: %d",
-          num_entries(), tpl_config.bootCount, last_seen_watchpoint);
+          num_entries(), tpl_config.bootCount, tpl_config.last_seen_watchpoint);
   tpl_config.bot_send_message = true;
   while (tpl_config.bot_send_message) {
     vTaskDelay(xDelay);
@@ -147,37 +147,38 @@ void setup() {
         WATCH(105);
         uint16_t consumption = water_consumption();
         uint8_t alarm = have_alarm();
-		char msg[100];
+        char msg[100];
         switch (alarm) {
           case NO_ALARM:
             break;
           case ALARM_TOO_HIGH_CONSUMPTION:
             tpl_config.send_bot_token = ALARM_BOTtoken;
             send_image = true;
-			tpl_config.bot_message = msg;
-            sprintf(msg, "Wasseralarm: Hoher Verbrauch: %d",water_steigung());
-			tpl_config.bot_send_message = true;
+            tpl_config.bot_message = msg;
+            sprintf(msg, "Wasseralarm: Hoher Verbrauch: %d", water_steigung());
+            tpl_config.bot_send_message = true;
             break;
           case ALARM_CUMULATED_CONSUMPTION_TOO_HIGH:
             tpl_config.send_bot_token = ALARM_BOTtoken;
             send_image = true;
-			tpl_config.bot_message = msg;
-            sprintf(msg, "Wasseralarm: Kumulierter Verbrauch zu hoch: %d", cumulated_consumption());
-			tpl_config.bot_send_message = true;
+            tpl_config.bot_message = msg;
+            sprintf(msg, "Wasseralarm: Kumulierter Verbrauch zu hoch: %d",
+                    cumulated_consumption());
+            tpl_config.bot_send_message = true;
             break;
           case ALARM_LEAKAGE:
             tpl_config.send_bot_token = ALARM_BOTtoken;
             send_image = true;
-			tpl_config.bot_message = msg;
+            tpl_config.bot_message = msg;
             sprintf(msg, "Wasseralarm: Leck");
-			tpl_config.bot_send_message = true;
+            tpl_config.bot_send_message = true;
             break;
           case ALARM_LEAKAGE_FINE:
             tpl_config.send_bot_token = ALARM_BOTtoken;
             send_image = true;
-			tpl_config.bot_message = msg;
+            tpl_config.bot_message = msg;
             sprintf(msg, "Wasseralarm: Leck alle Zeiger");
-			tpl_config.bot_send_message = true;
+            tpl_config.bot_send_message = true;
             break;
         }
         WATCH(106);

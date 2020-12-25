@@ -37,7 +37,8 @@ struct tpl_config_s tpl_config = {.bootCount = 0,
                                   .deepsleep_time_secs = 0,
                                   .stack_info = stack_info,
                                   .curr_jpg = NULL,
-                                  .curr_jpg_len = 0};
+                                  .curr_jpg_len = 0,
+                                  .last_seen_watchpoint = 0};
 
 #define ADD_STACK_INFO(name, task)                                        \
   {                                                                       \

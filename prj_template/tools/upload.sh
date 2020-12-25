@@ -14,7 +14,7 @@ then
 	exit
 fi
 
-if [ ! -f "~/.cargo/bin/websocat" ]
+if [ ! -f ~/.cargo/bin/websocat ]
 then
 	cargo install websocat
 fi

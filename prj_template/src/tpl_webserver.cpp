@@ -78,6 +78,11 @@ void tpl_webserver_setup() {
     long val = analogRead(pin);
     tpl_server.send(200, "text/html", String(val));
   });
+  tpl_server.on("/watch", HTTP_GET, []() {
+    tpl_server.sendHeader("Connection", "close");
+    long val = tpl_config.watchpoint;
+    tpl_server.send(200, "text/html", String(val));
+  });
   tpl_server.on("/serverIndex", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
     tpl_server.send_P(200, "text/html", (const char*)server_index_html_start);

@@ -310,6 +310,9 @@ String UniversalTelegramBot::sendMultipartFormDataToTelegram(
       }
     }
 
+#ifdef TELEGRAM_DEBUG
+    Serial.println(F("buffer sent"));
+#endif
     client->print(end_request);
 #ifdef TELEGRAM_DEBUG
     Serial.print("End request: " + end_request);

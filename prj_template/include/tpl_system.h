@@ -28,6 +28,9 @@ extern struct tpl_config_s {
   uint32_t bootCount;
   volatile bool allow_deepsleep;
   volatile bool ota_ongoing;
+  volatile bool web_communication_ongoing;
+  volatile bool ws_communication_ongoing;
+  volatile bool bot_communication_ongoing;
 #ifdef IS_ESP32CAM
   volatile bool ws_send_jpg_image;
   volatile bool bot_send_jpg_image;

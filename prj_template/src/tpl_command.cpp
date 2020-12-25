@@ -55,11 +55,26 @@ void TaskCommandCore1(void *pvParameters) {
       case CmdDeepSleep:
         if (tpl_config.allow_deepsleep && !tpl_config.ota_ongoing &&
             (tpl_config.deepsleep_time_secs != 0)) {
-          vTaskSuspend(tpl_tasks.task_wifi_manager);
-		  if (tpl_tasks.task_telegram) {
+          if (tpl_tasks.task_telegram) {
+            while (tpl_config.bot_communication_ongoing) {
+              vTaskDelay(xDelay);
+            }
             vTaskSuspend(tpl_tasks.task_telegram);
-		  }
-		  Serial.print("Wifi stop:");
+          }
+          if (tpl_tasks.task_webserver) {
+            while (tpl_config.web_communication_ongoing) {
+              vTaskDelay(xDelay);
+            }
+            vTaskSuspend(tpl_tasks.task_webserver);
+          }
+          if (tpl_tasks.task_websocket) {
+            while (tpl_config.ws_communication_ongoing) {
+              vTaskDelay(xDelay);
+            }
+            vTaskSuspend(tpl_tasks.task_websocket);
+          }
+          vTaskSuspend(tpl_tasks.task_wifi_manager);
+          Serial.print("Wifi stop:");
           Serial.println(esp_wifi_stop());
           Serial.println(esp_wifi_stop());
 #ifdef IS_ESP32CAM
@@ -71,7 +86,7 @@ void TaskCommandCore1(void *pvParameters) {
           uint64_t sleep = tpl_config.deepsleep_time_secs;
           sleep *= 1000000LL;
           esp_sleep_enable_timer_wakeup(sleep);
-		  Serial.println("Enter sleep");
+          Serial.println("Enter sleep");
           esp_deep_sleep_start();
         }
         tpl_command = CmdIdle;

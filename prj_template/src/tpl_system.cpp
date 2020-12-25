@@ -24,6 +24,9 @@ static char stack_info[] =
 struct tpl_config_s tpl_config = {.bootCount = 0,
                                   .allow_deepsleep = false,
                                   .ota_ongoing = false,
+                                  .web_communication_ongoing = false,
+                                  .ws_communication_ongoing = false,
+                                  .bot_communication_ongoing = false,
 #ifdef IS_ESP32CAM
                                   .ws_send_jpg_image = false,
                                   .bot_send_jpg_image = false,

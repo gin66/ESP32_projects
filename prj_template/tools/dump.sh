@@ -43,4 +43,6 @@ do
 	sleep 1
 done
 
+sleep 2
+
 wget http://$TARGET/dump

@@ -46,7 +46,11 @@ extern struct tpl_config_s {
   uint8_t *curr_jpg;
   size_t curr_jpg_len;
   uint16_t last_seen_watchpoint;
+  uint16_t watchpoint;
 } tpl_config;
 
 void tpl_update_stack_info();
 void tpl_system_setup(uint32_t deep_sleep_secs = 0);
+
+extern RTC_ATTR uint16_t rtc_watchpoint;
+#define WATCH(i) {rtc_watchpoint = i; tpl_config.watchpoint;}

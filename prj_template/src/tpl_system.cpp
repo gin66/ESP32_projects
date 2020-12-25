@@ -2,6 +2,8 @@
 
 #include "rom/rtc.h"
 
+RTC_ATTR uint16_t rtc_watchpoint;
+
 struct tpl_task_s tpl_tasks = {.task_wifi_manager = NULL,
                                .task_net_watchdog = NULL,
                                .task_websocket = NULL,
@@ -38,7 +40,8 @@ struct tpl_config_s tpl_config = {.bootCount = 0,
                                   .stack_info = stack_info,
                                   .curr_jpg = NULL,
                                   .curr_jpg_len = 0,
-                                  .last_seen_watchpoint = 0};
+                                  .last_seen_watchpoint = 0,
+                                  .watchpoint = 0};
 
 #define ADD_STACK_INFO(name, task)                                        \
   {                                                                       \

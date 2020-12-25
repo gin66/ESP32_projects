@@ -13,6 +13,11 @@ links:
 	for i in [0-9]*/src; do (cd $$i;echo $$i; cp ../../prj_template/src/*.html .);done
 	for i in [0-9]*/src; do (cd $$i;echo $$i; ln -sf ../../prj_template/src/*.cpp .);done
 	for i in [0-9]*/src; do (cd $$i;echo $$i; ln -sf ../../private_wifi_secrets.cpp wifi_secrets.cpp);done
+	# Update .gitignore
+	mv .gitignore .gitignore2
+	gawk 'skip==0{print} /##===/{skip=1}' .gitignore2 >.gitignore
+	find * -type l | sort >>.gitignore
+	rm .gitignore2
 
 build: links
 	for i in [0-9]*;do (echo "Process $$i";cd $$i;rm -fR .pio;pio run);done

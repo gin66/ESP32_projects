@@ -112,11 +112,14 @@ void setup() {
   tpl_telegram_setup(CHAT_ID);
   char buf[200];
   tpl_config.bot_message = buf;
-  sprintf(buf, "Camera capture V3, entries: %d BootCount: %d Watchpoint: %d",
-          num_entries(), tpl_config.bootCount, tpl_config.last_seen_watchpoint);
-  tpl_config.bot_send_message = true;
-  while (tpl_config.bot_send_message) {
-    vTaskDelay(xDelay);
+  if (false) {
+    sprintf(buf, "Camera capture V3, entries: %d BootCount: %d Watchpoint: %d",
+            num_entries(), tpl_config.bootCount,
+            tpl_config.last_seen_watchpoint);
+    tpl_config.bot_send_message = true;
+    while (tpl_config.bot_send_message) {
+      vTaskDelay(xDelay);
+    }
   }
 
   if (tpl_config.curr_jpg != NULL) {

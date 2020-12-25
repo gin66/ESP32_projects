@@ -3,6 +3,7 @@
 #include "rom/rtc.h"
 
 RTC_DATA_ATTR uint16_t rtc_watchpoint;
+static RTC_DATA_ATTR uint32_t bootCount = 0;
 
 struct tpl_task_s tpl_tasks = {.task_wifi_manager = NULL,
                                .task_net_watchdog = NULL,
@@ -62,8 +63,6 @@ void tpl_update_stack_info() {
   ADD_STACK_INFO(tpl_tasks.app_name2, tpl_tasks.task_app2);
 }
 
-static RTC_DATA_ATTR uint32_t bootCount = 0;
-
 static const char *reason[] = {
     "OK",
     "POWERON_RESET",
@@ -87,6 +86,8 @@ static const char *reason[] = {
 void tpl_system_setup(uint32_t deep_sleep_secs) {
   bootCount++;
   tpl_config.bootCount = bootCount;
+  tpl_config.last_seen_watchpoint =
+        rtc_watchpoint;
   uint16_t r0 = rtc_get_reset_reason(0);
   uint16_t r1 = rtc_get_reset_reason(1);
   tpl_config.reset_reason = (r0 << 8) | r1;

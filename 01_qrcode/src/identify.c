@@ -133,14 +133,12 @@ struct flood_fill_task_s {
   int16_t left;
   int16_t right;
   int16_t y;
-  int16_t from;
-  int16_t to;
   int16_t i;
   int16_t direction;  // +1/-1
   quirc_pixel_t *row;
 } *fft_depth = NULL;
 
-static void flood_fill_seed(struct quirc *q, int _x, int _y, int _from, int _to,
+static void flood_fill_seed(struct quirc *q, int _x, int _y, int from, int to,
                             span_func_t func, void *user_data, int depth) {
   if (fft_depth == NULL) {
     fft_depth = (struct flood_fill_task_s *)ps_calloc(
@@ -153,8 +151,6 @@ static void flood_fill_seed(struct quirc *q, int _x, int _y, int _from, int _to,
   f->left = _x;
   f->right = _x;
   f->y = _y;
-  f->from = _from;
-  f->to = _to;
   f->direction = 0;
 
   while (task > 0) {
@@ -162,12 +158,12 @@ static void flood_fill_seed(struct quirc *q, int _x, int _y, int _from, int _to,
       // This task is new, so do calculation as below
       f->row = q->pixels + f->y * q->w;
 
-      while (f->left > 0 && f->row[f->left - 1] == f->from) f->left--;
+      while (f->left > 0 && f->row[f->left - 1] == from) f->left--;
 
-      while (f->right < q->w - 1 && f->row[f->right + 1] == f->from) f->right++;
+      while (f->right < q->w - 1 && f->row[f->right + 1] == from) f->right++;
 
       /* Fill the extent */
-      for (int16_t i = f->left; i <= f->right; i++) f->row[i] = f->to;
+      for (int16_t i = f->left; i <= f->right; i++) f->row[i] = to;
 
       if (func) func(user_data, f->y, f->left, f->right);
 
@@ -198,12 +194,10 @@ static void flood_fill_seed(struct quirc *q, int _x, int _y, int _from, int _to,
     }
     if (f->i <= f->right) {
       // generate the next sub task
-      if (f->row[f->i] == f->from) {
+      if (f->row[f->i] == from) {
         f[1].y = f->y + f->direction;
         f[1].left = f->i;
         f[1].right = f->i;
-        f[1].from = f->from;
-        f[1].to = f->to;
         f[1].direction = 0;
         f->i++;
         task++;

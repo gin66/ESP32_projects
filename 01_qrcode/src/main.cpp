@@ -39,7 +39,7 @@ using namespace std;
 bool qrMode = true;
 bool qr_code_valid = false;
 bool check_qr_unlock = false;
-bool allow_unlock = false;
+bool unlocked = false;
 long qr_stack_free = 0;
 quirc_decode_error_t qr_decode_res = QUIRC_SUCCESS;
 struct quirc_data qr_data;
@@ -198,7 +198,7 @@ void add_ws_info(DynamicJsonDocument* myObject) {
   (*myObject)["qr"] = qr_string;
   (*myObject)["qr_decode"] = String(quirc_strerror(qr_decode_res));
   (*myObject)["codes"] = id_count;
-  (*myObject)["unlock"] = allow_unlock;
+  (*myObject)["unlock"] = unlocked;
 }
 
 //---------------------------------------------------
@@ -239,8 +239,8 @@ void setup() {
   tpl_tasks.app_name1 = "QRreader";
   // 40000 too low.
   // with 2 QR codes and 65536 stack, only 3852 left
-  if (pdPASS != xTaskCreatePinnedToCore(TaskQRreader, "QRreader", 32768,
-                                        NULL, 1, &tpl_tasks.task_app1,
+  if (pdPASS != xTaskCreatePinnedToCore(TaskQRreader, "QRreader", 20000, NULL,
+                                        1, &tpl_tasks.task_app1,
                                         CORE_1)) {  // Prio 1, Core 1
     Serial.println("Failed to start task.");
   }
@@ -264,7 +264,7 @@ void setup() {
   Serial.println("Setup done.");
 }
 
-void check_unlock(bool prev_minute) {
+bool check_unlock(bool prev_minute) {
   char strftime_buf[64];
   struct tm timeinfo;
   time_t now;
@@ -281,12 +281,11 @@ void check_unlock(bool prev_minute) {
 
   char result[10];
   sprintf(result, "%02x%02x", sha1HashBin[0], sha1HashBin[1]);
-  if (strncmp(result, (const char*)qr_data.payload, 4) == 0) {
-    allow_unlock = true;
-  }
+  return (strncmp(result, (const char*)qr_data.payload, 4) == 0);
 }
 
 uint32_t next_stack_info = 0;
+uint32_t on_time = 0;
 
 void loop() {
   uint32_t ms = millis();
@@ -308,11 +307,23 @@ void loop() {
   }
 #endif
 
-  if (check_qr_unlock) {
-    check_qr_unlock = false;
-    check_unlock(false);
-    check_unlock(true);
+  bool unlock = false;
+  unlock |= check_unlock(false);
+  unlock |= check_unlock(true);
+  if (unlock && !unlocked) {
+    unlocked = true;
+    // turn flash light on
+    digitalWrite(tpl_flashPin, HIGH);
+    on_time = ms + 1000;
   }
+  if ((int32_t)(ms - on_time) > 0) {
+    // turn flash light off
+    digitalWrite(tpl_flashPin, LOW);
+    if (!unlock) {
+      unlocked = false;
+    }
+  }
+
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
   vTaskDelay(xDelay);
 }

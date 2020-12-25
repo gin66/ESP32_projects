@@ -175,8 +175,7 @@ static void flood_fill_seed(struct quirc *q, int _x, int _y, int _from, int _to,
 
       if (f->y > 0) {
         f->direction = -1;
-      }
-	  else if (f->y < q->h - 1) {
+      } else if (f->y < q->h - 1) {
         f->direction = 1;
       }
       /* Seed new flood-fills */

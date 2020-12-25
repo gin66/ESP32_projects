@@ -45,8 +45,8 @@ extern struct tpl_config_s {
   const char *stack_info;
   uint8_t *curr_jpg;
   size_t curr_jpg_len;
-  uint16_t last_seen_watchpoint;
-  uint16_t watchpoint;
+  uint32_t last_seen_watchpoint;
+  uint32_t watchpoint;
 } tpl_config;
 
 void tpl_update_stack_info();

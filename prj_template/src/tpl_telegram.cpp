@@ -161,9 +161,11 @@ void TaskTelegramCore1(void *pvParameters) {
                                     String(" BootCnt=") + tpl_config.bootCount);
         for (uint8_t retry = 0; retry < 5; retry++) {
           dataBytesSent = 0;
+          WATCH(3001)
           String res = bot.sendPhotoByBinary(chatId, "image/jpeg", jpeg_len,
                                              isMoreDataAvailable, nullptr,
                                              getNextBuffer, getNextBufferLen);
+          WATCH(3002)
           if (res.length() > 0) break;
         }
       } else {
@@ -172,6 +174,7 @@ void TaskTelegramCore1(void *pvParameters) {
       if (fb) {
         esp_camera_fb_return(fb);
       }
+      WATCH(3009)
       tpl_config.bot_send_jpg_image = false;
     }
 #endif

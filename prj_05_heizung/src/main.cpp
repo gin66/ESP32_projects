@@ -129,7 +129,7 @@ void setup() {
     if (img_len > 0) {
       // have image, then send
       tpl_config.curr_jpg_len = img_len;
-      tpl_config.curr_jpg = (uint8_t *)malloc(img_len + 8 * 32);
+      tpl_config.curr_jpg = (uint8_t *)ps_malloc(img_len + 8 * 32);
       if (tpl_config.curr_jpg) {
         WATCH(101)
         tpl_telegram_setup(CHAT_ID);

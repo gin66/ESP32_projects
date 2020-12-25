@@ -7,6 +7,9 @@ static RTC_DATA_ATTR uint32_t bootCount = 0;
 
 struct tpl_task_s tpl_tasks = {.task_wifi_manager = NULL,
                                .task_net_watchdog = NULL,
+#ifdef MAX_ON_TIME_S
+                               .task_on_time_watchdog = NULL,
+#endif
                                .task_websocket = NULL,
                                .task_webserver = NULL,
                                .task_command = NULL,
@@ -57,6 +60,9 @@ void tpl_update_stack_info() {
   char *p = stack_info;
   p += sprintf(p, "Stackfree: this=%d", uxTaskGetStackHighWaterMark(NULL));
   ADD_STACK_INFO("net_watchdog", tpl_tasks.task_net_watchdog);
+#ifdef MAX_ON_TIME_S
+  ADD_STACK_INFO("on_watchdog", tpl_tasks.task_on_time_watchdog);
+#endif
   ADD_STACK_INFO("websocket", tpl_tasks.task_websocket);
   ADD_STACK_INFO("command", tpl_tasks.task_command);
   ADD_STACK_INFO("wifi", tpl_tasks.task_wifi_manager);
@@ -86,6 +92,14 @@ static const char *reason[] = {
     "RTCWDT_RTC_RESET",
 };
 
+#ifdef MAX_ON_TIME_S
+void TaskOnTimeWatchdog(void* pvParameters) {
+  const TickType_t xDelay = MAX_ON_TIME_S * 1000 / portTICK_PERIOD_MS;
+  vTaskDelay(xDelay);
+  ESP.restart();
+}
+#endif
+
 void tpl_system_setup(uint32_t deep_sleep_secs) {
   bootCount++;
   tpl_config.bootCount = bootCount;
@@ -105,4 +119,8 @@ void tpl_system_setup(uint32_t deep_sleep_secs) {
   } else {
     tpl_config.allow_deepsleep = true;
   }
+#ifdef MAX_ON_TIME_S
+  xTaskCreatePinnedToCore(TaskOnTimeWatchdog, "On Time Watchdog", 1024, NULL, 0,
+                               &tpl_tasks.task_on_time_watchdog, CORE_0);
+#endif
 }

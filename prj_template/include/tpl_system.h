@@ -14,6 +14,9 @@
 extern struct tpl_task_s {
   TaskHandle_t task_wifi_manager;
   TaskHandle_t task_net_watchdog;
+#ifdef MAX_ON_TIME_S
+  TaskHandle_t task_on_time_watchdog;
+#endif
   TaskHandle_t task_websocket;
   TaskHandle_t task_webserver;
   TaskHandle_t task_command;

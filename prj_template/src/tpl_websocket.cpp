@@ -86,6 +86,8 @@ void TaskWebSocketCore0(void *pvParameters) {
       myObject["stack_free"] = (long)uxTaskGetStackHighWaterMark(NULL);
       myObject["reset_cpu0"] = tpl_config.reset_reason_cpu0;
       myObject["reset_cpu1"] = tpl_config.reset_reason_cpu1;
+      myObject["watch"] = tpl_config.watchpoint;
+      myObject["last_watch"] = tpl_config.last_seen_watchpoint;
       // myObject["time"] = formattedTime;
       // myObject["b64"] = base64::encode((uint8_t*)data_buf, data_idx);
       // myObject["button_analog"] = analogRead(BUTTON_PIN);

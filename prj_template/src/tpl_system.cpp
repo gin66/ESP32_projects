@@ -2,7 +2,7 @@
 
 #include "rom/rtc.h"
 
-RTC_ATTR uint16_t rtc_watchpoint;
+RTC_DATA_ATTR uint16_t rtc_watchpoint;
 
 struct tpl_task_s tpl_tasks = {.task_wifi_manager = NULL,
                                .task_net_watchdog = NULL,

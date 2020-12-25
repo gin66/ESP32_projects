@@ -159,15 +159,20 @@ void TaskTelegramCore1(void *pvParameters) {
         Serial.println(jpeg_len);
         bot.sendMessage(chatId, String("Send image: ") + jpeg_len +
                                     String(" BootCnt=") + tpl_config.bootCount);
-        for (uint8_t retry = 0; retry < 5; retry++) {
           dataBytesSent = 0;
           WATCH(3001)
+		  Serial.println("before sendPhotoByBinary");
+		  // can hang here:
+		  // [E][ssl_client.cpp:36] _handle_error(): [send_ssl_data():300]: (-26752) SSL - Connection requires a write call
+		  // Afterwards wifi_stop() yields
+		  // [E][WiFiClient.cpp:395] write(): fail on fd 60, errno: 5, "I/O error"
+		  //
+		  // After entering deepsleep, there is no wakeup
           String res = bot.sendPhotoByBinary(chatId, "image/jpeg", jpeg_len,
                                              isMoreDataAvailable, nullptr,
                                              getNextBuffer, getNextBufferLen);
           WATCH(3002)
-          if (res.length() > 0) break;
-        }
+		  Serial.println("after sendPhotoByBinary");
       } else {
         bot.sendMessage(chatId, "Camera capture failed");
       }

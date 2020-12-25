@@ -56,17 +56,22 @@ void TaskCommandCore1(void *pvParameters) {
         if (tpl_config.allow_deepsleep && !tpl_config.ota_ongoing &&
             (tpl_config.deepsleep_time_secs != 0)) {
           vTaskSuspend(tpl_tasks.task_wifi_manager);
-          esp_wifi_stop();
+		  if (tpl_tasks.task_telegram) {
+            vTaskSuspend(tpl_tasks.task_telegram);
+		  }
+		  Serial.print("Wifi stop:");
+          Serial.println(esp_wifi_stop());
+          Serial.println(esp_wifi_stop());
 #ifdef IS_ESP32CAM
           Serial.println("Prepare esp32cam for deepsleep");
           tpl_camera_off();
           Serial.println("Start psram flush");
           psram_flush_cache();
-          Serial.println("Flushed");
 #endif
           uint64_t sleep = tpl_config.deepsleep_time_secs;
           sleep *= 1000000LL;
           esp_sleep_enable_timer_wakeup(sleep);
+		  Serial.println("Enter sleep");
           esp_deep_sleep_start();
         }
         tpl_command = CmdIdle;

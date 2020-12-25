@@ -7,6 +7,7 @@ fmt: node_modules/prettier/package.json links
 
 links:
 	for i in prj_[0-9]*; do (cd $$i;mkdir -p tools include src);done
+	for i in prj_[0-9]*; do (cd $$i;echo $$i; ln -sf ../prj_template/min_spiffs.csv .);done
 	for i in prj_[0-9]*/tools; do (cd $$i;echo $$i; ln -sf ../../prj_template/tools/* .);done
 	for i in prj_[0-9]*/include; do (cd $$i;echo $$i; ln -sf ../../prj_template/include/* .);done
 	for i in prj_[0-9]*/src; do (cd $$i;echo $$i; cp ../../prj_template/src/*.html .);done

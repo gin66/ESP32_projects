@@ -132,7 +132,6 @@ typedef void (*span_func_t)(void *user_data, int y, int left, int right);
 struct flood_fill_task_s {
   int16_t left;
   int16_t right;
-  int16_t x;
   int16_t y;
   int16_t from;
   int16_t to;
@@ -153,7 +152,6 @@ static void flood_fill_seed(struct quirc *q, int _x, int _y, int _from, int _to,
 
   f->left = _x;
   f->right = _x;
-  f->x = _x;
   f->y = _y;
   f->from = _from;
   f->to = _to;
@@ -201,7 +199,6 @@ static void flood_fill_seed(struct quirc *q, int _x, int _y, int _from, int _to,
     if (f->i <= f->right) {
       // generate the next sub task
       if (f->row[f->i] == f->from) {
-        f[1].x = f->i;
         f[1].y = f->y + f->direction;
         f[1].left = f->i;
         f[1].right = f->i;

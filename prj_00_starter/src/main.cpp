@@ -2,6 +2,12 @@
 
 using namespace std;
 
+// can be used as parameter to tpl_command_setup
+// void execute(enum Command command) {}
+
+// can be used as parameter to tpl_websocket_setup
+// void add_ws_info(DynamicJsonDocument* myObject) {}
+
 //---------------------------------------------------
 void setup() {
   tpl_system_setup(0);  // no deep sleep

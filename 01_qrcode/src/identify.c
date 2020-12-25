@@ -61,19 +61,19 @@ static int line_intersect(const struct quirc_point *p0,
   return 1;
 }
 
-static void perspective_setup(double *c, const struct quirc_point *rect,
-                              double w, double h) {
-  double x0 = rect[0].x;
-  double y0 = rect[0].y;
-  double x1 = rect[1].x;
-  double y1 = rect[1].y;
-  double x2 = rect[2].x;
-  double y2 = rect[2].y;
-  double x3 = rect[3].x;
-  double y3 = rect[3].y;
+static void perspective_setup(float *c, const struct quirc_point *rect,
+                              float w, float h) {
+  float x0 = rect[0].x;
+  float y0 = rect[0].y;
+  float x1 = rect[1].x;
+  float y1 = rect[1].y;
+  float x2 = rect[2].x;
+  float y2 = rect[2].y;
+  float x3 = rect[3].x;
+  float y3 = rect[3].y;
 
-  double wden = w * (x2 * y3 - x3 * y2 + (x3 - x2) * y1 + x1 * (y2 - y3));
-  double hden = h * (x2 * y3 + x1 * (y2 - y3) - x3 * y2 + (x3 - x2) * y1);
+  float wden = w * (x2 * y3 - x3 * y2 + (x3 - x2) * y1 + x1 * (y2 - y3));
+  float hden = h * (x2 * y3 + x1 * (y2 - y3) - x3 * y2 + (x3 - x2) * y1);
 
   c[0] = (x1 * (x2 * y3 - x3 * y2) +
           x0 * (-x2 * y3 + x3 * y2 + (x2 - x3) * y1) + x1 * (x3 - x2) * y0) /
@@ -96,21 +96,21 @@ static void perspective_setup(double *c, const struct quirc_point *rect,
          hden;
 }
 
-static void perspective_map(const double *c, double u, double v,
+static void perspective_map(const float *c, float u, float v,
                             struct quirc_point *ret) {
-  double den = c[6] * u + c[7] * v + 1.0;
-  double x = (c[0] * u + c[1] * v + c[2]) / den;
-  double y = (c[3] * u + c[4] * v + c[5]) / den;
+  float den = c[6] * u + c[7] * v + 1.0;
+  float x = (c[0] * u + c[1] * v + c[2]) / den;
+  float y = (c[3] * u + c[4] * v + c[5]) / den;
 
   ret->x = (int)rint(x);
   ret->y = (int)rint(y);
 }
 
-static void perspective_unmap(const double *c, const struct quirc_point *in,
-                              double *u, double *v) {
-  double x = in->x;
-  double y = in->y;
-  double den = -c[0] * c[7] * y + c[1] * c[6] * y +
+static void perspective_unmap(const float *c, const struct quirc_point *in,
+                              float *u, float *v) {
+  float x = in->x;
+  float y = in->y;
+  float den = -c[0] * c[7] * y + c[1] * c[6] * y +
                (c[3] * c[7] - c[4] * c[6]) * x + c[0] * c[4] - c[1] * c[3];
 
   *u = -(c[1] * (y - c[5]) - c[2] * c[7] * y + (c[5] * c[7] - c[4]) * x +
@@ -134,14 +134,14 @@ struct flood_fill_task_s {
   int16_t right;
   int16_t y;
   int16_t i;
-  int16_t direction;  // +1/-1
+  int16_t direction;  // +1/-1/0
   quirc_pixel_t *row;
 } *fft_depth = NULL;
 
 static void flood_fill_seed(struct quirc *q, int _x, int _y, int from, int to,
                             span_func_t func, void *user_data, int depth) {
   if (fft_depth == NULL) {
-    fft_depth = (struct flood_fill_task_s *)ps_calloc(
+    fft_depth = (struct flood_fill_task_s *)calloc(
         sizeof(struct flood_fill_task_s), FLOOD_FILL_MAX_DEPTH);
   }
 
@@ -239,7 +239,7 @@ static uint8_t otsu(const struct quirc *q) {
   // Compute threshold
   int sumB = 0;
   int q1 = 0;
-  double max = 0;
+  float max = 0;
   uint8_t threshold = 0;
   for (i = 0; i <= UINT8_MAX; ++i) {
     // Weighted background
@@ -251,10 +251,10 @@ static uint8_t otsu(const struct quirc *q) {
     if (q2 == 0) break;
 
     sumB += i * histogram[i];
-    const double m1 = (double)sumB / q1;
-    const double m2 = ((double)sum - sumB) / q2;
-    const double m1m2 = m1 - m2;
-    const double variance = m1m2 * m1m2 * q1 * q2;
+    const float m1 = (float)sumB / q1;
+    const float m2 = ((float)sum - sumB) / q2;
+    const float m1m2 = m1 - m2;
+    const float variance = m1m2 * m1m2 * q1 * q2;
     if (variance >= max) {
       threshold = i;
       max = variance;
@@ -481,7 +481,7 @@ static void find_alignment_pattern(struct quirc *q, int index) {
   int size_estimate;
   int step_size = 1;
   int dir = 0;
-  double u, v;
+  float u, v;
 
   /* Grab our previous estimate of the alignment pattern corner */
   memcpy(&b, &qr->align, sizeof(b));
@@ -634,8 +634,8 @@ static int measure_timing_pattern(struct quirc *q, int index) {
   int size;
 
   for (i = 0; i < 3; i++) {
-    static const double us[] = {6.5, 6.5, 0.5};
-    static const double vs[] = {0.5, 6.5, 6.5};
+    static const float us[] = {6.5, 6.5, 0.5};
+    static const float vs[] = {0.5, 6.5, 6.5};
     struct quirc_capstone *cap = &q->capstones[qr->caps[i]];
 
     perspective_map(cap->c, us[i], vs[i], &qr->tpep[i]);
@@ -682,7 +682,7 @@ static int fitness_cell(const struct quirc *q, int index, int x, int y) {
 
   for (v = 0; v < 3; v++)
     for (u = 0; u < 3; u++) {
-      static const double offsets[] = {0.3, 0.5, 0.7};
+      static const float offsets[] = {0.3, 0.5, 0.7};
       struct quirc_point p;
 
       perspective_map(qr->c, x + offsets[u], y + offsets[v], &p);
@@ -772,7 +772,7 @@ static void jiggle_perspective(struct quirc *q, int index) {
   struct quirc_grid *qr = &q->grids[index];
   int best = fitness_all(q, index);
   int pass;
-  double adjustments[8];
+  float adjustments[8];
   int i;
 
   for (i = 0; i < 8; i++) adjustments[i] = qr->c[i] * 0.02;
@@ -781,9 +781,9 @@ static void jiggle_perspective(struct quirc *q, int index) {
     for (i = 0; i < 16; i++) {
       int j = i >> 1;
       int test;
-      double old = qr->c[j];
-      double step = adjustments[j];
-      double new;
+      float old = qr->c[j];
+      float step = adjustments[j];
+      float new;
 
       if (i & 1)
         new = old + step;
@@ -948,7 +948,7 @@ fail:
 
 struct neighbour {
   int index;
-  double distance;
+  float distance;
 };
 
 struct neighbour_list {
@@ -960,7 +960,7 @@ static void test_neighbours(struct quirc *q, int i,
                             const struct neighbour_list *hlist,
                             const struct neighbour_list *vlist) {
   int j, k;
-  double best_score = 0.0;
+  float best_score = 0.0;
   int best_h = -1, best_v = -1;
 
   /* Test each possible grouping */
@@ -968,7 +968,7 @@ static void test_neighbours(struct quirc *q, int i,
     for (k = 0; k < vlist->count; k++) {
       const struct neighbour *hn = &hlist->n[j];
       const struct neighbour *vn = &vlist->n[k];
-      double score = fabs(1.0 - hn->distance / vn->distance);
+      float score = fabs(1.0 - hn->distance / vn->distance);
 
       if (score > 2.5) continue;
 
@@ -1000,7 +1000,7 @@ static void test_grouping(struct quirc *q, int i) {
    */
   for (j = 0; j < q->num_capstones; j++) {
     struct quirc_capstone *c2 = &q->capstones[j];
-    double u, v;
+    float u, v;
 
     if (i == j || c2->qr_grid >= 0) continue;
 

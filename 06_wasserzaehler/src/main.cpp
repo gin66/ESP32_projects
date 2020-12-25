@@ -64,7 +64,7 @@ void setup() {
   tpl_server.on("/dump", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
     tpl_server.send_P(200, "Content-Type: application/octet-stream",
-                      (const char *)psram_buffer, sizeof(psram_buffer));
+                      (const char *)psram_buffer, sizeof(*psram_buffer));
   });
 
   Serial.println("Setup done.");

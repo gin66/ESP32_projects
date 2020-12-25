@@ -152,6 +152,8 @@ void TaskQRreader(void* pvParameters) {
               id_count = quirc_count(qr_recognizer);
               if (id_count > 0) {
                 Serial.println("codes found");
+                // quirc_extract causes stack overflow,
+                // while till quirc_count stack usage is "only" high
                 quirc_extract(qr_recognizer, 0, &qr_code);
                 qr_decode_res = quirc_decode(&qr_code, &qr_data);
                 if (qr_decode_res == QUIRC_SUCCESS) {
@@ -237,8 +239,8 @@ void setup() {
   tpl_tasks.app_name1 = "QRreader";
   // 40000 too low.
   // with 2 QR codes and 65536 stack, only 3852 left
-  if (pdPASS != xTaskCreatePinnedToCore(TaskQRreader, "QRreader", 65536, NULL,
-                                        1, &tpl_tasks.task_app1,
+  if (pdPASS != xTaskCreatePinnedToCore(TaskQRreader, "QRreader", 32768,
+                                        NULL, 1, &tpl_tasks.task_app1,
                                         CORE_1)) {  // Prio 1, Core 1
     Serial.println("Failed to start task.");
   }

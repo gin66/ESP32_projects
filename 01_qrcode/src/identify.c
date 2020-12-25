@@ -19,6 +19,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define bool char
+#include "esp32-hal-psram.h"
 #include "quirc_internal.h"
 
 /************************************************************************
@@ -127,39 +129,96 @@ static void perspective_unmap(const double *c, const struct quirc_point *in,
 
 typedef void (*span_func_t)(void *user_data, int y, int left, int right);
 
-static void flood_fill_seed(struct quirc *q, int x, int y, int from, int to,
+struct flood_fill_task_s {
+  int16_t left;
+  int16_t right;
+  int16_t x;
+  int16_t y;
+  int16_t from;
+  int16_t to;
+  int16_t i;
+  int16_t direction;  // +1/-1
+  quirc_pixel_t *row;
+} *fft_depth = NULL;
+
+static void flood_fill_seed(struct quirc *q, int _x, int _y, int _from, int _to,
                             span_func_t func, void *user_data, int depth) {
-  int left = x;
-  int right = x;
-  int i;
-  quirc_pixel_t *row = q->pixels + y * q->w;
-
-  if (depth >= FLOOD_FILL_MAX_DEPTH) return;
-
-  while (left > 0 && row[left - 1] == from) left--;
-
-  while (right < q->w - 1 && row[right + 1] == from) right++;
-
-  /* Fill the extent */
-  for (i = left; i <= right; i++) row[i] = to;
-
-  if (func) func(user_data, y, left, right);
-
-  /* Seed new flood-fills */
-  if (y > 0) {
-    row = q->pixels + (y - 1) * q->w;
-
-    for (i = left; i <= right; i++)
-      if (row[i] == from)
-        flood_fill_seed(q, i, y - 1, from, to, func, user_data, depth + 1);
+  if (fft_depth == NULL) {
+    fft_depth = (struct flood_fill_task_s *)ps_calloc(
+        sizeof(struct flood_fill_task_s), FLOOD_FILL_MAX_DEPTH);
   }
 
-  if (y < q->h - 1) {
-    row = q->pixels + (y + 1) * q->w;
+  uint16_t task = 1;
+  struct flood_fill_task_s *f = fft_depth;
 
-    for (i = left; i <= right; i++)
-      if (row[i] == from)
-        flood_fill_seed(q, i, y + 1, from, to, func, user_data, depth + 1);
+  f->left = _x;
+  f->right = _x;
+  f->x = _x;
+  f->y = _y;
+  f->from = _from;
+  f->to = _to;
+  f->direction = 0;
+
+  while (task > 0) {
+    if (f->direction == 0) {
+      // This task is new, so do calculation as below
+      f->row = q->pixels + f->y * q->w;
+
+      while (f->left > 0 && f->row[f->left - 1] == f->from) f->left--;
+
+      while (f->right < q->w - 1 && f->row[f->right + 1] == f->from) f->right++;
+
+      /* Fill the extent */
+      for (int16_t i = f->left; i <= f->right; i++) f->row[i] = f->to;
+
+      if (func) func(user_data, f->y, f->left, f->right);
+
+      if (f->y > 0) {
+        f->direction = -1;
+      }
+	  else if (f->y < q->h - 1) {
+        f->direction = 1;
+      }
+      /* Seed new flood-fills */
+      if ((f->direction != 0) && (task < FLOOD_FILL_MAX_DEPTH)) {
+        f->row = q->pixels + (f->y + f->direction) * q->w;
+        f->i = f->left;
+      } else {
+        // No sub tasks to generate
+        task--;
+        f--;
+        continue;
+      }
+    }
+    // calculation is done, then perform the loop for task generation
+    if (f->i > f->right) {
+      // current direction finished, check for other direction
+      if ((f->direction == -1) && (f->y < q->h - 1)) {
+        f->direction = 1;
+        f->row = q->pixels + (f->y + f->direction) * q->w;
+        f->i = f->left;
+      }
+    }
+    if (f->i <= f->right) {
+      // generate the next sub task
+      if (f->row[f->i] == f->from) {
+        f[1].x = f->i;
+        f[1].y = f->y + f->direction;
+        f[1].left = f->i;
+        f[1].right = f->i;
+        f[1].from = f->from;
+        f[1].to = f->to;
+        f[1].direction = 0;
+        f->i++;
+        task++;
+        f++;
+      } else {
+        f->i++;
+      }
+    } else {
+      task--;
+      f--;
+    }
   }
 }
 

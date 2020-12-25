@@ -155,7 +155,7 @@ void setup() {
       //     second boot %25 == 2 => send pic
       //     other boots till 24 => sleep
       WATCH(201)
-      if ((tpl_config.bootCount % 25) == 1) {
+      /*if ((tpl_config.bootCount % 25) == 1)*/ {
         WATCH(202)
         uint8_t fail_cnt = 0;
         tpl_camera_setup(&fail_cnt, FRAMESIZE_VGA);

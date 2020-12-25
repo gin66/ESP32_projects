@@ -52,5 +52,5 @@ extern struct tpl_config_s {
 void tpl_update_stack_info();
 void tpl_system_setup(uint32_t deep_sleep_secs = 0);
 
-extern RTC_ATTR uint16_t rtc_watchpoint;
+extern RTC_DATA_ATTR uint16_t rtc_watchpoint;
 #define WATCH(i) {rtc_watchpoint = i; tpl_config.watchpoint;}

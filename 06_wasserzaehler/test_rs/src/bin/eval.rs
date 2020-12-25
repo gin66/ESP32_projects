@@ -15,7 +15,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let mut predict_data = vec![];
     let mut alarm_data = vec![];
     unsafe {
-        psram_buffer_init();
+        psram_buffer_init(0 as *mut u8);
     }
     for result in results.results.iter() {
         let r = &result.r;

@@ -31,12 +31,21 @@ pub struct Result {
     pub results: Vec<TimedResult>,
 }
 
+#[repr(C)]
+#[derive(Debug, Default)]
+pub struct Entry {
+    pub timestamp: u32,
+    pub angle: [u8;4],
+    pad: [u32; 5],
+    overwritten: u32
+}
+
 extern "C" {
     pub fn digitize(image: *const u8, digitized: *mut u8, first: u8);
     pub fn find_pointer(digitized: *const u8, filtered: *mut u8, temp: *mut u8, r: *mut Reader);
     pub fn eval_pointer(digitized: *const u8, r: *mut Reader);
 
-    pub fn psram_buffer_init();
+    pub fn psram_buffer_init(buffer: *mut u8);
     pub fn psram_buffer_add(
         timestamp: u32,
         angle0: u16,
@@ -46,4 +55,6 @@ extern "C" {
     ) -> i8;
     pub fn water_consumption() -> u16;
     pub fn have_alarm() -> u8;
+    pub fn num_entries() -> u16;
+    pub fn get_entry(i: u16) -> *const Entry;
 }

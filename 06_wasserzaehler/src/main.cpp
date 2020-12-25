@@ -33,7 +33,7 @@ void print_info() {
 
 void setup() {
   if (psramFound()) {
-    psram_buffer_init();
+    psram_buffer_init(NULL);
   } else {
     tpl_config.last_seen_watchpoint = 0;
   }

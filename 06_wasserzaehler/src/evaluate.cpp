@@ -15,8 +15,13 @@
 
 struct psram_buffer_s *psram_buffer;
 
-void psram_buffer_init() {
-  psram_buffer = (struct psram_buffer_s *)ps_malloc(PSRAM_BUFFER_SIZE);
+void psram_buffer_init(struct psram_buffer_s *old_psram_buffer) {
+  if (old_psram_buffer == NULL) {
+	  psram_buffer = (struct psram_buffer_s *)ps_malloc(PSRAM_BUFFER_SIZE);
+  }
+  else {
+	  psram_buffer = old_psram_buffer;
+  }
   // check version
   uint8_t is_ok = 1;
   if ((psram_buffer->version & 0xff00) != (PSRAM_VERSION & 0xff00)) {
@@ -219,3 +224,10 @@ uint32_t cumulated_consumption() { return psram_buffer->cumulated_consumption; }
 uint16_t num_entries() {
   return ((uint16_t)(psram_buffer->windex - psram_buffer->rindex));
 }
+struct entry_s *get_entry(uint16_t i) {
+	if (i >= num_entries()) {
+		return NULL;
+	}
+	return &ENTRY(psram_buffer->rindex + i);
+}
+

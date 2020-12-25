@@ -47,7 +47,7 @@ struct psram_buffer_s {
 };
 
 // must be called immediately after psramFound()
-void psram_buffer_init();
+void psram_buffer_init(struct psram_buffer_s *psram_buffer);
 int8_t psram_buffer_add(uint32_t timestamp, uint16_t angle0, uint16_t angle1,
                         uint16_t angle2, uint16_t angle3);
 uint16_t water_consumption();
@@ -61,6 +61,7 @@ uint8_t have_alarm();
 uint32_t water_steigung();
 uint32_t cumulated_consumption();
 uint16_t num_entries();
+struct entry_s *get_entry(uint16_t i);
 
 #define PSRAM_BUFFER_SIZE (NUM_ENTRIES * 32 + 2 * 32)
 extern struct psram_buffer_s *psram_buffer;

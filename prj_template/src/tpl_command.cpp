@@ -75,7 +75,9 @@ void TaskCommandCore1(void *pvParameters) {
           }
           vTaskSuspend(tpl_tasks.task_wifi_manager);
           Serial.print("Wifi stop:");
-          Serial.println(esp_wifi_stop());
+		  // esp32 can hang at esp_wifi_stop()
+		  //  => ping works, but no communication possible
+		  //  result of esp_wifi_stop() is not printed
           Serial.println(esp_wifi_stop());
 #ifdef IS_ESP32CAM
           Serial.println("Prepare esp32cam for deepsleep");

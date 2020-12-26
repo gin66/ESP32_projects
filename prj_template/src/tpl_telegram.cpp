@@ -161,6 +161,7 @@ void TaskTelegramCore1(void *pvParameters) {
         Serial.println(jpeg_len);
         tpl_config.bot_communication_ongoing = true;
         bot.sendMessage(chatId, String("Send image: ") + jpeg_len +
+                                    String(" from") + String(HOSTNAME) + 
                                     String(" BootCnt=") + tpl_config.bootCount);
         tpl_config.bot_communication_ongoing = false;
         dataBytesSent = 0;

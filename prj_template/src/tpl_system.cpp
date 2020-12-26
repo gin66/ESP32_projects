@@ -8,7 +8,8 @@ static RTC_DATA_ATTR uint32_t bootCount = 0;
 struct tpl_task_s tpl_tasks = {.task_wifi_manager = NULL,
                                .task_net_watchdog = NULL,
 #ifdef MAX_ON_TIME_S
-                               .task_on_time_watchdog = NULL,
+                               .task_on_time_watchdog_0 = NULL,
+                               .task_on_time_watchdog_1 = NULL,
 #endif
                                .task_websocket = NULL,
                                .task_webserver = NULL,
@@ -61,7 +62,8 @@ void tpl_update_stack_info() {
   p += sprintf(p, "Stackfree: this=%d", uxTaskGetStackHighWaterMark(NULL));
   ADD_STACK_INFO("net_watchdog", tpl_tasks.task_net_watchdog);
 #ifdef MAX_ON_TIME_S
-  ADD_STACK_INFO("on_watchdog", tpl_tasks.task_on_time_watchdog);
+  ADD_STACK_INFO("on_watchdog_0", tpl_tasks.task_on_time_watchdog_0);
+  ADD_STACK_INFO("_1", tpl_tasks.task_on_time_watchdog_1);
 #endif
   ADD_STACK_INFO("websocket", tpl_tasks.task_websocket);
   ADD_STACK_INFO("command", tpl_tasks.task_command);
@@ -121,6 +123,8 @@ void tpl_system_setup(uint32_t deep_sleep_secs) {
   }
 #ifdef MAX_ON_TIME_S
   xTaskCreatePinnedToCore(TaskOnTimeWatchdog, "On Time Watchdog", 1024, NULL, 0,
-                          &tpl_tasks.task_on_time_watchdog, CORE_0);
+                          &tpl_tasks.task_on_time_watchdog_0, CORE_0);
+  xTaskCreatePinnedToCore(TaskOnTimeWatchdog, "On Time Watchdog", 1024, NULL, 0,
+                          &tpl_tasks.task_on_time_watchdog_1, CORE_1);
 #endif
 }

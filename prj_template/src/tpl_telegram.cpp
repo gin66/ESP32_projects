@@ -184,7 +184,7 @@ void TaskTelegramCore1(void *pvParameters) {
           if (res.length() > 0) {
             break;
           }
-		  Serial.println("after sendPhotoByBinary..retry");
+          Serial.println("after sendPhotoByBinary..retry");
         }
         Serial.println("after sendPhotoByBinary");
       } else {

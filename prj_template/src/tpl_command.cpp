@@ -2,6 +2,7 @@
 #include "tpl_command.h"
 
 #include <Arduino.h>
+#include <driver/adc.h>
 #include <esp_wifi.h>
 
 #include "tpl_esp_camera.h"
@@ -73,11 +74,24 @@ void TaskCommandCore1(void *pvParameters) {
             }
             vTaskSuspend(tpl_tasks.task_websocket);
           }
+
+          Serial.println("Stop wifi manager");
+          tpl_config.wifi_manager_shutdown_request = true;
+          while (!tpl_config.wifi_manager_shutdown) {
+            vTaskDelay(xDelay);
+          }
           vTaskSuspend(tpl_tasks.task_wifi_manager);
+
+          Serial.println("Wifi disconnect");
+          esp_err_t err = esp_wifi_disconnect();
+          if (err != ESP_OK) {
+			  Serial.println("..failed");
+          }
+
           Serial.print("Wifi stop:");
-		  // esp32 can hang at esp_wifi_stop()
-		  //  => ping works, but no communication possible
-		  //  result of esp_wifi_stop() is not printed
+          // esp32 can hang at esp_wifi_stop()
+          //  => ping works, but no communication possible
+          //  result of esp_wifi_stop() is not printed
           Serial.println(esp_wifi_stop());
 #ifdef IS_ESP32CAM
           Serial.println("Prepare esp32cam for deepsleep");
@@ -85,6 +99,7 @@ void TaskCommandCore1(void *pvParameters) {
           Serial.println("Start psram flush");
           psram_flush_cache();
 #endif
+          adc_power_off();  // https://github.com/espressif/arduino-esp32/issues/2804
           uint64_t sleep = tpl_config.deepsleep_time_secs;
           sleep *= 1000000LL;
           esp_sleep_enable_timer_wakeup(sleep);

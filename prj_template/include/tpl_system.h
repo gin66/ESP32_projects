@@ -32,6 +32,8 @@ extern struct tpl_config_s {
   uint32_t bootCount;
   volatile bool allow_deepsleep;
   volatile bool ota_ongoing;
+  volatile bool wifi_manager_shutdown_request;
+  volatile bool wifi_manager_shutdown;
   volatile bool web_communication_ongoing;
   volatile bool ws_communication_ongoing;
   volatile bool bot_communication_ongoing;

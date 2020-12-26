@@ -35,11 +35,15 @@ static void connect() {
 void TaskWifiManager(void *pvParameters) {
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
   for (;;) {
-    if (WiFi.status() != WL_CONNECTED) {
-      Serial.println("not connected: reconnect");
-      connect();
+    if (!tpl_config.wifi_manager_shutdown_request) {
+      if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("not connected: reconnect");
+        connect();
+      } else {
+        ArduinoOTA.handle();
+      }
     } else {
-      ArduinoOTA.handle();
+      tpl_config.wifi_manager_shutdown = true;
     }
     vTaskDelay(xDelay);
   }

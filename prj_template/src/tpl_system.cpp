@@ -28,6 +28,8 @@ static char stack_info[] =
 struct tpl_config_s tpl_config = {.bootCount = 0,
                                   .allow_deepsleep = false,
                                   .ota_ongoing = false,
+                                  .wifi_manager_shutdown_request = false,
+                                  .wifi_manager_shutdown = false,
                                   .web_communication_ongoing = false,
                                   .ws_communication_ongoing = false,
                                   .bot_communication_ongoing = false,

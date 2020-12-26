@@ -1,6 +1,6 @@
 #include "tpl_system.h"
 
-#include "rom/rtc.h"
+#include <rom/rtc.h>
 
 RTC_DATA_ATTR uint16_t rtc_watchpoint;
 static RTC_DATA_ATTR uint32_t bootCount = 0;

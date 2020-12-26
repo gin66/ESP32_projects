@@ -16,10 +16,13 @@ void TaskWatchdog(void* pvParameters) {
       Serial.print("Ping failed: ");
       Serial.println(tpl_fail);
       if (tpl_fail >= 5 * 60) {  // 5 minutes
-                                 // use deep sleep to reset
-        esp_sleep_enable_timer_wakeup(1LL * 1000000LL);
-        esp_deep_sleep_start();
-        // ESP.restart();
+        ESP.restart();
+		// deep sleep without wifi stop may cause the state,
+		// that webserver/sockets/ota/watchdog are dead,
+		// ping reply is working, amd esp32 lingers in this state till
+		// reset or power cycle. So better use restart() here
+        //esp_sleep_enable_timer_wakeup(1LL * 1000000LL);
+        //esp_deep_sleep_start();
       }
     } else {
       tpl_fail = 0;

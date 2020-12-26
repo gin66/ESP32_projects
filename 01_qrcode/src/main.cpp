@@ -254,6 +254,12 @@ void setup() {
 #endif
   Serial.print("camera fail count=");
   Serial.println(fail_cnt);
+  {
+	  // ipad/iphone have flipped qr-codes, so analyze those first
+      sensor_t* sensor = esp_camera_sensor_get();
+      sensor->set_hmirror(sensor, 0);
+      sensor->set_vflip(sensor, 1);
+  }
 
 #ifdef BOTtoken
   tpl_telegram_setup(BOTtoken, CHAT_ID);

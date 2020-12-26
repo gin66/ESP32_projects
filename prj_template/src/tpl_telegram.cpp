@@ -181,7 +181,7 @@ void TaskTelegramCore1(void *pvParameters) {
                                              getNextBuffer, getNextBufferLen);
           tpl_config.bot_communication_ongoing = false;
           WATCH(3002)
-          if (res.len() > 0) {
+          if (res.length() > 0) {
             break;
           }
 		  Serial.println("after sendPhotoByBinary..retry");

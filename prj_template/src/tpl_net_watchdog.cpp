@@ -1,7 +1,7 @@
 #include "tpl_net_watchdog.h"
 
-#include <stdint.h>
 #include <esp_task_wdt.h>
+#include <stdint.h>
 
 #include "tpl_system.h"
 
@@ -15,7 +15,7 @@ uint8_t tpl_fail = 0;
 void TaskWatchdog(void* pvParameters) {
   const TickType_t xDelay = 1000 / portTICK_PERIOD_MS;
   for (;;) {
-	esp_task_wdt_reset();
+    esp_task_wdt_reset();
     bool success = Ping.ping(NET_WATCHDOG, 1);
     if (!success) {
       tpl_fail++;
@@ -23,12 +23,12 @@ void TaskWatchdog(void* pvParameters) {
       Serial.println(tpl_fail);
       if (tpl_fail >= 5 * 60) {  // 5 minutes
         ESP.restart();
-		// deep sleep without wifi stop may cause the state,
-		// that webserver/sockets/ota/watchdog are dead,
-		// ping reply is working, and esp32 lingers in this state till
-		// reset or power cycle. So better use restart() here
-        //esp_sleep_enable_timer_wakeup(1LL * 1000000LL);
-        //esp_deep_sleep_start();
+        // deep sleep without wifi stop may cause the state,
+        // that webserver/sockets/ota/watchdog are dead,
+        // ping reply is working, and esp32 lingers in this state till
+        // reset or power cycle. So better use restart() here
+        // esp_sleep_enable_timer_wakeup(1LL * 1000000LL);
+        // esp_deep_sleep_start();
       }
     } else {
       tpl_fail = 0;
@@ -43,8 +43,8 @@ bool tpl_net_watchdog_setup() {
   rc = xTaskCreatePinnedToCore(TaskWatchdog, "Net Watchdog", 2688, NULL, 0,
                                &tpl_tasks.task_net_watchdog, CORE_0);
   if (rc == pdPASS) {
-	  // Add this task to task watchdog
-	  esp_task_wdt_add(tpl_tasks.task_net_watchdog);
+    // Add this task to task watchdog
+    esp_task_wdt_add(tpl_tasks.task_net_watchdog);
   }
   return (rc == pdPASS);
 }

@@ -161,25 +161,31 @@ void TaskTelegramCore1(void *pvParameters) {
         Serial.println(jpeg_len);
         tpl_config.bot_communication_ongoing = true;
         bot.sendMessage(chatId, String("Send image: ") + jpeg_len +
-                                    String(" from ") + String(HOSTNAME) + 
+                                    String(" from ") + String(HOSTNAME) +
                                     String(" BootCnt=") + tpl_config.bootCount);
         tpl_config.bot_communication_ongoing = false;
-        dataBytesSent = 0;
-        WATCH(3001)
-        Serial.println("before sendPhotoByBinary");
-        // can hang here:
-        // [E][ssl_client.cpp:36] _handle_error(): [send_ssl_data():300]:
-        // (-26752) SSL - Connection requires a write call Afterwards
-        // wifi_stop() yields [E][WiFiClient.cpp:395] write(): fail on fd 60,
-        // errno: 5, "I/O error"
-        //
-        // After entering deepsleep, there is no wakeup
-        tpl_config.bot_communication_ongoing = true;
-        String res = bot.sendPhotoByBinary(chatId, "image/jpeg", jpeg_len,
-                                           isMoreDataAvailable, nullptr,
-                                           getNextBuffer, getNextBufferLen);
-        tpl_config.bot_communication_ongoing = false;
-        WATCH(3002)
+        for (uint8_t retry = 0; retry < 5; retry++) {
+          dataBytesSent = 0;
+          WATCH(3001)
+          Serial.println("before sendPhotoByBinary");
+          // can hang here:
+          // [E][ssl_client.cpp:36] _handle_error(): [send_ssl_data():300]:
+          // (-26752) SSL - Connection requires a write call Afterwards
+          // wifi_stop() yields [E][WiFiClient.cpp:395] write(): fail on fd 60,
+          // errno: 5, "I/O error"
+          //
+          // After entering deepsleep, there is no wakeup
+          tpl_config.bot_communication_ongoing = true;
+          String res = bot.sendPhotoByBinary(chatId, "image/jpeg", jpeg_len,
+                                             isMoreDataAvailable, nullptr,
+                                             getNextBuffer, getNextBufferLen);
+          tpl_config.bot_communication_ongoing = false;
+          WATCH(3002)
+          if (res.len() > 0) {
+            break;
+          }
+		  Serial.println("after sendPhotoByBinary..retry");
+        }
         Serial.println("after sendPhotoByBinary");
       } else {
         bot.sendMessage(chatId, "Camera capture failed");

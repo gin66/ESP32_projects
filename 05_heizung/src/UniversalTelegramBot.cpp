@@ -207,7 +207,7 @@ String UniversalTelegramBot::sendMultipartFormDataToTelegram(
   if (client->connected()) {
     String start_request;
     String end_request;
-	String header;
+    String header;
 
     start_request += F("--");
     start_request += boundary;
@@ -243,8 +243,9 @@ String UniversalTelegramBot::sendMultipartFormDataToTelegram(
     header += F(" HTTP/1.1\r\n");
     // Host header
     header += F(
-        "Host: " TELEGRAM_HOST "\r\n");  // bugfix -
-                                   // https://github.com/witnessmenow/Universal-Arduino-Telegram-Bot/issues/186
+        "Host: " TELEGRAM_HOST
+        "\r\n");  // bugfix -
+                  // https://github.com/witnessmenow/Universal-Arduino-Telegram-Bot/issues/186
     header += F("User-Agent: arduino/1.0\r\n");
     header += F("Accept: */*\r\n");
 
@@ -271,18 +272,20 @@ String UniversalTelegramBot::sendMultipartFormDataToTelegram(
     header += F("\r\n");
     header += F("\r\n");  // bugfix for [E][ssl_client.cpp:36]
                           // _handle_error(): [send_ssl_data():294]: (0)
-	if (client->print(header) < 0) {
+    if (client->print(header) < 0) {
 #ifdef TELEGRAM_DEBUG
-            Serial.println(F("Error sending header"));
+      Serial.println(F("Error sending header"));
 #endif
-			return "";
-	}
-	if (client->print(start_request) < 0) {
+      closeClient();
+      return "";
+    }
+    if (client->print(start_request) < 0) {
 #ifdef TELEGRAM_DEBUG
-            Serial.println(F("Error sending start request"));
+      Serial.println(F("Error sending start request"));
 #endif
-			return "";
-	}
+      closeClient();
+      return "";
+    }
 
 #ifdef TELEGRAM_DEBUG
     Serial.print("Start request: " + start_request);
@@ -298,12 +301,13 @@ String UniversalTelegramBot::sendMultipartFormDataToTelegram(
 #ifdef TELEGRAM_DEBUG
             Serial.println(F("Sending photo from buffer has failure"));
 #endif
+            closeClient();
             return "";
-          }
-          if (sent == 0) {
+          } else if (sent == 0) {
 #ifdef TELEGRAM_DEBUG
-            Serial.println(F("Sent 0 bytes...to not try again"));
+            Serial.println(F("Sent 0 bytes...do not try again"));
 #endif
+            closeClient();
             return "";
           }
           to_send -= sent;
@@ -343,12 +347,13 @@ String UniversalTelegramBot::sendMultipartFormDataToTelegram(
 #ifdef TELEGRAM_DEBUG
     Serial.println(F("buffer sent"));
 #endif
-	if (client->print(end_request) < 0) {
+    if (client->print(end_request) < 0) {
 #ifdef TELEGRAM_DEBUG
-            Serial.println(F("Error sending end request"));
+      Serial.println(F("Error sending end request"));
 #endif
-			return "";
-	}
+      closeClient();
+      return "";
+    }
 #ifdef TELEGRAM_DEBUG
     Serial.print("End request: " + end_request);
 #endif

@@ -61,8 +61,8 @@ static int line_intersect(const struct quirc_point *p0,
   return 1;
 }
 
-static void perspective_setup(float *c, const struct quirc_point *rect,
-                              float w, float h) {
+static void perspective_setup(float *c, const struct quirc_point *rect, float w,
+                              float h) {
   float x0 = rect[0].x;
   float y0 = rect[0].y;
   float x1 = rect[1].x;
@@ -111,7 +111,7 @@ static void perspective_unmap(const float *c, const struct quirc_point *in,
   float x = in->x;
   float y = in->y;
   float den = -c[0] * c[7] * y + c[1] * c[6] * y +
-               (c[3] * c[7] - c[4] * c[6]) * x + c[0] * c[4] - c[1] * c[3];
+              (c[3] * c[7] - c[4] * c[6]) * x + c[0] * c[4] - c[1] * c[3];
 
   *u = -(c[1] * (y - c[5]) - c[2] * c[7] * y + (c[5] * c[7] - c[4]) * x +
          c[2] * c[4]) /

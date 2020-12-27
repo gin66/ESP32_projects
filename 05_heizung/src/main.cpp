@@ -166,7 +166,7 @@ void setup() {
         digitalWrite(tpl_flashPin, HIGH);
         // activate cam
         {
-          uint32_t settle_till = millis() + 10000;
+          uint32_t settle_till = millis() + 600;
           while ((int32_t)(settle_till - millis()) > 0) {
             // let the camera adjust
             camera_fb_t *fb = esp_camera_fb_get();

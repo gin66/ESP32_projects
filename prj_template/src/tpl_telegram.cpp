@@ -30,7 +30,7 @@ static bool isMoreDataAvailable() {
     return false;
   }
 }
-#define CHUNKSIZE 256
+#define CHUNKSIZE 512
 static byte *getNextBuffer() {
   if (jpeg_to_send) {
     byte *buf = &jpeg_to_send[dataBytesSent];
@@ -182,6 +182,7 @@ void TaskTelegramCore1(void *pvParameters) {
           tpl_config.bot_communication_ongoing = false;
           WATCH(3002)
           if (res.length() > 0) {
+			Serial.println(res);
             break;
           }
           Serial.println("after sendPhotoByBinary..retry");

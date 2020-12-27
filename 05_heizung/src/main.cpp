@@ -141,7 +141,7 @@ void setup() {
           }
           WATCH(103)
         } else {
-          tpl_config.bot_message = "error";
+          tpl_config.bot_message = "read_image detected checksum error";
           tpl_config.bot_send_message = true;
         }
         // wait lower level finish transmission !?

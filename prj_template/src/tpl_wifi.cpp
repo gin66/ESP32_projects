@@ -60,12 +60,6 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
                nets[last_connected_network].passwd);
     if (WiFi.waitForConnectResult() == WL_CONNECTED) {
       need_connect = false;
-      if (verbose) {
-        Serial.println("");
-        Serial.println("WiFi connected");
-        Serial.println("IP address: ");
-        Serial.println(WiFi.localIP());
-      }
     } else {
       WiFi.disconnect(/*wifioff=*/true);
     }
@@ -76,6 +70,12 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
     }
     connect();
   }
+      if (verbose) {
+        Serial.println("");
+        Serial.println("WiFi connected");
+        Serial.print("IP address: ");
+        Serial.println(WiFi.localIP());
+      }
 
   if (MDNS.begin(HOSTNAME)) {
     Serial.println("MDNS responder started");

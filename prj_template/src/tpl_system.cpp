@@ -1,6 +1,8 @@
 #include "tpl_system.h"
 
 #include <rom/rtc.h>
+#include <esp_int_wdt.h>
+#include <esp_task_wdt.h>
 
 RTC_DATA_ATTR uint16_t rtc_watchpoint;
 static RTC_DATA_ATTR uint32_t bootCount = 0;
@@ -96,11 +98,24 @@ static const char *reason[] = {
     "RTCWDT_RTC_RESET",
 };
 
+void tpl_hard_restart() {
+	// https://github.com/espressif/arduino-esp32/issues/1270
+  esp_task_wdt_init(1,true);
+  esp_task_wdt_add(NULL);
+  while(true);
+}
 #ifdef MAX_ON_TIME_S
 void TaskOnTimeWatchdog(void *pvParameters) {
-  const TickType_t xDelay = MAX_ON_TIME_S * 1000 / portTICK_PERIOD_MS;
-  vTaskDelay(xDelay);
+  Serial.println("start on time watchdog");
+  const TickType_t xDelay = 1000 / portTICK_PERIOD_MS;
+  for (uint8_t i = 0;i < MAX_ON_TIME_S;i++) {
+	  vTaskDelay(xDelay);
+  }
+  Serial.println("watchdog triggered");
+  // this finally works
+  vTaskSuspendAll();
   ESP.restart();
+  xTaskResumeAll();
 }
 #endif
 

@@ -4,6 +4,8 @@
 #include <Arduino.h>
 #include <driver/adc.h>
 #include <esp_wifi.h>
+#include <esp_int_wdt.h>
+#include <esp_task_wdt.h>
 
 #include "tpl_esp_camera.h"
 #include "tpl_system.h"
@@ -82,17 +84,14 @@ void TaskCommandCore1(void *pvParameters) {
           }
           vTaskSuspend(tpl_tasks.task_wifi_manager);
 
-          Serial.println("Wifi disconnect");
-          esp_err_t err = esp_wifi_disconnect();
-          if (err != ESP_OK) {
-			  Serial.println("..failed");
-          }
-
           Serial.print("Wifi stop:");
           // esp32 can hang at esp_wifi_stop()
           //  => ping works, but no communication possible
           //  result of esp_wifi_stop() is not printed
-          Serial.println(esp_wifi_stop());
+		  //  ==> set up watchdog for reset in case this does not work
+		  esp_task_wdt_init(5,true);
+		  esp_task_wdt_add(NULL);
+          esp_wifi_stop();
 #ifdef IS_ESP32CAM
           Serial.println("Prepare esp32cam for deepsleep");
           tpl_camera_off();

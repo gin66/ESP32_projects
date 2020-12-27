@@ -38,13 +38,13 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let mut top_left_chart = ChartBuilder::on(&top_left)
         .caption(
-            "Rohzeiger 0.1m3 als Winkel °",
+            "Rohzeiger 0.1m3 als Winkel *1.8°",
             ("sans-serif", 20).into_font(),
         )
         .margin(5)
         .x_label_area_size(30)
         .y_label_area_size(30)
-        .build_cartesian_2d(from_t as i64..to_t as i64, 0..360)?;
+        .build_cartesian_2d(from_t as i64..to_t as i64, 0..200)?;
 
     top_left_chart.configure_mesh().draw()?;
 
@@ -56,14 +56,31 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     )? };
 
     top_left_chart
-        .draw_series(LineSeries::new(
-            err_data.into_iter().map(|(t, a)| (t as i64, a as i32)),
-            &BLACK,
-        ))?
-        .label("0.1")
-        .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
+        .configure_series_labels()
+        .background_style(&WHITE.mix(0.8))
+        .border_style(&BLACK)
+        .draw()?;
 
-    top_left_chart
+    let mut top_right_chart = ChartBuilder::on(&top_right)
+        .caption(
+            "Rohzeiger 0.01m3 als Winkel *1.8°",
+            ("sans-serif", 20).into_font(),
+        )
+        .margin(5)
+        .x_label_area_size(30)
+        .y_label_area_size(30)
+        .build_cartesian_2d(from_t as i64..to_t as i64, 0..200)?;
+
+    top_right_chart.configure_mesh().draw()?;
+
+    unsafe {
+    top_right_chart.draw_series(
+        entries
+            .iter()
+            .map(|&e| Circle::new(((*e).timestamp as i64, (*e).angle[1] as i32), 2, BLUE.filled())),
+    )? };
+
+    top_right_chart
         .configure_series_labels()
         .background_style(&WHITE.mix(0.8))
         .border_style(&BLACK)

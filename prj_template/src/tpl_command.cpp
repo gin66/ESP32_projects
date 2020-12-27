@@ -84,6 +84,11 @@ void TaskCommandCore1(void *pvParameters) {
           }
           vTaskSuspend(tpl_tasks.task_wifi_manager);
 
+#ifdef IS_ESP32CAM
+          Serial.println("Psram flush");
+          psram_flush_cache();
+#endif
+
           Serial.print("Wifi stop:");
           // esp32 can hang at esp_wifi_stop()
           //  => ping works, but no communication possible
@@ -95,7 +100,7 @@ void TaskCommandCore1(void *pvParameters) {
 #ifdef IS_ESP32CAM
           Serial.println("Prepare esp32cam for deepsleep");
           tpl_camera_off();
-          Serial.println("Start psram flush");
+          Serial.println("Psram flush again");
           psram_flush_cache();
 #endif
           adc_power_off();  // https://github.com/espressif/arduino-esp32/issues/2804

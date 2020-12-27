@@ -112,6 +112,9 @@ void TaskOnTimeWatchdog(void *pvParameters) {
 	  vTaskDelay(xDelay);
   }
   Serial.println("watchdog triggered");
+  // cause wdt reset in case restart does not work
+  esp_task_wdt_init(1,true);
+  esp_task_wdt_add(NULL);
   // this finally works
   vTaskSuspendAll();
   ESP.restart();

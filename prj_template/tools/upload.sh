@@ -31,18 +31,6 @@ do
 	sleep 1
 done
 
-while true
-do
-	echo -n .
-	nc -z $TARGET 3232
-	echo $?
-	if [ $? == 0 ]
-	then
-		break
-	fi
-	sleep 1
-done
-
 # upload
 #pio run --target upload
 python3 ~/.platformio/packages/framework-arduinoespressif32/tools/espota.py --debug --progress -i $TARGET -f .pio/build/esp32ota/firmware.bin

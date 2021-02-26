@@ -103,7 +103,7 @@ void TaskCommandCore1(void *pvParameters) {
           Serial.println("Psram flush again");
           psram_flush_cache();
 #endif
-          adc_power_off();  // https://github.com/espressif/arduino-esp32/issues/2804
+          adc_power_release();  // https://github.com/espressif/arduino-esp32/issues/2804
           uint64_t sleep = tpl_config.deepsleep_time_secs;
           sleep *= 1000000LL;
           esp_sleep_enable_timer_wakeup(sleep);

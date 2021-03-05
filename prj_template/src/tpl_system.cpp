@@ -1,5 +1,6 @@
 #include "tpl_system.h"
 
+#include <SPIFFS.h>
 #include <rom/rtc.h>
 #include <esp_int_wdt.h>
 #include <esp_task_wdt.h>
@@ -147,4 +148,6 @@ void tpl_system_setup(uint32_t deep_sleep_secs) {
   xTaskCreatePinnedToCore(TaskOnTimeWatchdog, "On Time Watchdog", 1024, NULL, 0,
                           &tpl_tasks.task_on_time_watchdog_1, CORE_1);
 #endif
+  if (!SPIFFS.begin()) {
+  }
 }

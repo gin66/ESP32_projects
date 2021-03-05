@@ -13,6 +13,7 @@ target/
 
 ## All symbolic links (automatically generated)
 ##===
+00_starter/data/serverindex.html
 00_starter/include/template.h
 00_starter/include/tpl_app_camera.h
 00_starter/include/tpl_command.h
@@ -39,6 +40,7 @@ target/
 00_starter/tools/EspStackTraceDecoder.jar
 00_starter/tools/stacktrace.sh
 00_starter/tools/upload.sh
+01_qrcode/data/serverindex.html
 01_qrcode/include/template.h
 01_qrcode/include/tpl_app_camera.h
 01_qrcode/include/tpl_command.h
@@ -65,6 +67,7 @@ target/
 01_qrcode/tools/EspStackTraceDecoder.jar
 01_qrcode/tools/stacktrace.sh
 01_qrcode/tools/upload.sh
+02_garage/data/serverindex.html
 02_garage/include/template.h
 02_garage/include/tpl_app_camera.h
 02_garage/include/tpl_command.h
@@ -91,6 +94,7 @@ target/
 02_garage/tools/EspStackTraceDecoder.jar
 02_garage/tools/stacktrace.sh
 02_garage/tools/upload.sh
+03_monitor/data/serverindex.html
 03_monitor/include/template.h
 03_monitor/include/tpl_app_camera.h
 03_monitor/include/tpl_command.h
@@ -117,6 +121,7 @@ target/
 03_monitor/tools/EspStackTraceDecoder.jar
 03_monitor/tools/stacktrace.sh
 03_monitor/tools/upload.sh
+04_herd/data/serverindex.html
 04_herd/include/template.h
 04_herd/include/tpl_app_camera.h
 04_herd/include/tpl_command.h
@@ -143,6 +148,7 @@ target/
 04_herd/tools/EspStackTraceDecoder.jar
 04_herd/tools/stacktrace.sh
 04_herd/tools/upload.sh
+05_heizung/data/serverindex.html
 05_heizung/include/template.h
 05_heizung/include/tpl_app_camera.h
 05_heizung/include/tpl_command.h
@@ -169,6 +175,8 @@ target/
 05_heizung/tools/EspStackTraceDecoder.jar
 05_heizung/tools/stacktrace.sh
 05_heizung/tools/upload.sh
+06_wasserzaehler/data/serverindex.html
+06_wasserzaehler/dump
 06_wasserzaehler/include/template.h
 06_wasserzaehler/include/tpl_app_camera.h
 06_wasserzaehler/include/tpl_command.h
@@ -201,6 +209,7 @@ target/
 06_wasserzaehler/tools/EspStackTraceDecoder.jar
 06_wasserzaehler/tools/stacktrace.sh
 06_wasserzaehler/tools/upload.sh
+07_testbot/data/serverindex.html
 07_testbot/include/template.h
 07_testbot/include/tpl_app_camera.h
 07_testbot/include/tpl_command.h
@@ -227,6 +236,7 @@ target/
 07_testbot/tools/EspStackTraceDecoder.jar
 07_testbot/tools/stacktrace.sh
 07_testbot/tools/upload.sh
+08_eink/data/serverindex.html
 08_eink/include/template.h
 08_eink/include/tpl_app_camera.h
 08_eink/include/tpl_command.h
@@ -253,6 +263,7 @@ target/
 08_eink/tools/EspStackTraceDecoder.jar
 08_eink/tools/stacktrace.sh
 08_eink/tools/upload.sh
+09_psramcheck/data/serverindex.html
 09_psramcheck/include/template.h
 09_psramcheck/include/tpl_app_camera.h
 09_psramcheck/include/tpl_command.h
@@ -279,4 +290,31 @@ target/
 09_psramcheck/tools/EspStackTraceDecoder.jar
 09_psramcheck/tools/stacktrace.sh
 09_psramcheck/tools/upload.sh
+10_mpu6050/data/serverindex.html
+10_mpu6050/include/template.h
+10_mpu6050/include/tpl_app_camera.h
+10_mpu6050/include/tpl_command.h
+10_mpu6050/include/tpl_esp_camera.h
+10_mpu6050/include/tpl_net_watchdog.h
+10_mpu6050/include/tpl_system.h
+10_mpu6050/include/tpl_telegram.h
+10_mpu6050/include/tpl_webserver.h
+10_mpu6050/include/tpl_websocket.h
+10_mpu6050/include/tpl_wifi.h
+10_mpu6050/include/wifi_secrets.h
+10_mpu6050/min_spiffs.csv
+10_mpu6050/src/tpl_command.cpp
+10_mpu6050/src/tpl_esp_camera.cpp
+10_mpu6050/src/tpl_net_watchdog.cpp
+10_mpu6050/src/tpl_system.cpp
+10_mpu6050/src/tpl_telegram.cpp
+10_mpu6050/src/tpl_webserver.cpp
+10_mpu6050/src/tpl_websocket.cpp
+10_mpu6050/src/tpl_wifi.cpp
+10_mpu6050/src/wifi_secrets.cpp
+10_mpu6050/tools/build.sh
+10_mpu6050/tools/dump.sh
+10_mpu6050/tools/EspStackTraceDecoder.jar
+10_mpu6050/tools/stacktrace.sh
+10_mpu6050/tools/upload.sh
 node_modules/.bin/prettier

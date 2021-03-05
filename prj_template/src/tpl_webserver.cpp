@@ -8,12 +8,10 @@
 #ifdef IS_ESP32CAM
 #include "tpl_esp_camera.h"
 #endif
+#include <SPIFFS.h>
+#include <FS.h>
 
 WebServer tpl_server(80);
-
-extern const uint8_t index_html_start[] asm("_binary_src_index_html_start");
-extern const uint8_t server_index_html_start[] asm(
-    "_binary_src_serverindex_html_start");
 
 void TaskWebServerCore0(void* pvParameters) {
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
@@ -30,27 +28,22 @@ void tpl_webserver_setup() {
     Serial.print("Not found: ");
     Serial.println(tpl_server.uri());
   });
-  /*handling uploading firmware file */
-  tpl_server.on("/", HTTP_GET, []() {
-    tpl_server.sendHeader("Connection", "close");
-    tpl_server.send_P(200, "text/html", (const char*)index_html_start);
-  });
   tpl_server.on("/allowsleep", HTTP_GET, []() {
     tpl_config.allow_deepsleep = true;
     tpl_server.sendHeader("Connection", "close");
-    tpl_server.send_P(200, "text/html", (const char*)index_html_start);
+    tpl_server.send(200, "text/html", "Done");
   });
   tpl_server.on("/restart", HTTP_GET, []() { ESP.restart(); });
   tpl_server.on("/deepsleep", HTTP_GET, []() {
     tpl_config.allow_deepsleep = true;
     tpl_command = CmdDeepSleep;
     tpl_server.sendHeader("Connection", "close");
-    tpl_server.send_P(200, "text/html", (const char*)index_html_start);
+    tpl_server.send(200, "text/html", "Done");
   });
   tpl_server.on("/nosleep", HTTP_GET, []() {
     tpl_config.allow_deepsleep = false;
     tpl_server.sendHeader("Connection", "close");
-    tpl_server.send_P(200, "text/html", (const char*)index_html_start);
+    tpl_server.send(200, "text/html", "Done");
   });
   tpl_server.on("/digital", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
@@ -82,10 +75,6 @@ void tpl_webserver_setup() {
     tpl_server.sendHeader("Connection", "close");
     long val = tpl_config.watchpoint;
     tpl_server.send(200, "text/html", String(val));
-  });
-  tpl_server.on("/serverIndex", HTTP_GET, []() {
-    tpl_server.sendHeader("Connection", "close");
-    tpl_server.send_P(200, "text/html", (const char*)server_index_html_start);
   });
   /*handling uploading firmware file */
   tpl_server.on(
@@ -135,6 +124,8 @@ void tpl_webserver_setup() {
     }
   });
 #endif
+  tpl_server.serveStatic("/", SPIFFS,"/index.html","max-age=31536000");
+  tpl_server.serveStatic("/serverIndex", SPIFFS,"/serverindex.html","max-age=31536000");
   tpl_server.begin();
 
   xTaskCreatePinnedToCore(TaskWebServerCore0, "WebServer", 3072, NULL, 1,

@@ -36,7 +36,7 @@ void setup() {
 
   Serial.begin(115200);
   Serial.setDebugOutput(false);
-
+ 
   // Wait OTA
   tpl_wifi_setup(true, true, (gpio_num_t)255/*tpl_ledPin*/);
   tpl_webserver_setup();
@@ -86,8 +86,12 @@ void mpu_read(){
 	GyX=i2c.read()<<8|i2c.read();  // 0x43 (GYRO_XOUT_H) & 0x44 (GYRO_XOUT_L)
 	GyY=i2c.read()<<8|i2c.read();  // 0x45 (GYRO_YOUT_H) & 0x46 (GYRO_YOUT_L)
 	GyZ=i2c.read()<<8|i2c.read();  // 0x47 (GYRO_ZOUT_H) & 0x48 (GYRO_ZOUT_L)
+
+	float Ac = sqrt(1.0*AcX*AcX + 1.0*AcY*AcY + 1.0*AcZ*AcZ);
+	float Gy = sqrt(1.0*GyX*GyX + 1.0*GyY*GyY + 1.0*GyZ*GyZ);
+
 	char buf[255];
-	sprintf(buf, "Acceleration: %6d %6d %6d Giro: %6d %6d %6d Temp: %d", AcX, AcY, AcZ, GyX, GyY, GyZ, (Tmp+12420)/340);
+	sprintf(buf, "Acceleration: %6d %6d %6d => %6.1f, Giro: %6d %6d %6d => %6.1f, Temp: %d", AcX, AcY, AcZ, Ac, GyX, GyY, GyZ, Gy, (Tmp+12420)/340);
 	Serial.println(buf);
 }
 

@@ -1,5 +1,5 @@
 fmt: node_modules/prettier/package.json links
-	npx prettier --write */src/*.html
+	npx prettier --write */data/*.html
 	clang-format --style=Google -i `find */src */include -name '*.h' -type f`
 	clang-format --style=Google -i `find */src */include -name '*.c' -type f`
 	clang-format --style=Google -i `find */src */include -name '*.cpp' -type f`

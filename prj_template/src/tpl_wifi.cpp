@@ -70,12 +70,12 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
     }
     connect();
   }
-      if (verbose) {
-        Serial.println("");
-        Serial.println("WiFi connected");
-        Serial.print("IP address: ");
-        Serial.println(WiFi.localIP());
-      }
+  if (verbose) {
+    Serial.println("");
+    Serial.println("WiFi connected");
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+  }
 
   if (MDNS.begin(HOSTNAME)) {
     Serial.println("MDNS responder started");

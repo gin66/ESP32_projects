@@ -8,8 +8,8 @@
 #ifdef IS_ESP32CAM
 #include "tpl_esp_camera.h"
 #endif
-#include <SPIFFS.h>
 #include <FS.h>
+#include <SPIFFS.h>
 
 WebServer tpl_server(80);
 
@@ -124,8 +124,9 @@ void tpl_webserver_setup() {
     }
   });
 #endif
-  tpl_server.serveStatic("/", SPIFFS,"/index.html","max-age=31536000");
-  tpl_server.serveStatic("/serverIndex", SPIFFS,"/serverindex.html","max-age=31536000");
+  tpl_server.serveStatic("/", SPIFFS, "/index.html", "max-age=31536000");
+  tpl_server.serveStatic("/serverIndex", SPIFFS, "/serverindex.html",
+                         "max-age=31536000");
   tpl_server.begin();
 
   xTaskCreatePinnedToCore(TaskWebServerCore0, "WebServer", 3072, NULL, 1,

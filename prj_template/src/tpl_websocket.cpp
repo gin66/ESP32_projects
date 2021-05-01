@@ -7,6 +7,7 @@
 #endif
 
 WebSocketsServer webSocket = WebSocketsServer(81);
+void (*tpl_process_func)(DynamicJsonDocument * json) = NULL;
 
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
                     size_t length) {
@@ -31,12 +32,14 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
         tpl_config.allow_deepsleep = true;
         tpl_command = CmdDeepSleep;
       }
+	  if (tpl_process_func) {
+		tpl_process_func(&json);
+	  }
 #ifdef IS_ESP32CAM
       tpl_process_web_socket_cam_settings(&json);
       if (json.containsKey("image")) {
         tpl_command = CmdSendJpg2Ws;
       }
-      tpl_process_web_socket_cam_settings(&json);
       if (json.containsKey("flash")) {
         tpl_command = CmdFlash;
       }
@@ -57,7 +60,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
 #define WS_BUFLEN 4096
 char ws_buffer[WS_BUFLEN];
 void TaskWebSocketCore0(void *pvParameters) {
-  void (*func)(DynamicJsonDocument * json) =
+  void (*publish_func)(DynamicJsonDocument * json) =
       (void (*)(DynamicJsonDocument *))pvParameters;
   const TickType_t xDelay = 1 + 10 / portTICK_PERIOD_MS;
   uint32_t send_status_ms = 0;
@@ -98,8 +101,8 @@ void TaskWebSocketCore0(void *pvParameters) {
       myObject["IP"] = WiFi.localIP().toString();
       myObject["SSID"] = WiFi.SSID();
 
-      if (func != NULL) {
-        func(&myObject);
+      if (publish_func != NULL) {
+        publish_func(&myObject);
       }
 
       /* size_t bx = */ serializeJson(myObject, &ws_buffer, WS_BUFLEN);
@@ -122,7 +125,9 @@ void TaskWebSocketCore0(void *pvParameters) {
 
 //---------------------------------------------------
 //
-void tpl_websocket_setup(void (*func)(DynamicJsonDocument *json)) {
-  xTaskCreatePinnedToCore(TaskWebSocketCore0, "WebSocket", 4096, (void *)func,
+void tpl_websocket_setup(void (*publish_func)(DynamicJsonDocument *json),
+						 void (*process_json)(DynamicJsonDocument *json)) {
+	tpl_process_func = process_json;
+  xTaskCreatePinnedToCore(TaskWebSocketCore0, "WebSocket", 4096, (void *)publish_func,
                           1, &tpl_tasks.task_websocket, CORE_0);
 }

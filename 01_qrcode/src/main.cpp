@@ -225,7 +225,7 @@ void setup() {
   // Wait OTA
   tpl_wifi_setup(true, true, (gpio_num_t)tpl_ledPin);
   tpl_webserver_setup();
-  tpl_websocket_setup(add_ws_info);
+  tpl_websocket_setup(add_ws_info,NULL);
   tpl_net_watchdog_setup();
   tpl_command_setup(NULL);
 

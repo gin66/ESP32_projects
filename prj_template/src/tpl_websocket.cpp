@@ -100,6 +100,8 @@ void TaskWebSocketCore0(void *pvParameters) {
       myObject["wifi_dBm"] = WiFi.RSSI();
       myObject["IP"] = WiFi.localIP().toString();
       myObject["SSID"] = WiFi.SSID();
+	  myObject["nr_stepper"] = tpl_spiffs_config.nr_steppers;
+	  myObject["dirty_config"] = tpl_spiffs_config.need_store;
 
       if (publish_func != NULL) {
         publish_func(&myObject);

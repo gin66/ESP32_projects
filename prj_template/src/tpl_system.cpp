@@ -56,6 +56,8 @@ struct tpl_config_s tpl_config = {.bootCount = 0,
                                   .last_seen_watchpoint = 0,
                                   .watchpoint = 0};
 
+TplSpiffsConfig tpl_spiffs_config = TplSpiffsConfig();
+
 #define ADD_STACK_INFO(name, task)                                        \
   {                                                                       \
     if (task != NULL) {                                                   \
@@ -149,6 +151,37 @@ void tpl_system_setup(uint32_t deep_sleep_secs) {
   xTaskCreatePinnedToCore(TaskOnTimeWatchdog, "On Time Watchdog", 1024, NULL, 0,
                           &tpl_tasks.task_on_time_watchdog_1, CORE_1);
 #endif
-  if (!SPIFFS.begin()) {
+  if (SPIFFS.begin()) {
+      if (SPIFFS.exists(SPIFFS_CONFIG_FNAME)) {
+		File f;
+		unsigned int readSize;
+		f = SPIFFS.open(SPIFFS_CONFIG_FNAME, "rb");
+		f.setTimeout(0);
+		readSize = f.readBytes((char*) &tpl_spiffs_config, sizeof(TplSpiffsConfig));
+		if ((readSize != sizeof(TplSpiffsConfig)) || (tpl_spiffs_config.version != SPIFFS_CONFIG_VERSION)) {
+			tpl_spiffs_config.init();
+        }
+		f.close();  
+	}
   }
 }
+
+bool tpl_write_config() {
+    File f;
+    unsigned int writeSize;
+
+	tpl_spiffs_config.need_store = false;
+        f = SPIFFS.open(SPIFFS_CONFIG_FNAME, "wb");
+		if (!f) {
+			tpl_spiffs_config.need_store = true;
+			return false;
+		}
+        writeSize = f.write((byte*) &tpl_spiffs_config, sizeof(TplSpiffsConfig));
+        f.close();  
+        if (!(writeSize == sizeof(TplSpiffsConfig))) {
+			tpl_spiffs_config.need_store = true;
+            return false;
+		}
+	return true;
+}
+

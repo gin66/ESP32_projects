@@ -58,6 +58,24 @@ extern struct tpl_config_s {
   uint32_t watchpoint;
 } tpl_config;
 
+#define SPIFFS_CONFIG_VERSION 0x0101
+#define SPIFFS_CONFIG_FNAME "/config.ini"
+class TplSpiffsConfig {
+	public:
+	uint16_t version;
+	bool need_store;
+	uint8_t nr_steppers;
+	void init() {
+		version = SPIFFS_CONFIG_VERSION;
+		nr_steppers = 0;
+		need_store = true;
+	}
+	TplSpiffsConfig() {
+		init();
+	}
+};
+extern TplSpiffsConfig tpl_spiffs_config;
+
 void tpl_update_stack_info();
 void tpl_system_setup(uint32_t deep_sleep_secs = 0);
 

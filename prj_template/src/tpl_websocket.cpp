@@ -35,6 +35,28 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
       if (json.containsKey("save_config")) {
         tpl_command = CmdSaveConfig;
       }
+      if (json.containsKey("pin_to_high")) {
+		uint8_t pin = json["pin_to_high"];
+		pinMode(pin, OUTPUT);
+		digitalWrite(pin, HIGH);
+      }
+      if (json.containsKey("pin_to_low")) {
+		uint8_t pin = json["pin_to_low"];
+		pinMode(pin, OUTPUT);
+		digitalWrite(pin, LOW);
+      }
+      if (json.containsKey("as_input")) {
+		uint8_t pin = json["as_input"];
+		pinMode(pin, INPUT);
+      }
+      if (json.containsKey("as_input_pullup")) {
+		uint8_t pin = json["as_input_pullup"];
+		pinMode(pin, INPUT_PULLUP);
+      }
+      if (json.containsKey("as_input_pulldown")) {
+		uint8_t pin = json["as_input_pulldown"];
+		pinMode(pin, INPUT_PULLDOWN);
+      }
 	  if (tpl_process_func) {
 		tpl_process_func(&json);
 	  }

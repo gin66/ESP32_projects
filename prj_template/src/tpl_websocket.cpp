@@ -32,6 +32,9 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
         tpl_config.allow_deepsleep = true;
         tpl_command = CmdDeepSleep;
       }
+      if (json.containsKey("save_config")) {
+        tpl_command = CmdSaveConfig;
+      }
 	  if (tpl_process_func) {
 		tpl_process_func(&json);
 	  }
@@ -100,7 +103,9 @@ void TaskWebSocketCore0(void *pvParameters) {
       myObject["wifi_dBm"] = WiFi.RSSI();
       myObject["IP"] = WiFi.localIP().toString();
       myObject["SSID"] = WiFi.SSID();
+#ifdef HAS_STEPPERS
 	  myObject["nr_stepper"] = tpl_spiffs_config.nr_steppers;
+#endif
 	  myObject["dirty_config"] = tpl_spiffs_config.need_store;
 
       if (publish_func != NULL) {

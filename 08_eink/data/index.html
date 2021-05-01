@@ -280,6 +280,11 @@
         }
       }
       window.setInterval(repeating, 1000);
+      function send_save_config() {
+        if (ws != 0 && ws.readyState == 1) {
+          ws.send(JSON.stringify({ save_config: true }));
+        }
+      }
       function send_garage() {
         if (ws != 0 && ws.readyState == 1) {
           ws.send(JSON.stringify({ garage: true }));
@@ -321,6 +326,11 @@
         <form>
           <button class="button-primary" type="button" onClick="send_garage();">
             Garage via ws
+          </button>
+        </form>
+        <form>
+          <button class="button-primary" type="button" onClick="send_save_config();">
+            Save Configuration
           </button>
         </form>
         <form>

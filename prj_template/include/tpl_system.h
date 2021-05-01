@@ -58,16 +58,25 @@ extern struct tpl_config_s {
   uint32_t watchpoint;
 } tpl_config;
 
-#define SPIFFS_CONFIG_VERSION 0x0101
+#ifdef HAS_STEPPERS
+#define TPL_STEPPER_FLAG 0x8000
+#else
+#define TPL_STEPPER_FLAG 0x0000
+#endif
+#define SPIFFS_CONFIG_VERSION (0x0101 | TPL_STEPPER_FLAG)
 #define SPIFFS_CONFIG_FNAME "/config.ini"
 class TplSpiffsConfig {
 	public:
 	uint16_t version;
 	bool need_store;
+#ifdef HAS_STEPPERS
 	uint8_t nr_steppers;
+#endif
 	void init() {
 		version = SPIFFS_CONFIG_VERSION;
+#ifdef HAS_STEPPERS
 		nr_steppers = 0;
+#endif
 		need_store = true;
 	}
 	TplSpiffsConfig() {
@@ -78,6 +87,7 @@ extern TplSpiffsConfig tpl_spiffs_config;
 
 void tpl_update_stack_info();
 void tpl_system_setup(uint32_t deep_sleep_secs = 0);
+bool tpl_write_config();
 
 extern RTC_DATA_ATTR uint16_t rtc_watchpoint;
 #define WATCH(i)               \

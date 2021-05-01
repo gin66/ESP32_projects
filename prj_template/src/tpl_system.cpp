@@ -170,6 +170,7 @@ bool tpl_write_config() {
     File f;
     unsigned int writeSize;
 
+	Serial.println("Write Configuration");
 	tpl_spiffs_config.need_store = false;
         f = SPIFFS.open(SPIFFS_CONFIG_FNAME, "wb");
 		if (!f) {

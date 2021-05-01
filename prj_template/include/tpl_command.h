@@ -2,6 +2,7 @@
 enum Command {
   CmdIdle,
   CmdDeepSleep,
+  CmdSaveConfig,
 #ifdef IS_ESP32CAM
   CmdFlash,
   CmdSendJpg2Ws,

@@ -36,6 +36,10 @@ void TaskCommandCore1(void *pvParameters) {
     switch (tpl_command) {
       case CmdIdle:
         break;
+	  case CmdSaveConfig:
+        tpl_command = CmdIdle;
+		tpl_write_config();
+		break;
 #ifdef IS_ESP32CAM
       case CmdSendJpg2Ws:
         tpl_config.ws_send_jpg_image = true;

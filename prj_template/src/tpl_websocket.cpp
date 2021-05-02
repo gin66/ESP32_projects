@@ -102,7 +102,18 @@ void TaskWebSocketCore0(void *pvParameters) {
       send_status_ms = now + 100;
       String data = "................................................";
       for (int i = 0; i < 48; i++) {
-        char ch = 48 + digitalRead(i);
+		char ch = '-';
+	    volatile uint32_t *reg = portInputRegister(digitalPinToPort(i));
+		volatile uint32_t *ddr = portModeRegister(digitalPinToPort(i));
+		if (reg) {
+		   uint32_t mask = digitalPinToBitMask(i);
+		   if (ddr && (*ddr & mask)) {
+			   ch = *reg & mask ? '1':'0';
+		   }
+		   else {
+			   ch = *reg & mask ? 'H':'L';
+		   }
+		}
         data.setCharAt(i, ch);
       }
       DynamicJsonDocument myObject(4096);

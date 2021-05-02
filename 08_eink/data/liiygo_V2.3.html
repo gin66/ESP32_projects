@@ -10,6 +10,10 @@
 	  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
 	    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/js/bootstrap.min.js"></script>
 
+    <script
+      type="text/javascript"
+      src="./scripts.js"
+    ></script>
     <script type="text/javascript">
 		function selectCell(event) {
 			if (event.target instanceof HTMLTableCellElement) {
@@ -19,10 +23,10 @@
 					var gpio = parseInt(x, 10);
 					var e = event.target;
 					if (e.innerHTML == "OUT=0") {
-						e.innerHTML = "OUT=1";
+						send_value("pin_to_high",gpio);
 					}
 					else if (e.innerHTML == "OUT=1") {
-						e.innerHTML = "OUT=0";
+						send_value("pin_to_low",gpio);
 					}
 				}
 				else {
@@ -33,10 +37,10 @@
 						var e = document.getElementById(t);
 						if (e != null) {
 							if (e.innerHTML.match("IN") == null) {
-								e.innerHTML = "IN";
+								send_value("as_input",gpio);
 							}
 							else {
-								e.innerHTML = "OUT=0";
+								send_value("pin_to_high",gpio);
 							}
 						}
 					}
@@ -54,23 +58,56 @@
 </tr>
 </thead>
 <tbody>
-<tr> <td>               </td><td>        </td><td></td> <td rowspan="14">&nbsp;</td> <td > </td> <td> </td><td> </td> </tr>
-<tr> <td> 3V3           </td><td>        </td><td            ></td><td id="GPIO36"></td><td> GPIO36</td><td> FSVP/ADC1.0 </td> </tr>
-<tr> <td> GND           </td><td>        </td><td            ></td><td id="GPIO39"></td><td class="success"> GPIO39</td><td> FSVN/ADC1.3 </td> </tr>
-<tr> <td> VSPIHD/SDA    </td><td> GPIO21 </td><td id="GPIO21"></td><td            ></td><td>        </td><td> RST </td> </tr>
-<tr> <td> U0TXD/CLK3/TXD</td><td> GPIO01 </td><td id="GPIO01"></td><td id="GPIO34"></td><td> GPIO34 </td><td> ACC1.6 </td> </tr>
-<tr> <td> U0RXD/CLK2/RXD</td><td> GPIO03 </td><td id="GPIO03"></td><td            ></td><td>        </td><td> 3V3 </td> </tr>
-<tr> <td> VSPIWP/SCL    </td><td> GPIO22 </td><td id="GPIO22"></td><td id="GPIO32"></td><td> GPIO32 </td><td> 32K_XP/ADC1.4 </td> </tr>
-<tr> <td> U0CTS/VSPIO   </td><td> GPIO19 </td><td id="GPIO19"></td><td id="GPIO33"></td><td> GPIO33 </td><td> 32K_XN/ADC1.5 </td> </tr>
-<tr> <td> TOUCH6/ADC2.6 </td><td> GPIO14 </td><td id="GPIO14"></td><td id="GPIO25"></td><td> GPIO25 </td><td> ADC2.8/DAC2 </td> </tr>
-<tr> <td> HSPIWP/ADC2.2 </td><td> GPIO02 </td><td id="GPIO02"></td><td id="GPIO26"></td><td> GPIO26 </td><td> ADC2.9/DAC1 </td> </tr>
-<tr> <td> HSPICS0/ADC2.3</td><td> GPIO15 </td><td id="GPIO15"></td><td id="GPIO27"></td><td> GPIO27 </td><td> ADC2.7/TOUCH7 </td> </tr>
-<tr> <td> TOUCH4/ADC2.4 </td><td> GPIO13 </td><td id="GPIO13"></td><td id="GPIO12"></td><td> GPIO12 </td><td> ADC2.5/TOUCH5 </td> </tr>
-<tr> <td> 5V            </td><td>        </td><td            ></td><td id="GPIO00"></td><td> GPIO00 </td><td> CLK1/ADC2.3/TOUCH1 </td> </tr>
+<tr> <td>                </td><td>        </td><td></td> <td rowspan="14">&nbsp;</td> <td > </td> <td> </td><td> </td> </tr>
+<tr> <td> 3V3            </td><td>        </td><td            ></td><td id="GPIO36"></td><td> GPIO36</td><td> FSVP/ADC1.0 </td> </tr>
+<tr> <td> GND            </td><td>        </td><td            ></td><td id="GPIO39"></td><td class="success"> GPIO39</td><td> FSVN/ADC1.3 </td> </tr>
+<tr> <td> VSPIHD/SDA     </td><td> GPIO21 </td><td id="GPIO21"></td><td            ></td><td>        </td><td> RST </td> </tr>
+<tr> <td> U0TXD/CLK3/TXD </td><td> GPIO01 </td><td id="GPIO01"></td><td id="GPIO34"></td><td> GPIO34 </td><td> ACC1.6 </td> </tr>
+<tr> <td> U0RXD/CLK2/RXD </td><td> GPIO03 </td><td id="GPIO03"></td><td            ></td><td>        </td><td> 3V3 </td> </tr>
+<tr> <td> VSPIWP/SCL     </td><td> GPIO22 </td><td id="GPIO22"></td><td id="GPIO32"></td><td> GPIO32 </td><td> 32K_XP/ADC1.4 </td> </tr>
+<tr> <td> U0CTS/VSPIO/LED</td><td> GPIO19 </td><td id="GPIO19"></td><td id="GPIO33"></td><td> GPIO33 </td><td> 32K_XN/ADC1.5 </td> </tr>
+<tr> <td> TOUCH6/ADC2.6  </td><td> GPIO14 </td><td id="GPIO14"></td><td id="GPIO25"></td><td> GPIO25 </td><td> ADC2.8/DAC2 </td> </tr>
+<tr> <td> HSPIWP/ADC2.2  </td><td> GPIO02 </td><td id="GPIO02"></td><td id="GPIO26"></td><td> GPIO26 </td><td> ADC2.9/DAC1 </td> </tr>
+<tr> <td> HSPICS0/ADC2.3 </td><td> GPIO15 </td><td id="GPIO15"></td><td id="GPIO27"></td><td> GPIO27 </td><td> ADC2.7/TOUCH7 </td> </tr>
+<tr> <td> TOUCH4/ADC2.4  </td><td> GPIO13 </td><td id="GPIO13"></td><td id="GPIO12"></td><td> GPIO12 </td><td> ADC2.5/TOUCH5 </td> </tr>
+<tr> <td> 5V             </td><td>        </td><td            ></td><td id="GPIO00"></td><td> GPIO00 </td><td> CLK1/ADC2.3/TOUCH1 </td> </tr>
 <tr> <td> VBAT          </td><td>        </td><td            ></td><td            ></td><td>        </td><td> GND </td> </tr>
 </tbody>
 </table>
 </div>
+      <div class="row">
+        <h2>esp32_08</h2>
+        <p>
+          ESP32-Time: <span id="esp_time"></span> Memory available:
+          <span id="mem_free"></span> Uptime: <span id="uptime"></span> Sample
+          Rate: <span id="sample_rate"></span> SSID:
+          <span id="ssid"></span> dBm: <span id="dbm"></span>
+        </p>
+      </div>
+
+    <canvas id="image" width="0" height="0"> </canvas>
+    <div id="raw_image"></div>
+    <span id="debug" style="word-wrap: break-word"></span>
+    <span id="state"></span>
+    <span id="readystate"></span>
+    <span id="raw" style="word-wrap: break-word"></span>
+        <form>
+          <input class="button-primary" type="checkbox" id="show_raw" />Show raw
+          messages
+        </form>
+
+    <!-- Optional JavaScript -->
+    <!-- Popper.js first, then Bootstrap JS -->
+    <script
+      src="https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js"
+      integrity="sha384-Q6E9RHvbIyZFJoft+2mJbHaEWldlvI9IOYy5n3zV9zzTtmI3UksdQRVvoxMfooAo"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://stackpath.bootstrapcdn.com/bootstrap/5.0.0-alpha1/js/bootstrap.min.js"
+      integrity="sha384-oesi62hOLfzrys4LxRF63OJCXdXDipiYWBnvTl9Y9/TRlw5xlKIEHpNyvvDShgf/"
+      crossorigin="anonymous"
+    ></script>
   </body>
 </html>
 

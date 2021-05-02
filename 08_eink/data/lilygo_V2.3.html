@@ -6,9 +6,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
 
     <!-- Bootstrap CSS -->
+    <link
+      href="//fonts.googleapis.com/css?family=Roboto"
+      rel="stylesheet"
+      type="text/css"
+    />
+
+    <!-- Bootstrap CSS -->
+	<!-- JavaScript Bundle with Popper -->
 	  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css">
 	  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
-	    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/js/bootstrap.min.js"></script>
 
     <script
       type="text/javascript"
@@ -18,8 +25,7 @@
 	</script>
   </head>
   <body>
-  <div class="container" id="board">> </div>
-      <div class="row">
+      <div class="container">
         <h2>esp32_08</h2>
         <p>
           ESP32-Time: <span id="esp_time"></span> Memory available:
@@ -28,6 +34,7 @@
           <span id="ssid"></span> dBm: <span id="dbm"></span>
         </p>
       </div>
+	  <div class="container" id="board">> </div>
 
     <canvas id="image" width="0" height="0"> </canvas>
     <div id="raw_image"></div>
@@ -44,17 +51,6 @@
     <script>
 		document.getElementById("board").innerHTML = board_definition;
 	</script>
-    <!-- Popper.js first, then Bootstrap JS -->
-    <script
-      src="https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js"
-      integrity="sha384-Q6E9RHvbIyZFJoft+2mJbHaEWldlvI9IOYy5n3zV9zzTtmI3UksdQRVvoxMfooAo"
-      crossorigin="anonymous"
-    ></script>
-    <script
-      src="https://stackpath.bootstrapcdn.com/bootstrap/5.0.0-alpha1/js/bootstrap.min.js"
-      integrity="sha384-oesi62hOLfzrys4LxRF63OJCXdXDipiYWBnvTl9Y9/TRlw5xlKIEHpNyvvDShgf/"
-      crossorigin="anonymous"
-    ></script>
   </body>
 </html>
 

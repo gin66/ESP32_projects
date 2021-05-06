@@ -125,6 +125,7 @@ void tpl_webserver_setup() {
   });
 #endif
   tpl_server.serveStatic("/", SPIFFS, "/index.html", "max-age=31536000");
+  tpl_server.serveStatic("/scripts.js", SPIFFS, "/scripts.js", "max-age=31536000");
   tpl_server.serveStatic("/serverIndex", SPIFFS, "/serverindex.html",
                          "max-age=31536000");
   tpl_server.begin();

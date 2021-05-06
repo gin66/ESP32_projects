@@ -51,7 +51,7 @@ var board_definition = `
 	<tr> <td> HSPICS0/ADC2.3 </td><td> GPIO15 </td><td id="GPIO15"></td><td id="GPIO27"></td><td> GPIO27 </td><td> ADC2.7/TOUCH7 </td> </tr>
 	<tr> <td> TOUCH4/ADC2.4  </td><td> GPIO13 </td><td id="GPIO13"></td><td id="GPIO12"></td><td> GPIO12 </td><td> ADC2.5/TOUCH5 </td> </tr>
 	<tr> <td> 5V             </td><td>        </td><td            ></td><td id="GPIO00"></td><td> GPIO00 </td><td> CLK1/ADC2.3/TOUCH1 </td> </tr>
-	<tr> <td> VBAT          </td><td>        </td><td            ></td><td            ></td><td>        </td><td> GND </td> </tr>
+	<tr> <td> VBAT           </td><td>        </td><td            ></td><td            ></td><td>        </td><td> GND </td> </tr>
 	</tbody>
 	</table>`;
 

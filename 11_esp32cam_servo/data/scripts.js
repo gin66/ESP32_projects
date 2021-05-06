@@ -345,7 +345,9 @@ var board_definition_lilygo_v2_3 = `
 	</tr>
 	</thead>
 	<tbody>
-	<tr> <td>                </td><td>        </td><td></td> <td rowspan="14">&nbsp;</td> <td > </td> <td> </td><td> </td> </tr>
+	<tr> <td>                </td><td>        </td><td></td> <td rowspan="14">
+	<img src="https://github.com/gin66/ESP32_projects/blob/master/img/LILYGO-TTGO-T5-V-2-3-1-2-13-Zoll-E-Papier-Bildschirm-Neue-Fahrer-Chip.jpg_q50.jpg?raw=true" height=600px/>
+	</td> <td > </td> <td> </td><td> </td> </tr>
 	<tr> <td> 3V3            </td><td>        </td><td            ></td><td id="GPIO36"></td><td> GPIO36</td><td> FSVP/ADC1.0 </td> </tr>
 	<tr> <td> GND            </td><td>        </td><td            ></td><td id="GPIO39"></td><td class="success"> GPIO39</td><td> FSVN/ADC1.3 </td> </tr>
 	<tr> <td> VSPIHD/SDA     </td><td> GPIO21 </td><td id="GPIO21"></td><td            ></td><td>        </td><td> RST </td> </tr>

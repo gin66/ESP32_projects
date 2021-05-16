@@ -12,6 +12,7 @@
 #include <SD.h>
 #include <SPI.h>
 #include <qrcode.h>
+#include <FastAccelStepper.h>
 
 #define SPI_MOSI 23
 #define SPI_MISO -1
@@ -32,12 +33,49 @@ using namespace std;
 #define LED_PIN 19
 #define BUTTON_PIN 39 /* analog read 4095 unpressed, 0 pressed */
 
+#define dirPinStepper1     32
+#define stepPinStepper1    33
+#define enablePinStepper1  25
+#define dirPinStepper2     27
+#define stepPinStepper2    26
+#define enablePinStepper2  12
+
 GxIO_Class io(SPI, /*CS=5*/ ELINK_SS, /*DC=*/ELINK_DC, /*RST=*/ELINK_RESET);
 GxEPD_Class display(io, /*RST=*/ELINK_RESET, /*BUSY=*/ELINK_BUSY);
 
 SPIClass sdSPI(VSPI);
 
 bool sdOK = false;
+
+
+// Gewindestange hat 2.54mm pro 2 Umdrehungen.
+// 3200 steps/Umdrehung
+//
+// 0.397 um/step
+// 5mm/s =  ~12600 steps/s
+#define MAX_SPEED_IN_HZ 12600
+#define ACCELERATION 3200
+
+FastAccelStepperEngine engine = FastAccelStepperEngine();
+FastAccelStepper *stepper1 = NULL;
+FastAccelStepper *stepper2 = NULL;
+
+void move_update(DynamicJsonDocument *json) {
+  if (json->containsKey("moveBoth")) {
+	int32_t steps = (*json)["moveBoth"];
+	stepper1->move(steps);
+	stepper2->move(steps);
+  }
+  if (json->containsKey("move1")) {
+	int32_t steps = (*json)["move1"];
+	stepper1->move(steps);
+  }
+  if (json->containsKey("move2")) {
+	int32_t steps = (*json)["move2"];
+	stepper2->move(steps);
+  }
+}
+
 
 //---------------------------------------------------
 void setup() {
@@ -50,7 +88,7 @@ void setup() {
   //  tpl_wifi_setup(true, true, (gpio_num_t)tpl_ledPin);
   tpl_wifi_setup(true, true, (gpio_num_t)LED_PIN);
   tpl_webserver_setup();
-  tpl_websocket_setup(NULL, NULL);
+  tpl_websocket_setup(NULL, move_update);
   tpl_net_watchdog_setup();
   tpl_command_setup(NULL);
 
@@ -84,6 +122,41 @@ void setup() {
     sdOK = true;
   }
 
+  engine.init();
+  stepper1 = engine.stepperConnectToPin(stepPinStepper1);
+  if (stepper1) {
+    stepper1->setDirectionPin(dirPinStepper1, true);
+    stepper1->setEnablePin(enablePinStepper1);
+    stepper1->setAutoEnable(true);
+
+    // If auto enable/disable need delays, just add (one or both):
+    // stepper1->setDelayToEnable(50);
+    // stepper1->setDelayToDisable(1000);
+
+    stepper1->setSpeedInHz(MAX_SPEED_IN_HZ);
+    stepper1->setAcceleration(ACCELERATION);
+  }
+  stepper2 = engine.stepperConnectToPin(stepPinStepper2);
+  if (stepper2) {
+    stepper2->setDirectionPin(dirPinStepper2, false);
+    stepper2->setEnablePin(enablePinStepper2);
+    stepper2->setAutoEnable(true);
+
+    // If auto enable/disable need delays, just add (one or both):
+    // stepper2->setDelayToEnable(50);
+    // stepper2->setDelayToDisable(1000);
+
+    stepper2->setSpeedInHz(MAX_SPEED_IN_HZ);
+    stepper2->setAcceleration(ACCELERATION);
+  }
+  if (!stepper1 || !stepper2) {
+	  while (0==0) {
+		  Serial.println("FAILED STEPPER INIT");
+		  delay(1000);
+	  }
+  }
+    //stepper1->move(1000);
+    //stepper2->move(1000);
   Serial.println("Setup done.");
 }
 

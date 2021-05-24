@@ -53,7 +53,8 @@ bool sdOK = false;
 //
 // 0.397 um/step
 // 5mm/s =  ~12600 steps/s
-#define MAX_SPEED_IN_HZ 12600
+// 8mm/s =  ~20150 steps/s => 2m in 4min
+#define MAX_SPEED_IN_HZ 20150
 #define ACCELERATION 3200
 
 FastAccelStepperEngine engine = FastAccelStepperEngine();
@@ -73,6 +74,11 @@ void move_update(DynamicJsonDocument *json) {
   if (json->containsKey("move2")) {
 	int32_t steps = (*json)["move2"];
 	stepper2->move(steps);
+  }
+  if (json->containsKey("speed")) {
+	uint32_t speed = (*json)["speed"];
+	stepper1->setSpeedInHz(speed);
+	stepper2->setSpeedInHz(speed);
   }
 }
 

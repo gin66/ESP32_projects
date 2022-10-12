@@ -5,11 +5,11 @@
 #include <Arduino.h>
 #include <ArduinoOTA.h>
 #include <Esp.h>
+#include <FastAccelStepper.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
 #include <WiFi.h>
 #include <WiFiClient.h>
-#include <FastAccelStepper.h>
 
 #include "../../private_bot.h"
 #include "../../private_sha.h"
@@ -29,10 +29,10 @@ using namespace std;
 #define MAX_POSITION 3884000
 #define MAX_SPEED_IN_HZ 20150
 #define ACCELERATION 32000
-#define dirPinStepper1     15
-#define stepPinStepper1    14
-#define enablePinStepper1  13
-#define endSwitch1		    2
+#define dirPinStepper1 15
+#define stepPinStepper1 14
+#define enablePinStepper1 13
+#define endSwitch1 2
 
 FastAccelStepperEngine engine = FastAccelStepperEngine();
 FastAccelStepper *stepper1 = NULL;
@@ -55,28 +55,28 @@ volatile bool hitSwitch = false;
 volatile bool homed = false;
 
 void move_publish(DynamicJsonDocument *json) {
-	(*json)["position"] = stepper1->getCurrentPosition();
+  (*json)["position"] = stepper1->getCurrentPosition();
 }
 
 void move_update(DynamicJsonDocument *json) {
   if (json->containsKey("move1")) {
-	int32_t steps = (*json)["move1"];
-	stepper1->move(steps);
-	isHoming = true;
+    int32_t steps = (*json)["move1"];
+    stepper1->move(steps);
+    isHoming = true;
   }
   if (json->containsKey("speed")) {
-	uint32_t speed = (*json)["speed"];
-	stepper1->setSpeedInHz(speed);
-	stepper1->applySpeedAcceleration();
+    uint32_t speed = (*json)["speed"];
+    stepper1->setSpeedInHz(speed);
+    stepper1->applySpeedAcceleration();
   }
 }
 
 void stopISR() {
-	if (isHoming) {
-		stepper1->forceStopAndNewPosition(0);
-		isHoming = false;
-		hitSwitch = true;
-	}
+  if (isHoming) {
+    stepper1->forceStopAndNewPosition(0);
+    isHoming = false;
+    hitSwitch = true;
+  }
 }
 
 void setup() {
@@ -126,33 +126,29 @@ void loop() {
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
   vTaskDelay(xDelay);
   if (hitSwitch) {
-      const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
-      vTaskDelay(xDelay);
-	  hitSwitch = false;
-	  homed = true;
-	  stepper1->moveTo(32000);
+    const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
+    vTaskDelay(xDelay);
+    hitSwitch = false;
+    homed = true;
+    stepper1->moveTo(32000);
   }
   if (homed) {
-	  int32_t pos = stepper1->getCurrentPosition();
-	  if (pos > MAX_POSITION/2) {
-		  pos = MAX_POSITION - pos;
-	  }
-	  if (pos > 1000000) {
-		  stepper1->setSpeedInHz(30000);
-	  }
-	  else if (pos > 500000) {
-		  stepper1->setSpeedInHz(12800);
-	  }
-	  else if (pos > 250000) {
-		  stepper1->setSpeedInHz(6400);
-	  }
-	  else {
-		  stepper1->setSpeedInHz(3200);
-	  }
-	  stepper1->applySpeedAcceleration();
-  }
-  else {
-	  stepper1->setSpeedInHz(3200);
-	  stepper1->applySpeedAcceleration();
+    int32_t pos = stepper1->getCurrentPosition();
+    if (pos > MAX_POSITION / 2) {
+      pos = MAX_POSITION - pos;
+    }
+    if (pos > 1000000) {
+      stepper1->setSpeedInHz(30000);
+    } else if (pos > 500000) {
+      stepper1->setSpeedInHz(12800);
+    } else if (pos > 250000) {
+      stepper1->setSpeedInHz(6400);
+    } else {
+      stepper1->setSpeedInHz(3200);
+    }
+    stepper1->applySpeedAcceleration();
+  } else {
+    stepper1->setSpeedInHz(3200);
+    stepper1->applySpeedAcceleration();
   }
 }

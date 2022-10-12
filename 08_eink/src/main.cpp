@@ -3,6 +3,7 @@
 
 #include "template.h"
 // FreeFonts from Adafruit_GFX
+#include <FastAccelStepper.h>
 #include <Fonts/FreeMonoBold12pt7b.h>
 #include <Fonts/FreeMonoBold18pt7b.h>
 #include <Fonts/FreeMonoBold24pt7b.h>
@@ -12,7 +13,6 @@
 #include <SD.h>
 #include <SPI.h>
 #include <qrcode.h>
-#include <FastAccelStepper.h>
 
 #define SPI_MOSI 23
 #define SPI_MISO -1
@@ -33,12 +33,12 @@ using namespace std;
 #define LED_PIN 19
 #define BUTTON_PIN 39 /* analog read 4095 unpressed, 0 pressed */
 
-#define dirPinStepper1     32
-#define stepPinStepper1    33
-#define enablePinStepper1  25
-#define dirPinStepper2     27
-#define stepPinStepper2    26
-#define enablePinStepper2  12
+#define dirPinStepper1 32
+#define stepPinStepper1 33
+#define enablePinStepper1 25
+#define dirPinStepper2 27
+#define stepPinStepper2 26
+#define enablePinStepper2 12
 
 GxIO_Class io(SPI, /*CS=5*/ ELINK_SS, /*DC=*/ELINK_DC, /*RST=*/ELINK_RESET);
 GxEPD_Class display(io, /*RST=*/ELINK_RESET, /*BUSY=*/ELINK_BUSY);
@@ -46,7 +46,6 @@ GxEPD_Class display(io, /*RST=*/ELINK_RESET, /*BUSY=*/ELINK_BUSY);
 SPIClass sdSPI(VSPI);
 
 bool sdOK = false;
-
 
 // Gewindestange hat 2.54mm pro 2 Umdrehungen.
 // 3200 steps/Umdrehung
@@ -63,25 +62,24 @@ FastAccelStepper *stepper2 = NULL;
 
 void move_update(DynamicJsonDocument *json) {
   if (json->containsKey("moveBoth")) {
-	int32_t steps = (*json)["moveBoth"];
-	stepper1->move(steps);
-	stepper2->move(steps);
+    int32_t steps = (*json)["moveBoth"];
+    stepper1->move(steps);
+    stepper2->move(steps);
   }
   if (json->containsKey("move1")) {
-	int32_t steps = (*json)["move1"];
-	stepper1->move(steps);
+    int32_t steps = (*json)["move1"];
+    stepper1->move(steps);
   }
   if (json->containsKey("move2")) {
-	int32_t steps = (*json)["move2"];
-	stepper2->move(steps);
+    int32_t steps = (*json)["move2"];
+    stepper2->move(steps);
   }
   if (json->containsKey("speed")) {
-	uint32_t speed = (*json)["speed"];
-	stepper1->setSpeedInHz(speed);
-	stepper2->setSpeedInHz(speed);
+    uint32_t speed = (*json)["speed"];
+    stepper1->setSpeedInHz(speed);
+    stepper2->setSpeedInHz(speed);
   }
 }
-
 
 //---------------------------------------------------
 void setup() {
@@ -156,13 +154,13 @@ void setup() {
     stepper2->setAcceleration(ACCELERATION);
   }
   if (!stepper1 || !stepper2) {
-	  while (0==0) {
-		  Serial.println("FAILED STEPPER INIT");
-		  delay(1000);
-	  }
+    while (0 == 0) {
+      Serial.println("FAILED STEPPER INIT");
+      delay(1000);
+    }
   }
-    //stepper1->move(1000);
-    //stepper2->move(1000);
+  // stepper1->move(1000);
+  // stepper2->move(1000);
   Serial.println("Setup done.");
 }
 

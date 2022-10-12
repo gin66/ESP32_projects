@@ -36,10 +36,10 @@ void TaskCommandCore1(void *pvParameters) {
     switch (tpl_command) {
       case CmdIdle:
         break;
-	  case CmdSaveConfig:
+      case CmdSaveConfig:
         tpl_command = CmdIdle;
-		tpl_write_config();
-		break;
+        tpl_write_config();
+        break;
 #ifdef IS_ESP32CAM
       case CmdSendJpg2Ws:
         tpl_config.ws_send_jpg_image = true;
@@ -106,10 +106,15 @@ void TaskCommandCore1(void *pvParameters) {
           tpl_camera_off();
           Serial.println("Psram flush again");
           psram_flush_cache();
+          Serial.println("Psram flush complete");
 #endif
-          adc_power_release();  // https://github.com/espressif/arduino-esp32/issues/2804
+          // adc_power_release no good, if not started. leads to abort
+          //          adc_power_release();  //
+          //          https://github.com/espressif/arduino-esp32/issues/2804
+          //          Serial.println("adc power released");
           uint64_t sleep = tpl_config.deepsleep_time_secs;
           sleep *= 1000000LL;
+          Serial.println("enable sleep wakeup timer");
           esp_sleep_enable_timer_wakeup(sleep);
           Serial.println("Enter sleep");
           esp_deep_sleep_start();

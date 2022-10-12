@@ -20,15 +20,18 @@ using namespace std;
 
 #define MAGIC_IMAGE 0xdeadbeaf
 
+// old espressif: overwritten last four bytes every 32 bytes
+// new espressif: overwritten bytes 12-15 every 32 bytes
+
 struct ps_image_s {
   uint32_t magic;
   uint32_t img_len;
   uint32_t checksum;
+  uint32_t overwritten;
   uint32_t pad1;
   uint32_t pad2;
   uint32_t pad3;
   uint32_t pad4;
-  uint32_t overwritten;
   uint32_t buf_1111111X[50000];
 };
 
@@ -39,14 +42,17 @@ void store_image(struct ps_image_s *p, uint8_t *jpeg, size_t jpeg_len) {
   uint32_t transferred = 0;
   uint32_t checksum = 0;
   while (transferred < jpeg_len) {
-    for (uint8_t i = 0; i < OK_WORDS; i++) {
+    for (uint8_t i = 0; i < 8; i++) {
+      if (i == 3) {
+        // skip damaged line
+        out++;
+        continue;
+      }
       uint32_t x = *in++;
       *out++ = x;
       checksum += x;
       transferred += 4;
     }
-    // skip damaged line
-    out++;
   }
   p->checksum = checksum;
   p->img_len = jpeg_len;
@@ -69,14 +75,17 @@ bool read_image(struct ps_image_s *p, uint8_t *jpeg) {
   uint32_t transferred = 0;
   uint32_t checksum = 0;
   while (transferred < jpeg_len) {
-    for (uint8_t i = 0; i < OK_WORDS; i++) {
+    for (uint8_t i = 0; i < 8; i++) {
+      if (i == 3) {
+        // skip damaged line
+        in++;
+        continue;
+      }
       uint32_t x = *in++;
       *out++ = x;
       checksum += x;
       transferred += 4;
     }
-    // skip damaged line
-    in++;
   }
   p->img_len = 0;
   p->magic = 0;
@@ -109,10 +118,9 @@ void setup() {
   Serial.begin(115200);
   Serial.setDebugOutput(true);
 
-  // Wait OTA
   tpl_wifi_setup(true, true, (gpio_num_t)tpl_ledPin);
   tpl_webserver_setup();
-  tpl_websocket_setup(NULL,NULL);
+  tpl_websocket_setup(NULL, NULL);
   tpl_net_watchdog_setup();
   tpl_command_setup(NULL);
 

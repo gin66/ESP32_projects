@@ -7,7 +7,7 @@
 #endif
 
 WebSocketsServer webSocket = WebSocketsServer(81);
-void (*tpl_process_func)(DynamicJsonDocument * json) = NULL;
+void (*tpl_process_func)(DynamicJsonDocument *json) = NULL;
 
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
                     size_t length) {
@@ -36,30 +36,30 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
         tpl_command = CmdSaveConfig;
       }
       if (json.containsKey("pin_to_high")) {
-		uint8_t pin = json["pin_to_high"];
-		pinMode(pin, OUTPUT);
-		digitalWrite(pin, HIGH);
+        uint8_t pin = json["pin_to_high"];
+        pinMode(pin, OUTPUT);
+        digitalWrite(pin, HIGH);
       }
       if (json.containsKey("pin_to_low")) {
-		uint8_t pin = json["pin_to_low"];
-		pinMode(pin, OUTPUT);
-		digitalWrite(pin, LOW);
+        uint8_t pin = json["pin_to_low"];
+        pinMode(pin, OUTPUT);
+        digitalWrite(pin, LOW);
       }
       if (json.containsKey("as_input")) {
-		uint8_t pin = json["as_input"];
-		pinMode(pin, INPUT);
+        uint8_t pin = json["as_input"];
+        pinMode(pin, INPUT);
       }
       if (json.containsKey("as_input_pullup")) {
-		uint8_t pin = json["as_input_pullup"];
-		pinMode(pin, INPUT_PULLUP);
+        uint8_t pin = json["as_input_pullup"];
+        pinMode(pin, INPUT_PULLUP);
       }
       if (json.containsKey("as_input_pulldown")) {
-		uint8_t pin = json["as_input_pulldown"];
-		pinMode(pin, INPUT_PULLDOWN);
+        uint8_t pin = json["as_input_pulldown"];
+        pinMode(pin, INPUT_PULLDOWN);
       }
-	  if (tpl_process_func) {
-		tpl_process_func(&json);
-	  }
+      if (tpl_process_func) {
+        tpl_process_func(&json);
+      }
 #ifdef IS_ESP32CAM
       tpl_process_web_socket_cam_settings(&json);
       if (json.containsKey("image")) {
@@ -102,18 +102,17 @@ void TaskWebSocketCore0(void *pvParameters) {
       send_status_ms = now + 100;
       String data = "................................................";
       for (int i = 0; i < 48; i++) {
-		char ch = '-';
-	    volatile uint32_t *reg = portInputRegister(digitalPinToPort(i));
-		volatile uint32_t *ddr = portModeRegister(digitalPinToPort(i));
-		if (reg) {
-		   uint32_t mask = digitalPinToBitMask(i);
-		   if (ddr && (*ddr & mask)) {
-			   ch = *reg & mask ? '1':'0';
-		   }
-		   else {
-			   ch = *reg & mask ? 'H':'L';
-		   }
-		}
+        char ch = '-';
+        volatile uint32_t *reg = portInputRegister(digitalPinToPort(i));
+        volatile uint32_t *ddr = portModeRegister(digitalPinToPort(i));
+        if (reg) {
+          uint32_t mask = digitalPinToBitMask(i);
+          if (ddr && (*ddr & mask)) {
+            ch = *reg & mask ? '1' : '0';
+          } else {
+            ch = *reg & mask ? 'H' : 'L';
+          }
+        }
         data.setCharAt(i, ch);
       }
       DynamicJsonDocument myObject(4096);
@@ -137,9 +136,9 @@ void TaskWebSocketCore0(void *pvParameters) {
       myObject["IP"] = WiFi.localIP().toString();
       myObject["SSID"] = WiFi.SSID();
 #ifdef HAS_STEPPERS
-	  myObject["nr_stepper"] = tpl_spiffs_config.nr_steppers;
+      myObject["nr_stepper"] = tpl_spiffs_config.nr_steppers;
 #endif
-	  myObject["dirty_config"] = tpl_spiffs_config.need_store;
+      myObject["dirty_config"] = tpl_spiffs_config.need_store;
 
       if (publish_func != NULL) {
         publish_func(&myObject);
@@ -166,8 +165,9 @@ void TaskWebSocketCore0(void *pvParameters) {
 //---------------------------------------------------
 //
 void tpl_websocket_setup(void (*publish_func)(DynamicJsonDocument *json),
-						 void (*process_json)(DynamicJsonDocument *json)) {
-	tpl_process_func = process_json;
-  xTaskCreatePinnedToCore(TaskWebSocketCore0, "WebSocket", 4096, (void *)publish_func,
-                          1, &tpl_tasks.task_websocket, CORE_0);
+                         void (*process_json)(DynamicJsonDocument *json)) {
+  tpl_process_func = process_json;
+  xTaskCreatePinnedToCore(TaskWebSocketCore0, "WebSocket", 4096,
+                          (void *)publish_func, 1, &tpl_tasks.task_websocket,
+                          CORE_0);
 }

@@ -10,14 +10,17 @@
 // Use psram as deepsleep and CPU reset persistent storage.
 // Draw back is:
 //		Every 8th u32 is overwritten by psram_test...
+//
+// old espressif: overwritten last four bytes every 32 bytes
+// new espressif: overwritten bytes 12-15 every 32 bytes
 
 struct entry_s {  // 8 u32
   uint32_t timestamp;
   uint8_t angle[4];  // 0..360° encoded as 0-200
-  int16_t row_center[4];
-  int16_t col_center[4];
   uint32_t pad;
   uint32_t overwritten32;
+  int16_t row_center[4];
+  int16_t col_center[4];
 };
 struct psram_buffer_s {
   // first 8 u32:
@@ -26,19 +29,21 @@ struct psram_buffer_s {
   uint16_t rindex;
   uint16_t pad_16;
   uint32_t steigung;
+  uint32_t overwritten32_1;
+
   uint32_t cumulated_consumption;
   uint32_t last_timestamp_no_consumption;
   uint32_t last_timestamp_no_consumption_all_pointers;
   uint32_t pad_32_0;
-  uint32_t overwritten32_1;
+
   uint32_t pad_32_1;
   uint32_t pad_32_2;
   uint32_t pad_32_3;
+  uint32_t overwritten32_2;
   uint32_t pad_32_4;
   uint32_t pad_32_5;
   uint32_t pad_32_6;
   uint32_t pad_32_7;
-  uint32_t overwritten32_2;
 
 #define ENTRY(i) psram_buffer->entry_111X[(i)&NUM_ENTRIES_MASK]
   struct entry_s entry_111X[NUM_ENTRIES];

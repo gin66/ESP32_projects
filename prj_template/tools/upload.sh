@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 TARGET=$1
 if [ "$TARGET" == "" ]

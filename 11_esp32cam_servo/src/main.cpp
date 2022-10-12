@@ -35,7 +35,7 @@ uint16_t duty = 0;
 
 void servo_update(DynamicJsonDocument *json) {
   if (json->containsKey("servo")) {
-	duty = (*json)["servo"];
+    duty = (*json)["servo"];
   }
 }
 
@@ -73,6 +73,6 @@ void loop() {
   // 1-2 ms with 20ms => duty = 1*65536/20..2*65536/20 = 3276.8 .. 6553.6
   //
   // 500..~2700ms = 1638..8850
-  ledcWrite(0, duty/9 + 1638);
-  duty+=20;
+  ledcWrite(0, duty / 9 + 1638);
+  duty += 20;
 }

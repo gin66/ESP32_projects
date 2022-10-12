@@ -29,7 +29,8 @@ void psram_buffer_init(struct psram_buffer_s *old_psram_buffer) {
     // not compatible
     is_ok = 0;
   }
-  if (!is_ok) {
+  if (!is_ok || (psram_buffer->windex == 0) ||
+      (psram_buffer->cumulated_consumption > 65536)) {
     psram_buffer->version = PSRAM_VERSION;
     psram_buffer->windex = 0;
     psram_buffer->rindex = 0;

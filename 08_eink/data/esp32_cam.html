@@ -6,28 +6,27 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
 
     <!-- Bootstrap CSS -->
-	<!-- JavaScript Bundle with Popper -->
-	  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css">
-	  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <!-- JavaScript Bundle with Popper -->
+    <link
+      rel="stylesheet"
+      href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css"
+    />
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
 
-    <script
-      type="text/javascript"
-      src="./scripts.js"
-    ></script>
-    <script type="text/javascript" src="./esp32_cam.js">
-	</script>
+    <script type="text/javascript" src="./scripts.js"></script>
+    <script type="text/javascript" src="./esp32_cam.js"></script>
   </head>
   <body>
-      <div class="container">
-        <h2>esp32_08</h2>
-        <p>
-          ESP32-Time: <span id="esp_time"></span> Memory available:
-          <span id="mem_free"></span> Uptime: <span id="uptime"></span> Sample
-          Rate: <span id="sample_rate"></span> SSID:
-          <span id="ssid"></span> dBm: <span id="dbm"></span>
-        </p>
-      </div>
-	  <div class="container" id="board">> </div>
+    <div class="container">
+      <h2>esp32_08</h2>
+      <p>
+        ESP32-Time: <span id="esp_time"></span> Memory available:
+        <span id="mem_free"></span> Uptime: <span id="uptime"></span> Sample
+        Rate: <span id="sample_rate"></span> SSID: <span id="ssid"></span> dBm:
+        <span id="dbm"></span>
+      </p>
+    </div>
+    <div class="container" id="board">></div>
 
     <canvas id="image" width="0" height="0"> </canvas>
     <div id="raw_image"></div>
@@ -35,15 +34,14 @@
     <span id="state"></span>
     <span id="readystate"></span>
     <span id="raw" style="word-wrap: break-word"></span>
-        <form>
-          <input class="button-primary" type="checkbox" id="show_raw" />Show raw
-          messages
-        </form>
+    <form>
+      <input class="button-primary" type="checkbox" id="show_raw" />Show raw
+      messages
+    </form>
 
     <!-- Optional JavaScript -->
     <script>
-		document.getElementById("board").innerHTML = board_definition_esp32_cam;
-	</script>
+      document.getElementById("board").innerHTML = board_definition_esp32_cam;
+    </script>
   </body>
 </html>
-

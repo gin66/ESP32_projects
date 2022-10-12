@@ -5,7 +5,5 @@
 
 extern WebSocketsServer webSocket;
 
-void tpl_websocket_setup(
-		void (*publish)(DynamicJsonDocument *json),
-		void (*process)(DynamicJsonDocument *json)
-	);
+void tpl_websocket_setup(void (*publish)(DynamicJsonDocument *json),
+                         void (*process)(DynamicJsonDocument *json));

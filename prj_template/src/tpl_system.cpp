@@ -152,37 +152,38 @@ void tpl_system_setup(uint32_t deep_sleep_secs) {
                           &tpl_tasks.task_on_time_watchdog_1, CORE_1);
 #endif
   if (SPIFFS.begin()) {
-      if (SPIFFS.exists(SPIFFS_CONFIG_FNAME)) {
-		File f;
-		unsigned int readSize;
-		f = SPIFFS.open(SPIFFS_CONFIG_FNAME, "rb");
-		f.setTimeout(0);
-		readSize = f.readBytes((char*) &tpl_spiffs_config, sizeof(TplSpiffsConfig));
-		if ((readSize != sizeof(TplSpiffsConfig)) || (tpl_spiffs_config.version != SPIFFS_CONFIG_VERSION)) {
-			tpl_spiffs_config.init();
-        }
-		f.close();  
-	}
+    if (SPIFFS.exists(SPIFFS_CONFIG_FNAME)) {
+      File f;
+      unsigned int readSize;
+      f = SPIFFS.open(SPIFFS_CONFIG_FNAME, "rb");
+      f.setTimeout(0);
+      readSize =
+          f.readBytes((char *)&tpl_spiffs_config, sizeof(TplSpiffsConfig));
+      if ((readSize != sizeof(TplSpiffsConfig)) ||
+          (tpl_spiffs_config.version != SPIFFS_CONFIG_VERSION)) {
+        tpl_spiffs_config.init();
+      }
+      f.close();
+    }
   }
 }
 
 bool tpl_write_config() {
-    File f;
-    unsigned int writeSize;
+  File f;
+  unsigned int writeSize;
 
-	Serial.println("Write Configuration");
-	tpl_spiffs_config.need_store = false;
-        f = SPIFFS.open(SPIFFS_CONFIG_FNAME, "wb");
-		if (!f) {
-			tpl_spiffs_config.need_store = true;
-			return false;
-		}
-        writeSize = f.write((byte*) &tpl_spiffs_config, sizeof(TplSpiffsConfig));
-        f.close();  
-        if (!(writeSize == sizeof(TplSpiffsConfig))) {
-			tpl_spiffs_config.need_store = true;
-            return false;
-		}
-	return true;
+  Serial.println("Write Configuration");
+  tpl_spiffs_config.need_store = false;
+  f = SPIFFS.open(SPIFFS_CONFIG_FNAME, "wb");
+  if (!f) {
+    tpl_spiffs_config.need_store = true;
+    return false;
+  }
+  writeSize = f.write((byte *)&tpl_spiffs_config, sizeof(TplSpiffsConfig));
+  f.close();
+  if (!(writeSize == sizeof(TplSpiffsConfig))) {
+    tpl_spiffs_config.need_store = true;
+    return false;
+  }
+  return true;
 }
-

@@ -66,22 +66,20 @@ extern struct tpl_config_s {
 #define SPIFFS_CONFIG_VERSION (0x0101 | TPL_STEPPER_FLAG)
 #define SPIFFS_CONFIG_FNAME "/config.ini"
 class TplSpiffsConfig {
-	public:
-	uint16_t version;
-	bool need_store;
+ public:
+  uint16_t version;
+  bool need_store;
 #ifdef HAS_STEPPERS
-	uint8_t nr_steppers;
+  uint8_t nr_steppers;
 #endif
-	void init() {
-		version = SPIFFS_CONFIG_VERSION;
+  void init() {
+    version = SPIFFS_CONFIG_VERSION;
 #ifdef HAS_STEPPERS
-		nr_steppers = 0;
+    nr_steppers = 0;
 #endif
-		need_store = true;
-	}
-	TplSpiffsConfig() {
-		init();
-	}
+    need_store = true;
+  }
+  TplSpiffsConfig() { init(); }
 };
 extern TplSpiffsConfig tpl_spiffs_config;
 

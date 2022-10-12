@@ -18,10 +18,13 @@
     />
 
     <!-- Bootstrap CSS -->
-	  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css">
-	  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <link
+      rel="stylesheet"
+      href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css"
+    />
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
 
-    <script type="text/javascript" src="./scripts.js" ></script>
+    <script type="text/javascript" src="./scripts.js"></script>
   </head>
   <body>
     <div class="container-fluid">
@@ -37,7 +40,11 @@
 
       <div class="row row-cols-1 row-cols-sm-2 row-cols-md-4">
         <form>
-          <button class="button-primary" type="button" onClick="send_save_config();">
+          <button
+            class="button-primary"
+            type="button"
+            onClick="send_save_config();"
+          >
             Save Configuration
           </button>
         </form>
@@ -48,44 +55,44 @@
       <div id="chartContainer" style="height: 800px; width: 100%" hidden></div>
     </div>
     <div class="container">
-        <label for="speed">speed in Hz</label>
-        <input
-          type="range"
-          class="custom-range"
-          min="0"
-          max="100000"
-          id="speed"
-          onchange="send_value('speed',this.value)"
-        />
-        <label for="moveBoth">moveBoth</label>
-        <input
-          type="range"
-          class="custom-range"
-          min="-1000000"
-          max="1000000"
-          id="moveBoth"
-          onchange="send_value('moveBoth',this.value)"
-        />
-        <br />
-        <label for="move1">move1</label>
-        <input
-          type="range"
-          class="custom-range"
-          min="-100000"
-          max="100000"
-          id="move1"
-          onchange="send_value('move1',this.value)"
-        />
-        <br />
-        <label for="move2">move2</label>
-        <input
-          type="range"
-          class="custom-range"
-          min="-100000"
-          max="100000"
-          id="move2"
-          onchange="send_value('move2',this.value)"
-        />
+      <label for="speed">speed in Hz</label>
+      <input
+        type="range"
+        class="custom-range"
+        min="0"
+        max="100000"
+        id="speed"
+        onchange="send_value('speed',this.value)"
+      />
+      <label for="moveBoth">moveBoth</label>
+      <input
+        type="range"
+        class="custom-range"
+        min="-1000000"
+        max="1000000"
+        id="moveBoth"
+        onchange="send_value('moveBoth',this.value)"
+      />
+      <br />
+      <label for="move1">move1</label>
+      <input
+        type="range"
+        class="custom-range"
+        min="-100000"
+        max="100000"
+        id="move1"
+        onchange="send_value('move1',this.value)"
+      />
+      <br />
+      <label for="move2">move2</label>
+      <input
+        type="range"
+        class="custom-range"
+        min="-100000"
+        max="100000"
+        id="move2"
+        onchange="send_value('move2',this.value)"
+      />
     </div>
     <canvas id="image" width="0" height="0"> </canvas>
     <div id="raw_image"></div>
@@ -93,15 +100,15 @@
     <span id="state"></span>
     <span id="readystate"></span>
     <span id="raw" style="word-wrap: break-word"></span>
-        <form>
-          <input class="button-primary" type="checkbox" id="show_raw" />Show raw
-          messages
-        </form>
-	  <div class="container" id="board"> </div>
+    <form>
+      <input class="button-primary" type="checkbox" id="show_raw" />Show raw
+      messages
+    </form>
+    <div class="container" id="board"></div>
 
     <!-- Optional JavaScript -->
     <script>
-		document.getElementById("board").innerHTML = board_definition_lilygo_v2_3;
-	</script>
+      document.getElementById("board").innerHTML = board_definition_lilygo_v2_3;
+    </script>
   </body>
 </html>

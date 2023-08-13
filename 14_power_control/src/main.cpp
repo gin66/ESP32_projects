@@ -73,66 +73,9 @@ void setup() {
 #endif
 
   Serial.println("Setup done.");
-  pinMode(34, INPUT);
+//  pinMode(34, INPUT);
 }
-
-time_t last = 0;
-uint32_t last_pulse_us = 0;
-bool in_pulse = false;
 
 void loop() {
   taskYIELD();
-  // the S0 pulses are rather slow, so we just do polling
-  bool process = false;
-  if (analogRead(34) < 4000) {
-	// pulse ongoing. process, if new
-    process = !in_pulse;
-	in_pulse = true;
-  }
-  else {
-	in_pulse = false;
-  }
-  if (process) {
-    cumulated_pulses++;
-
-	time_t now = time(nullptr);
-	uint32_t us = micros();
-	uint32_t dt = us - last_pulse_us;
-	last_pulse_us = us;
-	// ensure cumulated_pulses > 5, so we are in process
-	if ((dt < 10000000) && (dt > 20000) && (cumulated_pulses > 5)) {
-		// 10 Imp/Wh => 1 Imp equals 0.1Wh
-		// P = 0.1Wh * 1/(dt * 1us)
-		// 1 ms = 1/(3600*1000000) h
-		// P = 0.1W * 3600*1000000/dt
-		//   = 360000000/dt
-		w_current = 360000000/dt;
-	}
-
-    if ((last / 60) != (now / 60)) {
-	  // new minute. advance write index
-	  if (minute_data_write_idx == request_idx) {
-		  request_idx++;
-	  }
-	  uint16_t r_idx = minute_data_read_idx % WATTS_ENTRIES;
-	  uint16_t w_idx = (++minute_data_write_idx) % WATTS_ENTRIES;
-
-	  // check if we overwrite last r_idx
-	  if (r_idx == w_idx) {
-	 	r_idx++;
-	  }
-
-	  struct minute_data *x = &watts[w_idx];
-	  x->watts_min = w_current;
-	  x->watts_max = w_current;
-	  x->pulses = 0;
-	}
-    last = now;
-
-	uint16_t w_idx = minute_data_write_idx % WATTS_ENTRIES;
-	struct minute_data *x = &watts[w_idx];
-	x->watts_min = min(x->watts_min, w_current);
-	x->watts_max = max(x->watts_max, w_current);
-	x->pulses++;
-  }
 }

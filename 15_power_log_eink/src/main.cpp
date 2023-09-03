@@ -111,14 +111,13 @@ void setup() {
 }
 
 void update_display() {
-  char line[50] = "";
-
   display.fillScreen(GxEPD_WHITE);
 
   display.setCursor(0, 10);
 
-  sprintf(line, "%s %s", WiFi.SSID(), WiFi.localIP());
-  display.println(line);
+  display.print(WiFi.SSID());
+  display.print(" ");
+  display.println(WiFi.localIP());
 
   char strftime_buf[64];
   struct tm timeinfo;
@@ -131,26 +130,25 @@ void update_display() {
 
   display.setCursor(0, display.height() - 10);
 
-  char *x = line;
-  x += sprintf(x, "SDCard:");
+  display.print("SDCard:");
   if (sdOK) {
     uint32_t cardSize = SD.cardSize() / (1024 * 1024);
     uint8_t cardType = SD.cardType();
 
     if (cardType == CARD_MMC) {
-      x += sprintf(x, "MMC ");
+      display.print("MMC ");
     } else if (cardType == CARD_SD) {
-      x += sprintf(x, "SDSC ");
+      display.print("SDSC ");
     } else if (cardType == CARD_SDHC) {
-      x += sprintf(x, "SDHC ");
+      display.print("SDHC ");
     } else {
-      x += sprintf(x, "UNKNOWN ");
+      display.print("UNKNOWN ");
     }
-    x += sprintf(x, "%dMB", cardSize);
+    display.print(cardSize);
+    display.println("MB");
   } else {
-    x += sprintf(x, "None");
+    display.println("None");
   }
-  display.println(line);
 
   display.update();
 }

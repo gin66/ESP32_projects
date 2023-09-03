@@ -3,7 +3,6 @@
 
 #include "template.h"
 // FreeFonts from Adafruit_GFX
-#include <FastAccelStepper.h>
 #include <Fonts/FreeMonoBold12pt7b.h>
 #include <Fonts/FreeMonoBold18pt7b.h>
 #include <Fonts/FreeMonoBold24pt7b.h>
@@ -56,29 +55,12 @@ bool sdOK = false;
 #define MAX_SPEED_IN_HZ 20150
 #define ACCELERATION 3200
 
-FastAccelStepperEngine engine = FastAccelStepperEngine();
-FastAccelStepper *stepper1 = NULL;
-FastAccelStepper *stepper2 = NULL;
-
-void move_update(DynamicJsonDocument *json) {
-  if (json->containsKey("moveBoth")) {
-    int32_t steps = (*json)["moveBoth"];
-    stepper1->move(steps);
-    stepper2->move(steps);
-  }
-  if (json->containsKey("move1")) {
-    int32_t steps = (*json)["move1"];
-    stepper1->move(steps);
-  }
-  if (json->containsKey("move2")) {
-    int32_t steps = (*json)["move2"];
-    stepper2->move(steps);
-  }
-  if (json->containsKey("speed")) {
-    uint32_t speed = (*json)["speed"];
-    stepper1->setSpeedInHz(speed);
-    stepper2->setSpeedInHz(speed);
-  }
+void json_update(DynamicJsonDocument *json) {
+//  if (json->containsKey("moveBoth")) {
+//    int32_t steps = (*json)["moveBoth"];
+//    stepper1->move(steps);
+//    stepper2->move(steps);
+//  }
 }
 
 //---------------------------------------------------
@@ -92,7 +74,7 @@ void setup() {
   //  tpl_wifi_setup(true, true, (gpio_num_t)tpl_ledPin);
   tpl_wifi_setup(true, true, (gpio_num_t)LED_PIN);
   tpl_webserver_setup();
-  tpl_websocket_setup(NULL, move_update);
+  tpl_websocket_setup(NULL, json_update);
   tpl_net_watchdog_setup();
   tpl_command_setup(NULL);
 
@@ -126,41 +108,6 @@ void setup() {
     sdOK = true;
   }
 
-  engine.init();
-  stepper1 = engine.stepperConnectToPin(stepPinStepper1);
-  if (stepper1) {
-    stepper1->setDirectionPin(dirPinStepper1, true);
-    stepper1->setEnablePin(enablePinStepper1);
-    stepper1->setAutoEnable(true);
-
-    // If auto enable/disable need delays, just add (one or both):
-    // stepper1->setDelayToEnable(50);
-    // stepper1->setDelayToDisable(1000);
-
-    stepper1->setSpeedInHz(MAX_SPEED_IN_HZ);
-    stepper1->setAcceleration(ACCELERATION);
-  }
-  stepper2 = engine.stepperConnectToPin(stepPinStepper2);
-  if (stepper2) {
-    stepper2->setDirectionPin(dirPinStepper2, false);
-    stepper2->setEnablePin(enablePinStepper2);
-    stepper2->setAutoEnable(true);
-
-    // If auto enable/disable need delays, just add (one or both):
-    // stepper2->setDelayToEnable(50);
-    // stepper2->setDelayToDisable(1000);
-
-    stepper2->setSpeedInHz(MAX_SPEED_IN_HZ);
-    stepper2->setAcceleration(ACCELERATION);
-  }
-  if (!stepper1 || !stepper2) {
-    while (0 == 0) {
-      Serial.println("FAILED STEPPER INIT");
-      delay(1000);
-    }
-  }
-  // stepper1->move(1000);
-  // stepper2->move(1000);
   Serial.println("Setup done.");
 }
 

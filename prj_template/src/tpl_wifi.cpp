@@ -84,7 +84,7 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
   }
 
   // Port defaults to 3232
-  // ArduinoOTA.setPort(3232);
+  ArduinoOTA.setPort(3232);
 
   // Hostname defaults to esp3232-[MAC]
   ArduinoOTA.setHostname(HOSTNAME);

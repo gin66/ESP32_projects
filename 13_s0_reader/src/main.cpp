@@ -32,7 +32,7 @@ void publish_func(DynamicJsonDocument *json) {
   (*json)["read_idx"] = minute_data_read_idx;
   (*json)["write_idx"] = minute_data_write_idx;
   //(*json)["b64"] = base64::encode((uint8_t*)watts, WATTS_ENTRIES *
-  //sizeof(struct minute_data));
+  // sizeof(struct minute_data));
   struct minute_data *x = &watts[request_idx % WATTS_ENTRIES];
   (*json)["idx"] = request_idx;
   (*json)["min_at_idx"] = x->watts_min;

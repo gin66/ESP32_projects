@@ -12,6 +12,8 @@
 #include <SD.h>
 #include <SPI.h>
 
+#include <driver/twai.h>
+
 #define SPI_MOSI 23
 #define SPI_MISO -1
 #define SPI_CLK 18
@@ -26,17 +28,13 @@
 #define SDCARD_MOSI 15
 #define SDCARD_MISO 2
 
+#define CAN_TX_PIN 21
+#define CAN_RX_PIN 22
+
 using namespace std;
 
 #define LED_PIN 19
 #define BUTTON_PIN 39 /* analog read 4095 unpressed, 0 pressed */
-
-#define dirPinStepper1 32
-#define stepPinStepper1 33
-#define enablePinStepper1 25
-#define dirPinStepper2 27
-#define stepPinStepper2 26
-#define enablePinStepper2 12
 
 GxIO_Class io(SPI, /*CS=5*/ ELINK_SS, /*DC=*/ELINK_DC, /*RST=*/ELINK_RESET);
 GxEPD_Class display(io, /*RST=*/ELINK_RESET, /*BUSY=*/ELINK_BUSY);
@@ -44,15 +42,6 @@ GxEPD_Class display(io, /*RST=*/ELINK_RESET, /*BUSY=*/ELINK_BUSY);
 SPIClass sdSPI(VSPI);
 
 bool sdOK = false;
-
-// Gewindestange hat 2.54mm pro 2 Umdrehungen.
-// 3200 steps/Umdrehung
-//
-// 0.397 um/step
-// 5mm/s =  ~12600 steps/s
-// 8mm/s =  ~20150 steps/s => 2m in 4min
-#define MAX_SPEED_IN_HZ 20150
-#define ACCELERATION 3200
 
 void json_update(DynamicJsonDocument *json) {
   //  if (json->containsKey("moveBoth")) {
@@ -107,8 +96,51 @@ void setup() {
     sdOK = true;
   }
 
+  twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT((gpio_num_t)CAN_TX_PIN, (gpio_num_t)CAN_RX_PIN, TWAI_MODE_NORMAL);
+  twai_timing_config_t t_config = TWAI_TIMING_CONFIG_125KBITS();  //Look in the api-reference for other speed sets.
+  twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+  // Install TWAI driver
+  if (twai_driver_install(&g_config, &t_config, &f_config) == ESP_OK) {
+    Serial.println("TWAI Driver installed");
+  } else {
+    Serial.println("Failed to install TWAI driver");
+	return;
+  }
+  // Start TWAI driver
+  if (twai_start() == ESP_OK) {
+    Serial.println("TWAI Driver started");
+  } else {
+    Serial.println("Failed to start TWAI driver");
+    return;
+  }
+
+    // Reconfigure alerts to detect frame receive, Bus-Off error and RX queue full states
+  uint32_t alerts_to_enable = TWAI_ALERT_RX_DATA | TWAI_ALERT_ERR_PASS | TWAI_ALERT_BUS_ERROR | TWAI_ALERT_RX_QUEUE_FULL;
+  if (twai_reconfigure_alerts(alerts_to_enable, NULL) == ESP_OK) {
+    Serial.println("CAN Alerts reconfigured");
+  } else {
+    Serial.println("Failed to reconfigure alerts");
+    return;
+  }
   Serial.println("Setup done.");
 }
+
+static void handle_rx_message(twai_message_t& message) {
+  // Process received message
+  if (message.extd) {
+    Serial.println("Message is in Extended Format");
+  } else {
+    Serial.println("Message is in Standard Format");
+  }
+  Serial.printf("ID: %x\nByte:", message.identifier);
+  if (!(message.rtr)) {
+    for (int i = 0; i < message.data_length_code; i++) {
+      Serial.printf(" %d = %02x,", i, message.data[i]);
+    }
+    Serial.println("");
+  }
+}
+
 
 void update_display() {
   display.fillScreen(GxEPD_WHITE);
@@ -153,9 +185,42 @@ void update_display() {
   display.update();
 }
 
+#define POLLING_RATE_MS 1000
 void loop() {
-  Serial.println("update display");
-  update_display();
-  const TickType_t xDelay = 60000 / portTICK_PERIOD_MS;
+  if (millis() % 60000 == 0) {
+     Serial.println("update display");
+     update_display();
+  }
+  const TickType_t xDelay = 1000 / portTICK_PERIOD_MS;
   vTaskDelay(xDelay);
+
+    // Check if alert happened
+  uint32_t alerts_triggered;
+  twai_read_alerts(&alerts_triggered, pdMS_TO_TICKS(POLLING_RATE_MS));
+  twai_status_info_t twaistatus;
+  twai_get_status_info(&twaistatus);
+
+  // Handle alerts
+  if (alerts_triggered & TWAI_ALERT_ERR_PASS) {
+    Serial.println("Alert: TWAI controller has become error passive.");
+  }
+  if (alerts_triggered & TWAI_ALERT_BUS_ERROR) {
+    Serial.println("Alert: A (Bit, Stuff, CRC, Form, ACK) error has occurred on the bus.");
+    Serial.printf("Bus error count: %d\n", twaistatus.bus_error_count);
+  }
+  if (alerts_triggered & TWAI_ALERT_RX_QUEUE_FULL) {
+    Serial.println("Alert: The RX queue is full causing a received frame to be lost.");
+    Serial.printf("RX buffered: %d\t", twaistatus.msgs_to_rx);
+    Serial.printf("RX missed: %d\t", twaistatus.rx_missed_count);
+    Serial.printf("RX overrun %d\n", twaistatus.rx_overrun_count);
+  }
+
+  // Check if message is received
+  if (alerts_triggered & TWAI_ALERT_RX_DATA) {
+    // One or more messages received. Handle all.
+    twai_message_t message;
+    while (twai_receive(&message, 0) == ESP_OK) {
+      handle_rx_message(message);
+    }
+  }
 }

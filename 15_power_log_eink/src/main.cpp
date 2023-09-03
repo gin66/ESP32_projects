@@ -11,7 +11,6 @@
 #include <GxIO/GxIO_SPI/GxIO_SPI.h>
 #include <SD.h>
 #include <SPI.h>
-#include <qrcode.h>
 
 #define SPI_MOSI 23
 #define SPI_MISO -1
@@ -56,11 +55,11 @@ bool sdOK = false;
 #define ACCELERATION 3200
 
 void json_update(DynamicJsonDocument *json) {
-//  if (json->containsKey("moveBoth")) {
-//    int32_t steps = (*json)["moveBoth"];
-//    stepper1->move(steps);
-//    stepper2->move(steps);
-//  }
+  //  if (json->containsKey("moveBoth")) {
+  //    int32_t steps = (*json)["moveBoth"];
+  //    stepper1->move(steps);
+  //    stepper2->move(steps);
+  //  }
 }
 
 //---------------------------------------------------
@@ -112,18 +111,14 @@ void setup() {
 }
 
 void update_display() {
-  // Create the QR code 29*29
-  QRCode qrcode;
-  uint8_t qrcodeData[qrcode_getBufferSize(3)];
-  qrcode_initText(&qrcode, qrcodeData, 3, 0, "HELLO WORLD");
+  char line[50] = "";
 
   display.fillScreen(GxEPD_WHITE);
 
   display.setCursor(0, 10);
 
-  display.println(WiFi.SSID());
-
-  display.println(WiFi.localIP());
+  sprintf(line, "%s %s", WiFi.SSID(), WiFi.localIP());
+  display.println(line);
 
   char strftime_buf[64];
   struct tm timeinfo;
@@ -136,25 +131,27 @@ void update_display() {
 
   display.setCursor(0, display.height() - 10);
 
-  uint8_t x_off = display.width() - qrcode.size * 2;
-  uint8_t y_off = display.height() - qrcode.size * 2;
-  for (uint8_t y = 0; y < qrcode.size; y++) {
-    for (uint8_t x = 0; x < qrcode.size; x++) {
-      if (qrcode_getModule(&qrcode, x, y)) {
-        display.drawPixel(x_off + 2 * x, y_off + 2 * y, GxEPD_BLACK);
-        display.drawPixel(x_off + 2 * x + 1, y_off + 2 * y, GxEPD_BLACK);
-        display.drawPixel(x_off + 2 * x, y_off + 2 * y + 1, GxEPD_BLACK);
-        display.drawPixel(x_off + 2 * x + 1, y_off + 2 * y + 1, GxEPD_BLACK);
-      }
-    }
-  }
-
+  char *x = line;
+  x += sprintf(x, "SDCard:");
   if (sdOK) {
     uint32_t cardSize = SD.cardSize() / (1024 * 1024);
-    display.println("SDCard:" + String(cardSize) + "MB");
+    uint8_t cardType = SD.cardType();
+
+    if (cardType == CARD_MMC) {
+      x += sprintf(x, "MMC ");
+    } else if (cardType == CARD_SD) {
+      x += sprintf(x, "SDSC ");
+    } else if (cardType == CARD_SDHC) {
+      x += sprintf(x, "SDHC ");
+    } else {
+      x += sprintf(x, "UNKNOWN ");
+    }
+    x += sprintf(x, "%dMB", cardSize);
   } else {
-    display.println("SDCard  None");
+    x += sprintf(x, "None");
   }
+  display.println(line);
+
   display.update();
 }
 

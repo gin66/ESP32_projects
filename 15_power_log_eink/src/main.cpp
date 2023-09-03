@@ -59,11 +59,11 @@ void json_update(DynamicJsonDocument *json) {
 static void handle_rx_message(twai_message_t &message) {
   // Process received message
   if (message.extd) {
-    Serial.println("Message is in Extended Format");
+    Serial.print("Extended");
   } else {
-    Serial.println("Message is in Standard Format");
+    Serial.print("Standard");
   }
-  Serial.printf("ID: %x\nByte:", message.identifier);
+  Serial.printf("-ID: %x Bytes:", message.identifier);
   if (!(message.rtr)) {
     for (int i = 0; i < message.data_length_code; i++) {
       Serial.printf(" %d = %02x,", i, message.data[i]);
@@ -242,6 +242,7 @@ void loop() {
 	  last_sec = timeinfo.tm_sec;
 	twai_message_t message;
 	message.flags = TWAI_MSG_FLAG_NONE;
+	message.self = 1;
 	message.identifier = 0x555;
 	message.data_length_code = 4;
 	message.data[0] = timeinfo.tm_sec;
@@ -249,11 +250,11 @@ void loop() {
 	message.data[2] = timeinfo.tm_hour;
 	message.data[3] = timeinfo.tm_wday;
 	ESP_ERROR_CHECK(twai_transmit(&message, portMAX_DELAY));
-  }
 
-  if (millis() % 60000 == 0) {
+  if (timeinfo.tm_sec == 0) {
     Serial.println("update display");
     update_display();
+  }
   }
   const TickType_t xDelay = 100 / portTICK_PERIOD_MS;
   vTaskDelay(xDelay);

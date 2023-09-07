@@ -1,6 +1,7 @@
 #include <GxEPD.h>
 #include <GxGDEH0213B73/GxGDEH0213B73.h>  // 2.13" b/w newer panel
 
+#include "can_ids.h"
 #include "template.h"
 // FreeFonts from Adafruit_GFX
 #include <Fonts/FreeMonoBold12pt7b.h>
@@ -56,6 +57,10 @@ void json_update(DynamicJsonDocument *json) {
 #define PRIORITY configMAX_PRIORITIES
 #define POLLING_RATE_MS 1000
 
+uint16_t sml_base_id = 0;
+uint16_t sml_received_length = 0;
+uint8_t sml_buffer[258];	// including length bytes
+
 static void handle_rx_message(twai_message_t &message) {
   // Process received message
   if (message.extd) {
@@ -69,6 +74,34 @@ static void handle_rx_message(twai_message_t &message) {
       Serial.printf(" %d = %02x,", i, message.data[i]);
     }
     Serial.println("");
+
+	if ((message.identifier & ~0x1ff) == CAN_ID_STROMZAEHLER_INFO_BASIS) {
+		uint16_t this_id = message.identifier & ~0xff;
+		if (this_id !== sml_base_id) {
+			if (sml_received_length != 0) {
+				Serial.println("Throw away received data");
+			}
+			// new sml message
+			sml_received_length = 0;
+			sml_buffer[0] = 0;
+			sml_buffer[1] = 0;
+			sml_base_id = this_id;
+		}
+		uint8_t i = message.identifier & 0xff;
+		uint16_t off = i;
+		off <<= 3;
+		for (i = 0;i < message.data_length_code;i++) {
+			sml_buffer[off++] = message.data[i];
+		}
+		sml_received_length += message.data_length_code;
+		uint16_t expected_length = sml_buffer[0];
+		expected_length <<= 8;
+		expected_length += sml_buffer[1];
+		if (expected_length + 2 == sml_received_length) {
+			Serial.println("Received OK data");
+			sml_received_length = 0;
+		}
+	}
   }
 }
 
@@ -232,29 +265,28 @@ void update_display() {
   display.update();
 }
 
-uint8_t last_sec = 61;
+uint8_t last_sec = 255;
 void loop() {
-  char strftime_buf[64];
   struct tm timeinfo;
   time_t now = time(nullptr);
   localtime_r(&now, &timeinfo);
   if (timeinfo.tm_sec != last_sec) {
-	  last_sec = timeinfo.tm_sec;
-	twai_message_t message;
-	message.flags = TWAI_MSG_FLAG_NONE;
-	message.self = 1;
-	message.identifier = 0x555;
-	message.data_length_code = 4;
-	message.data[0] = timeinfo.tm_sec;
-	message.data[1] = timeinfo.tm_min;
-	message.data[2] = timeinfo.tm_hour;
-	message.data[3] = timeinfo.tm_wday;
-	ESP_ERROR_CHECK(twai_transmit(&message, portMAX_DELAY));
+    last_sec = timeinfo.tm_sec;
+    twai_message_t message;
+    message.flags = TWAI_MSG_FLAG_NONE;
+    message.self = 1;
+    message.identifier = CAN_ID_TIMESTAMP;
+    message.data_length_code = 4;
+    message.data[0] = timeinfo.tm_sec;
+    message.data[1] = timeinfo.tm_min;
+    message.data[2] = timeinfo.tm_hour;
+    message.data[3] = timeinfo.tm_wday;
+    twai_transmit(&message, portMAX_DELAY);
 
-  if (timeinfo.tm_sec == 0) {
-    Serial.println("update display");
-    update_display();
-  }
+    if (timeinfo.tm_sec == 0) {
+      Serial.println("update display");
+      update_display();
+    }
   }
   const TickType_t xDelay = 100 / portTICK_PERIOD_MS;
   vTaskDelay(xDelay);

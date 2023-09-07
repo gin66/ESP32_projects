@@ -425,10 +425,7 @@ target/
 14_power_control/tools/EspStackTraceDecoder.jar
 14_power_control/tools/stacktrace.sh
 14_power_control/tools/upload.sh
-15_power_log_eink/*
-15_power_log_eink/*.cpp
 15_power_log_eink/data/serverindex.html
-15_power_log_eink/*.html
 15_power_log_eink/include/template.h
 15_power_log_eink/include/tpl_app_camera.h
 15_power_log_eink/include/tpl_command.h
@@ -455,5 +452,4 @@ target/
 15_power_log_eink/tools/EspStackTraceDecoder.jar
 15_power_log_eink/tools/stacktrace.sh
 15_power_log_eink/tools/upload.sh
-15_power_log_eink/wifi_secrets.cpp
 node_modules/.bin/prettier

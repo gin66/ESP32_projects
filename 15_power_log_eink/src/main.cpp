@@ -16,6 +16,7 @@
 #include <esp_task_wdt.h>
 #include <base64.h>
 #include <sml/sml_file.h>
+#include <sml/sml_crc16.h>
 
 #define SPI_MOSI 23
 #define SPI_MISO -1
@@ -177,13 +178,21 @@ void json_publish(DynamicJsonDocument *json) {
 	  if (buf->locked) {
 		  if (buf->valid_bytes >= 0) {
 			(*json)["can_b64"] = base64::encode(&buf->data[2], buf->valid_bytes);
+			bool err = true;
 			if (buf->valid_bytes > 16) {
 				if (memcmp(&buf->data[2], sml_header, 8) == 0) {
-				  sml_file *file = sml_file_parse(&buf->data[2+8], buf->valid_bytes - 16);
-				  (*json)["valid_sml"] = file->messages_len;
-				  publish(json, file);
-				  sml_file_free(file);
+				  uint16_t chksum = sml_crc16_calculate(&buf->data[2],buf->valid_bytes - 2);
+				  if (((chksum >> 8) == buf->data[buf->valid_bytes]) && ((chksum & 0xff) == buf->data[buf->valid_bytes+1])) {
+					  sml_file *file = sml_file_parse(&buf->data[2+8], buf->valid_bytes - 16);
+					  (*json)["valid_sml"] = file->messages_len;
+					  publish(json, file);
+					  sml_file_free(file);
+					  err = false;
+				  }
 				}
+			}
+			if (err) {
+				(*json)["sml_error"] = true;
 			}
 		    buf->locked = false;
 			break;

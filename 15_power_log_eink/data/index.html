@@ -58,15 +58,18 @@
         document.getElementById("dbm").innerHTML = data["wifi_dBm"];
         document.getElementById("esp_time").innerHTML = data["time"];
 		if ("can_b64" in data) {
-          var data = b64_to_u8(data["can_b64"]);
-		  if (data.length > 0) {
+          var can_data = b64_to_u8(data["can_b64"]);
+		  if (can_data.length > 0) {
 			var s = "";
-			for (x in data) {
-				s = s + data[x].toString(16) + " ";
+			for (x in can_data) {
+				s = s + can_data[x].toString(16) + " ";
 			}
 			document.getElementById("can_data").innerHTML = s;
 	  	  }
 		}
+        document.getElementById("consumption").innerHTML = data["Consumption_Wh"];
+        document.getElementById("production").innerHTML = data["Production_Wh"];
+        document.getElementById("power").innerHTML = data["Power_W"];
       }
       var ws = 0;
       var last_msg = 0;
@@ -160,32 +163,14 @@
         </p>
       </div>
 
+	  <div class="row">
+		  <div>Consumption: <span id="consumption"></span> Wh </div>
+		  <div>Production: <span id="production"></span> Wh </div>
+		  <div>Power: <span id="power"></span> W </div>
+	  </div>
+
       <div class="row row-cols-1 row-cols-sm-2 row-cols-md-4">
-        <form action="/watermeter">
-          <button class="button-primary">Wasserzaehler</button>
-        </form>
         <form>
-          <button
-            class="button-primary"
-            type="button"
-            onClick="send_flash_toggle();"
-          >
-            Flash Toggle
-          </button>
-        </form>
-        <form>
-          <input
-            class="button-primary"
-            type="checkbox"
-            id="video_on"
-            onClick="request_video();"
-          />Video on
-          <input
-            class="button-primary"
-            type="checkbox"
-            id="video_raw"
-            onClick="request_video();"
-          />Raw Video
           <input class="button-primary" type="checkbox" id="show_raw" />Show raw
           messages
         </form>

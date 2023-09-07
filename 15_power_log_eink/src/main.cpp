@@ -15,6 +15,7 @@
 #include <driver/twai.h>
 #include <esp_task_wdt.h>
 #include <base64.h>
+#include <sml/sml_file.h>
 
 #define SPI_MOSI 23
 #define SPI_MISO -1
@@ -45,7 +46,7 @@ SPIClass sdSPI(VSPI);
 
 bool sdOK = false;
 
-struct sml_buffer {
+struct sml_buffer_s {
   int16_t valid_bytes;
   volatile bool locked;
   uint8_t data[258];  // including length bytes
@@ -55,11 +56,71 @@ struct sml_buffer {
 	{ .valid_bytes = -1, .locked = false },
 };
 
+  void publish(DynamicJsonDocument *json, sml_file *file)
+  {
+	(*json)["in_publish"] = true;
+    for (int i = 0; i < file->messages_len; i++)
+    {
+		  char name[20];
+		  sprintf(name, "Name %d", i);
+      sml_message *message = file->messages[i];
+      if (*message->message_body->tag == SML_MESSAGE_GET_LIST_RESPONSE)
+      {
+        sml_list *entry;
+        sml_get_list_response *body;
+        body = (sml_get_list_response *)message->message_body->data;
+		uint8_t index;
+        for (entry = body->val_list,index = 0; entry != NULL; entry = entry->next,index++)
+        {
+		  sprintf(name, "Name %d-%d", i,index);
+          if (!entry->value)
+          { // do not crash on null value
+            continue;
+          }
+
+          char obisIdentifier[32];
+          char buffer[255];
+
+          sprintf(obisIdentifier, "%d-%d:%d.%d.%d/%d",
+                  entry->obj_name->str[0], entry->obj_name->str[1],
+                  entry->obj_name->str[2], entry->obj_name->str[3],
+                  entry->obj_name->str[4], entry->obj_name->str[5]);
+
+
+          if (((entry->value->type & SML_TYPE_FIELD) == SML_TYPE_INTEGER) ||
+              ((entry->value->type & SML_TYPE_FIELD) == SML_TYPE_UNSIGNED))
+          {
+            double value = sml_value_to_double(entry->value);
+            int scaler = (entry->scaler) ? *entry->scaler : 0;
+            int prec = -scaler;
+            if (prec < 0)
+              prec = 0;
+            value = value * pow(10, scaler);
+            sprintf(buffer, "%s %.*f", obisIdentifier, prec, value);
+			(*json)[name] = buffer;
+          }
+		  else {
+            sprintf(buffer, "Unknown %s", obisIdentifier);
+			(*json)[name] = buffer;
+		  }
+        }
+      }
+	  else {
+		  sprintf(name, "Unknown_tag %d", i);
+		  (*json)[name] = *message->message_body->tag;
+	  }
+    }
+  }
+
+const uint8_t sml_header[8] = {
+	0x1b, 0x1b, 0x1b, 0x1b,
+	0x01, 0x01, 0x01, 0x01
+};
 
 void json_publish(DynamicJsonDocument *json) {
 	(*json)["publish"] = "called";
 	for (uint8_t i = 0;i < 3;i++) {
-      struct sml_buffer *buf = &sml_buffers[i];
+      struct sml_buffer_s *buf = &sml_buffers[i];
 	  if (buf->locked || buf->valid_bytes < 0) {
 		  continue;
 	  }
@@ -68,6 +129,14 @@ void json_publish(DynamicJsonDocument *json) {
 	  if (buf->locked) {
 		  if (buf->valid_bytes >= 0) {
 			(*json)["can_b64"] = base64::encode(&buf->data[2], buf->valid_bytes);
+			if (buf->valid_bytes > 16) {
+				if (memcmp(&buf->data[2], sml_header, 8) == 0) {
+				  sml_file *file = sml_file_parse(&buf->data[2+8], buf->valid_bytes - 16);
+				  (*json)["valid_sml"] = file->messages_len;
+				  publish(json, file);
+				  sml_file_free(file);
+				}
+			}
 		    buf->locked = false;
 			break;
 		  }
@@ -105,7 +174,7 @@ static void handle_rx_message(twai_message_t &message) {
     Serial.println("");
 
     if ((message.identifier & ~0x1ff) == CAN_ID_STROMZAEHLER_INFO_BASIS) {
-      struct sml_buffer *active = &sml_buffers[receive_buffer];
+      struct sml_buffer_s *active = &sml_buffers[receive_buffer];
       int8_t buf_i = receive_buffer;
       uint16_t this_id = message.identifier & ~0xff;
       if (this_id != sml_base_id) {

@@ -1,0 +1,3 @@
+[submodule "15_power_log_eink/SMLReader"]
+	path = 15_power_log_eink/SMLReader
+	url = https://github.com/mruettgers/SMLReader.git

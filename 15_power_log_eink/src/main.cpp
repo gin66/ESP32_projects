@@ -56,6 +56,38 @@ struct sml_buffer_s {
 	{ .valid_bytes = -1, .locked = false },
 };
 
+// First two fields are 1-0.96.50.1 and 1-0.96.1.0
+// Then 1-0:1.8.0/255  consumption in Wh (float)
+// Then 1-0:2.8.0/255  production in Wh (float)
+// Then 1-0:16.7.0/255 Consumption actual in W (int)
+// all enclosed in OPEN/CLOSE RESPONSE
+//
+// 1-0:96.1.0*255(001LOG0065800041)    Hersteller unabhängige Identifikationsnummer – Produktionsnummer
+// 1-0:1.8.0*255(000000.0000*kWh)      Kumulatives Register der aktiven Energie in kWh T1+T2
+// 1-0:1.8.1*255(000000.0000*kWh)      Kumulatives Register der aktiven Energie in kWh T1
+// 1-0:1.8.2*255(000000.0000*kWh)      Kumulatives Register der aktiven Energie in kWh T2
+// 1-0:2.8.0*255(000000.0000*kWh)      -A Enerige
+// 1-0:16.7.0*255(000000*W)            Stromeffektivwert
+// 1-0:32.7.0*255(000.0*V)             Spannung L1, Auflösung 0.1 V
+// 1-0:52.7.0*255(000.0*V)             Spannung L2, Auflösung 0.1 V
+// 1-0:72.7.0*255(228.8*V)             Spannung L3, Auflösung 0.1 V
+// 1-0:31.7.0*255(000.00*A)            Strom L1, Auflösung 0.01 A
+// 1-0:51.7.0*255(000.00*A)            Strom L2, Auflösung 0.01 A
+// 1-0:71.7.0*255(000.00*A)            Strom L3, Auf lösung 0.01 A
+// 1-0:81.7.1*255(000*deg)             Phasenwinkel UL2 : UL1
+// 1-0:81.7.2*255(000*deg)             Phasenwinkel UL3 : UL1
+// 1-0:81.7.4*255(000*deg)             Phasenwinkel IL1 : UL1
+// 1-0:81.7.15*255(000*deg)            Phasenwinkel IL2 : UL2
+// 1-0:81.7.26*255(000*deg)            Phasenwinkel IL3 : UL3
+// 1-0:14.7.0*255(50.0*Hz)             Netz Frequenz in Hz
+// 1-0:1.8.0*96(00000.0*kWh)           Historischer Energieverbrauchswert vom letzten Tag (1d)
+// 1-0:1.8.0*97(00000.0*kWh)           Historischer Energieverbrauchswert der letzten Woche (7d)
+// 1-0:1.8.0*98(00000.0*kWh)           Historischer Energieverbrauchswert des letzten Monats (30d)
+// 1-0:1.8.0*99(00000.0*kWh)           Historischer Energieverbrauchswert des letzten Jahres (365d)
+// 1-0:1.8.0*100(00000.0*kWh)          Historischer Energieverbrauchswert seit letzter Rückstellung
+// 1-0:0.2.0*255(ver.03,432F,20170504) Firmware Version, Firmware Prüfsumme CRC , Datum
+// 1-0:96.90.2*255(F0F6)               Prüfsumme - CRC der eingestellten Parameter
+// 1-0:97.97.0*255(00000000)           FF - Status Register - Interner Gerätefehler
   void publish(DynamicJsonDocument *json, sml_file *file)
   {
 	(*json)["in_publish"] = true;
@@ -64,7 +96,11 @@ struct sml_buffer_s {
 		  char name[20];
 		  sprintf(name, "Name %d", i);
       sml_message *message = file->messages[i];
-      if (*message->message_body->tag == SML_MESSAGE_GET_LIST_RESPONSE)
+      if (*message->message_body->tag == SML_MESSAGE_OPEN_RESPONSE) {
+	  }
+	  else if (*message->message_body->tag == SML_MESSAGE_CLOSE_RESPONSE) {
+	  }
+	  else if (*message->message_body->tag == SML_MESSAGE_GET_LIST_RESPONSE)
       {
         sml_list *entry;
         sml_get_list_response *body;
@@ -99,8 +135,20 @@ struct sml_buffer_s {
             sprintf(buffer, "%s %.*f", obisIdentifier, prec, value);
 			(*json)[name] = buffer;
           }
+		  else  if (entry->value->type == SML_TYPE_OCTET_STRING)
+            {
+              char *value;
+              sml_value_to_strhex(entry->value, &value, true);
+				(*json)[name] = value;
+              free(value);
+            }
+            else if (entry->value->type == SML_TYPE_BOOLEAN)
+            {
+				(*json)[name] = entry->value->data.boolean;
+            }
+
 		  else {
-            sprintf(buffer, "Unknown %s", obisIdentifier);
+            sprintf(buffer, "Unknown %s %d", obisIdentifier, entry->value->type & SML_TYPE_FIELD);
 			(*json)[name] = buffer;
 		  }
         }

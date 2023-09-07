@@ -123,7 +123,6 @@ struct sml_buffer_s {
                   entry->obj_name->str[2], entry->obj_name->str[3],
                   entry->obj_name->str[4], entry->obj_name->str[5]);
 
-
           if (((entry->value->type & SML_TYPE_FIELD) == SML_TYPE_INTEGER) ||
               ((entry->value->type & SML_TYPE_FIELD) == SML_TYPE_UNSIGNED))
           {
@@ -135,6 +134,15 @@ struct sml_buffer_s {
             value = value * pow(10, scaler);
             sprintf(buffer, "%s %.*f", obisIdentifier, prec, value);
 			(*json)[name] = buffer;
+			  if (strcmp(obisIdentifier, "1-0:1.8.0/255") == 0) {
+				  (*json)["Consumption_Wh"] = value;
+			  }
+			  else if (strcmp(obisIdentifier, "1-0:2.8.0/255") == 0) {
+				  (*json)["Production_Wh"] = value;
+			  }
+			  else if (strcmp(obisIdentifier, "1-0:16.7.0/255") == 0) {
+				  (*json)["Power_W"] = value;
+			  }
           }
 		  else  if (entry->value->type == SML_TYPE_OCTET_STRING)
             {

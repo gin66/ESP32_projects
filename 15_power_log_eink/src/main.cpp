@@ -14,6 +14,7 @@
 #include <SPI.h>
 #include <driver/twai.h>
 #include <esp_task_wdt.h>
+#include <base64.h>
 
 #define SPI_MOSI 23
 #define SPI_MISO -1
@@ -44,6 +45,37 @@ SPIClass sdSPI(VSPI);
 
 bool sdOK = false;
 
+struct sml_buffer {
+  int16_t valid_bytes;
+  volatile bool locked;
+  uint8_t data[258];  // including length bytes
+} sml_buffers[3] = {
+	{ .valid_bytes = -1, .locked = false },
+	{ .valid_bytes = -1, .locked = false },
+	{ .valid_bytes = -1, .locked = false },
+};
+
+
+void json_publish(DynamicJsonDocument *json) {
+	(*json)["publish"] = "called";
+	for (uint8_t i = 0;i < 3;i++) {
+      struct sml_buffer *buf = &sml_buffers[i];
+	  if (buf->locked || buf->valid_bytes < 0) {
+		  continue;
+	  }
+	  buf->locked = true;
+	  // read back, if it was really locked
+	  if (buf->locked) {
+		  if (buf->valid_bytes >= 0) {
+			(*json)["can_b64"] = base64::encode(&buf->data[2], buf->valid_bytes);
+		    buf->locked = false;
+			break;
+		  }
+		  buf->locked = false;
+	  }
+	}
+}
+
 void json_update(DynamicJsonDocument *json) {
   //  if (json->containsKey("moveBoth")) {
   //    int32_t steps = (*json)["moveBoth"];
@@ -57,17 +89,14 @@ void json_update(DynamicJsonDocument *json) {
 #define PRIORITY configMAX_PRIORITIES
 #define POLLING_RATE_MS 1000
 
+
 uint16_t sml_base_id = 0;
 uint16_t sml_received_length = 0;
-uint8_t sml_buffer[258];	// including length bytes
+int8_t receive_buffer = 0;
 
 static void handle_rx_message(twai_message_t &message) {
   // Process received message
-  if (message.extd) {
-    Serial.print("Extended");
-  } else {
-    Serial.print("Standard");
-  }
+  Serial.print(message.extd ? "Extended" : "Standard");
   Serial.printf("-ID: %x Bytes:", message.identifier);
   if (!(message.rtr)) {
     for (int i = 0; i < message.data_length_code; i++) {
@@ -75,33 +104,46 @@ static void handle_rx_message(twai_message_t &message) {
     }
     Serial.println("");
 
-	if ((message.identifier & ~0x1ff) == CAN_ID_STROMZAEHLER_INFO_BASIS) {
-		uint16_t this_id = message.identifier & ~0xff;
-		if (this_id !== sml_base_id) {
-			if (sml_received_length != 0) {
-				Serial.println("Throw away received data");
-			}
+    if ((message.identifier & ~0x1ff) == CAN_ID_STROMZAEHLER_INFO_BASIS) {
+      struct sml_buffer *active = &sml_buffers[receive_buffer];
+      int8_t buf_i = receive_buffer;
+      uint16_t this_id = message.identifier & ~0xff;
+      if (this_id != sml_base_id) {
+        if (sml_received_length > 2) {
+          Serial.println("Throw away received data");
+        }
 			// new sml message
-			sml_received_length = 0;
-			sml_buffer[0] = 0;
-			sml_buffer[1] = 0;
-			sml_base_id = this_id;
-		}
-		uint8_t i = message.identifier & 0xff;
-		uint16_t off = i;
-		off <<= 3;
-		for (i = 0;i < message.data_length_code;i++) {
-			sml_buffer[off++] = message.data[i];
-		}
-		sml_received_length += message.data_length_code;
-		uint16_t expected_length = sml_buffer[0];
-		expected_length <<= 8;
-		expected_length += sml_buffer[1];
-		if (expected_length + 2 == sml_received_length) {
-			Serial.println("Received OK data");
-			sml_received_length = 0;
-		}
-	}
+			// find buffer
+			for (uint8_t i = 0;i < 3;i++) {
+				if ((i != receive_buffer) && !sml_buffers[i].locked) {
+					receive_buffer = i;
+					active = &sml_buffers[i];
+					break;
+				}
+			}
+        sml_received_length = 0;
+		active->valid_bytes = -1;
+		active->locked = false;
+        active->data[0] = 0;
+        active->data[1] = 0;
+        sml_base_id = this_id;
+      }
+      uint16_t off = message.identifier & 0xff;
+      off <<= 3;
+      for (uint8_t i = 0; i < message.data_length_code; i++) {
+        active->data[off++] = message.data[i];
+      }
+      sml_received_length += message.data_length_code;
+      uint16_t expected_length = active->data[1];
+      expected_length <<= 8;
+      expected_length += active->data[0];
+      if (expected_length + 2 == sml_received_length) {
+        Serial.println("Received OK data");
+		active->valid_bytes = sml_received_length - 2;
+        sml_received_length = 0;
+		sml_base_id = 0;
+      }
+    }
   }
 }
 
@@ -153,7 +195,7 @@ void setup() {
   //  tpl_wifi_setup(true, true, (gpio_num_t)tpl_ledPin);
   tpl_wifi_setup(true, true, (gpio_num_t)LED_PIN);
   tpl_webserver_setup();
-  tpl_websocket_setup(NULL, json_update);
+  tpl_websocket_setup(json_publish, json_update);
   tpl_net_watchdog_setup();
   tpl_command_setup(NULL);
 

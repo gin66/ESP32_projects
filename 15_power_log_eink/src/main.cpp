@@ -50,7 +50,10 @@ bool sdOK = false;
 uint32_t sml_lost_bytes_cnt = 0;
 uint32_t sml_empty_message_cnt = 0;
 uint32_t sml_error_cnt = 0;
+uint32_t file_log_error_cnt = 0;
 
+float consumption_Wh = 0.0;
+float production_Wh = 0.0;
 struct sml_buffer_s {
   time_t receive_time;
   int16_t valid_bytes;
@@ -137,8 +140,10 @@ void publish(DynamicJsonDocument *json, sml_file *file) {
           (*json)[name] = buffer;
           if (strcmp(obisIdentifier, "1-0:1.8.0/255") == 0) {
             (*json)["Consumption_Wh"] = value;
+            consumption_Wh = value;
           } else if (strcmp(obisIdentifier, "1-0:2.8.0/255") == 0) {
             (*json)["Production_Wh"] = value;
+            production_Wh = value;
           } else if (strcmp(obisIdentifier, "1-0:16.7.0/255") == 0) {
             if (entry->status &&
                 ((*entry->status->data.status16 & 0x20) != 0)) {
@@ -201,7 +206,7 @@ void json_publish(DynamicJsonDocument *json) {
         }
         if (err) {
           (*json)["sml_error"] = true;
-		  sml_error_cnt++;
+          sml_error_cnt++;
         }
         buf->locked = false;
         break;
@@ -252,7 +257,7 @@ static void handle_rx_message(twai_message_t &message) {
       if (this_id != sml_base_id) {
         if (sml_received_length > 2) {
           Serial.println("Throw away received data");
-		  sml_lost_bytes_cnt++;
+          sml_lost_bytes_cnt++;
         }
         // new sml message
         // find buffer
@@ -270,9 +275,9 @@ static void handle_rx_message(twai_message_t &message) {
         active->data[1] = 0;
         sml_base_id = this_id;
       }
-	  if (message.data_length_code == 0) {
-		  sml_empty_message_cnt++;
-	  }
+      if (message.data_length_code == 0) {
+        sml_empty_message_cnt++;
+      }
       uint16_t off = message.identifier & 0xff;
       off <<= 3;
       for (uint8_t i = 0; i < message.data_length_code; i++) {
@@ -285,8 +290,8 @@ static void handle_rx_message(twai_message_t &message) {
       if (expected_length + 2 == sml_received_length) {
         Serial.println("Received OK data");
         active->valid_bytes = sml_received_length - 2;
-		time_t now = time(nullptr);
-		active->receive_time = now;
+        time_t now = time(nullptr);
+        active->receive_time = now;
         sml_received_length = 0;
         sml_base_id = 0;
       }
@@ -305,14 +310,14 @@ void CANTask(void *parameter) {
     // Handle alerts
     if (alerts_triggered & TWAI_ALERT_ERR_PASS) {
       Serial.println("Alert: TWAI controller has become error passive.");
-	  can_error_passive_cnt++;
+      can_error_passive_cnt++;
     }
     if (alerts_triggered & TWAI_ALERT_BUS_ERROR) {
       Serial.println(
           "Alert: A (Bit, Stuff, CRC, Form, ACK) error has occurred on the "
           "bus.");
       Serial.printf("Bus error count: %d\n", twaistatus.bus_error_count);
-	  can_error_bus_error_cnt++;
+      can_error_bus_error_cnt++;
     }
     if (alerts_triggered & TWAI_ALERT_RX_QUEUE_FULL) {
       Serial.println(
@@ -320,19 +325,19 @@ void CANTask(void *parameter) {
       Serial.printf("RX buffered: %d\t", twaistatus.msgs_to_rx);
       Serial.printf("RX missed: %d\t", twaistatus.rx_missed_count);
       Serial.printf("RX overrun %d\n", twaistatus.rx_overrun_count);
-	  can_rx_queue_full_cnt++;
+      can_rx_queue_full_cnt++;
     }
-	if (alerts_triggered & TWAI_ALERT_TX_FAILED) {
-	  can_tx_error_cnt++;
-	}
-	if (alerts_triggered & TWAI_ALERT_TX_RETRIED) {
-	  can_tx_retry_cnt++;
-	}
+    if (alerts_triggered & TWAI_ALERT_TX_FAILED) {
+      can_tx_error_cnt++;
+    }
+    if (alerts_triggered & TWAI_ALERT_TX_RETRIED) {
+      can_tx_retry_cnt++;
+    }
 
     // Check if message is received
     if (alerts_triggered & TWAI_ALERT_RX_DATA) {
       // One or more messages received. Handle all.
-	  can_receive_cnt++;
+      can_receive_cnt++;
       twai_message_t message;
       while (twai_receive(&message, 0) == ESP_OK) {
         handle_rx_message(message);
@@ -371,9 +376,17 @@ void setup() {
 
   tpl_server.on("/can", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
-	char can_info[255];
-	sprintf(can_info,
-			"SML: %d empty, %d incomplete, %d errors\nTX: %d errors, %d retries\nRX: %d messages, %d errors, %d queue_full\nERROR: %d passive cnt, % bus error\n", sml_empty_message_cnt, sml_lost_bytes_cnt, sml_error_cnt,can_tx_error_cnt, can_tx_retry_cnt, can_receive_cnt, can_rx_error_cnt, can_rx_queue_full_cnt, can_error_passive_cnt, can_error_bus_error_cnt);
+    char can_info[255];
+    sprintf(can_info,
+			"Error: %d\n"
+            "SML: %d empty, %d incomplete, %d errors\nTX: %d errors, %d "
+            "retries\nRX: %d messages, %d errors, %d queue_full\nERROR: %d "
+            "passive cnt, % bus error\n",
+			file_log_error_cnt,
+            sml_empty_message_cnt, sml_lost_bytes_cnt, sml_error_cnt,
+            can_tx_error_cnt, can_tx_retry_cnt, can_receive_cnt,
+            can_rx_error_cnt, can_rx_queue_full_cnt, can_error_passive_cnt,
+            can_error_bus_error_cnt);
     tpl_server.send(200, "text/html", can_info);
   });
 
@@ -392,6 +405,10 @@ void setup() {
     sdOK = false;
   } else {
     sdOK = true;
+  }
+
+  if (sdOK) {
+	tpl_server.serveStatic("/sdcard", SD, "/");
   }
 
   twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(
@@ -419,7 +436,7 @@ void setup() {
   // full states
   uint32_t alerts_to_enable = TWAI_ALERT_RX_DATA | TWAI_ALERT_ERR_PASS |
                               TWAI_ALERT_BUS_ERROR | TWAI_ALERT_RX_QUEUE_FULL |
-							  TWAI_ALERT_TX_FAILED | TWAI_ALERT_TX_RETRIED;
+                              TWAI_ALERT_TX_FAILED | TWAI_ALERT_TX_RETRIED;
   if (twai_reconfigure_alerts(alerts_to_enable, NULL) == ESP_OK) {
     Serial.println("CAN Alerts reconfigured");
     xTaskCreate(CANTask, "CANTask", STACK_SIZE, NULL, PRIORITY, NULL);
@@ -473,6 +490,40 @@ void update_display() {
   display.update();
 }
 
+void log_to_sdcard(struct tm *timeinfo) {
+  if ((production_Wh == 0.0) || (consumption_Wh == 0.0)) {
+    return;
+  }
+  char pathname[100];
+  size_t n = 0;
+  n += sprintf(pathname, "/%d", timeinfo->tm_year+1900);
+  if (!SD.mkdir(pathname)) {
+	  file_log_error_cnt += 10000;
+  }
+  n += sprintf(pathname + n, "/%02d", timeinfo->tm_mon+1);
+  if (!SD.mkdir(pathname)) {
+	  file_log_error_cnt += 1000;
+  }
+  n += sprintf(pathname + n, "/%02d", timeinfo->tm_mday);
+  if (!SD.mkdir(pathname)) {
+	  file_log_error_cnt += 100;
+  }
+  n += sprintf(pathname + n, "/%02d", timeinfo->tm_hour);
+  if (!SD.mkdir(pathname)) {
+	  file_log_error_cnt += 10;
+  }
+  n += sprintf(pathname + n, "/%02d.txt", timeinfo->tm_min);
+  File file = SD.open(pathname, FILE_WRITE);
+  if (!file) {
+	  file_log_error_cnt++;
+    return;
+  }
+  char line[255];
+  sprintf(line, "Consumption %.1f Wh\nProduction: %.1f Wh\n", consumption_Wh, production_Wh);
+  file.print(line);
+  file.close();
+}
+
 uint32_t next_stack_info = 0;
 
 uint8_t last_sec = 255;
@@ -503,6 +554,7 @@ void loop() {
     if (timeinfo.tm_sec == 0) {
       Serial.println("update display");
       update_display();
+      log_to_sdcard(&timeinfo);
     }
   }
   const TickType_t xDelay = 100 / portTICK_PERIOD_MS;

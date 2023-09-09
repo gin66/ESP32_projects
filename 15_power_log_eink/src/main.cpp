@@ -220,6 +220,13 @@ void json_update(DynamicJsonDocument *json) {
 uint16_t sml_base_id = 0;
 uint16_t sml_received_length = 0;
 int8_t receive_buffer = 0;
+uint32_t can_tx_error_cnt = 0;
+uint32_t can_tx_retry_cnt = 0;
+uint32_t can_rx_error_cnt = 0;
+uint32_t can_rx_queue_full_cnt = 0;
+uint32_t can_error_passive_cnt = 0;
+uint32_t can_error_bus_error_cnt = 0;
+uint32_t can_receive_cnt = 0;
 
 static void handle_rx_message(twai_message_t &message) {
   // Process received message
@@ -285,12 +292,14 @@ void CANTask(void *parameter) {
     // Handle alerts
     if (alerts_triggered & TWAI_ALERT_ERR_PASS) {
       Serial.println("Alert: TWAI controller has become error passive.");
+	  can_error_passive_cnt++;
     }
     if (alerts_triggered & TWAI_ALERT_BUS_ERROR) {
       Serial.println(
           "Alert: A (Bit, Stuff, CRC, Form, ACK) error has occurred on the "
           "bus.");
       Serial.printf("Bus error count: %d\n", twaistatus.bus_error_count);
+	  can_error_bus_error_cnt++;
     }
     if (alerts_triggered & TWAI_ALERT_RX_QUEUE_FULL) {
       Serial.println(
@@ -298,11 +307,19 @@ void CANTask(void *parameter) {
       Serial.printf("RX buffered: %d\t", twaistatus.msgs_to_rx);
       Serial.printf("RX missed: %d\t", twaistatus.rx_missed_count);
       Serial.printf("RX overrun %d\n", twaistatus.rx_overrun_count);
+	  can_rx_queue_full_cnt++;
     }
+	if (alerts_triggered & TWAI_ALERT_TX_FAILED) {
+	  can_tx_error_cnt++;
+	}
+	if (alerts_triggered & TWAI_ALERT_TX_RETRIED) {
+	  can_tx_retry_cnt++;
+	}
 
     // Check if message is received
     if (alerts_triggered & TWAI_ALERT_RX_DATA) {
       // One or more messages received. Handle all.
+	  can_receive_cnt++;
       twai_message_t message;
       while (twai_receive(&message, 0) == ESP_OK) {
         handle_rx_message(message);
@@ -338,6 +355,14 @@ void setup() {
 #ifdef BOTtoken
   tpl_telegram_setup(BOTtoken, CHAT_ID);
 #endif
+
+  tpl_server.on("/can", HTTP_GET, []() {
+    tpl_server.sendHeader("Connection", "close");
+	char can_info[255];
+	sprintf(can_info,
+			"TX: %d errors, %d retries\nRX: %d messages, %d errors, %d queue_full\nERROR: %d passive cnt, % bus error\n", can_tx_error_cnt, can_tx_retry_cnt, can_receive_cnt, can_rx_error_cnt, can_rx_queue_full_cnt, can_error_passive_cnt, can_error_bus_error_cnt);
+    tpl_server.send(200, "text/html", can_info);
+  });
 
   SPI.begin(SPI_CLK, SPI_MISO, SPI_MOSI, ELINK_SS);
   display.init();  // enable diagnostic output on Serial
@@ -380,7 +405,8 @@ void setup() {
   // Reconfigure alerts to detect frame receive, Bus-Off error and RX queue
   // full states
   uint32_t alerts_to_enable = TWAI_ALERT_RX_DATA | TWAI_ALERT_ERR_PASS |
-                              TWAI_ALERT_BUS_ERROR | TWAI_ALERT_RX_QUEUE_FULL;
+                              TWAI_ALERT_BUS_ERROR | TWAI_ALERT_RX_QUEUE_FULL |
+							  TWAI_ALERT_TX_FAILED | TWAI_ALERT_TX_RETRIED;
   if (twai_reconfigure_alerts(alerts_to_enable, NULL) == ESP_OK) {
     Serial.println("CAN Alerts reconfigured");
     xTaskCreate(CANTask, "CANTask", STACK_SIZE, NULL, PRIORITY, NULL);

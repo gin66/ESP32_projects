@@ -47,6 +47,10 @@ SPIClass sdSPI(VSPI);
 
 bool sdOK = false;
 
+uint32_t sml_lost_bytes_cnt = 0;
+uint32_t sml_empty_message_cnt = 0;
+uint32_t sml_error_cnt = 0;
+
 struct sml_buffer_s {
   time_t receive_time;
   int16_t valid_bytes;
@@ -197,6 +201,7 @@ void json_publish(DynamicJsonDocument *json) {
         }
         if (err) {
           (*json)["sml_error"] = true;
+		  sml_error_cnt++;
         }
         buf->locked = false;
         break;
@@ -247,6 +252,7 @@ static void handle_rx_message(twai_message_t &message) {
       if (this_id != sml_base_id) {
         if (sml_received_length > 2) {
           Serial.println("Throw away received data");
+		  sml_lost_bytes_cnt++;
         }
         // new sml message
         // find buffer
@@ -264,6 +270,9 @@ static void handle_rx_message(twai_message_t &message) {
         active->data[1] = 0;
         sml_base_id = this_id;
       }
+	  if (message.data_length_code == 0) {
+		  sml_empty_message_cnt++;
+	  }
       uint16_t off = message.identifier & 0xff;
       off <<= 3;
       for (uint8_t i = 0; i < message.data_length_code; i++) {
@@ -364,7 +373,7 @@ void setup() {
     tpl_server.sendHeader("Connection", "close");
 	char can_info[255];
 	sprintf(can_info,
-			"TX: %d errors, %d retries\nRX: %d messages, %d errors, %d queue_full\nERROR: %d passive cnt, % bus error\n", can_tx_error_cnt, can_tx_retry_cnt, can_receive_cnt, can_rx_error_cnt, can_rx_queue_full_cnt, can_error_passive_cnt, can_error_bus_error_cnt);
+			"SML: %d empty, %d incomplete, %d errors\nTX: %d errors, %d retries\nRX: %d messages, %d errors, %d queue_full\nERROR: %d passive cnt, % bus error\n", sml_empty_message_cnt, sml_lost_bytes_cnt, sml_error_cnt,can_tx_error_cnt, can_tx_retry_cnt, can_receive_cnt, can_rx_error_cnt, can_rx_queue_full_cnt, can_error_passive_cnt, can_error_bus_error_cnt);
     tpl_server.send(200, "text/html", can_info);
   });
 

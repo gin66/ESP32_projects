@@ -76,6 +76,10 @@ void tpl_webserver_setup() {
     long val = tpl_config.watchpoint;
     tpl_server.send(200, "text/html", String(val));
   });
+  tpl_server.on("/stack", HTTP_GET, []() {
+    tpl_server.sendHeader("Connection", "close");
+    tpl_server.send(200, "text/html", tpl_config.stack_info);
+  });
   /*handling uploading firmware file */
   tpl_server.on(
       "/update", HTTP_POST,

@@ -12,11 +12,11 @@
 #include <GxIO/GxIO_SPI/GxIO_SPI.h>
 #include <SD.h>
 #include <SPI.h>
+#include <base64.h>
 #include <driver/twai.h>
 #include <esp_task_wdt.h>
-#include <base64.h>
-#include <sml/sml_file.h>
 #include <sml/sml_crc16.h>
+#include <sml/sml_file.h>
 
 #define SPI_MOSI 23
 #define SPI_MISO -1
@@ -52,9 +52,9 @@ struct sml_buffer_s {
   volatile bool locked;
   uint8_t data[258];  // including length bytes
 } sml_buffers[3] = {
-	{ .valid_bytes = -1, .locked = false },
-	{ .valid_bytes = -1, .locked = false },
-	{ .valid_bytes = -1, .locked = false },
+    {.valid_bytes = -1, .locked = false},
+    {.valid_bytes = -1, .locked = false},
+    {.valid_bytes = -1, .locked = false},
 };
 
 // First two fields are 1-0.96.50.1 and 1-0.96.1.0
@@ -63,11 +63,12 @@ struct sml_buffer_s {
 // Then 1-0:16.7.0/255 Consumption actual in W (int)
 // all enclosed in OPEN/CLOSE RESPONSE
 //
-// 1-0:96.1.0*255(001LOG0065800041)    Hersteller unabhängige Identifikationsnummer – Produktionsnummer
-// 1-0:1.8.0*255(000000.0000*kWh)      Kumulatives Register der aktiven Energie in kWh T1+T2
-// 1-0:1.8.1*255(000000.0000*kWh)      Kumulatives Register der aktiven Energie in kWh T1
-// 1-0:1.8.2*255(000000.0000*kWh)      Kumulatives Register der aktiven Energie in kWh T2
-// 1-0:2.8.0*255(000000.0000*kWh)      -A Enerige
+// 1-0:96.1.0*255(001LOG0065800041)    Hersteller unabhängige
+// Identifikationsnummer – Produktionsnummer 1-0:1.8.0*255(000000.0000*kWh)
+// Kumulatives Register der aktiven Energie in kWh T1+T2
+// 1-0:1.8.1*255(000000.0000*kWh)      Kumulatives Register der aktiven Energie
+// in kWh T1 1-0:1.8.2*255(000000.0000*kWh)      Kumulatives Register der
+// aktiven Energie in kWh T2 1-0:2.8.0*255(000000.0000*kWh)      -A Enerige
 // 1-0:16.7.0*255(000000*W)            Stromeffektivwert
 // 1-0:32.7.0*255(000.0*V)             Spannung L1, Auflösung 0.1 V
 // 1-0:52.7.0*255(000.0*V)             Spannung L2, Auflösung 0.1 V
@@ -81,133 +82,126 @@ struct sml_buffer_s {
 // 1-0:81.7.15*255(000*deg)            Phasenwinkel IL2 : UL2
 // 1-0:81.7.26*255(000*deg)            Phasenwinkel IL3 : UL3
 // 1-0:14.7.0*255(50.0*Hz)             Netz Frequenz in Hz
-// 1-0:1.8.0*96(00000.0*kWh)           Historischer Energieverbrauchswert vom letzten Tag (1d)
-// 1-0:1.8.0*97(00000.0*kWh)           Historischer Energieverbrauchswert der letzten Woche (7d)
-// 1-0:1.8.0*98(00000.0*kWh)           Historischer Energieverbrauchswert des letzten Monats (30d)
-// 1-0:1.8.0*99(00000.0*kWh)           Historischer Energieverbrauchswert des letzten Jahres (365d)
-// 1-0:1.8.0*100(00000.0*kWh)          Historischer Energieverbrauchswert seit letzter Rückstellung
-// 1-0:0.2.0*255(ver.03,432F,20170504) Firmware Version, Firmware Prüfsumme CRC , Datum
-// 1-0:96.90.2*255(F0F6)               Prüfsumme - CRC der eingestellten Parameter
-// 1-0:97.97.0*255(00000000)           FF - Status Register - Interner Gerätefehler
-  void publish(DynamicJsonDocument *json, sml_file *file)
-  {
-	(*json)["in_publish"] = true;
-    for (int i = 0; i < file->messages_len; i++)
-    {
-		  char name[20];
-		  sprintf(name, "Name %d", i);
-      sml_message *message = file->messages[i];
-      if (*message->message_body->tag == SML_MESSAGE_OPEN_RESPONSE) {
-	  }
-	  else if (*message->message_body->tag == SML_MESSAGE_CLOSE_RESPONSE) {
-	  }
-	  else if (*message->message_body->tag == SML_MESSAGE_GET_LIST_RESPONSE)
-      {
-        sml_list *entry;
-        sml_get_list_response *body;
-        body = (sml_get_list_response *)message->message_body->data;
-		uint8_t index;
-        for (entry = body->val_list,index = 0; entry != NULL; entry = entry->next,index++)
-        {
-		  sprintf(name, "Name %d-%d", i,index);
-          if (!entry->value)
-          { // do not crash on null value
-            continue;
-          }
+// 1-0:1.8.0*96(00000.0*kWh)           Historischer Energieverbrauchswert vom
+// letzten Tag (1d) 1-0:1.8.0*97(00000.0*kWh)           Historischer
+// Energieverbrauchswert der letzten Woche (7d) 1-0:1.8.0*98(00000.0*kWh)
+// Historischer Energieverbrauchswert des letzten Monats (30d)
+// 1-0:1.8.0*99(00000.0*kWh)           Historischer Energieverbrauchswert des
+// letzten Jahres (365d) 1-0:1.8.0*100(00000.0*kWh)          Historischer
+// Energieverbrauchswert seit letzter Rückstellung
+// 1-0:0.2.0*255(ver.03,432F,20170504) Firmware Version, Firmware Prüfsumme CRC
+// , Datum 1-0:96.90.2*255(F0F6)               Prüfsumme - CRC der eingestellten
+// Parameter 1-0:97.97.0*255(00000000)           FF - Status Register - Interner
+// Gerätefehler
+void publish(DynamicJsonDocument *json, sml_file *file) {
+  (*json)["in_publish"] = true;
+  for (int i = 0; i < file->messages_len; i++) {
+    char name[20];
+    sprintf(name, "Name %d", i);
+    sml_message *message = file->messages[i];
+    if (*message->message_body->tag == SML_MESSAGE_OPEN_RESPONSE) {
+    } else if (*message->message_body->tag == SML_MESSAGE_CLOSE_RESPONSE) {
+    } else if (*message->message_body->tag == SML_MESSAGE_GET_LIST_RESPONSE) {
+      sml_list *entry;
+      sml_get_list_response *body;
+      body = (sml_get_list_response *)message->message_body->data;
+      uint8_t index;
+      for (entry = body->val_list, index = 0; entry != NULL;
+           entry = entry->next, index++) {
+        sprintf(name, "Name %d-%d", i, index);
+        if (!entry->value) {  // do not crash on null value
+          continue;
+        }
 
-          char obisIdentifier[32];
-          char buffer[255];
+        char obisIdentifier[32];
+        char buffer[255];
 
-          sprintf(obisIdentifier, "%d-%d:%d.%d.%d/%d",
-                  entry->obj_name->str[0], entry->obj_name->str[1],
-                  entry->obj_name->str[2], entry->obj_name->str[3],
-                  entry->obj_name->str[4], entry->obj_name->str[5]);
+        sprintf(obisIdentifier, "%d-%d:%d.%d.%d/%d", entry->obj_name->str[0],
+                entry->obj_name->str[1], entry->obj_name->str[2],
+                entry->obj_name->str[3], entry->obj_name->str[4],
+                entry->obj_name->str[5]);
 
-          if (((entry->value->type & SML_TYPE_FIELD) == SML_TYPE_INTEGER) ||
-              ((entry->value->type & SML_TYPE_FIELD) == SML_TYPE_UNSIGNED))
-          {
-            double value = sml_value_to_double(entry->value);
-            int scaler = (entry->scaler) ? *entry->scaler : 0;
-            int prec = -scaler;
-            if (prec < 0)
-              prec = 0;
-            value = value * pow(10, scaler);
-            sprintf(buffer, "%s %.*f", obisIdentifier, prec, value);
-			(*json)[name] = buffer;
-			  if (strcmp(obisIdentifier, "1-0:1.8.0/255") == 0) {
-				  (*json)["Consumption_Wh"] = value;
-			  }
-			  else if (strcmp(obisIdentifier, "1-0:2.8.0/255") == 0) {
-				  (*json)["Production_Wh"] = value;
-			  }
-			  else if (strcmp(obisIdentifier, "1-0:16.7.0/255") == 0) {
-				  (*json)["Power_W"] = value;
-			  }
-          }
-		  else  if (entry->value->type == SML_TYPE_OCTET_STRING)
-            {
-              char *value;
-              sml_value_to_strhex(entry->value, &value, true);
-				(*json)[name] = value;
-              free(value);
+        if (((entry->value->type & SML_TYPE_FIELD) == SML_TYPE_INTEGER) ||
+            ((entry->value->type & SML_TYPE_FIELD) == SML_TYPE_UNSIGNED)) {
+          double value = sml_value_to_double(entry->value);
+          int scaler = (entry->scaler) ? *entry->scaler : 0;
+          int prec = -scaler;
+          if (prec < 0) prec = 0;
+          value = value * pow(10, scaler);
+          sprintf(buffer, "%s %.*f", obisIdentifier, prec, value);
+          (*json)[name] = buffer;
+          if (strcmp(obisIdentifier, "1-0:1.8.0/255") == 0) {
+            (*json)["Consumption_Wh"] = value;
+          } else if (strcmp(obisIdentifier, "1-0:2.8.0/255") == 0) {
+            (*json)["Production_Wh"] = value;
+          } else if (strcmp(obisIdentifier, "1-0:16.7.0/255") == 0) {
+            if (entry->status &&
+                ((*entry->status->data.status16 & 0x20) != 0)) {
+              value = -value;
             }
-            else if (entry->value->type == SML_TYPE_BOOLEAN)
-            {
-				(*json)[name] = entry->value->data.boolean;
-            }
+            (*json)["Power_W"] = value;
+          }
+        } else if (entry->value->type == SML_TYPE_OCTET_STRING) {
+          char *value;
+          sml_value_to_strhex(entry->value, &value, true);
+          (*json)[name] = value;
+          free(value);
+        } else if (entry->value->type == SML_TYPE_BOOLEAN) {
+          (*json)[name] = entry->value->data.boolean;
+        }
 
-		  else {
-            sprintf(buffer, "Unknown %s %d", obisIdentifier, entry->value->type & SML_TYPE_FIELD);
-			(*json)[name] = buffer;
-		  }
+        else {
+          sprintf(buffer, "Unknown %s %d", obisIdentifier,
+                  entry->value->type & SML_TYPE_FIELD);
+          (*json)[name] = buffer;
         }
       }
-	  else {
-		  sprintf(name, "Unknown_tag %d", i);
-		  (*json)[name] = *message->message_body->tag;
-	  }
+    } else {
+      sprintf(name, "Unknown_tag %d", i);
+      (*json)[name] = *message->message_body->tag;
     }
   }
+}
 
-const uint8_t sml_header[8] = {
-	0x1b, 0x1b, 0x1b, 0x1b,
-	0x01, 0x01, 0x01, 0x01
-};
+const uint8_t sml_header[8] = {0x1b, 0x1b, 0x1b, 0x1b, 0x01, 0x01, 0x01, 0x01};
 
 void json_publish(DynamicJsonDocument *json) {
-	(*json)["publish"] = "called";
-	for (uint8_t i = 0;i < 3;i++) {
-      struct sml_buffer_s *buf = &sml_buffers[i];
-	  if (buf->locked || buf->valid_bytes < 0) {
-		  continue;
-	  }
-	  buf->locked = true;
-	  // read back, if it was really locked
-	  if (buf->locked) {
-		  if (buf->valid_bytes >= 0) {
-			(*json)["can_b64"] = base64::encode(&buf->data[2], buf->valid_bytes);
-			bool err = true;
-			if (buf->valid_bytes > 16) {
-				if (memcmp(&buf->data[2], sml_header, 8) == 0) {
-				  uint16_t chksum = sml_crc16_calculate(&buf->data[2],buf->valid_bytes - 2);
-				  if (((chksum >> 8) == buf->data[buf->valid_bytes]) && ((chksum & 0xff) == buf->data[buf->valid_bytes+1])) {
-					  sml_file *file = sml_file_parse(&buf->data[2+8], buf->valid_bytes - 16);
-					  (*json)["valid_sml"] = file->messages_len;
-					  publish(json, file);
-					  sml_file_free(file);
-					  err = false;
-				  }
-				}
-			}
-			if (err) {
-				(*json)["sml_error"] = true;
-			}
-		    buf->locked = false;
-			break;
-		  }
-		  buf->locked = false;
-	  }
-	}
+  (*json)["publish"] = "called";
+  for (uint8_t i = 0; i < 3; i++) {
+    struct sml_buffer_s *buf = &sml_buffers[i];
+    if (buf->locked || buf->valid_bytes < 0) {
+      continue;
+    }
+    buf->locked = true;
+    // read back, if it was really locked
+    if (buf->locked) {
+      if (buf->valid_bytes >= 0) {
+        (*json)["can_b64"] = base64::encode(&buf->data[2], buf->valid_bytes);
+        bool err = true;
+        if (buf->valid_bytes > 16) {
+          if (memcmp(&buf->data[2], sml_header, 8) == 0) {
+            uint16_t chksum =
+                sml_crc16_calculate(&buf->data[2], buf->valid_bytes - 2);
+            if (((chksum >> 8) == buf->data[buf->valid_bytes]) &&
+                ((chksum & 0xff) == buf->data[buf->valid_bytes + 1])) {
+              sml_file *file =
+                  sml_file_parse(&buf->data[2 + 8], buf->valid_bytes - 16);
+              (*json)["valid_sml"] = file->messages_len;
+              publish(json, file);
+              sml_file_free(file);
+              err = false;
+            }
+          }
+        }
+        if (err) {
+          (*json)["sml_error"] = true;
+        }
+        buf->locked = false;
+        break;
+      }
+      buf->locked = false;
+    }
+  }
 }
 
 void json_update(DynamicJsonDocument *json) {
@@ -222,7 +216,6 @@ void json_update(DynamicJsonDocument *json) {
 #define STACK_SIZE 2000
 #define PRIORITY configMAX_PRIORITIES
 #define POLLING_RATE_MS 1000
-
 
 uint16_t sml_base_id = 0;
 uint16_t sml_received_length = 0;
@@ -246,18 +239,18 @@ static void handle_rx_message(twai_message_t &message) {
         if (sml_received_length > 2) {
           Serial.println("Throw away received data");
         }
-			// new sml message
-			// find buffer
-			for (uint8_t i = 0;i < 3;i++) {
-				if ((i != receive_buffer) && !sml_buffers[i].locked) {
-					receive_buffer = i;
-					active = &sml_buffers[i];
-					break;
-				}
-			}
+        // new sml message
+        // find buffer
+        for (uint8_t i = 0; i < 3; i++) {
+          if ((i != receive_buffer) && !sml_buffers[i].locked) {
+            receive_buffer = i;
+            active = &sml_buffers[i];
+            break;
+          }
+        }
         sml_received_length = 0;
-		active->valid_bytes = -1;
-		active->locked = false;
+        active->valid_bytes = -1;
+        active->locked = false;
         active->data[0] = 0;
         active->data[1] = 0;
         sml_base_id = this_id;
@@ -273,9 +266,9 @@ static void handle_rx_message(twai_message_t &message) {
       expected_length += active->data[0];
       if (expected_length + 2 == sml_received_length) {
         Serial.println("Received OK data");
-		active->valid_bytes = sml_received_length - 2;
+        active->valid_bytes = sml_received_length - 2;
         sml_received_length = 0;
-		sml_base_id = 0;
+        sml_base_id = 0;
       }
     }
   }
@@ -441,8 +434,17 @@ void update_display() {
   display.update();
 }
 
+uint32_t next_stack_info = 0;
+
 uint8_t last_sec = 255;
 void loop() {
+  uint32_t ms = millis();
+  if ((int32_t)(ms - next_stack_info) > 0) {
+    next_stack_info = ms + 500;
+    tpl_update_stack_info();
+    Serial.println(tpl_config.stack_info);
+  }
+
   struct tm timeinfo;
   time_t now = time(nullptr);
   localtime_r(&now, &timeinfo);

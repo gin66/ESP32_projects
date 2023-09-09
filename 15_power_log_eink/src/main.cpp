@@ -48,6 +48,7 @@ SPIClass sdSPI(VSPI);
 bool sdOK = false;
 
 struct sml_buffer_s {
+  time_t receive_time;
   int16_t valid_bytes;
   volatile bool locked;
   uint8_t data[258];  // including length bytes
@@ -187,6 +188,7 @@ void json_publish(DynamicJsonDocument *json) {
               sml_file *file =
                   sml_file_parse(&buf->data[2 + 8], buf->valid_bytes - 16);
               (*json)["valid_sml"] = file->messages_len;
+              (*json)["sml_time"] = buf->receive_time;
               publish(json, file);
               sml_file_free(file);
               err = false;
@@ -274,6 +276,8 @@ static void handle_rx_message(twai_message_t &message) {
       if (expected_length + 2 == sml_received_length) {
         Serial.println("Received OK data");
         active->valid_bytes = sml_received_length - 2;
+		time_t now = time(nullptr);
+		active->receive_time = now;
         sml_received_length = 0;
         sml_base_id = 0;
       }

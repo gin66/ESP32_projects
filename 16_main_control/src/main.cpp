@@ -5,7 +5,10 @@
 #include <esp_task_wdt.h>
 #include <sml/sml_crc16.h>
 #include <sml/sml_file.h>
+#include <SPI.h>
 #include <DS18B20.h>
+#include <RF24.h>
+#include "../../../haus/esmart3_nano_rf/src/esmart3_module.h"
 
 #define CAN_RX_PIN 26 /* G26 */
 #define CAN_TX_PIN 27 /* G27 */
@@ -24,6 +27,10 @@
 #define BUTTON_PIN 0  /* BOOT */
 
 using namespace std;
+
+SPIClass vspi(VSPI);
+RF24 radio(NRF24_CE,NRF24_CSN);
+Esmart3Command esmart3Command;
 
 DS18B20 ds(DS18B20_PIN);
 
@@ -408,12 +415,95 @@ void setup() {
     Serial.println("Failed to reconfigure alerts");
     return;
   }
+
+  // Set the PA Level low to try preventing power supply related problems
+  // because these examples are likely run with nodes in close proximity to
+  // each other.
+//  SPI.begin(NRF24_SCK, NRF24_MISO, NRF24_MOSI, ELINK_SS);
+  vspi.begin();
+  radio.begin(&vspi);
+  radio.setPALevel(RF24_PA_LOW);  // RF24_PA_MAX is default.
+  radio.setDataRate(RF24_250KBPS);
+  radio.setCRCLength(RF24_CRC_16);
+  // to use ACK payloads, we need to enable dynamic payload lengths (for all
+  // nodes)
+  radio.enableDynamicPayloads();  // ACK payloads are dynamically sized
+
+  // Acknowledgement packets have no payloads by default. We need to enable
+  // this feature for all nodes (TX & RX) to use ACK payloads.
+  radio.enableAckPayload();
+
+  // set the TX address of the RX node into the TX pipe
+  radio.openWritingPipe(ESMART3_MODULE);  // always uses pipe 0
+
+  // setup the TX payload
+  esmart3Command.length = 10;
+  esmart3Command.counter = 0;
+  esmart3Command.data[0] = 0xaa;
+  esmart3Command.data[1] = 0x01;
+  esmart3Command.data[2] = 0x00;
+  esmart3Command.data[3] = 0x01;
+  esmart3Command.data[4] = 0x00;
+  esmart3Command.data[5] = 0x03;
+  esmart3Command.data[6] = 0x00;
+  esmart3Command.data[7] = 0x00;
+  esmart3Command.data[8] = 0x1a;
+  esmart3Command.data[9] = 0x37;
+  radio.stopListening();  // put radio in TX mode
+
   Serial.println("Setup done.");
 }
 
 uint32_t next_stack_info = 0;
 
 uint8_t last_sec = 255;
+
+void communicate_esmart3() {
+  unsigned long start_timer = micros();  // start the timer
+  bool report = radio.write(
+      &esmart3Command, COMMAND_HEAD_LEN+esmart3Command.length);  // transmit & save the report
+  unsigned long end_timer = micros();        // end the timer
+
+  if (report) {
+    Serial.print(F("sent:"));
+    Serial.print(end_timer - start_timer);  // print the timer result
+    Serial.print(F(" us."));
+    uint8_t pipe;
+    if (radio.available(&pipe)) {
+      Payload received;
+      radio.read(&received, sizeof(received));  // get incoming ACK payload
+      uint8_t bytes = radio.getDynamicPayloadSize();
+      Serial.print(F(" Got "));
+      Serial.print(bytes);
+      Serial.print(F(" bytes"));
+      if (bytes != PAYLOAD_HEAD_LEN+received.length) {
+	 Serial.println(F("..INVALID MESSAGE"));
+      }
+      else {
+	      Serial.print(F(": ["));
+	      for (uint8_t i = 0;i < received.length;i++) {
+		 Serial.print(received.data[i], HEX);
+		 Serial.print(' ');
+	      }
+	      Serial.print(F("], errors="));
+	      Serial.print(received.err_timeout_read_command);
+	      Serial.print(' ');
+	      Serial.print(received.err_timeout_write_payload);
+	      Serial.print(F(", Cnt="));
+	      Serial.println(received.counter);  // print incoming counter
+      }
+      // save incoming counter & increment for next outgoing
+      esmart3Command.counter++;
+    } else {
+      Serial.println(
+          F(" Received: an empty ACK packet"));  // empty ACK packet received
+    }
+  } else {
+    Serial.println(
+        F("Transmission failed or timed out"));  // payload was not delivered
+  }
+}
+
 void loop() {
   uint32_t ms = millis();
   if ((int32_t)(ms - next_stack_info) > 0) {
@@ -429,6 +519,7 @@ void loop() {
 	Serial.print(" => ");
 	Serial.println(temp - 3.2); // sensor specific calibration
     }
+    communicate_esmart3();
 //    digitalWrite(RELAY_5V_1, digitalRead(RELAY_5V_1) == HIGH ? LOW:HIGH);
   }
 

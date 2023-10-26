@@ -330,6 +330,11 @@ void CANTask(void *parameter) {
 void setup() {
   tpl_system_setup(0);  // no deep sleep
 
+  digitalWrite(RELAY_5V_1, HIGH);
+  digitalWrite(RELAY_5V_2, HIGH);
+  pinMode(RELAY_5V_1, OUTPUT);
+  pinMode(RELAY_5V_2, OUTPUT);
+
   Serial.begin(115200);
   Serial.setDebugOutput(false);
 
@@ -419,30 +424,34 @@ void loop() {
     while (ds.selectNext()) {
 	ds.setResolution(12);
 	Serial.print("Temperature=");
-    	Serial.println(ds.getTempC());
+	float temp = ds.getTempC();
+    	Serial.print(temp);
+	Serial.print(" => ");
+	Serial.println(temp - 3.2); // sensor specific calibration
     }
+//    digitalWrite(RELAY_5V_1, digitalRead(RELAY_5V_1) == HIGH ? LOW:HIGH);
   }
 
-  struct tm timeinfo;
-  time_t now = time(nullptr);
-  localtime_r(&now, &timeinfo);
-  if (timeinfo.tm_sec != last_sec) {
-    last_sec = timeinfo.tm_sec;
-    twai_message_t message;
-    message.flags = TWAI_MSG_FLAG_NONE;
-    message.self = 1;
-    message.identifier = CAN_ID_TIMESTAMP;
-    message.data_length_code = 4;
-    message.data[0] = timeinfo.tm_sec;
-    message.data[1] = timeinfo.tm_min;
-    message.data[2] = timeinfo.tm_hour;
-    message.data[3] = timeinfo.tm_wday;
-    twai_transmit(&message, portMAX_DELAY);
-
-    if (timeinfo.tm_sec == 0) {
-      Serial.println("update display");
-    }
-  }
+//  struct tm timeinfo;
+//  time_t now = time(nullptr);
+//  localtime_r(&now, &timeinfo);
+//  if (timeinfo.tm_sec != last_sec) {
+//    last_sec = timeinfo.tm_sec;
+//    twai_message_t message;
+//    message.flags = TWAI_MSG_FLAG_NONE;
+//    message.self = 1;
+//    message.identifier = CAN_ID_TIMESTAMP;
+//    message.data_length_code = 4;
+//    message.data[0] = timeinfo.tm_sec;
+//    message.data[1] = timeinfo.tm_min;
+//    message.data[2] = timeinfo.tm_hour;
+//    message.data[3] = timeinfo.tm_wday;
+//    twai_transmit(&message, portMAX_DELAY);
+//
+//    if (timeinfo.tm_sec == 0) {
+//      Serial.println("update display");
+//    }
+//  }
   const TickType_t xDelay = 100 / portTICK_PERIOD_MS;
   vTaskDelay(xDelay);
 }

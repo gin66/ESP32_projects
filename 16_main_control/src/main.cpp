@@ -9,6 +9,7 @@
 #include <DS18B20.h>
 #include <RF24.h>
 #include "../../../haus/esmart3_nano_rf/src/esmart3_module.h"
+#include "../../../haus/relay_counter_nano_rf/src/relay_module.h"
 
 #define CAN_RX_PIN 26 /* G26 */
 #define CAN_TX_PIN 27 /* G27 */
@@ -31,6 +32,7 @@ using namespace std;
 SPIClass vspi(VSPI);
 RF24 radio(NRF24_CE,NRF24_CSN);
 Esmart3Command esmart3Command;
+RelayCommand relayCommand;
 
 DS18B20 ds(DS18B20_PIN);
 
@@ -434,7 +436,7 @@ void setup() {
   radio.enableAckPayload();
 
   // set the TX address of the RX node into the TX pipe
-  radio.openWritingPipe(ESMART3_MODULE);  // always uses pipe 0
+  radio.openWritingPipe(ESMART3_MODULE);
 
   // setup the TX payload
   esmart3Command.length = 10;
@@ -449,6 +451,11 @@ void setup() {
   esmart3Command.data[7] = 0x00;
   esmart3Command.data[8] = 0x1a;
   esmart3Command.data[9] = 0x37;
+
+  relayCommand.relay_old = 0;
+  relayCommand.relay_new = 0;
+  relayCommand.counter = 0;
+
   radio.stopListening();  // put radio in TX mode
 
   Serial.println("Setup done.");
@@ -460,6 +467,8 @@ uint8_t last_sec = 255;
 
 void communicate_esmart3() {
   unsigned long start_timer = micros();  // start the timer
+  radio.openWritingPipe(ESMART3_MODULE);
+  radio.stopListening();
   bool report = radio.write(
       &esmart3Command, COMMAND_HEAD_LEN+esmart3Command.length);  // transmit & save the report
   unsigned long end_timer = micros();        // end the timer
@@ -470,7 +479,7 @@ void communicate_esmart3() {
     Serial.print(F(" us."));
     uint8_t pipe;
     if (radio.available(&pipe)) {
-      Payload received;
+      Esmart3Payload received;
       radio.read(&received, sizeof(received));  // get incoming ACK payload
       uint8_t bytes = radio.getDynamicPayloadSize();
       Serial.print(F(" Got "));
@@ -504,6 +513,61 @@ void communicate_esmart3() {
   }
 }
 
+void communicate_relay_module() {
+  unsigned long start_timer = micros();  // start the timer
+  radio.openWritingPipe(RELAY_MODULE);
+  radio.stopListening();
+  bool report = radio.write(
+      &relayCommand, sizeof(relayCommand));  // transmit & save the report
+  unsigned long end_timer = micros();        // end the timer
+
+  if (report) {
+    Serial.print(F("Time to transmit = "));
+    Serial.print(end_timer - start_timer);  // print the timer result
+    Serial.print(F(" us. Sent"));
+    uint8_t pipe;
+    if (radio.available(&pipe)) {
+      RelayPayload received;
+      radio.read(&received, sizeof(received));  // get incoming ACK payload
+      Serial.print(F(" Received "));
+      Serial.print(
+          radio.getDynamicPayloadSize());  // print incoming payload size
+      Serial.print(F(" bytes on pipe "));
+      Serial.print(pipe);  // print pipe number that received the ACK
+      Serial.print(F(": "));
+      Serial.print(received.raw[0]);
+      Serial.print(' ');
+      Serial.print(received.raw[1]);
+      Serial.print(' ');
+      Serial.print(received.raw[2]);
+      Serial.print(' ');
+      Serial.print(received.raw[3]);
+      Serial.print(F(", emergency="));
+      Serial.print(received.emergency_shutdown_reason);
+      Serial.print(F(", errors="));
+      Serial.print(received.err_timeout_read_command);
+      Serial.print(' ');
+      Serial.print(received.err_timeout_write_payload);
+      Serial.print(' ');
+      Serial.print(received.err_timeout_start_adc);
+      Serial.print(' ');
+      Serial.print(received.err_timeout_read_adc);
+      Serial.print(F(", "));
+      Serial.println(received.counter);  // print incoming counter
+
+      // save incoming counter & increment for next outgoing
+      relayCommand.counter++;
+      relayCommand.relay_new++;
+    } else {
+      Serial.println(
+          F(" Received: an empty ACK packet"));  // empty ACK packet received
+    }
+  } else {
+    Serial.println(
+        F("Transmission failed or timed out"));  // payload was not delivered
+  }
+}
+
 void loop() {
   uint32_t ms = millis();
   if ((int32_t)(ms - next_stack_info) > 0) {
@@ -520,6 +584,7 @@ void loop() {
 	Serial.println(temp - 3.2); // sensor specific calibration
     }
     communicate_esmart3();
+    communicate_relay_module();
 //    digitalWrite(RELAY_5V_1, digitalRead(RELAY_5V_1) == HIGH ? LOW:HIGH);
   }
 

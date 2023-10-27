@@ -6,7 +6,8 @@
 #ifndef __DEFINES_H__
 #define __DEFINES_H__
 
-#include "config/config.h"
+//#include "config/config.h"
+#include "config.h"
 
 //-------------------------------------
 // VERSION

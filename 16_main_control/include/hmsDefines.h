@@ -6,7 +6,8 @@
 #ifndef __HMS_DEFINES_H__
 #define __HMS_DEFINES_H__
 
-#include "../hm/hmDefines.h"
+//#include "../hm/hmDefines.h"
+#include "hmDefines.h"
 
 //-------------------------------------
 // HMS-350, HMS-500

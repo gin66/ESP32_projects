@@ -6,10 +6,12 @@
 #ifndef __RADIO_H__
 #define __RADIO_H__
 
-#include "../utils/dbg.h"
+//#include "../utils/dbg.h"
 #include <RF24.h>
-#include "../utils/crc.h"
-#include "../config/config.h"
+//#include "../utils/crc.h"
+//#include "../config/config.h"
+#include "crc.h"
+#include "config.h"
 #include "SPI.h"
 
 #define SPI_SPEED           1000000
@@ -31,15 +33,15 @@ template <uint8_t IRQ_PIN = DEF_IRQ_PIN, uint8_t CE_PIN = DEF_CE_PIN, uint8_t CS
 class HmRadio {
     public:
         HmRadio() : mNrf24(CE_PIN, CS_PIN, SPI_SPEED) {
-            if(mSerialDebug) {
-            DPRINT(DBG_VERBOSE, F("hmRadio.h : HmRadio():mNrf24(CE_PIN: "));
-                DBGPRINT(String(CE_PIN));
-                DBGPRINT(F(", CS_PIN: "));
-                DBGPRINT(String(CS_PIN));
-                DBGPRINT(F(", SPI_SPEED: "));
-                DBGPRINT(String(SPI_SPEED));
-                DBGPRINTLN(F(")"));
-            }
+            //if(mSerialDebug) {
+	    //    DPRINT(DBG_VERBOSE, F("hmRadio.h : HmRadio():mNrf24(CE_PIN: "));
+            //    DBGPRINT(String(CE_PIN));
+            //    DBGPRINT(F(", CS_PIN: "));
+            //    DBGPRINT(String(CS_PIN));
+            //    DBGPRINT(F(", SPI_SPEED: "));
+            //    DBGPRINT(String(SPI_SPEED));
+            //    DBGPRINTLN(F(")"));
+            //}
 
             // Depending on the program, the module can work on 2403, 2423, 2440, 2461 or 2475MHz.
             // Channel List      2403, 2423, 2440, 2461, 2475MHz
@@ -62,7 +64,7 @@ class HmRadio {
         ~HmRadio() {}
 
         void setup(uint8_t ampPwr = RF24_PA_LOW, uint8_t irq = IRQ_PIN, uint8_t ce = CE_PIN, uint8_t cs = CS_PIN, uint8_t sclk = SCLK_PIN, uint8_t mosi = MOSI_PIN, uint8_t miso = MISO_PIN) {
-            DPRINTLN(DBG_VERBOSE, F("hmRadio.h:setup"));
+            //DPRINTLN(DBG_VERBOSE, F("hmRadio.h:setup"));
             pinMode(irq, INPUT_PULLUP);
 
             uint32_t dtuSn = 0x87654321;
@@ -110,16 +112,16 @@ class HmRadio {
             // enable all receiving interrupts
             mNrf24.maskIRQ(false, false, false);
 
-            DPRINT(DBG_INFO, F("RF24 Amp Pwr: RF24_PA_"));
-            DPRINTLN(DBG_INFO, String(rf24AmpPowerNames[ampPwr]));
+            //DPRINT(DBG_INFO, F("RF24 Amp Pwr: RF24_PA_"));
+            //DPRINTLN(DBG_INFO, String(rf24AmpPowerNames[ampPwr]));
             mNrf24.setPALevel(ampPwr & 0x03);
 
             if(mNrf24.isChipConnected()) {
-                DPRINTLN(DBG_INFO, F("Radio Config:"));
+                //DPRINTLN(DBG_INFO, F("Radio Config:"));
                 mNrf24.printPrettyDetails();
             }
-            else
-                DPRINTLN(DBG_WARN, F("WARNING! your NRF24 module can't be reached, check the wiring"));
+            //else
+            //    DPRINTLN(DBG_WARN, F("WARNING! your NRF24 module can't be reached, check the wiring"));
         }
 
         bool loop(void) {
@@ -170,8 +172,8 @@ class HmRadio {
         }
 
         void sendControlPacket(uint64_t invId, uint8_t cmd, uint16_t *data, bool isRetransmit, bool isNoMI = true) {
-            DPRINT(DBG_INFO, F("sendControlPacket cmd: 0x"));
-            DBGHEXLN(cmd);
+            //DPRINT(DBG_INFO, F("sendControlPacket cmd: 0x"));
+            //DBGHEXLN(cmd);
             initPacket(invId, TX_REQ_DEVCONTROL, SINGLE_FRAME);
             uint8_t cnt = 10;
             if (isNoMI) {
@@ -209,10 +211,10 @@ class HmRadio {
         }
 
         void prepareDevInformCmd(uint64_t invId, uint8_t cmd, uint32_t ts, uint16_t alarmMesId, bool isRetransmit, uint8_t reqfld=TX_REQ_INFO) { // might not be necessary to add additional arg.
-            if(mSerialDebug) {
-                DPRINT(DBG_DEBUG, F("prepareDevInformCmd 0x"));
-                DPRINTLN(DBG_DEBUG,String(cmd, HEX));
-            }
+            //if(mSerialDebug) {
+            //    DPRINT(DBG_DEBUG, F("prepareDevInformCmd 0x"));
+            //    DPRINTLN(DBG_DEBUG,String(cmd, HEX));
+            //}
             initPacket(invId, reqfld, ALL_FRAMES);
             mTxBuf[10] = cmd; // cid
             mTxBuf[11] = 0x00;
@@ -276,12 +278,12 @@ class HmRadio {
         }
 
         void initPacket(uint64_t invId, uint8_t mid, uint8_t pid) {
-            if(mSerialDebug) {
-                DPRINT(DBG_VERBOSE, F("initPacket, mid: "));
-                DPRINT(DBG_VERBOSE, String(mid, HEX));
-                DPRINT(DBG_VERBOSE,F(" pid: "));
-                DPRINTLN(DBG_VERBOSE,String(pid, HEX));
-            }
+            //if(mSerialDebug) {
+            //    DPRINT(DBG_VERBOSE, F("initPacket, mid: "));
+            //    DPRINT(DBG_VERBOSE, String(mid, HEX));
+            //    DPRINT(DBG_VERBOSE,F(" pid: "));
+            //    DPRINTLN(DBG_VERBOSE,String(pid, HEX));
+            //}
             memset(mTxBuf, 0, MAX_RF_PAYLOAD_SIZE);
             mTxBuf[0] = mid; // message id
             CP_U32_BigEndian(&mTxBuf[1], (invId  >> 8));
@@ -308,14 +310,14 @@ class HmRadio {
             mTxChIdx = (mTxChIdx + 1) % RF_CHANNELS;
             mRxChIdx = (mTxChIdx + 2) % RF_CHANNELS;
 
-            if(mSerialDebug) {
-                DPRINT(DBG_INFO, F("TX "));
-                DBGPRINT(String(len));
-                DBGPRINT("B Ch");
-                DBGPRINT(String(mRfChLst[mTxChIdx]));
-                DBGPRINT(F(" | "));
-                ah::dumpBuf(mTxBuf, len);
-            }
+            //if(mSerialDebug) {
+            //    DPRINT(DBG_INFO, F("TX "));
+            //    DBGPRINT(String(len));
+            //    DBGPRINT("B Ch");
+            //    DBGPRINT(String(mRfChLst[mTxChIdx]));
+            //    DBGPRINT(F(" | "));
+            //    ah::dumpBuf(mTxBuf, len);
+            //}
 
             mNrf24.stopListening();
             mNrf24.setChannel(mRfChLst[mTxChIdx]);

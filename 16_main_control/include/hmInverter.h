@@ -12,10 +12,12 @@
 #endif
 
 #include "hmDefines.h"
-#include "../hms/hmsDefines.h"
+//#include "../hms/hmsDefines.h"
+#include "hmsDefines.h"
 #include <memory>
 #include <queue>
-#include "../config/settings.h"
+//#include "../config/settings.h"
+#include "settings.h"
 
 /**
  * For values which are of interest and not transmitted by the inverter can be
@@ -180,9 +182,9 @@ class Inverter {
         template <typename T>
         void enqueCommand(uint8_t cmd) {
            _commandQueue.push(std::make_shared<T>(cmd));
-           DPRINT_IVID(DBG_INFO, id);
-           DBGPRINT(F("enqueCommand: 0x"));
-           DBGHEXLN(cmd);
+           //DPRINT_IVID(DBG_INFO, id);
+           //DBGPRINT(F("enqueCommand: 0x"));
+           //DBGHEXLN(cmd);
         }
 
         void setQueuedCmdFinished() {
@@ -193,7 +195,7 @@ class Inverter {
         }
 
         void clearCmdQueue() {
-            DPRINTLN(DBG_INFO, F("clearCmdQueue"));
+            //DPRINTLN(DBG_INFO, F("clearCmdQueue"));
             while (!_commandQueue.empty()) {
                 // Will destroy CommandAbstract Class Object (?)
                 _commandQueue.pop();
@@ -224,7 +226,7 @@ class Inverter {
 
 
         void init(void) {
-            DPRINTLN(DBG_VERBOSE, F("hmInverter.h:init"));
+            //DPRINTLN(DBG_VERBOSE, F("hmInverter.h:init"));
             initAssignment(&recordMeas, RealTimeRunData_Debug);
             initAssignment(&recordInfo, InverterDevInform_All);
             initAssignment(&recordConfig, SystemConfigPara);
@@ -234,7 +236,7 @@ class Inverter {
         }
 
         uint8_t getPosByChFld(uint8_t channel, uint8_t fieldId, record_t<> *rec) {
-            DPRINTLN(DBG_VERBOSE, F("hmInverter.h:getPosByChFld"));
+            //DPRINTLN(DBG_VERBOSE, F("hmInverter.h:getPosByChFld"));
             uint8_t pos = 0;
             if(NULL != rec) {
                 for(; pos < rec->length; pos++) {
@@ -252,21 +254,21 @@ class Inverter {
         }
 
         const char *getFieldName(uint8_t pos, record_t<> *rec) {
-            DPRINTLN(DBG_VERBOSE, F("hmInverter.h:getFieldName"));
+            //DPRINTLN(DBG_VERBOSE, F("hmInverter.h:getFieldName"));
             if(NULL != rec)
                 return fields[rec->assign[pos].fieldId];
             return notAvail;
         }
 
         const char *getUnit(uint8_t pos, record_t<> *rec) {
-            DPRINTLN(DBG_VERBOSE, F("hmInverter.h:getUnit"));
+            //DPRINTLN(DBG_VERBOSE, F("hmInverter.h:getUnit"));
             if(NULL != rec)
                 return units[rec->assign[pos].unitId];
             return notAvail;
         }
 
         uint8_t getChannel(uint8_t pos, record_t<> *rec) {
-            DPRINTLN(DBG_VERBOSE, F("hmInverter.h:getChannel"));
+            //DPRINTLN(DBG_VERBOSE, F("hmInverter.h:getChannel"));
             if(NULL != rec)
                 return rec->assign[pos].ch;
             return 0;
@@ -289,7 +291,7 @@ class Inverter {
         }
 
         void addValue(uint8_t pos, uint8_t buf[], record_t<> *rec) {
-            DPRINTLN(DBG_VERBOSE, F("hmInverter.h:addValue"));
+            //DPRINTLN(DBG_VERBOSE, F("hmInverter.h:addValue"));
             if(NULL != rec) {
                 uint8_t  ptr = rec->assign[pos].start;
                 uint8_t  end = ptr + rec->assign[pos].num;
@@ -319,7 +321,7 @@ class Inverter {
                 }
 
                 if(rec == &recordMeas) {
-                    DPRINTLN(DBG_VERBOSE, "add real time");
+                    //DPRINTLN(DBG_VERBOSE, "add real time");
 
                     // get last alarm message index and save it in the inverter object
                     if (getPosByChFld(0, FLD_EVT, rec) == pos) {
@@ -327,43 +329,43 @@ class Inverter {
                             alarmMesIndex = rec->record[pos];
                             //enqueCommand<InfoCommand>(AlarmUpdate); // What is the function of AlarmUpdate?
 
-                            DPRINT(DBG_INFO, "alarm ID incremented to ");
-                            DBGPRINTLN(String(alarmMesIndex));
+                            //DPRINT(DBG_INFO, "alarm ID incremented to ");
+                            //DBGPRINTLN(String(alarmMesIndex));
                             enqueCommand<InfoCommand>(AlarmData);
                         }
                     }
                 }
                 else if (rec->assign == InfoAssignment) {
-                    DPRINTLN(DBG_DEBUG, "add info");
+                    //DPRINTLN(DBG_DEBUG, "add info");
                     // eg. fw version ...
                     isConnected = true;
                 }
                 else if (rec->assign == SystemConfigParaAssignment) {
-                    DPRINTLN(DBG_DEBUG, "add config");
+                    //DPRINTLN(DBG_DEBUG, "add config");
                     if (getPosByChFld(0, FLD_ACT_ACTIVE_PWR_LIMIT, rec) == pos){
                         actPowerLimit = rec->record[pos];
-                        DPRINT(DBG_DEBUG, F("Inverter actual power limit: "));
-                        DPRINTLN(DBG_DEBUG, String(actPowerLimit, 1));
+                        //DPRINT(DBG_DEBUG, F("Inverter actual power limit: "));
+                        //DPRINTLN(DBG_DEBUG, String(actPowerLimit, 1));
                     }
                 }
                 else if (rec->assign == AlarmDataAssignment) {
-                    DPRINTLN(DBG_DEBUG, "add alarm");
+                    //DPRINTLN(DBG_DEBUG, "add alarm");
                     //if (getPosByChFld(0, FLD_LAST_ALARM_CODE, rec) == pos){
                     //    lastAlarmMsg = getAlarmStr(rec->record[pos]);
                     //}
                 }
-                else
-                    DPRINTLN(DBG_WARN, F("add with unknown assginment"));
+                //else
+                //    DPRINTLN(DBG_WARN, F("add with unknown assginment"));
             }
-            else
-                DPRINTLN(DBG_ERROR, F("addValue: assignment not found with cmd 0x"));
+            //else
+            //    DPRINTLN(DBG_ERROR, F("addValue: assignment not found with cmd 0x"));
 
             // update status state-machine
             isProducing();
         }
 
         bool setValue(uint8_t pos, record_t<> *rec, REC_TYP val) {
-            DPRINTLN(DBG_VERBOSE, F("hmInverter.h:setValue"));
+            //DPRINTLN(DBG_VERBOSE, F("hmInverter.h:setValue"));
             if(NULL == rec)
                 return false;
             if(pos > rec->length)
@@ -389,7 +391,7 @@ class Inverter {
         }
 
         REC_TYP getValue(uint8_t pos, record_t<> *rec) {
-            DPRINTLN(DBG_VERBOSE, F("hmInverter.h:getValue"));
+            //DPRINTLN(DBG_VERBOSE, F("hmInverter.h:getValue"));
             if(NULL == rec)
                 return 0;
             if(pos > rec->length)
@@ -398,7 +400,7 @@ class Inverter {
         }
 
         void doCalculations() {
-            DPRINTLN(DBG_VERBOSE, F("hmInverter.h:doCalculations"));
+            //DPRINTLN(DBG_VERBOSE, F("hmInverter.h:doCalculations"));
             record_t<> *rec = getRecordStruct(RealTimeRunData_Debug);
             for(uint8_t i = 0; i < rec->length; i++) {
                 if(CMD_CALC == rec->assign[i].div) {
@@ -436,7 +438,7 @@ class Inverter {
 
         bool isProducing() {
             bool producing = false;
-            DPRINTLN(DBG_VERBOSE, F("hmInverter.h:isProducing"));
+            //DPRINTLN(DBG_VERBOSE, F("hmInverter.h:isProducing"));
             if(isAvailable()) {
                 producing = (getChannelFieldValue(CH0, FLD_PAC, &recordMeas) > INACT_PWR_THRESH);
 
@@ -455,7 +457,7 @@ class Inverter {
         }
 
         uint32_t getLastTs(record_t<> *rec) {
-            DPRINTLN(DBG_VERBOSE, F("hmInverter.h:getLastTs"));
+            //DPRINTLN(DBG_VERBOSE, F("hmInverter.h:getLastTs"));
             return rec->ts;
         }
 
@@ -471,7 +473,7 @@ class Inverter {
         }
 
         void initAssignment(record_t<> *rec, uint8_t cmd) {
-            DPRINTLN(DBG_VERBOSE, F("hmInverter.h:initAssignment"));
+            //DPRINTLN(DBG_VERBOSE, F("hmInverter.h:initAssignment"));
             rec->ts     = 0;
             rec->length = 0;
             switch (cmd) {
@@ -544,7 +546,7 @@ class Inverter {
                     rec->pyldLen = HMALARMDATA_PAYLOAD_LEN;
                     break;
                 default:
-                    DPRINTLN(DBG_INFO, F("initAssignment: Parser not implemented"));
+                    //DPRINTLN(DBG_INFO, F("initAssignment: Parser not implemented"));
                     break;
             }
 
@@ -571,7 +573,7 @@ class Inverter {
             start     = (((uint16_t)pyld[startOff + 4] << 8) | ((uint16_t)pyld[startOff + 5])) + startTimeOffset;
             endTime   = (((uint16_t)pyld[startOff + 6] << 8) | ((uint16_t)pyld[startOff + 7])) + endTimeOffset;
 
-            DPRINTLN(DBG_DEBUG, "Alarm #" + String(pyld[startOff+1]) + " '" + String(getAlarmStr(pyld[startOff+1])) + "' start: " + ah::getTimeStr(start) + ", end: " + ah::getTimeStr(endTime));
+            //DPRINTLN(DBG_DEBUG, "Alarm #" + String(pyld[startOff+1]) + " '" + String(getAlarmStr(pyld[startOff+1])) + "' start: " + ah::getTimeStr(start) + ", end: " + ah::getTimeStr(endTime));
             addAlarm(pyld[startOff+1], start, endTime);
 
             alarmCnt++;
@@ -661,7 +663,7 @@ class Inverter {
         }
 
         void toRadioId(void) {
-            DPRINTLN(DBG_VERBOSE, F("hmInverter.h:toRadioId"));
+            //DPRINTLN(DBG_VERBOSE, F("hmInverter.h:toRadioId"));
             radioId.u64  = 0ULL;
             radioId.b[4] = config->serial.b[0];
             radioId.b[3] = config->serial.b[1];
@@ -688,7 +690,7 @@ cfgInst_t *Inverter<REC_TYP>::generalConfig {0};
 
 template<class T=float>
 static T calcYieldTotalCh0(Inverter<> *iv, uint8_t arg0) {
-    DPRINTLN(DBG_VERBOSE, F("hmInverter.h:calcYieldTotalCh0"));
+    //DPRINTLN(DBG_VERBOSE, F("hmInverter.h:calcYieldTotalCh0"));
     if(NULL != iv) {
         record_t<> *rec = iv->getRecordStruct(RealTimeRunData_Debug);
         T yield = 0;
@@ -702,7 +704,7 @@ static T calcYieldTotalCh0(Inverter<> *iv, uint8_t arg0) {
 
 template<class T=float>
 static T calcYieldDayCh0(Inverter<> *iv, uint8_t arg0) {
-    DPRINTLN(DBG_VERBOSE, F("hmInverter.h:calcYieldDayCh0"));
+    //DPRINTLN(DBG_VERBOSE, F("hmInverter.h:calcYieldDayCh0"));
     if(NULL != iv) {
         record_t<> *rec = iv->getRecordStruct(RealTimeRunData_Debug);
         T yield = 0;
@@ -716,7 +718,7 @@ static T calcYieldDayCh0(Inverter<> *iv, uint8_t arg0) {
 
 template<class T=float>
 static T calcUdcCh(Inverter<> *iv, uint8_t arg0) {
-    DPRINTLN(DBG_VERBOSE, F("hmInverter.h:calcUdcCh"));
+    //DPRINTLN(DBG_VERBOSE, F("hmInverter.h:calcUdcCh"));
     // arg0 = channel of source
     record_t<> *rec = iv->getRecordStruct(RealTimeRunData_Debug);
     for(uint8_t i = 0; i < rec->length; i++) {
@@ -730,7 +732,7 @@ static T calcUdcCh(Inverter<> *iv, uint8_t arg0) {
 
 template<class T=float>
 static T calcPowerDcCh0(Inverter<> *iv, uint8_t arg0) {
-    DPRINTLN(DBG_VERBOSE, F("hmInverter.h:calcPowerDcCh0"));
+    //DPRINTLN(DBG_VERBOSE, F("hmInverter.h:calcPowerDcCh0"));
     if(NULL != iv) {
         record_t<> *rec = iv->getRecordStruct(RealTimeRunData_Debug);
         T dcPower = 0;
@@ -744,7 +746,7 @@ static T calcPowerDcCh0(Inverter<> *iv, uint8_t arg0) {
 
 template<class T=float>
 static T calcEffiencyCh0(Inverter<> *iv, uint8_t arg0) {
-    DPRINTLN(DBG_VERBOSE, F("hmInverter.h:calcEfficiencyCh0"));
+    //DPRINTLN(DBG_VERBOSE, F("hmInverter.h:calcEfficiencyCh0"));
     if(NULL != iv) {
         record_t<> *rec = iv->getRecordStruct(RealTimeRunData_Debug);
         T acPower = iv->getChannelFieldValue(CH0, FLD_PAC, rec);
@@ -760,7 +762,7 @@ static T calcEffiencyCh0(Inverter<> *iv, uint8_t arg0) {
 
 template<class T=float>
 static T calcIrradiation(Inverter<> *iv, uint8_t arg0) {
-    DPRINTLN(DBG_VERBOSE, F("hmInverter.h:calcIrradiation"));
+    //DPRINTLN(DBG_VERBOSE, F("hmInverter.h:calcIrradiation"));
     // arg0 = channel
     if(NULL != iv) {
         record_t<> *rec = iv->getRecordStruct(RealTimeRunData_Debug);
@@ -772,7 +774,7 @@ static T calcIrradiation(Inverter<> *iv, uint8_t arg0) {
 
 template<class T=float>
 static T calcMaxPowerAcCh0(Inverter<> *iv, uint8_t arg0) {
-    DPRINTLN(DBG_VERBOSE, F("hmInverter.h:calcMaxPowerAcCh0"));
+    //DPRINTLN(DBG_VERBOSE, F("hmInverter.h:calcMaxPowerAcCh0"));
     T acMaxPower = 0.0;
     if(NULL != iv) {
         record_t<> *rec = iv->getRecordStruct(RealTimeRunData_Debug);
@@ -791,7 +793,7 @@ static T calcMaxPowerAcCh0(Inverter<> *iv, uint8_t arg0) {
 
 template<class T=float>
 static T calcMaxPowerDc(Inverter<> *iv, uint8_t arg0) {
-    DPRINTLN(DBG_VERBOSE, F("hmInverter.h:calcMaxPowerDc"));
+    //DPRINTLN(DBG_VERBOSE, F("hmInverter.h:calcMaxPowerDc"));
     // arg0 = channel
     T dcMaxPower = 0.0;
     if(NULL != iv) {

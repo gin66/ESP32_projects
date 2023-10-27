@@ -15,9 +15,11 @@
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 
-#include "../defines.h"
-#include "../utils/dbg.h"
-#include "../utils/helper.h"
+//#include "../defines.h"
+//#include "../utils/dbg.h"
+//#include "../utils/helper.h"
+#include "defines.h"
+#include "helper.h"
 
 #if defined(ESP32)
     #define MAX_ALLOWED_BUF_SIZE   ESP.getMaxAllocHeap() - 1024
@@ -196,7 +198,7 @@ class settings {
         }
 
         void setup() {
-            DPRINTLN(DBG_INFO, F("Initializing FS .."));
+            //DPRINTLN(DBG_INFO, F("Initializing FS .."));
 
             mCfg.valid = false;
             #if !defined(ESP32)
@@ -211,17 +213,17 @@ class settings {
             #endif
 
             if(!LittleFS.begin(LITTLFS_FALSE)) {
-                DPRINTLN(DBG_INFO, F(".. format .."));
+                //DPRINTLN(DBG_INFO, F(".. format .."));
                 LittleFS.format();
                 if(LittleFS.begin(LITTLFS_TRUE)) {
-                    DPRINTLN(DBG_INFO, F(".. success"));
+                    //DPRINTLN(DBG_INFO, F(".. success"));
                 } else {
-                    DPRINTLN(DBG_INFO, F(".. failed"));
+                    //DPRINTLN(DBG_INFO, F(".. failed"));
                 }
 
             }
             else
-                DPRINTLN(DBG_INFO, F(" .. done"));
+                //DPRINTLN(DBG_INFO, F(" .. done"));
 
             readSettings("/settings.json");
         }
@@ -229,7 +231,7 @@ class settings {
         // should be used before OTA
         void stop() {
             LittleFS.end();
-            DPRINTLN(DBG_INFO, F("FS stopped"));
+            //DPRINTLN(DBG_INFO, F("FS stopped"));
         }
 
         void getPtr(settings_t *&cfg) {
@@ -251,18 +253,19 @@ class settings {
                 *used = info.usedBytes;
                 *size = info.totalBytes;
 
-                DPRINTLN(DBG_INFO, F("-- FILESYSTEM INFO --"));
-                DPRINTLN(DBG_INFO, String(info.usedBytes) + F(" of ") + String(info.totalBytes)  + F(" used"));
+                //DPRINTLN(DBG_INFO, F("-- FILESYSTEM INFO --"));
+                //DPRINTLN(DBG_INFO, String(info.usedBytes) + F(" of ") + String(info.totalBytes)  + F(" used"));
             #else
-                DPRINTLN(DBG_WARN, F("not supported by ESP32"));
+                //DPRINTLN(DBG_WARN, F("not supported by ESP32"));
             #endif
         }
 
         bool readSettings(const char* path) {
             loadDefaults();
             File fp = LittleFS.open(path, "r");
-            if(!fp)
-                DPRINTLN(DBG_WARN, F("failed to load json, using default config"));
+            if(!fp) {
+                //DPRINTLN(DBG_WARN, F("failed to load json, using default config"));
+	    }
             else {
                 //DPRINTLN(DBG_INFO, fp.readString());
                 //fp.seek(0, SeekSet);
@@ -294,7 +297,7 @@ class settings {
         }
 
         bool saveSettings() {
-            DPRINTLN(DBG_DEBUG, F("save settings"));
+            //DPRINTLN(DBG_DEBUG, F("save settings"));
 
             DynamicJsonDocument json(MAX_ALLOWED_BUF_SIZE);
             JsonObject root = json.to<JsonObject>();
@@ -311,34 +314,34 @@ class settings {
             jsonPlugin(root.createNestedObject(F("plugin")), true);
             jsonInst(root.createNestedObject(F("inst")), true);
 
-            DPRINT(DBG_INFO, F("memory usage: "));
-            DBGPRINTLN(String(json.memoryUsage()));
-            DPRINT(DBG_INFO, F("capacity: "));
-            DBGPRINTLN(String(json.capacity()));
-            DPRINT(DBG_INFO, F("max alloc: "));
-            DBGPRINTLN(String(MAX_ALLOWED_BUF_SIZE));
+            //DPRINT(DBG_INFO, F("memory usage: "));
+            //DBGPRINTLN(String(json.memoryUsage()));
+            //DPRINT(DBG_INFO, F("capacity: "));
+            //DBGPRINTLN(String(json.capacity()));
+            //DPRINT(DBG_INFO, F("max alloc: "));
+            //DBGPRINTLN(String(MAX_ALLOWED_BUF_SIZE));
 
             if(json.overflowed()) {
-                DPRINTLN(DBG_ERROR, F("buffer too small!"));
+                //DPRINTLN(DBG_ERROR, F("buffer too small!"));
                 mLastSaveSucceed = false;
                 return false;
             }
 
             File fp = LittleFS.open("/settings.json", "w");
             if(!fp) {
-                DPRINTLN(DBG_ERROR, F("can't open settings file!"));
+                //DPRINTLN(DBG_ERROR, F("can't open settings file!"));
                 mLastSaveSucceed = false;
                 return false;
             }
 
             if(0 == serializeJson(root, fp)) {
-                DPRINTLN(DBG_ERROR, F("can't write settings file!"));
+                //DPRINTLN(DBG_ERROR, F("can't write settings file!"));
                 mLastSaveSucceed = false;
                 return false;
             }
             fp.close();
 
-            DPRINTLN(DBG_INFO, F("settings saved"));
+            //DPRINTLN(DBG_INFO, F("settings saved"));
             mLastSaveSucceed = true;
             return true;
         }
@@ -352,7 +355,7 @@ class settings {
 
     private:
         void loadDefaults(bool keepWifi = false) {
-            DPRINTLN(DBG_VERBOSE, F("loadDefaults"));
+            //DPRINTLN(DBG_VERBOSE, F("loadDefaults"));
 
             cfgSys_t tmp;
             if(keepWifi) {

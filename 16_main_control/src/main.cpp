@@ -11,6 +11,12 @@
 #include "../../../haus/esmart3_nano_rf/src/esmart3_module.h"
 #include "../../../haus/relay_counter_nano_rf/src/relay_module.h"
 
+#include "defines.h"
+#include "helper.h"
+#include "hmDefines.h"
+#include "hmInverter.h"
+#include "hmPayload.h"
+
 #define CAN_RX_PIN 26 /* G26 */
 #define CAN_TX_PIN 27 /* G27 */
 

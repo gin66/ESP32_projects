@@ -8,20 +8,15 @@
 
 WebSocketsServer webSocket = WebSocketsServer(81);
 void (*tpl_process_func)(DynamicJsonDocument *json) = NULL;
-uint8_t websocket_connections = 0;
 
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
                     size_t length) {
   switch (type) {
     case WStype_DISCONNECTED:
-      if (websocket_connections > 0) {
-         websocket_connections--;
-      }
       Serial.print("websocket disconnected: ");
       Serial.println(num);
       break;
     case WStype_CONNECTED:
-      websocket_connections++;
       Serial.print("websocket connected: ");
       Serial.println(num);
       break;
@@ -105,7 +100,8 @@ void TaskWebSocketCore0(void *pvParameters) {
 
     if (now > send_status_ms) {
       send_status_ms = now + 100;
-      if (websocket_connections > 0) {
+      int clients = webSocket.connectedClients();
+      if (clients > 0) {
       String data = "................................................";
       for (int i = 0; i < 48; i++) {
         char ch = '-';

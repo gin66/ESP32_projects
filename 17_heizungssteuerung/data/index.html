@@ -4,7 +4,7 @@
     <!-- Required meta tags -->
     <meta charset="utf-8" />
     <title>Stromzaehler</title>
-    <meta name="esp32_13" content="" />
+    <meta name="esp32_17" content="" />
     <meta name="Jochen Kiemes" content="" />
 
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -145,7 +145,7 @@
             // Let us open a web socket
             var url = "ws://" + location.hostname + ":81/";
             if (location.hostname == "") {
-              url = "ws://esp32_13.local:81/";
+              url = "ws://esp32_17.local:81/";
             }
             document.getElementById("state").innerHTML = "connecting " + url;
             ws = new WebSocket(url);
@@ -202,7 +202,7 @@
     <div class="container-fluid">
       <div class="row">
 	<div id="debug_data">
-		<h2>esp32_13: Stromzaehler</h2>
+		<h2>esp32_17: Stromzaehler</h2>
         <form action="/serverIndex">
           <button>SW Update</button>
         </form>

@@ -1,5 +1,7 @@
 #include <Arduino.h>
 #include <base64.h>
+#include <OneWire.h>
+#include <DS18B20.h>
 #include "template.h"
 
 using namespace std;
@@ -24,7 +26,7 @@ using namespace std;
 //    GPIO0/A0        Measure supply voltage
 //    GPIO5/MISO/A5   unused
 //    GPIO6/MOSI      unused
-//    GPIO7/SS        unused
+//    GPIO7/SS        temperature sensor DS18B20 clone
 //    GPIO8/SDA       OLED
 //    GPIO9/SCL       OLED
 //    GPIO10          one-bit-D/A
@@ -46,6 +48,9 @@ using namespace std;
 //    GND-Rsensor1-4.3kOhm-3.3V
 //    Rsensor2-10kOhm-GPIO1
 //
+
+OneWire oneWire(7);
+DS18B20 tempsensor(&oneWire);
 
 // can be used as parameter to tpl_command_setup
 // void execute(enum Command command) {}
@@ -179,4 +184,10 @@ void loop() {
     x->watts_max = max(x->watts_max, w_current);
     x->pulses++;
   }
+
+  tempsensor.begin(10);
+  tempsensor.requestTemperatures();
+  while(!tempsensor.isConversionComplete()) {
+  }
+  float temp = tempsensor.getTempC();
 }

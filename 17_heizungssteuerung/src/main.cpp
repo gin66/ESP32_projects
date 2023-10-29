@@ -40,6 +40,7 @@ using namespace std;
 const int ledChannel = 0;
 const int resolution = 10;
 const int freq = 1000;
+const int max_duty = 1<<resolution;
 //
 // Measure Control Voltage and one-bit-D/A
 //    GND-1kOhm-A-10kOhm-B-4.3kOhm-Power
@@ -95,6 +96,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 OneWire oneWire(10);
 DS18B20 tempsensor(&oneWire);
+#define TEMP_OFFSET 4.0
 
 // can be used as parameter to tpl_command_setup
 // void execute(enum Command command) {}
@@ -179,8 +181,10 @@ void setup() {
 }
 
 bool temp_requested = false;
+float temp = 0.0;
+bool temp_valid = false;
 uint32_t last_millis = 0;
-uint16_t dutycycle = 1<<resolution;
+int dutycycle = max_duty;
 
 void loop() {
   uint16_t Usupply = analogRead(0);
@@ -205,20 +209,35 @@ void loop() {
   last_millis = ms_now;
 
   if (Ucontrol_mV > 6000+500) {
-    dutycycle+=10;
+    dutycycle = min(dutycycle+10,max_duty);
 	 ledcWrite(ledChannel, dutycycle);
   }
   else if (Ucontrol_mV > 6000+50) {
-    dutycycle++;
+    dutycycle = min(dutycycle+1,max_duty);
 	 ledcWrite(ledChannel, dutycycle);
   }
   else if (Ucontrol_mV < 6000-500) {
-	dutycycle-=10;
+   dutycycle = max(dutycycle,10)-10;
 	 ledcWrite(ledChannel, dutycycle);
   }
   else if (Ucontrol_mV < 6000-50) {
-	dutycycle--;
+   dutycycle = max(dutycycle,1)-1;
 	 ledcWrite(ledChannel, dutycycle);
+  }
+
+  if (temp_requested) {
+	  temp_requested = false;
+    if(tempsensor.isConversionComplete()) {
+	    temp = tempsensor.getTempC() - TEMP_OFFSET;
+	    temp_valid = true;
+    }
+  }
+  else if (tempsensor.isConnected(3)) {
+    temp_requested = true;
+    tempsensor.requestTemperatures();
+  }
+  else {
+	  temp_valid = false;
   }
 
   display.clearDisplay();
@@ -249,24 +268,14 @@ void loop() {
   display.print("=>");
   display.print(Usupply_mV);
   display.println("mV");
-
-  if (temp_requested) {
-	  temp_requested = false;
-    if(tempsensor.isConversionComplete()) {
-	    float temp = tempsensor.getTempC();
+  if (temp_valid) {
 	    display.print("Temp=");
 	    display.println(temp);
 	    Serial.println(temp);
-    }
-  }
-  else if (tempsensor.isConnected(3)) {
-    temp_requested = true;
-    tempsensor.requestTemperatures();
   }
   else {
 	 display.println("Temp: not working");
   }
-
   display.display();
 
 //  const TickType_t xDelay = 1000 / portTICK_PERIOD_MS;

@@ -56,8 +56,6 @@ using namespace std;
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
-#define NUMFLAKES     10 // Number of snowflakes in the animation example
-void testanimate(const uint8_t *bitmap, uint8_t w, uint8_t h);
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 #define LOGO_HEIGHT   16
@@ -103,24 +101,7 @@ void process_func(DynamicJsonDocument *json) {
 //---------------------------------------------------
 void setup() {
   tpl_system_setup(0);  // no deep sleep
-
-  delay(5000);
-  Serial.begin(115200);
-  Serial.setDebugOutput(true);
-  Serial.println("HERE");
-
-  // Wait OTA
-  tpl_wifi_setup(true, true, (gpio_num_t)255 /*tpl_ledPin*/);
-  tpl_webserver_setup();
-  tpl_websocket_setup(publish_func, process_func);
-  tpl_net_watchdog_setup();
-  tpl_command_setup(NULL);
-
-  tempsensor.begin(10);
-  tempsensor.setResolution(12);
-
-  Serial.println("Setup done.");
-
+			//
   //Wire.begin(8,9,8000000);
   Wire.begin(8,9);
     // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
@@ -132,77 +113,79 @@ void setup() {
   // Show initial display buffer contents on the screen --
   // the library initializes this with an Adafruit splash screen.
   display.display();
-  delay(2000); // Pause for 2 seconds
 
-  // Clear the buffer
+  delay(5000);
+
   display.clearDisplay();
-
-  // Draw a single pixel in white
-  display.drawPixel(10, 10, SSD1306_WHITE);
-
-  // Show the display buffer on the screen. You MUST call display() after
-  // drawing commands to make them visible on screen!
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 0);
+  display.println("Serial");
   display.display();
-  delay(2000);
-  // display.display() is NOT necessary after every single drawing command,
-  // unless that's what you want...rather, you can batch up a bunch of
-  // drawing operations and then update the screen all at once by calling
-  // display.display(). These examples demonstrate both approaches...
 
-  // Invert and restore display, pausing in-between
-  display.invertDisplay(true);
-  delay(1000);
-  display.invertDisplay(false);
-  delay(1000);
-  testanimate(logo_bmp, LOGO_WIDTH, LOGO_HEIGHT); // Animate bitmaps
+  Serial.begin(115200);
+  Serial.setDebugOutput(true);
+  Serial.println("HERE");
+
+  // Wait OTA
+  display.println("WiFi");
+  display.display();
+  tpl_wifi_setup(true, true, (gpio_num_t)255 /*tpl_ledPin*/);
+
+  display.println("Webserver");
+  display.display();
+  tpl_webserver_setup();
+
+  display.println("Websocket");
+  display.display();
+  tpl_websocket_setup(publish_func, process_func);
+
+  display.println("Time");
+  display.display();
+  tpl_net_watchdog_setup();
+  tpl_command_setup(NULL);
+
+  display.println("Tempsensor");
+  display.display();
+  tempsensor.begin(10);
+  tempsensor.setResolution(12);
+
+  Serial.println("Setup done.");
 }
 
 #define XPOS   0 // Indexes into the 'icons' array in function below
 #define YPOS   1
 #define DELTAY 2
 
-void testanimate(const uint8_t *bitmap, uint8_t w, uint8_t h) {
-  int8_t f, icons[NUMFLAKES][3];
-
-  // Initialize 'snowflake' positions
-  for(f=0; f< NUMFLAKES; f++) {
-    icons[f][XPOS]   = random(1 - LOGO_WIDTH, display.width());
-    icons[f][YPOS]   = -LOGO_HEIGHT;
-    icons[f][DELTAY] = random(1, 6);
-    Serial.print(F("x: "));
-    Serial.print(icons[f][XPOS], DEC);
-    Serial.print(F(" y: "));
-    Serial.print(icons[f][YPOS], DEC);
-    Serial.print(F(" dy: "));
-    Serial.println(icons[f][DELTAY], DEC);
-  }
-
-  for(;;) { // Loop forever...
-    display.clearDisplay(); // Clear the display buffer
-
-    // Draw each snowflake:
-    for(f=0; f< NUMFLAKES; f++) {
-      display.drawBitmap(icons[f][XPOS], icons[f][YPOS], bitmap, w, h, SSD1306_WHITE);
-    }
-
-    display.display(); // Show the display buffer on the screen
-    delay(200);        // Pause for 1/10 second
-
-    // Then update coordinates of each flake...
-    for(f=0; f< NUMFLAKES; f++) {
-      icons[f][YPOS] += icons[f][DELTAY];
-      // If snowflake is off the bottom of the screen...
-      if (icons[f][YPOS] >= display.height()) {
-        // Reinitialize to a random position, just off the top
-        icons[f][XPOS]   = random(1 - LOGO_WIDTH, display.width());
-        icons[f][YPOS]   = -LOGO_HEIGHT;
-        icons[f][DELTAY] = random(1, 6);
-      }
-    }
-  }
-}
-
 void loop() {
+  analogReadResolution(12);
+  uint16_t Ucontrol = analogRead(3);
+  uint16_t Uoutter = analogRead(1);
+  uint16_t Usupply = analogRead(0);
+
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 0);
+  display.print(WiFi.SSID());
+  display.print(" ");
+  display.println(WiFi.localIP());
+
+  char strftime_buf[64];
+  struct tm timeinfo;
+  time_t now = time(nullptr);
+  localtime_r(&now, &timeinfo);
+  strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M ", &timeinfo);
+  display.println(strftime_buf);
+
+  display.print("Ucontrol=");
+  display.println(Ucontrol);
+  display.print("Uoutter=");
+  display.println(Uoutter);
+  display.print("Usupply=");
+  display.println(Usupply);
+  display.display();
+
   const TickType_t xDelay = 1000 / portTICK_PERIOD_MS;
   Serial.println("loop");
   esp_task_wdt_reset();

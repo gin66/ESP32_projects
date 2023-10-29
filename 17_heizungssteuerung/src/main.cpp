@@ -39,6 +39,7 @@ using namespace std;
 #define CONTROL_PIN 7
 const int ledChannel = 0;
 const int resolution = 10;
+const int freq = 1000;
 //
 // Measure Control Voltage and one-bit-D/A
 //    GND-1kOhm-A-10kOhm-B-4.3kOhm-Power
@@ -95,8 +96,6 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 OneWire oneWire(10);
 DS18B20 tempsensor(&oneWire);
 
-//hw_timer_t *Timer0_Cfg = NULL;
-
 // can be used as parameter to tpl_command_setup
 // void execute(enum Command command) {}
 
@@ -111,27 +110,6 @@ void publish_func(DynamicJsonDocument *json) {
 void process_func(DynamicJsonDocument *json) {
   if ((*json).containsKey("request_minute")) {
 //    request_idx = (*json)["request_minute"];
-  }
-}
-
-uint16_t Ucontrol = 0;
-uint16_t Uoutter = 0;
-uint16_t Usupply = 0;
-
-void IRAM_ATTR Timer0_ISR()
-{
-  Usupply = analogRead(0);
-  Uoutter = analogRead(1);
-  Ucontrol = analogRead(3);
-  uint32_t Ucontrol_mV = (Ucontrol + 14);
-  Ucontrol_mV *= 1000;
-  Ucontrol_mV /= 128;
-
-  if (Ucontrol_mV > 6000+5) {
-    digitalWrite(CONTROL_PIN, HIGH);
-  }
-  else if (Ucontrol_mV < 6000-5) {
-    digitalWrite(CONTROL_PIN, LOW);
   }
 }
 
@@ -191,14 +169,6 @@ void setup() {
   pinMode(CONTROL_PIN, OUTPUT);
   analogReadResolution(12);
 
-  //Timer0_Cfg = timerBegin(0, 80, true);
-  //timerAttachInterrupt(Timer0_Cfg, &Timer0_ISR, true);
-  //timerAlarmWrite(Timer0_Cfg, 1000, true);
-  //timerAlarmEnable(Timer0_Cfg);
-
-  // setting PWM properties
-const int freq = 1000;
-
   // configure LED PWM functionalitites
   ledcSetup(ledChannel, freq, resolution);
 
@@ -213,9 +183,9 @@ uint32_t last_millis = 0;
 uint16_t dutycycle = 1<<resolution;
 
 void loop() {
-  Usupply = analogRead(0);
-  Uoutter = analogRead(1);
-  Ucontrol = analogRead(3);
+  uint16_t Usupply = analogRead(0);
+  uint16_t Uoutter = analogRead(1);
+  uint16_t Ucontrol = analogRead(3);
 
   uint32_t Usupply_mV = (Usupply + 14);
   Usupply_mV *= 1000;

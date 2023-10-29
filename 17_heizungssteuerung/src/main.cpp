@@ -30,12 +30,13 @@ using namespace std;
 //    GPIO0/A0        Measure supply voltage
 //    GPIO5/MISO/A5   unused
 //    GPIO6/MOSI      unused
-//    GPIO7/SS        temperature sensor DS18B20 clone
+//    GPIO7/SS        one-bit-D/A
 //    GPIO8/SDA       OLED
 //    GPIO9/SCL       OLED
-//    GPIO10          one-bit-D/A
+//    GPIO10          temperature sensor DS18B20 clone
 //    GPIO22/RX       unused
 //    GPIO21/TX       unused
+#define CONTROL_PIN 7
 //
 // Measure Control Voltage and one-bit-D/A
 //    GND-1kOhm-A-10kOhm-B-4.3kOhm-Power
@@ -89,7 +90,7 @@ using namespace std;
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-OneWire oneWire(7);
+OneWire oneWire(10);
 DS18B20 tempsensor(&oneWire);
 
 // can be used as parameter to tpl_command_setup
@@ -161,6 +162,9 @@ void setup() {
   tempsensor.begin(10);
   tempsensor.setResolution(12);
 
+  digitalWrite(CONTROL_PIN, HIGH);
+  pinMode(CONTROL_PIN, OUTPUT);
+
   Serial.println("Setup done.");
 }
 
@@ -195,6 +199,13 @@ void loop() {
   localtime_r(&now, &timeinfo);
   strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M ", &timeinfo);
   display.println(strftime_buf);
+
+  if (timeinfo.tm_sec == 0) {
+    digitalWrite(CONTROL_PIN, HIGH);
+  }
+  if (timeinfo.tm_sec == 30) {
+    digitalWrite(CONTROL_PIN, LOW);
+  }
 
   display.print("Ucontrol=");
   display.println(Ucontrol);

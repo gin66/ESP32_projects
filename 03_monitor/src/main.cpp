@@ -1,7 +1,7 @@
 #include "esp_camera.h"
 #include "string.h"
-//#include "soc/soc.h"
-//#include "soc/rtc_cntl_reg.h"
+// #include "soc/soc.h"
+// #include "soc/rtc_cntl_reg.h"
 
 #include <Arduino.h>
 #include <ArduinoJson.h>

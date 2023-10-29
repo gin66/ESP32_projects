@@ -1,6 +1,6 @@
 #include <string.h>
-//#include <avr/io.h>
-//#include <avr/pgmspace.h>
+// #include <avr/io.h>
+// #include <avr/pgmspace.h>
 #include "sha1.h"
 
 #define SHA1_K0 0x5a827999

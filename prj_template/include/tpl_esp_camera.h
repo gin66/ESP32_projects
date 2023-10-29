@@ -2,9 +2,9 @@
 #include <esp_camera.h>
 #include <esp_err.h>
 #include <stdint.h>
-//#ifdef FROM_TEMPLATE
+// #ifdef FROM_TEMPLATE
 #include <ArduinoJson.h>
-//#endif
+// #endif
 
 #define CONFIG_CAMERA_MODEL_AI_THINKER 1
 #include "tpl_app_camera.h"

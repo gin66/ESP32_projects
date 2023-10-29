@@ -22,7 +22,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
 #ifndef UniversalTelegramBot_h
 #define UniversalTelegramBot_h
 
-//#define TELEGRAM_DEBUG 1
+// #define TELEGRAM_DEBUG 1
 #define ARDUINOJSON_DECODE_UNICODE 1
 #define ARDUINOJSON_USE_LONG_LONG 1
 #include <Arduino.h>
@@ -35,7 +35,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
 #define HANDLE_MESSAGES 1
 
 // unmark following line to enable debug mode
-//#define _debug
+// #define _debug
 
 typedef bool (*MoreDataAvailable)();
 typedef byte (*GetNextByte)();

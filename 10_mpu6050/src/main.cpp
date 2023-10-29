@@ -8,8 +8,8 @@ using namespace std;
 TwoWire i2c(0);
 #define MPU_addr ((uint16_t)0x68)
 
-//#define RESTRICT_PITCH // Comment out to restrict roll to ±90deg instead -
-// please read: http://www.freescale.com/files/sensors/doc/app_note/AN3461.pdf
+// #define RESTRICT_PITCH // Comment out to restrict roll to ±90deg instead -
+//  please read: http://www.freescale.com/files/sensors/doc/app_note/AN3461.pdf
 
 Kalman kalmanX;  // Create the Kalman instances
 Kalman kalmanY;

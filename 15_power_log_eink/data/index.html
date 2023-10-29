@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <!-- Required meta tags -->
@@ -30,8 +30,7 @@
       src="https://cdnjs.cloudflare.com/ajax/libs/canvasjs/1.7.0/canvasjs.js"
     ></script>
     <script type="text/javascript">
-      window.onload = function () {
-      };
+      window.onload = function () {};
 
       function b64_to_u16(b64) {
         var rawString = window.atob(b64);
@@ -57,17 +56,18 @@
         document.getElementById("ip").innerHTML = data["IP"];
         document.getElementById("dbm").innerHTML = data["wifi_dBm"];
         document.getElementById("esp_time").innerHTML = data["time"];
-		if ("can_b64" in data) {
+        if ("can_b64" in data) {
           var can_data = b64_to_u8(data["can_b64"]);
-		  if (can_data.length > 0) {
-			var s = "";
-			for (x in can_data) {
-				s = s + can_data[x].toString(16) + " ";
-			}
-			document.getElementById("can_data").innerHTML = s;
-	  	  }
-		}
-        document.getElementById("consumption").innerHTML = data["Consumption_Wh"];
+          if (can_data.length > 0) {
+            var s = "";
+            for (x in can_data) {
+              s = s + can_data[x].toString(16) + " ";
+            }
+            document.getElementById("can_data").innerHTML = s;
+          }
+        }
+        document.getElementById("consumption").innerHTML =
+          data["Consumption_Wh"];
         document.getElementById("production").innerHTML = data["Production_Wh"];
         document.getElementById("power").innerHTML = data["Power_W"];
       }
@@ -163,11 +163,11 @@
         </p>
       </div>
 
-	  <div class="row">
-		  <div>Consumption: <span id="consumption"></span> Wh </div>
-		  <div>Production: <span id="production"></span> Wh </div>
-		  <div>Power: <span id="power"></span> W </div>
-	  </div>
+      <div class="row">
+        <div>Consumption: <span id="consumption"></span> Wh</div>
+        <div>Production: <span id="production"></span> Wh</div>
+        <div>Power: <span id="power"></span> W</div>
+      </div>
 
       <div class="row row-cols-1 row-cols-sm-2 row-cols-md-4">
         <form>

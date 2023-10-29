@@ -1,29 +1,29 @@
 #include "template.h"
 #undef ARDUINOJSON_USE_LONG_LONG
 #include <Arduino.h>
-//#include <ArduinoOTA.h>
-//#include <ArduinoJson.h>  // already included in UniversalTelegramBot.h
-//#include <ESP32Ping.h>
-//#include <WebServer.h>
-//#include <WebSockets.h>
-//#include <WebSocketsClient.h>
-//#include <WebSocketsServer.h>
-//#include <WiFi.h>
-//#include <WiFiClient.h>
-//#include <base64.h>
-//#include <esp_wifi.h>
-//#include <mem.h>
+// #include <ArduinoOTA.h>
+// #include <ArduinoJson.h>  // already included in UniversalTelegramBot.h
+// #include <ESP32Ping.h>
+// #include <WebServer.h>
+// #include <WebSockets.h>
+// #include <WebSocketsClient.h>
+// #include <WebSocketsServer.h>
+// #include <WiFi.h>
+// #include <WiFiClient.h>
+// #include <base64.h>
+// #include <esp_wifi.h>
+// #include <mem.h>
 
 #include "../../private_bot.h"
-//#include "driver/gpio.h"
-//#include "driver/rtc_io.h"
-//#include "esp32-hal-psram.h"
-//#include "esp_log.h"
-//#include "esp_timer.h"
-//#include "fb_gfx.h"
-//#include "freertos/FreeRTOS.h"
-//#include "freertos/task.h"
-//#include "img_converters.h"
+// #include "driver/gpio.h"
+// #include "driver/rtc_io.h"
+// #include "esp32-hal-psram.h"
+// #include "esp_log.h"
+// #include "esp_timer.h"
+// #include "fb_gfx.h"
+// #include "freertos/FreeRTOS.h"
+// #include "freertos/task.h"
+// #include "img_converters.h"
 
 #define ledPin ((gpio_num_t)2)
 

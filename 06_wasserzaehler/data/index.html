@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <!-- Required meta tags -->
@@ -181,7 +181,7 @@
                       " width: " +
                       image.width +
                       " height: " +
-                      image.height
+                      image.height,
                   );
                   request_video();
                 } else if (dv.getUint8(0) == 0 && dv.byteLength == 5) {
@@ -201,7 +201,7 @@
                       expect_width +
                       "px, height: " +
                       expect_height +
-                      "px"
+                      "px",
                   );
                 } else if (dv.getUint8(0) == 1 && dv.byteLength == 18) {
                   // expect qr_code info
@@ -235,7 +235,7 @@
                       "px, height: " +
                       height +
                       "px, length: " +
-                      dv.byteLength
+                      dv.byteLength,
                   );
                   canvas.width = width;
                   canvas.height = height;
@@ -272,7 +272,7 @@
                       "px, height: " +
                       height +
                       "px, length: " +
-                      dv.byteLength
+                      dv.byteLength,
                   );
                   canvas.width = width;
                   canvas.height = height;

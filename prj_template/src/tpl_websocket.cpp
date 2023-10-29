@@ -85,7 +85,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
 #define WS_BUFLEN 4096
 char ws_buffer[WS_BUFLEN];
 void TaskWebSocketCore0(void *pvParameters) {
-  void (*publish_func)(DynamicJsonDocument * json) =
+  void (*publish_func)(DynamicJsonDocument *json) =
       (void (*)(DynamicJsonDocument *))pvParameters;
   const TickType_t xDelay = 1 + 10 / portTICK_PERIOD_MS;
   uint32_t send_status_ms = 0;

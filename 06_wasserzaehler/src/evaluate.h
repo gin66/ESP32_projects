@@ -45,7 +45,7 @@ struct psram_buffer_s {
   uint32_t pad_32_6;
   uint32_t pad_32_7;
 
-#define ENTRY(i) psram_buffer->entry_111X[(i)&NUM_ENTRIES_MASK]
+#define ENTRY(i) psram_buffer->entry_111X[(i) & NUM_ENTRIES_MASK]
   struct entry_s entry_111X[NUM_ENTRIES];
 };
 

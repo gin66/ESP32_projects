@@ -378,13 +378,12 @@ void setup() {
     tpl_server.sendHeader("Connection", "close");
     char can_info[255];
     sprintf(can_info,
-			"Error: %d\n"
+            "Error: %d\n"
             "SML: %d empty, %d incomplete, %d errors\nTX: %d errors, %d "
             "retries\nRX: %d messages, %d errors, %d queue_full\nERROR: %d "
             "passive cnt, % bus error\n",
-			file_log_error_cnt,
-            sml_empty_message_cnt, sml_lost_bytes_cnt, sml_error_cnt,
-            can_tx_error_cnt, can_tx_retry_cnt, can_receive_cnt,
+            file_log_error_cnt, sml_empty_message_cnt, sml_lost_bytes_cnt,
+            sml_error_cnt, can_tx_error_cnt, can_tx_retry_cnt, can_receive_cnt,
             can_rx_error_cnt, can_rx_queue_full_cnt, can_error_passive_cnt,
             can_error_bus_error_cnt);
     tpl_server.send(200, "text/html", can_info);
@@ -408,7 +407,7 @@ void setup() {
   }
 
   if (sdOK) {
-	tpl_server.serveStatic("/sdcard", SD, "/");
+    tpl_server.serveStatic("/sdcard", SD, "/");
   }
 
   twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(
@@ -496,30 +495,31 @@ void log_to_sdcard(struct tm *timeinfo) {
   }
   char pathname[100];
   size_t n = 0;
-  n += sprintf(pathname, "/%d", timeinfo->tm_year+1900);
+  n += sprintf(pathname, "/%d", timeinfo->tm_year + 1900);
   if (!SD.mkdir(pathname)) {
-	  file_log_error_cnt += 10000;
+    file_log_error_cnt += 10000;
   }
-  n += sprintf(pathname + n, "/%02d", timeinfo->tm_mon+1);
+  n += sprintf(pathname + n, "/%02d", timeinfo->tm_mon + 1);
   if (!SD.mkdir(pathname)) {
-	  file_log_error_cnt += 1000;
+    file_log_error_cnt += 1000;
   }
   n += sprintf(pathname + n, "/%02d", timeinfo->tm_mday);
   if (!SD.mkdir(pathname)) {
-	  file_log_error_cnt += 100;
+    file_log_error_cnt += 100;
   }
   n += sprintf(pathname + n, "/%02d", timeinfo->tm_hour);
   if (!SD.mkdir(pathname)) {
-	  file_log_error_cnt += 10;
+    file_log_error_cnt += 10;
   }
   n += sprintf(pathname + n, "/%02d.txt", timeinfo->tm_min);
   File file = SD.open(pathname, FILE_WRITE);
   if (!file) {
-	  file_log_error_cnt++;
+    file_log_error_cnt++;
     return;
   }
   char line[255];
-  sprintf(line, "Consumption %.1f Wh\nProduction: %.1f Wh\n", consumption_Wh, production_Wh);
+  sprintf(line, "Consumption %.1f Wh\nProduction: %.1f Wh\n", consumption_Wh,
+          production_Wh);
   file.print(line);
   file.close();
 }

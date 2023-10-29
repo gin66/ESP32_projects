@@ -52,31 +52,42 @@ using namespace std;
 //    GND-Rsensor1-4.3kOhm-3.3V
 //    Rsensor2-10kOhm-GPIO1
 //
+// Supply Voltage: 
+//    7V  => 888
+//    8V  => 1016
+//    9V  => 1135
+//    10V => 1260
+//    11V => 1388
+//    12V => 1515
+//    13V => 1643
+//    14V => 1771
+//    15V => 1901
+//    16V => 2030
+//    17V => 2159
+//    18V => 2286
+//    19V => 2414
+//    20V => 2542
+//    21V => 2670
+//    22V => 2800
+//    23V => 2926
+//    24V => 3055
+//  Supply voltage = 0.007825*adc + 0.1113 ~= (adc+14)/128
+//
+//  Ucontrol Voltage:
+//    1823 => 14.378V
+//    1918 => 15.096V
+//    2010 => 15.814V
+//    2106 => 16.532V
+//    2159 => 16.962V
+//    893  =>  7.046V
+//
+//  Similar relation as supply voltage 
 
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
-#define LOGO_HEIGHT   16
-#define LOGO_WIDTH    16
-static const unsigned char PROGMEM logo_bmp[] =
-{ 0b00000000, 0b11000000,
-  0b00000001, 0b11000000,
-  0b00000001, 0b11000000,
-  0b00000011, 0b11100000,
-  0b11110011, 0b11100000,
-  0b11111110, 0b11111000,
-  0b01111110, 0b11111111,
-  0b00110011, 0b10011111,
-  0b00011111, 0b11111100,
-  0b00001101, 0b01110000,
-  0b00011011, 0b10100000,
-  0b00111111, 0b11100000,
-  0b00111111, 0b11110000,
-  0b01111100, 0b11110000,
-  0b01110000, 0b01110000,
-  0b00000000, 0b00110000 };
 
 OneWire oneWire(7);
 DS18B20 tempsensor(&oneWire);
@@ -153,15 +164,22 @@ void setup() {
   Serial.println("Setup done.");
 }
 
-#define XPOS   0 // Indexes into the 'icons' array in function below
-#define YPOS   1
-#define DELTAY 2
+bool temp_requested = false;
 
 void loop() {
   analogReadResolution(12);
   uint16_t Ucontrol = analogRead(3);
   uint16_t Uoutter = analogRead(1);
   uint16_t Usupply = analogRead(0);
+
+  uint32_t Usupply_mV = (Usupply + 14);
+  Usupply_mV *= 1000;
+  Usupply_mV /= 128;
+
+  uint32_t Ucontrol_mV = (Ucontrol + 14);
+  Ucontrol_mV *= 1000;
+  Ucontrol_mV /= 128;
+
 
   display.clearDisplay();
   display.setTextSize(1);
@@ -180,10 +198,34 @@ void loop() {
 
   display.print("Ucontrol=");
   display.println(Ucontrol);
+  display.print("=>");
+  display.print(Ucontrol_mV);
+  display.println("mV");
   display.print("Uoutter=");
   display.println(Uoutter);
   display.print("Usupply=");
   display.println(Usupply);
+  display.print("=>");
+  display.print(Usupply_mV);
+  display.println("mV");
+
+  if (temp_requested) {
+	  temp_requested = false;
+    if(tempsensor.isConversionComplete()) {
+	    float temp = tempsensor.getTempC();
+	    display.print("Temp=");
+	    display.println(temp);
+	    Serial.println(temp);
+    }
+  }
+  else if (tempsensor.isConnected(3)) {
+    temp_requested = true;
+    tempsensor.requestTemperatures();
+  }
+  else {
+	 display.println("Temp: not working");
+  }
+
   display.display();
 
   const TickType_t xDelay = 1000 / portTICK_PERIOD_MS;
@@ -191,9 +233,4 @@ void loop() {
   esp_task_wdt_reset();
 //  taskYIELD();
   vTaskDelay(xDelay);
-//  tempsensor.requestTemperatures();
-//  while(!tempsensor.isConversionComplete()) {
-//  }
-//  float temp = tempsensor.getTempC();
-//  Serial.println(temp);
 }

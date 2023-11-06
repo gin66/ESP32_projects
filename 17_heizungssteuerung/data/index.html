@@ -1,21 +1,13 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <!-- Required meta tags -->
     <meta charset="utf-8" />
-    <title>Stromzaehler</title>
+    <title>Heizungssteuerung</title>
     <meta name="esp32_17" content="" />
     <meta name="Jochen Kiemes" content="" />
 
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-
-    <!-- FONT
-		–––––––––––––––––––––––––––––––––––––––––––––––––– -->
-    <link
-      href="//fonts.googleapis.com/css?family=Raleway:400,300,600"
-      rel="stylesheet"
-      type="text/css"
-    />
 
     <!-- Bootstrap CSS -->
     <link
@@ -30,42 +22,11 @@
       src="https://cdnjs.cloudflare.com/ajax/libs/canvasjs/1.7.0/canvasjs.js"
     ></script>
     <script type="text/javascript">
-      /** new chart  **/
-      var yVal,
-        xVal = 0;
       var updateCount = 0;
       var dataPoints = [];
-  	  var minMaxData = {};
-	  var current_W = 0;
-      var chart;
-      window.onload = function () {
-        chart = new CanvasJS.Chart("chartContainer", {
-          zoomEnabled: true,
-          //      rangeChanging: customInterval,
-          title: {
-            text: "Stromverbrauch",
-          },
-          data: [
-            {
-			  color: "#98fb98",
-              type: "rangeColumn",
-              dataPoints: dataPoints,
-            },
-          ],
-		  axisX: { title: "time [minutes]"},
-          axisY: {
-			title: "Watt",
-            includeZero: true,
-          },
-        });
-        chart.render();
-      };
-
-      var updateChart = function () {
-        updateCount++;
-        chart.options.title.text = "Stromverbrauch " + current_W + "W";
-        chart.render();
-      };
+      var minMaxData = {};
+      var current_W = 0;
+      window.onload = function () {};
       function b64_to_u16(b64) {
         var rawString = window.atob(b64);
         var uint8Array = new Uint8Array(rawString.length);
@@ -76,9 +37,8 @@
         return uint16Array;
       }
       function process(data) {
-		var show_raw = document.getElementById("show_raw").checked;
-		document.getElementById("debug_data").hidden = !show_raw;
-		
+        var show_raw = document.getElementById("show_raw").checked;
+        document.getElementById("debug_data").hidden = !show_raw;
 
         document.getElementById("mem_free").innerHTML = data["mem_free"];
         document.getElementById("uptime").innerHTML = data["millis"] / 1000;
@@ -86,56 +46,6 @@
         document.getElementById("dbm").innerHTML = data["wifi_dBm"];
         document.getElementById("esp_time").innerHTML = data["time"];
         document.getElementById("sample_rate").innerHTML = data["sample_rate"];
-        var ticks = 1.0 / data["sample_rate"];
-		var idx = data["idx"];
-		var min_at_idx = data["min_at_idx"];
-		var max_at_idx = data["max_at_idx"];
-		var pulses_at_idx = data["pulses_at_idx"];
-		var firstIdx = data["read_idx"];
-		var lastIdx = data["write_idx"];
-		minMaxData[idx] = {"min":min_at_idx,"max":max_at_idx,"pulses":pulses_at_idx};
-
-		current_W = data["W"];
-
-		dataPoints.length = 0;
-		var request = null;
-		for (var i = firstIdx; (i % 1440) != (lastIdx % 1440); i++) {
-			if (i in minMaxData) {
-				dataPoints.push({
-				  x: i,
-				  y: [minMaxData[i]["min"],minMaxData[i]["max"]],
-				});
-			}
-			else {
-				request = i;
-			}
-		}
-		updateChart();
-        document.getElementById("tmp").innerHTML = request; //dataPoints.length;
-        if (request && ws != 0 && ws.readyState == 1) {
-          ws.send(JSON.stringify({ request_minute: request }));
-        }
-
-		if ("b64" in data) {
-          var data = b64_to_u16(data["b64"]);
-          dataPoints.length = 0;
-          var smooth = 2;
-          for (var i = smooth; i < data.length - smooth; i++) {
-            yVal = data[i];
-            if (smooth == 2) {
-              yVal =
-                (data[i - 2] + data[i - 1] + yVal + data[i + 1] + data[i + 2]) /
-                5;
-            }
-
-            xVal = i * ticks;
-            dataPoints.push({
-              y: yVal,
-              x: xVal,
-            });
-          }
-          updateChart();
-		}
       }
       var ws = 0;
       var last_msg = 0;
@@ -160,12 +70,15 @@
             ws.onmessage = function (evt) {
               document.getElementById("state").innerHTML = "receiving";
               var now = Date.now();
-			  //if (document.getElementById("show_raw").checked) {
-			  document.getElementById("raw").innerHTML = evt.data;
-		  	  //}
-			  process(JSON.parse(evt.data));
-			  var dt = now - last_msg;
-			  document.getElementById("debug").innerHTML = dt;
+              if (document.getElementById("show_raw").checked) {
+                 document.getElementById("raw").innerHTML = evt.data;
+              }
+	      else {
+                 document.getElementById("raw").innerHTML = "";
+	      }
+              process(JSON.parse(evt.data));
+              var dt = now - last_msg;
+              document.getElementById("debug").innerHTML = dt;
               last_msg = now;
             };
             ws.onerror = function () {
@@ -191,9 +104,9 @@
         }
       }
       window.setInterval(repeating, 1000);
-      function send_heizung() {
+      function send_vorlauf_control(mV) {
         if (ws != 0 && ws.readyState == 1) {
-          ws.send(JSON.stringify({ heizung: true }));
+          ws.send(JSON.stringify({ control_voltage_mV: mV }));
         }
       }
     </script>
@@ -201,27 +114,71 @@
   <body>
     <div class="container-fluid">
       <div class="row">
-	<div id="debug_data">
-		<h2>esp32_17: Stromzaehler</h2>
-        <form action="/serverIndex">
-          <button>SW Update</button>
-        </form>
-        <p>
-          ESP32-Time: <span id="esp_time"></span> Memory available:
-          <span id="mem_free"></span> Uptime: <span id="uptime"></span> Sample
-          Rate: <span id="sample_rate"></span> SSID:
-          <span id="ssid"></span> dBm: <span id="dbm"></span>
-		  tmp: <span id="tmp"></span>
-        </p>
-    <span id="debug" style="word-wrap: break-word"></span>
-    <span id="state"></span>
-    <span id="readystate"></span>
-    <span id="raw" style="word-wrap: break-word"></span>
-	</div>
+          <h2>esp32_17: Heizungssteuerung</h2>
+          <form action="/serverIndex">
+            <button>SW Update</button>
+          </form>
+          <p>
+            ESP32-Time: <span id="esp_time"></span> Memory available:
+            <span id="mem_free"></span> Uptime: <span id="uptime"></span> Sample
+            Rate: <span id="sample_rate"></span> SSID:
+            <span id="ssid"></span> dBm: <span id="dbm"></span> tmp:
+            <span id="tmp"></span>
+          </p>
+          <span id="debug" style="word-wrap: break-word"></span>
+          <span id="state"></span>
+          <span id="readystate"></span>
+          <span id="raw" style="word-wrap: break-word"></span>
+        </div>
+        <div id="debug_data">
       </div>
 
       <div class="row row-cols-1 row-cols-sm-2 row-cols-md-4">
-    <!-- 
+        <form>
+          <button
+            class="button-primary"
+            type="button"
+            onClick="send_vorlauf_control(0);"
+          >
+            Heizung aus
+          </button>
+          <button
+            class="button-primary"
+            type="button"
+            onClick="send_vorlauf_control(3000);"
+          >
+            Pumpe an
+          </button>
+          <button
+            class="button-primary"
+            type="button"
+            onClick="send_vorlauf_control(4400);"
+          >
+            40°C
+          </button>
+          <button
+            class="button-primary"
+            type="button"
+            onClick="send_vorlauf_control(6850);"
+          >
+            50°C
+          </button>
+          <button
+            class="button-primary"
+            type="button"
+            onClick="send_vorlauf_control(9300);"
+          >
+            60°C
+          </button>
+          <button
+            class="button-primary"
+            type="button"
+            onClick="send_vorlauf_control(11750);"
+          >
+            70°C
+          </button>
+        </form>
+        <!-- 
         <form action="/heizung">
           <button class="button-primary">Heizung</button>
         </form>
@@ -236,13 +193,17 @@
         </form>
 	-->
       </div>
-      <div id="chartContainer" style="height: 800px; width: 100%"></div>
     </div>
     <canvas id="image" width="0" height="0"> </canvas>
     <div id="raw_image"></div>
-	<form>
-	  <input class="button-primary" type="checkbox" id="show_raw" >Show debug info</input>
-	</form>
+    <form>
+      <input
+        class="button-primary"
+        type="checkbox"
+        id="show_raw"
+      />
+      Show raw messages
+    </form>
 
     <!-- Optional JavaScript -->
     <!-- Popper.js first, then Bootstrap JS -->

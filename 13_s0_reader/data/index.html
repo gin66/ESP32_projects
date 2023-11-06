@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <!-- Required meta tags -->
@@ -35,8 +35,8 @@
         xVal = 0;
       var updateCount = 0;
       var dataPoints = [];
-  	  var minMaxData = {};
-	  var current_W = 0;
+      var minMaxData = {};
+      var current_W = 0;
       var chart;
       window.onload = function () {
         chart = new CanvasJS.Chart("chartContainer", {
@@ -47,14 +47,14 @@
           },
           data: [
             {
-			  color: "#98fb98",
+              color: "#98fb98",
               type: "rangeColumn",
               dataPoints: dataPoints,
             },
           ],
-		  axisX: { title: "time [minutes]"},
+          axisX: { title: "time [minutes]" },
           axisY: {
-			title: "Watt",
+            title: "Watt",
             includeZero: true,
           },
         });
@@ -76,9 +76,8 @@
         return uint16Array;
       }
       function process(data) {
-		var show_raw = document.getElementById("show_raw").checked;
-		document.getElementById("debug_data").hidden = !show_raw;
-		
+        var show_raw = document.getElementById("show_raw").checked;
+        document.getElementById("debug_data").hidden = !show_raw;
 
         document.getElementById("mem_free").innerHTML = data["mem_free"];
         document.getElementById("uptime").innerHTML = data["millis"] / 1000;
@@ -87,36 +86,39 @@
         document.getElementById("esp_time").innerHTML = data["time"];
         document.getElementById("sample_rate").innerHTML = data["sample_rate"];
         var ticks = 1.0 / data["sample_rate"];
-		var idx = data["idx"];
-		var min_at_idx = data["min_at_idx"];
-		var max_at_idx = data["max_at_idx"];
-		var pulses_at_idx = data["pulses_at_idx"];
-		var firstIdx = data["read_idx"];
-		var lastIdx = data["write_idx"];
-		minMaxData[idx] = {"min":min_at_idx,"max":max_at_idx,"pulses":pulses_at_idx};
+        var idx = data["idx"];
+        var min_at_idx = data["min_at_idx"];
+        var max_at_idx = data["max_at_idx"];
+        var pulses_at_idx = data["pulses_at_idx"];
+        var firstIdx = data["read_idx"];
+        var lastIdx = data["write_idx"];
+        minMaxData[idx] = {
+          min: min_at_idx,
+          max: max_at_idx,
+          pulses: pulses_at_idx,
+        };
 
-		current_W = data["W"];
+        current_W = data["W"];
 
-		dataPoints.length = 0;
-		var request = null;
-		for (var i = firstIdx; (i % 1440) != (lastIdx % 1440); i++) {
-			if (i in minMaxData) {
-				dataPoints.push({
-				  x: i,
-				  y: [minMaxData[i]["min"],minMaxData[i]["max"]],
-				});
-			}
-			else {
-				request = i;
-			}
-		}
-		updateChart();
+        dataPoints.length = 0;
+        var request = null;
+        for (var i = firstIdx; i % 1440 != lastIdx % 1440; i++) {
+          if (i in minMaxData) {
+            dataPoints.push({
+              x: i,
+              y: [minMaxData[i]["min"], minMaxData[i]["max"]],
+            });
+          } else {
+            request = i;
+          }
+        }
+        updateChart();
         document.getElementById("tmp").innerHTML = request; //dataPoints.length;
         if (request && ws != 0 && ws.readyState == 1) {
           ws.send(JSON.stringify({ request_minute: request }));
         }
 
-		if ("b64" in data) {
+        if ("b64" in data) {
           var data = b64_to_u16(data["b64"]);
           dataPoints.length = 0;
           var smooth = 2;
@@ -135,7 +137,7 @@
             });
           }
           updateChart();
-		}
+        }
       }
       var ws = 0;
       var last_msg = 0;
@@ -160,12 +162,12 @@
             ws.onmessage = function (evt) {
               document.getElementById("state").innerHTML = "receiving";
               var now = Date.now();
-			  //if (document.getElementById("show_raw").checked) {
-			  document.getElementById("raw").innerHTML = evt.data;
-		  	  //}
-			  process(JSON.parse(evt.data));
-			  var dt = now - last_msg;
-			  document.getElementById("debug").innerHTML = dt;
+              //if (document.getElementById("show_raw").checked) {
+              document.getElementById("raw").innerHTML = evt.data;
+              //}
+              process(JSON.parse(evt.data));
+              var dt = now - last_msg;
+              document.getElementById("debug").innerHTML = dt;
               last_msg = now;
             };
             ws.onerror = function () {
@@ -201,27 +203,27 @@
   <body>
     <div class="container-fluid">
       <div class="row">
-	<div id="debug_data">
-		<h2>esp32_13: Stromzaehler</h2>
-        <form action="/serverIndex">
-          <button>SW Update</button>
-        </form>
-        <p>
-          ESP32-Time: <span id="esp_time"></span> Memory available:
-          <span id="mem_free"></span> Uptime: <span id="uptime"></span> Sample
-          Rate: <span id="sample_rate"></span> SSID:
-          <span id="ssid"></span> dBm: <span id="dbm"></span>
-		  tmp: <span id="tmp"></span>
-        </p>
-    <span id="debug" style="word-wrap: break-word"></span>
-    <span id="state"></span>
-    <span id="readystate"></span>
-    <span id="raw" style="word-wrap: break-word"></span>
-	</div>
+        <div id="debug_data">
+          <h2>esp32_13: Stromzaehler</h2>
+          <form action="/serverIndex">
+            <button>SW Update</button>
+          </form>
+          <p>
+            ESP32-Time: <span id="esp_time"></span> Memory available:
+            <span id="mem_free"></span> Uptime: <span id="uptime"></span> Sample
+            Rate: <span id="sample_rate"></span> SSID:
+            <span id="ssid"></span> dBm: <span id="dbm"></span> tmp:
+            <span id="tmp"></span>
+          </p>
+          <span id="debug" style="word-wrap: break-word"></span>
+          <span id="state"></span>
+          <span id="readystate"></span>
+          <span id="raw" style="word-wrap: break-word"></span>
+        </div>
       </div>
 
       <div class="row row-cols-1 row-cols-sm-2 row-cols-md-4">
-    <!-- 
+        <!-- 
         <form action="/heizung">
           <button class="button-primary">Heizung</button>
         </form>
@@ -240,9 +242,14 @@
     </div>
     <canvas id="image" width="0" height="0"> </canvas>
     <div id="raw_image"></div>
-	<form>
-	  <input class="button-primary" type="checkbox" id="show_raw" >Show debug info</input>
-	</form>
+    <form>
+      <input
+        class="button-primary"
+        type="checkbox"
+        id="show_raw"
+      />
+      Show debug info
+    </form>
 
     <!-- Optional JavaScript -->
     <!-- Popper.js first, then Bootstrap JS -->

@@ -98,6 +98,14 @@ OneWire oneWire(10);
 DS18B20 tempsensor(&oneWire);
 #define TEMP_OFFSET 4.0
 
+// Control voltage:
+//    0-2.5V: Pump off
+//    control voltage ~= 0.245*temp - 5.4
+//    temp ~= 3.89 * cv + 23.87
+uint32_t control_voltage_mV = 0.0;
+#define VORLAUF_TEMP(cv_mV) (((cv_mV)+6134)/257)
+#define CONTROL_VOLTAGE_MV(temp) (245*(temp)-5400)
+
 // can be used as parameter to tpl_command_setup
 // void execute(enum Command command) {}
 
@@ -110,15 +118,13 @@ void publish_func(DynamicJsonDocument *json) {
 }
 
 void process_func(DynamicJsonDocument *json) {
-  if ((*json).containsKey("request_minute")) {
-//    request_idx = (*json)["request_minute"];
+  if ((*json).containsKey("control_voltage_mV")) {
+    control_voltage_mV = (*json)["control_voltage_mV"];
   }
 }
 
 //---------------------------------------------------
 void setup() {
-  tpl_system_setup(0);  // no deep sleep
-			//
   //Wire.begin(8,9,8000000);
   Wire.begin(8,9);
     // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
@@ -132,6 +138,7 @@ void setup() {
   display.display();
 
   delay(5000);
+  tpl_system_setup(0);  // no deep sleep
 
   display.clearDisplay();
   display.setTextSize(1);
@@ -208,19 +215,19 @@ void loop() {
   }
   last_millis = ms_now;
 
-  if (Ucontrol_mV > 6000+500) {
+  if (Ucontrol_mV > control_voltage_mV+500) {
     dutycycle = min(dutycycle+10,max_duty);
 	 ledcWrite(ledChannel, dutycycle);
   }
-  else if (Ucontrol_mV > 6000+50) {
+  else if (Ucontrol_mV > control_voltage_mV+50) {
     dutycycle = min(dutycycle+1,max_duty);
 	 ledcWrite(ledChannel, dutycycle);
   }
-  else if (Ucontrol_mV < 6000-500) {
+  else if (Ucontrol_mV+500 < control_voltage_mV) {
    dutycycle = max(dutycycle,10)-10;
 	 ledcWrite(ledChannel, dutycycle);
   }
-  else if (Ucontrol_mV < 6000-50) {
+  else if (Ucontrol_mV+50 < control_voltage_mV) {
    dutycycle = max(dutycycle,1)-1;
 	 ledcWrite(ledChannel, dutycycle);
   }
@@ -256,22 +263,30 @@ void loop() {
   display.println(strftime_buf);
 
   display.print("Ucontrol=");
-  display.println(Ucontrol);
-  display.print("=>");
+  display.print(Ucontrol);
+  display.print(" =>");
   display.print(Ucontrol_mV);
-  display.print("mV: ");
-  display.println(dutycycle);
+  display.println("mV");
+  display.print("    Duty:");
+  display.print(dutycycle);
+  display.print(" => ");
+  if (Ucontrol_mV > 2500) {
+     display.print(VORLAUF_TEMP(Ucontrol_mV));
+     display.println("°C");
+  }
+  else {
+     display.println("AUS");
+  }
   display.print("Uoutter=");
   display.println(Uoutter);
   display.print("Usupply=");
-  display.println(Usupply);
-  display.print("=>");
+  display.print(Usupply);
+  display.print(" =>");
   display.print(Usupply_mV);
   display.println("mV");
   if (temp_valid) {
 	    display.print("Temp=");
 	    display.println(temp);
-	    Serial.println(temp);
   }
   else {
 	 display.println("Temp: not working");

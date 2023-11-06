@@ -102,6 +102,8 @@ void TaskWebSocketCore0(void *pvParameters) {
       send_status_ms = now + 100;
       int clients = webSocket.connectedClients();
       if (clients > 0) {
+	      Serial.print("Websockets=");
+      	      Serial.println(clients);
       String data = "................................................";
       for (int i = 0; i < 48; i++) {
         char ch = '-';

@@ -102,7 +102,7 @@ DS18B20 tempsensor(&oneWire);
 //    0-2.5V: Pump off
 //    control voltage ~= 0.245*temp - 5.4
 //    temp ~= 3.89 * cv + 23.87
-uint32_t control_voltage_mV = 0.0;
+RTC_DATA_ATTR uint32_t control_voltage_mV;
 #define VORLAUF_TEMP(cv_mV) (((cv_mV)+6134)/257)
 #define CONTROL_VOLTAGE_MV(temp) (245*(temp)-5400)
 
@@ -200,6 +200,10 @@ void setup() {
 
     // attach the channel to the GPIO to be controlled
   ledcAttachPin(CONTROL_PIN, ledChannel);
+
+  if (control_voltage_mV > 12000) {
+    control_voltage_mV = 0;
+  }
 
     Serial.println("Setup done.");
 }

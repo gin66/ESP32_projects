@@ -193,16 +193,103 @@ bool temp_valid = false;
 uint32_t last_millis = 0;
 int dutycycle = max_duty;
 
-void loop() {
-  uint16_t Usupply = analogRead(0);
-  uint16_t Uoutter = analogRead(1);
-  uint16_t Ucontrol = analogRead(3);
+uint16_t Usupply = 0;
+uint16_t Uoutter = 0;
+uint16_t Ucontrol = 0;
+uint32_t Usupply_mV = 0;
+uint32_t Ucontrol_mV = 0;
 
-  uint32_t Usupply_mV = (Usupply + 14);
+void display_temp_page(struct tm * timeinfo_p) {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 0);
+  display.print(WiFi.SSID());
+  display.print(" ");
+  display.print(WiFi.localIP());
+  display.print(" ");
+  display.println(tpl_fail);
+
+  char strftime_buf[64];
+  strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M ", timeinfo_p);
+  display.println(strftime_buf);
+
+  display.setTextSize(3);
+  if (Ucontrol_mV > 2500) {
+     display.print(VORLAUF_TEMP(Ucontrol_mV));
+     display.print("\xf7C");
+  }
+  else {
+     display.print("AUS");
+  }
+  display.print('/');
+  if (temp_valid) {
+	    display.print(temp);
+     display.print("\xf7C");
+  }
+  else {
+	 display.println("???");
+  }
+  display.display();
+}
+
+void display_debug_page(struct tm *timeinfo_p) {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 0);
+  display.print(WiFi.SSID());
+  display.print(" ");
+  display.print(WiFi.localIP());
+  display.print(" ");
+  display.println(tpl_fail);
+
+  char strftime_buf[64];
+  strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M ", timeinfo_p);
+  display.println(strftime_buf);
+
+  display.print("Ucontrol=");
+  display.print(Ucontrol);
+  display.print(" =>");
+  display.print(Ucontrol_mV);
+  display.println("mV");
+  display.print("    Duty:");
+  display.print(dutycycle);
+  display.print(" => ");
+  if (Ucontrol_mV > 2500) {
+     display.print(VORLAUF_TEMP(Ucontrol_mV));
+     display.println("\xf7C");
+  }
+  else {
+     display.println("AUS");
+  }
+  display.print("Uoutter=");
+  display.println(Uoutter);
+  display.print("Usupply=");
+  display.print(Usupply);
+  display.print(" =>");
+  display.print(Usupply_mV);
+  display.println("mV");
+  if (temp_valid) {
+	    display.print("Temp=");
+	    display.println(temp);
+  }
+  else {
+	 display.println("Temp: not working");
+  }
+  display.display();
+}
+
+void loop() {
+  Usupply = analogRead(0);
+  Uoutter = analogRead(1);
+  Ucontrol = analogRead(3);
+
+  Usupply_mV = (Usupply + 14);
   Usupply_mV *= 1000;
   Usupply_mV /= 128;
 
-  uint32_t Ucontrol_mV = (Ucontrol + 14);
+  Ucontrol_mV = (Ucontrol + 14);
   Ucontrol_mV *= 1000;
   Ucontrol_mV /= 128;
 
@@ -247,51 +334,17 @@ void loop() {
 	  temp_valid = false;
   }
 
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
-  display.setCursor(0, 0);
-  display.print(WiFi.SSID());
-  display.print(" ");
-  display.println(WiFi.localIP());
-
-  char strftime_buf[64];
   struct tm timeinfo;
   time_t now = time(nullptr);
   localtime_r(&now, &timeinfo);
-  strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M ", &timeinfo);
-  display.println(strftime_buf);
 
-  display.print("Ucontrol=");
-  display.print(Ucontrol);
-  display.print(" =>");
-  display.print(Ucontrol_mV);
-  display.println("mV");
-  display.print("    Duty:");
-  display.print(dutycycle);
-  display.print(" => ");
-  if (Ucontrol_mV > 2500) {
-     display.print(VORLAUF_TEMP(Ucontrol_mV));
-     display.println("°C");
+  if (timeinfo.tm_sec < 50) {
+     display_debug_page(&timeinfo);
   }
   else {
-     display.println("AUS");
+     display_temp_page(&timeinfo);
   }
-  display.print("Uoutter=");
-  display.println(Uoutter);
-  display.print("Usupply=");
-  display.print(Usupply);
-  display.print(" =>");
-  display.print(Usupply_mV);
-  display.println("mV");
-  if (temp_valid) {
-	    display.print("Temp=");
-	    display.println(temp);
-  }
-  else {
-	 display.println("Temp: not working");
-  }
-  display.display();
+  display.invertDisplay(Ucontrol_mV > 2500);
 
 //  const TickType_t xDelay = 1000 / portTICK_PERIOD_MS;
 //  Serial.println("loop");

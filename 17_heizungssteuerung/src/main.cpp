@@ -106,15 +106,32 @@ uint32_t control_voltage_mV = 0.0;
 #define VORLAUF_TEMP(cv_mV) (((cv_mV)+6134)/257)
 #define CONTROL_VOLTAGE_MV(temp) (245*(temp)-5400)
 
+uint16_t Usupply = 0;
+uint16_t Uoutter = 0;
+uint16_t Ucontrol = 0;
+uint32_t Usupply_mV = 0;
+uint32_t Ucontrol_mV = 0;
+float temp = 0.0;
+bool temp_valid = false;
+int dutycycle = max_duty;
+
 // can be used as parameter to tpl_command_setup
 // void execute(enum Command command) {}
 
 // can be used as parameter to tpl_websocket_setup
 // void add_ws_info(DynamicJsonDocument* myObject) {}
 void publish_func(DynamicJsonDocument *json) {
-	Serial.println("publish_func");
-//  (*json)["aport"] = analogRead(34);
-//  (*json)["dport"] = digitalRead(34);
+  (*json)["Usupply"] = Usupply;
+  (*json)["Uoutter"] = Uoutter;
+  (*json)["Ucontrol"] = Ucontrol;
+  (*json)["Usupply_mV"] = Usupply_mV;
+  (*json)["Ucontrol_mV_ist"] = Ucontrol_mV;
+  (*json)["Ucontrol_mV_soll"] = control_voltage_mV;
+  (*json)["dutycycle"] = dutycycle;
+  (*json)["Vorlauf_temp"] = VORLAUF_TEMP(Ucontrol_mV);
+  if (temp_valid) {
+     (*json)["temp"] = temp;
+  }
 }
 
 void process_func(DynamicJsonDocument *json) {
@@ -188,16 +205,7 @@ void setup() {
 }
 
 bool temp_requested = false;
-float temp = 0.0;
-bool temp_valid = false;
 uint32_t last_millis = 0;
-int dutycycle = max_duty;
-
-uint16_t Usupply = 0;
-uint16_t Uoutter = 0;
-uint16_t Ucontrol = 0;
-uint32_t Usupply_mV = 0;
-uint32_t Ucontrol_mV = 0;
 
 void display_temp_page(struct tm * timeinfo_p) {
   display.clearDisplay();
@@ -217,7 +225,7 @@ void display_temp_page(struct tm * timeinfo_p) {
   display.setTextSize(3);
   if (Ucontrol_mV > 2500) {
      display.print(VORLAUF_TEMP(Ucontrol_mV));
-     display.print("\xf7C");
+     display.print("\f7C");
   }
   else {
      display.print("AUS");
@@ -225,7 +233,7 @@ void display_temp_page(struct tm * timeinfo_p) {
   display.print('/');
   if (temp_valid) {
 	    display.print(temp);
-     display.print("\xf7C");
+     display.print("\f7C");
   }
   else {
 	 display.println("???");
@@ -258,7 +266,7 @@ void display_debug_page(struct tm *timeinfo_p) {
   display.print(" => ");
   if (Ucontrol_mV > 2500) {
      display.print(VORLAUF_TEMP(Ucontrol_mV));
-     display.println("\xf7C");
+     display.println("\f7C");
   }
   else {
      display.println("AUS");

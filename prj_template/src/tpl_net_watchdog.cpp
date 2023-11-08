@@ -11,7 +11,7 @@
 //   Interrupt watchdog 300ms
 
 #include <ESP32Ping.h>
-uint8_t tpl_fail = 0;
+uint16_t tpl_fail = 0;
 void TaskWatchdog(void* pvParameters) {
   const TickType_t xDelay = 1000 / portTICK_PERIOD_MS;
   for (;;) {

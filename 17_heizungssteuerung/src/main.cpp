@@ -346,7 +346,7 @@ void loop() {
   time_t now = time(nullptr);
   localtime_r(&now, &timeinfo);
 
-  if (timeinfo.tm_sec < 50) {
+  if (timeinfo.tm_sec < 30) {
      display_debug_page(&timeinfo);
   }
   else {

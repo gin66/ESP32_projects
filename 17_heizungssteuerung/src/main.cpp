@@ -219,24 +219,24 @@ void display_temp_page(struct tm * timeinfo_p) {
   display.println(tpl_fail);
 
   char strftime_buf[64];
-  strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M ", timeinfo_p);
+  strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M:%S", timeinfo_p);
   display.println(strftime_buf);
 
   display.setTextSize(3);
   if (Ucontrol_mV > 2500) {
      display.print(VORLAUF_TEMP(Ucontrol_mV));
-     display.print("\f7C");
+     display.print("\xf7""C");
   }
   else {
      display.print("AUS");
   }
-  display.print('/');
+  display.println();
   if (temp_valid) {
 	    display.print(temp);
-     display.print("\f7C");
+     display.print("\xf7""C");
   }
   else {
-	 display.println("???");
+	 display.print("???");
   }
   display.display();
 }
@@ -253,12 +253,12 @@ void display_debug_page(struct tm *timeinfo_p) {
   display.println(tpl_fail);
 
   char strftime_buf[64];
-  strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M ", timeinfo_p);
+  strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M:%S", timeinfo_p);
   display.println(strftime_buf);
 
   display.print("Ucontrol=");
   display.print(Ucontrol);
-  display.print(" =>");
+  display.print("=>");
   display.print(Ucontrol_mV);
   display.println("mV");
   display.print("    Duty:");
@@ -266,16 +266,16 @@ void display_debug_page(struct tm *timeinfo_p) {
   display.print(" => ");
   if (Ucontrol_mV > 2500) {
      display.print(VORLAUF_TEMP(Ucontrol_mV));
-     display.println("\f7C");
+     display.print("\xf7""C");
   }
   else {
      display.println("AUS");
   }
   display.print("Uoutter=");
   display.println(Uoutter);
-  display.print("Usupply=");
+  display.print("Uin=");
   display.print(Usupply);
-  display.print(" =>");
+  display.print("=>");
   display.print(Usupply_mV);
   display.println("mV");
   if (temp_valid) {

@@ -7,6 +7,8 @@
 #include <esp_log.h>
 #include "template.h"
 #include <esp_task_wdt.h>
+#include <nvs_flash.h>
+#include <nvs.h>
 
 using namespace std;
 
@@ -102,7 +104,7 @@ DS18B20 tempsensor(&oneWire);
 //    0-2.5V: Pump off
 //    control voltage ~= 0.245*temp - 5.4
 //    temp ~= 3.89 * cv + 23.87
-RTC_DATA_ATTR uint32_t control_voltage_mV;
+uint32_t control_voltage_mV = 0;
 #define VORLAUF_TEMP(cv_mV) (((cv_mV)+6134)/257)
 #define CONTROL_VOLTAGE_MV(temp) (245*(temp)-5400)
 
@@ -114,6 +116,19 @@ uint32_t Ucontrol_mV = 0;
 float temp = 0.0;
 bool temp_valid = false;
 int dutycycle = max_duty;
+
+void write_control_voltage_to_nvs() {
+    nvs_handle_t my_handle;
+	esp_err_t err = nvs_open("storage", NVS_READWRITE, &my_handle);
+    if (err != ESP_OK) {
+        display.println("NVS open error");
+	display.display();
+    } else {
+	err = nvs_set_u32(my_handle, "control_voltage", control_voltage_mV);
+	err = nvs_commit(my_handle);
+	nvs_close(my_handle);
+    }
+}
 
 // can be used as parameter to tpl_command_setup
 // void execute(enum Command command) {}
@@ -136,7 +151,11 @@ void publish_func(DynamicJsonDocument *json) {
 
 void process_func(DynamicJsonDocument *json) {
   if ((*json).containsKey("control_voltage_mV")) {
-    control_voltage_mV = (*json)["control_voltage_mV"];
+    uint32_t cv = (*json)["control_voltage_mV"];
+    if (cv != control_voltage_mV) {
+	control_voltage_mV = cv;
+	write_control_voltage_to_nvs();
+    }
   }
 }
 
@@ -167,6 +186,44 @@ void setup() {
   Serial.begin(115200);
   Serial.setDebugOutput(true);
   Serial.println("HERE");
+
+      // Initialize NVS
+  display.println("NVS");
+  display.display();
+    esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        // NVS partition was truncated and needs to be erased
+        // Retry nvs_flash_init
+	  display.println("NVS erase");
+	  display.display();
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        err = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK( err );
+    nvs_handle_t my_handle;
+    err = nvs_open("storage", NVS_READWRITE, &my_handle);
+    if (err != ESP_OK) {
+        display.println("NVS open error");
+	display.display();
+    } else {
+         err = nvs_get_u32(my_handle, "control_voltage", &control_voltage_mV);
+        switch (err) {
+            case ESP_OK:
+                break;
+            case ESP_ERR_NVS_NOT_FOUND:
+    	        // printf("The value is not initialized yet!\n");
+                break;
+            default :
+		display.println("NVS read error");
+		display.display();
+		for(;;) {}
+        }
+    }
+     nvs_close(my_handle);
+  if (control_voltage_mV > 12000) {
+    control_voltage_mV = 0;
+  }
+
 
   // Wait OTA
   display.println("WiFi");
@@ -200,10 +257,6 @@ void setup() {
 
     // attach the channel to the GPIO to be controlled
   ledcAttachPin(CONTROL_PIN, ledChannel);
-
-  if (control_voltage_mV > 12000) {
-    control_voltage_mV = 0;
-  }
 
     Serial.println("Setup done.");
 }

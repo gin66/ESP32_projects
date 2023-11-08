@@ -116,16 +116,29 @@ uint32_t Ucontrol_mV = 0;
 float temp = 0.0;
 bool temp_valid = false;
 int dutycycle = max_duty;
+uint8_t nvs_err = 0;
 
 void write_control_voltage_to_nvs() {
     nvs_handle_t my_handle;
 	esp_err_t err = nvs_open("storage", NVS_READWRITE, &my_handle);
     if (err != ESP_OK) {
+	    nvs_err = 1;
         display.println("NVS open error");
 	display.display();
     } else {
 	err = nvs_set_u32(my_handle, "control_voltage", control_voltage_mV);
-	err = nvs_commit(my_handle);
+	if (err == ESP_OK) {
+	  err = nvs_commit(my_handle);
+		if (err == ESP_OK) {
+		  nvs_err = 0;
+		}
+		else {
+		  nvs_err = 5;
+		}
+	}
+	else {
+	  nvs_err = 4;
+	}
 	nvs_close(my_handle);
     }
 }
@@ -136,6 +149,7 @@ void write_control_voltage_to_nvs() {
 // can be used as parameter to tpl_websocket_setup
 // void add_ws_info(DynamicJsonDocument* myObject) {}
 void publish_func(DynamicJsonDocument *json) {
+  (*json)["nvs_err"] = nvs_err;
   (*json)["Usupply"] = Usupply;
   (*json)["Uoutter"] = Uoutter;
   (*json)["Ucontrol"] = Ucontrol;
@@ -205,15 +219,19 @@ void setup() {
     if (err != ESP_OK) {
         display.println("NVS open error");
 	display.display();
+	nvs_err = 1;
     } else {
          err = nvs_get_u32(my_handle, "control_voltage", &control_voltage_mV);
         switch (err) {
             case ESP_OK:
+		nvs_err = 0;
                 break;
             case ESP_ERR_NVS_NOT_FOUND:
+		nvs_err = 2;
     	        // printf("The value is not initialized yet!\n");
                 break;
             default :
+		nvs_err = 3;
 		display.println("NVS read error");
 		display.display();
 		for(;;) {}

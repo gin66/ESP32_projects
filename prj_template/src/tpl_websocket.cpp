@@ -102,57 +102,57 @@ void TaskWebSocketCore0(void *pvParameters) {
       send_status_ms = now + 100;
       int clients = webSocket.connectedClients();
       if (clients > 0) {
-	      Serial.print("Websockets=");
-      	      Serial.println(clients);
-      String data = "................................................";
-      for (int i = 0; i < 48; i++) {
-        char ch = '-';
-        volatile uint32_t *reg = portInputRegister(digitalPinToPort(i));
-        volatile uint32_t *ddr = portModeRegister(digitalPinToPort(i));
-        if (reg) {
-          uint32_t mask = digitalPinToBitMask(i);
-          if (ddr && (*ddr & mask)) {
-            ch = *reg & mask ? '1' : '0';
-          } else {
-            ch = *reg & mask ? 'H' : 'L';
+        Serial.print("Websockets=");
+        Serial.println(clients);
+        String data = "................................................";
+        for (int i = 0; i < 48; i++) {
+          char ch = '-';
+          volatile uint32_t *reg = portInputRegister(digitalPinToPort(i));
+          volatile uint32_t *ddr = portModeRegister(digitalPinToPort(i));
+          if (reg) {
+            uint32_t mask = digitalPinToBitMask(i);
+            if (ddr && (*ddr & mask)) {
+              ch = *reg & mask ? '1' : '0';
+            } else {
+              ch = *reg & mask ? 'H' : 'L';
+            }
           }
+          data.setCharAt(i, ch);
         }
-        data.setCharAt(i, ch);
-      }
-      DynamicJsonDocument myObject(4096);
-      myObject["millis"] = millis();
-      myObject["mem_free"] = (long)ESP.getFreeHeap();
+        DynamicJsonDocument myObject(4096);
+        myObject["millis"] = millis();
+        myObject["mem_free"] = (long)ESP.getFreeHeap();
 #ifdef IS_ESP32CAM
-      myObject["ps_free"] = (long)ESP.getFreePsram();
+        myObject["ps_free"] = (long)ESP.getFreePsram();
 #endif
-      myObject["stack_free"] = (long)uxTaskGetStackHighWaterMark(NULL);
-      myObject["reset_cpu0"] = tpl_config.reset_reason_cpu0;
-      myObject["reset_cpu1"] = tpl_config.reset_reason_cpu1;
-      myObject["watch"] = tpl_config.watchpoint;
-      myObject["last_watch"] = tpl_config.last_seen_watchpoint;
-      myObject["bootCount"] = tpl_config.bootCount;
-      // myObject["time"] = formattedTime;
-      // myObject["b64"] = base64::encode((uint8_t*)data_buf, data_idx);
-      // myObject["button_analog"] = analogRead(BUTTON_PIN);
-      // myObject["button_digital"] = digitalRead(BUTTON_PIN);
-      myObject["digital"] = data;
-      // myObject["sample_rate"] = I2S_SAMPLE_RATE;
-      myObject["wifi_dBm"] = WiFi.RSSI();
-      myObject["IP"] = WiFi.localIP().toString();
-      myObject["SSID"] = WiFi.SSID();
+        myObject["stack_free"] = (long)uxTaskGetStackHighWaterMark(NULL);
+        myObject["reset_cpu0"] = tpl_config.reset_reason_cpu0;
+        myObject["reset_cpu1"] = tpl_config.reset_reason_cpu1;
+        myObject["watch"] = tpl_config.watchpoint;
+        myObject["last_watch"] = tpl_config.last_seen_watchpoint;
+        myObject["bootCount"] = tpl_config.bootCount;
+        // myObject["time"] = formattedTime;
+        // myObject["b64"] = base64::encode((uint8_t*)data_buf, data_idx);
+        // myObject["button_analog"] = analogRead(BUTTON_PIN);
+        // myObject["button_digital"] = digitalRead(BUTTON_PIN);
+        myObject["digital"] = data;
+        // myObject["sample_rate"] = I2S_SAMPLE_RATE;
+        myObject["wifi_dBm"] = WiFi.RSSI();
+        myObject["IP"] = WiFi.localIP().toString();
+        myObject["SSID"] = WiFi.SSID();
 #ifdef HAS_STEPPERS
-      myObject["nr_stepper"] = tpl_spiffs_config.nr_steppers;
+        myObject["nr_stepper"] = tpl_spiffs_config.nr_steppers;
 #endif
-      myObject["dirty_config"] = tpl_spiffs_config.need_store;
+        myObject["dirty_config"] = tpl_spiffs_config.need_store;
 
-      if (publish_func != NULL) {
-        publish_func(&myObject);
+        if (publish_func != NULL) {
+          publish_func(&myObject);
+        }
+
+        /* size_t bx = */ serializeJson(myObject, &ws_buffer, WS_BUFLEN);
+        String as_json = String(ws_buffer);
+        webSocket.broadcastTXT(as_json);
       }
-
-      /* size_t bx = */ serializeJson(myObject, &ws_buffer, WS_BUFLEN);
-      String as_json = String(ws_buffer);
-      webSocket.broadcastTXT(as_json);
-    }
     }
 #ifdef IS_ESP32CAM
     if (tpl_config.ws_send_jpg_image) {

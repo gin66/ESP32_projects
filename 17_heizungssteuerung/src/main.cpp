@@ -1,18 +1,20 @@
-#include <Arduino.h>
-#include <base64.h>
-#include <OneWire.h>
-#include <DS18B20.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <Arduino.h>
+#include <DS18B20.h>
+#include <OneWire.h>
+#include <base64.h>
 #include <esp_log.h>
-#include "template.h"
 #include <esp_task_wdt.h>
-#include <nvs_flash.h>
 #include <nvs.h>
+#include <nvs_flash.h>
+
+#include "template.h"
 
 using namespace std;
 
-// SuperMINI Esp32c3: https://www.nologo.tech/product/esp32/esp32C3SuperMini.html
+// SuperMINI Esp32c3:
+// https://www.nologo.tech/product/esp32/esp32C3SuperMini.html
 //
 //               USB
 //    5V                 GPIO5/MISO/A5
@@ -42,7 +44,7 @@ using namespace std;
 const int ledChannel = 0;
 const int resolution = 10;
 const int freq = 1000;
-const int max_duty = 1<<resolution;
+const int max_duty = 1 << resolution;
 //
 // Measure Control Voltage and one-bit-D/A
 //    GND-1kOhm-A-10kOhm-B-4.3kOhm-Power
@@ -59,7 +61,7 @@ const int max_duty = 1<<resolution;
 //    GND-Rsensor1-4.3kOhm-3.3V
 //    Rsensor2-10kOhm-GPIO1
 //
-// Supply Voltage: 
+// Supply Voltage:
 //    7V  => 888
 //    8V  => 1016
 //    9V  => 1135
@@ -88,11 +90,12 @@ const int max_duty = 1<<resolution;
 //    2159 => 16.962V
 //    893  =>  7.046V
 //
-//  Similar relation as supply voltage 
+//  Similar relation as supply voltage
 
-#define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 64 // OLED display height, in pixels
-#define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
+#define SCREEN_WIDTH 128  // OLED display width, in pixels
+#define SCREEN_HEIGHT 64  // OLED display height, in pixels
+#define SCREEN_ADDRESS \
+  0x3C  ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
@@ -105,8 +108,8 @@ DS18B20 tempsensor(&oneWire);
 //    control voltage ~= 0.245*temp - 5.4
 //    temp ~= 3.89 * cv + 23.87
 uint32_t control_voltage_mV = 0;
-#define VORLAUF_TEMP(cv_mV) (((cv_mV)+6134)/257)
-#define CONTROL_VOLTAGE_MV(temp) (245*(temp)-5400)
+#define VORLAUF_TEMP(cv_mV) (((cv_mV) + 6134) / 257)
+#define CONTROL_VOLTAGE_MV(temp) (245 * (temp)-5400)
 
 uint16_t Usupply = 0;
 uint16_t Uoutter = 0;
@@ -119,28 +122,26 @@ int dutycycle = max_duty;
 uint8_t nvs_err = 0;
 
 void write_control_voltage_to_nvs() {
-    nvs_handle_t my_handle;
-	esp_err_t err = nvs_open("storage", NVS_READWRITE, &my_handle);
-    if (err != ESP_OK) {
-	    nvs_err = 1;
-        display.println("NVS open error");
-	display.display();
+  nvs_handle_t my_handle;
+  esp_err_t err = nvs_open("storage", NVS_READWRITE, &my_handle);
+  if (err != ESP_OK) {
+    nvs_err = 1;
+    display.println("NVS open error");
+    display.display();
+  } else {
+    err = nvs_set_u32(my_handle, "control_voltage", control_voltage_mV);
+    if (err == ESP_OK) {
+      err = nvs_commit(my_handle);
+      if (err == ESP_OK) {
+        nvs_err = 0;
+      } else {
+        nvs_err = 5;
+      }
     } else {
-	err = nvs_set_u32(my_handle, "control_voltage", control_voltage_mV);
-	if (err == ESP_OK) {
-	  err = nvs_commit(my_handle);
-		if (err == ESP_OK) {
-		  nvs_err = 0;
-		}
-		else {
-		  nvs_err = 5;
-		}
-	}
-	else {
-	  nvs_err = 4;
-	}
-	nvs_close(my_handle);
+      nvs_err = 4;
     }
+    nvs_close(my_handle);
+  }
 }
 
 // can be used as parameter to tpl_command_setup
@@ -159,7 +160,7 @@ void publish_func(DynamicJsonDocument *json) {
   (*json)["dutycycle"] = dutycycle;
   (*json)["Vorlauf_temp"] = VORLAUF_TEMP(Ucontrol_mV);
   if (temp_valid) {
-     (*json)["temp"] = temp;
+    (*json)["temp"] = temp;
   }
 }
 
@@ -167,20 +168,21 @@ void process_func(DynamicJsonDocument *json) {
   if ((*json).containsKey("control_voltage_mV")) {
     uint32_t cv = (*json)["control_voltage_mV"];
     if (cv != control_voltage_mV) {
-	control_voltage_mV = cv;
-	write_control_voltage_to_nvs();
+      control_voltage_mV = cv;
+      write_control_voltage_to_nvs();
     }
   }
 }
 
 //---------------------------------------------------
 void setup() {
-  //Wire.begin(8,9,8000000);
-  Wire.begin(8,9);
-    // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
-  if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+  // Wire.begin(8,9,8000000);
+  Wire.begin(8, 9);
+  // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
+  if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println(F("SSD1306 allocation failed"));
-    for(;;); // Don't proceed, loop forever
+    for (;;)
+      ;  // Don't proceed, loop forever
   }
 
   // Show initial display buffer contents on the screen --
@@ -201,47 +203,48 @@ void setup() {
   Serial.setDebugOutput(true);
   Serial.println("HERE");
 
-      // Initialize NVS
+  // Initialize NVS
   display.println("NVS");
   display.display();
-    esp_err_t err = nvs_flash_init();
-    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        // NVS partition was truncated and needs to be erased
-        // Retry nvs_flash_init
-	  display.println("NVS erase");
-	  display.display();
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        err = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK( err );
-    nvs_handle_t my_handle;
-    err = nvs_open("storage", NVS_READWRITE, &my_handle);
-    if (err != ESP_OK) {
-        display.println("NVS open error");
-	display.display();
-	nvs_err = 1;
-    } else {
-         err = nvs_get_u32(my_handle, "control_voltage", &control_voltage_mV);
-        switch (err) {
-            case ESP_OK:
-		nvs_err = 0;
-                break;
-            case ESP_ERR_NVS_NOT_FOUND:
-		nvs_err = 2;
-    	        // printf("The value is not initialized yet!\n");
-                break;
-            default :
-		nvs_err = 3;
-		display.println("NVS read error");
-		display.display();
-		for(;;) {}
+  esp_err_t err = nvs_flash_init();
+  if (err == ESP_ERR_NVS_NO_FREE_PAGES ||
+      err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+    // NVS partition was truncated and needs to be erased
+    // Retry nvs_flash_init
+    display.println("NVS erase");
+    display.display();
+    ESP_ERROR_CHECK(nvs_flash_erase());
+    err = nvs_flash_init();
+  }
+  ESP_ERROR_CHECK(err);
+  nvs_handle_t my_handle;
+  err = nvs_open("storage", NVS_READWRITE, &my_handle);
+  if (err != ESP_OK) {
+    display.println("NVS open error");
+    display.display();
+    nvs_err = 1;
+  } else {
+    err = nvs_get_u32(my_handle, "control_voltage", &control_voltage_mV);
+    switch (err) {
+      case ESP_OK:
+        nvs_err = 0;
+        break;
+      case ESP_ERR_NVS_NOT_FOUND:
+        nvs_err = 2;
+        // printf("The value is not initialized yet!\n");
+        break;
+      default:
+        nvs_err = 3;
+        display.println("NVS read error");
+        display.display();
+        for (;;) {
         }
     }
-     nvs_close(my_handle);
+  }
+  nvs_close(my_handle);
   if (control_voltage_mV > 12000) {
     control_voltage_mV = 0;
   }
-
 
   // Wait OTA
   display.println("WiFi");
@@ -273,16 +276,16 @@ void setup() {
   // configure LED PWM functionalitites
   ledcSetup(ledChannel, freq, resolution);
 
-    // attach the channel to the GPIO to be controlled
+  // attach the channel to the GPIO to be controlled
   ledcAttachPin(CONTROL_PIN, ledChannel);
 
-    Serial.println("Setup done.");
+  Serial.println("Setup done.");
 }
 
 bool temp_requested = false;
 uint32_t last_millis = 0;
 
-void display_temp_page(struct tm * timeinfo_p) {
+void display_temp_page(struct tm *timeinfo_p) {
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(WHITE);
@@ -294,24 +297,27 @@ void display_temp_page(struct tm * timeinfo_p) {
   display.println(tpl_fail);
 
   char strftime_buf[64];
-  strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M:%S", timeinfo_p);
+  strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M:%S",
+           timeinfo_p);
   display.println(strftime_buf);
 
   display.setTextSize(3);
   if (Ucontrol_mV > 2500) {
-     display.print(VORLAUF_TEMP(Ucontrol_mV));
-     display.print("\xf7""C");
-  }
-  else {
-     display.print("AUS");
+    display.print(VORLAUF_TEMP(Ucontrol_mV));
+    display.print(
+        "\xf7"
+        "C");
+  } else {
+    display.print("AUS");
   }
   display.println();
   if (temp_valid) {
-	    display.print(temp);
-     display.print("\xf7""C");
-  }
-  else {
-	 display.print("???");
+    display.print(temp);
+    display.print(
+        "\xf7"
+        "C");
+  } else {
+    display.print("???");
   }
   display.display();
 }
@@ -328,7 +334,8 @@ void display_debug_page(struct tm *timeinfo_p) {
   display.println(tpl_fail);
 
   char strftime_buf[64];
-  strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M:%S", timeinfo_p);
+  strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M:%S",
+           timeinfo_p);
   display.println(strftime_buf);
 
   display.print("Ucontrol=");
@@ -340,11 +347,12 @@ void display_debug_page(struct tm *timeinfo_p) {
   display.print(dutycycle);
   display.print(" => ");
   if (Ucontrol_mV > 2500) {
-     display.print(VORLAUF_TEMP(Ucontrol_mV));
-     display.print("\xf7""C");
-  }
-  else {
-     display.println("AUS");
+    display.print(VORLAUF_TEMP(Ucontrol_mV));
+    display.print(
+        "\xf7"
+        "C");
+  } else {
+    display.println("AUS");
   }
   display.print("Uoutter=");
   display.println(Uoutter);
@@ -354,11 +362,10 @@ void display_debug_page(struct tm *timeinfo_p) {
   display.print(Usupply_mV);
   display.println("mV");
   if (temp_valid) {
-	    display.print("Temp=");
-	    display.println(temp);
-  }
-  else {
-	 display.println("Temp: not working");
+    display.print("Temp=");
+    display.println(temp);
+  } else {
+    display.println("Temp: not working");
   }
   display.display();
 }
@@ -385,36 +392,31 @@ void loop() {
   }
   last_millis = ms_now;
 
-  if (Ucontrol_mV > control_voltage_mV+500) {
-    dutycycle = min(dutycycle+10,max_duty);
-	 ledcWrite(ledChannel, dutycycle);
-  }
-  else if (Ucontrol_mV > control_voltage_mV+50) {
-    dutycycle = min(dutycycle+1,max_duty);
-	 ledcWrite(ledChannel, dutycycle);
-  }
-  else if (Ucontrol_mV+500 < control_voltage_mV) {
-   dutycycle = max(dutycycle,10)-10;
-	 ledcWrite(ledChannel, dutycycle);
-  }
-  else if (Ucontrol_mV+50 < control_voltage_mV) {
-   dutycycle = max(dutycycle,1)-1;
-	 ledcWrite(ledChannel, dutycycle);
+  if (Ucontrol_mV > control_voltage_mV + 500) {
+    dutycycle = min(dutycycle + 10, max_duty);
+    ledcWrite(ledChannel, dutycycle);
+  } else if (Ucontrol_mV > control_voltage_mV + 50) {
+    dutycycle = min(dutycycle + 1, max_duty);
+    ledcWrite(ledChannel, dutycycle);
+  } else if (Ucontrol_mV + 500 < control_voltage_mV) {
+    dutycycle = max(dutycycle, 10) - 10;
+    ledcWrite(ledChannel, dutycycle);
+  } else if (Ucontrol_mV + 50 < control_voltage_mV) {
+    dutycycle = max(dutycycle, 1) - 1;
+    ledcWrite(ledChannel, dutycycle);
   }
 
   if (temp_requested) {
-	  temp_requested = false;
-    if(tempsensor.isConversionComplete()) {
-	    temp = tempsensor.getTempC() - TEMP_OFFSET;
-	    temp_valid = true;
+    temp_requested = false;
+    if (tempsensor.isConversionComplete()) {
+      temp = tempsensor.getTempC() - TEMP_OFFSET;
+      temp_valid = true;
     }
-  }
-  else if (tempsensor.isConnected(3)) {
+  } else if (tempsensor.isConnected(3)) {
     temp_requested = true;
     tempsensor.requestTemperatures();
-  }
-  else {
-	  temp_valid = false;
+  } else {
+    temp_valid = false;
   }
 
   struct tm timeinfo;
@@ -422,16 +424,15 @@ void loop() {
   localtime_r(&now, &timeinfo);
 
   if (timeinfo.tm_sec < 30) {
-     display_debug_page(&timeinfo);
-  }
-  else {
-     display_temp_page(&timeinfo);
+    display_debug_page(&timeinfo);
+  } else {
+    display_temp_page(&timeinfo);
   }
   display.invertDisplay(Ucontrol_mV > 2500);
 
-//  const TickType_t xDelay = 1000 / portTICK_PERIOD_MS;
-//  Serial.println("loop");
+  //  const TickType_t xDelay = 1000 / portTICK_PERIOD_MS;
+  //  Serial.println("loop");
   esp_task_wdt_reset();
-//  taskYIELD();
-//  vTaskDelay(xDelay);
+  //  taskYIELD();
+  //  vTaskDelay(xDelay);
 }

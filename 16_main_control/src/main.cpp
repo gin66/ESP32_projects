@@ -1,42 +1,42 @@
-#include "can_ids.h"
-#include "template.h"
+#include <DS18B20.h>
+#include <RF24.h>
+#include <SPI.h>
 #include <base64.h>
 #include <driver/twai.h>
 #include <esp_task_wdt.h>
 #include <sml/sml_crc16.h>
 #include <sml/sml_file.h>
-#include <SPI.h>
-#include <DS18B20.h>
-#include <RF24.h>
+
 #include "../../../haus/esmart3_nano_rf/src/esmart3_module.h"
 #include "../../../haus/relay_counter_nano_rf/src/relay_module.h"
-
+#include "can_ids.h"
 #include "defines.h"
 #include "helper.h"
 #include "hmDefines.h"
 #include "hmInverter.h"
 #include "hmPayload.h"
+#include "template.h"
 
 #define CAN_RX_PIN 26 /* G26 */
 #define CAN_TX_PIN 27 /* G27 */
 
-#define NRF24_CE     4 /* G4  - blue */
-#define NRF24_IRQ   16 /* G16 - green */
-#define NRF24_CSN    5 /* G5  - purple */
+#define NRF24_CE 4     /* G4  - blue */
+#define NRF24_IRQ 16   /* G16 - green */
+#define NRF24_CSN 5    /* G5  - purple */
 #define DS18B20_PIN 17 /* G17 - red copper wire */
-#define NRF24_SCK   18 /* G18 - brown */
-#define NRF24_MISO  19 /* G19 - orange */
-#define RELAY_5V_1  21 /* G21 - gray */
-#define RELAY_5V_2  22 /* G22 - white */
-#define NRF24_MOSI  23 /* G23 - yellow */
+#define NRF24_SCK 18   /* G18 - brown */
+#define NRF24_MISO 19  /* G19 - orange */
+#define RELAY_5V_1 21  /* G21 - gray */
+#define RELAY_5V_2 22  /* G22 - white */
+#define NRF24_MOSI 23  /* G23 - yellow */
 
-#define LED_PIN  2
-#define BUTTON_PIN 0  /* BOOT */
+#define LED_PIN 2
+#define BUTTON_PIN 0 /* BOOT */
 
 using namespace std;
 
 SPIClass vspi(VSPI);
-RF24 radio(NRF24_CE,NRF24_CSN);
+RF24 radio(NRF24_CE, NRF24_CSN);
 Esmart3Command esmart3Command;
 RelayCommand relayCommand;
 
@@ -378,13 +378,12 @@ void setup() {
     tpl_server.sendHeader("Connection", "close");
     char can_info[255];
     sprintf(can_info,
-			"Error: %d\n"
+            "Error: %d\n"
             "SML: %d empty, %d incomplete, %d errors\nTX: %d errors, %d "
             "retries\nRX: %d messages, %d errors, %d queue_full\nERROR: %d "
             "passive cnt, % bus error\n",
-			file_log_error_cnt,
-            sml_empty_message_cnt, sml_lost_bytes_cnt, sml_error_cnt,
-            can_tx_error_cnt, can_tx_retry_cnt, can_receive_cnt,
+            file_log_error_cnt, sml_empty_message_cnt, sml_lost_bytes_cnt,
+            sml_error_cnt, can_tx_error_cnt, can_tx_retry_cnt, can_receive_cnt,
             can_rx_error_cnt, can_rx_queue_full_cnt, can_error_passive_cnt,
             can_error_bus_error_cnt);
     tpl_server.send(200, "text/html", can_info);
@@ -427,7 +426,7 @@ void setup() {
   // Set the PA Level low to try preventing power supply related problems
   // because these examples are likely run with nodes in close proximity to
   // each other.
-//  SPI.begin(NRF24_SCK, NRF24_MISO, NRF24_MOSI, ELINK_SS);
+  //  SPI.begin(NRF24_SCK, NRF24_MISO, NRF24_MOSI, ELINK_SS);
   vspi.begin();
   radio.begin(&vspi);
   radio.setPALevel(RF24_PA_LOW);  // RF24_PA_MAX is default.
@@ -476,8 +475,9 @@ void communicate_esmart3() {
   radio.openWritingPipe(ESMART3_MODULE);
   radio.stopListening();
   bool report = radio.write(
-      &esmart3Command, COMMAND_HEAD_LEN+esmart3Command.length);  // transmit & save the report
-  unsigned long end_timer = micros();        // end the timer
+      &esmart3Command,
+      COMMAND_HEAD_LEN + esmart3Command.length);  // transmit & save the report
+  unsigned long end_timer = micros();             // end the timer
 
   if (report) {
     Serial.print(F("sent:"));
@@ -491,21 +491,20 @@ void communicate_esmart3() {
       Serial.print(F(" Got "));
       Serial.print(bytes);
       Serial.print(F(" bytes"));
-      if (bytes != PAYLOAD_HEAD_LEN+received.length) {
-	 Serial.println(F("..INVALID MESSAGE"));
-      }
-      else {
-	      Serial.print(F(": ["));
-	      for (uint8_t i = 0;i < received.length;i++) {
-		 Serial.print(received.data[i], HEX);
-		 Serial.print(' ');
-	      }
-	      Serial.print(F("], errors="));
-	      Serial.print(received.err_timeout_read_command);
-	      Serial.print(' ');
-	      Serial.print(received.err_timeout_write_payload);
-	      Serial.print(F(", Cnt="));
-	      Serial.println(received.counter);  // print incoming counter
+      if (bytes != PAYLOAD_HEAD_LEN + received.length) {
+        Serial.println(F("..INVALID MESSAGE"));
+      } else {
+        Serial.print(F(": ["));
+        for (uint8_t i = 0; i < received.length; i++) {
+          Serial.print(received.data[i], HEX);
+          Serial.print(' ');
+        }
+        Serial.print(F("], errors="));
+        Serial.print(received.err_timeout_read_command);
+        Serial.print(' ');
+        Serial.print(received.err_timeout_write_payload);
+        Serial.print(F(", Cnt="));
+        Serial.println(received.counter);  // print incoming counter
       }
       // save incoming counter & increment for next outgoing
       esmart3Command.counter++;
@@ -582,38 +581,38 @@ void loop() {
     Serial.println(tpl_config.stack_info);
 
     while (ds.selectNext()) {
-	ds.setResolution(12);
-	Serial.print("Temperature=");
-	float temp = ds.getTempC();
-    	Serial.print(temp);
-	Serial.print(" => ");
-	Serial.println(temp - 3.2); // sensor specific calibration
+      ds.setResolution(12);
+      Serial.print("Temperature=");
+      float temp = ds.getTempC();
+      Serial.print(temp);
+      Serial.print(" => ");
+      Serial.println(temp - 3.2);  // sensor specific calibration
     }
     communicate_esmart3();
     communicate_relay_module();
-//    digitalWrite(RELAY_5V_1, digitalRead(RELAY_5V_1) == HIGH ? LOW:HIGH);
+    //    digitalWrite(RELAY_5V_1, digitalRead(RELAY_5V_1) == HIGH ? LOW:HIGH);
   }
 
-//  struct tm timeinfo;
-//  time_t now = time(nullptr);
-//  localtime_r(&now, &timeinfo);
-//  if (timeinfo.tm_sec != last_sec) {
-//    last_sec = timeinfo.tm_sec;
-//    twai_message_t message;
-//    message.flags = TWAI_MSG_FLAG_NONE;
-//    message.self = 1;
-//    message.identifier = CAN_ID_TIMESTAMP;
-//    message.data_length_code = 4;
-//    message.data[0] = timeinfo.tm_sec;
-//    message.data[1] = timeinfo.tm_min;
-//    message.data[2] = timeinfo.tm_hour;
-//    message.data[3] = timeinfo.tm_wday;
-//    twai_transmit(&message, portMAX_DELAY);
-//
-//    if (timeinfo.tm_sec == 0) {
-//      Serial.println("update display");
-//    }
-//  }
+  //  struct tm timeinfo;
+  //  time_t now = time(nullptr);
+  //  localtime_r(&now, &timeinfo);
+  //  if (timeinfo.tm_sec != last_sec) {
+  //    last_sec = timeinfo.tm_sec;
+  //    twai_message_t message;
+  //    message.flags = TWAI_MSG_FLAG_NONE;
+  //    message.self = 1;
+  //    message.identifier = CAN_ID_TIMESTAMP;
+  //    message.data_length_code = 4;
+  //    message.data[0] = timeinfo.tm_sec;
+  //    message.data[1] = timeinfo.tm_min;
+  //    message.data[2] = timeinfo.tm_hour;
+  //    message.data[3] = timeinfo.tm_wday;
+  //    twai_transmit(&message, portMAX_DELAY);
+  //
+  //    if (timeinfo.tm_sec == 0) {
+  //      Serial.println("update display");
+  //    }
+  //  }
   const TickType_t xDelay = 100 / portTICK_PERIOD_MS;
   vTaskDelay(xDelay);
 }

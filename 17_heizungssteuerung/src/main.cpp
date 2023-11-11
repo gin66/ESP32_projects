@@ -315,6 +315,7 @@ void setup() {
 }
 
 bool temp_requested = false;
+uint32_t last_millis_temp = 0;
 uint32_t last_millis = 0;
 
 void display_temp_page(struct tm *timeinfo_p) {
@@ -455,17 +456,24 @@ void loop() {
   }
 
   if (temp_requested) {
-    temp_requested = false;
     if (tempsensor.isConversionComplete()) {
+      temp_requested = false;
       inner_raw_temp = tempsensor.getTempC();
       inner_temp = inner_raw_temp - TEMP_OFFSET;
       inner_temp_valid = true;
     }
-  } else if (tempsensor.isConnected(3)) {
-    temp_requested = true;
-    tempsensor.requestTemperatures();
-  } else {
-    inner_temp_valid = false;
+    else if ((uint32_t)(ms_now - last_millis_temp) > 1000) {
+      // timeout
+      temp_requested = false;
+    }
+  } else if ((uint32_t)(ms_now - last_millis_temp) > 5000) {
+    last_millis_temp = ms_now;
+    if (tempsensor.isConnected(3)) {
+       temp_requested = true;
+       tempsensor.requestTemperatures();
+     } else {
+       inner_temp_valid = false;
+     }
   }
 
   struct tm timeinfo;

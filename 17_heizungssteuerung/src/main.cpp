@@ -119,6 +119,7 @@ uint32_t control_voltage_mV = 0;
 
 uint16_t Usupply = 0;
 uint16_t Uoutter = 0;
+uint16_t Uoutter_avg = 0;
 uint16_t Ucontrol = 0;
 uint32_t Usupply_mV = 0;
 uint32_t Ucontrol_mV = 0;
@@ -159,6 +160,7 @@ void publish_func(DynamicJsonDocument *json) {
   (*json)["nvs_err"] = nvs_err;
   (*json)["Usupply"] = Usupply;
   (*json)["Uoutter"] = Uoutter;
+  (*json)["Uoutter_avg"] = Uoutter_avg;
   (*json)["Ucontrol"] = Ucontrol;
   (*json)["Usupply_mV"] = Usupply_mV;
   (*json)["Ucontrol_mV_ist"] = Ucontrol_mV;
@@ -361,7 +363,7 @@ void display_debug_page(struct tm *timeinfo_p) {
     display.println("AUS");
   }
   display.print("Uoutter=");
-  display.println(Uoutter);
+  display.println(Uoutter_avg);
   display.print("Uin=");
   display.print(Usupply);
   display.print("=>");
@@ -388,6 +390,9 @@ void loop() {
   Ucontrol_mV = (Ucontrol + 14);
   Ucontrol_mV *= 1000;
   Ucontrol_mV /= 128;
+
+  // Uoutter is 0..<4096
+  Uoutter_avg += Uoutter - (Uoutter_avg >> 4);
 
   uint32_t ms_now = millis();
   uint32_t delta = ms_now - last_millis;

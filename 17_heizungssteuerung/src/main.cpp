@@ -53,13 +53,13 @@ const int max_duty = 1 << resolution;
 //    GND-100uF-B
 //    Basis-1kOhm-GPIO10
 //
-//
 // Measure Control Voltage at A
 //    GND-1kOhm-A-10kOhm-Power
 //
 // Measure outter temperature sensor
 //    GND-Rsensor1-4.3kOhm-3.3V
-//    Rsensor2-10kOhm-GPIO1
+//    Rsensor2-10kOhm-GPIO1-100nF?-GND
+//    Rsensor1-100uF-GND
 //
 // Supply Voltage:
 //    7V  => 888
@@ -91,6 +91,12 @@ const int max_duty = 1 << resolution;
 //    893  =>  7.046V
 //
 //  Similar relation as supply voltage
+
+// Uoutter to temperature
+//    520 => 12°C
+//    450 => 11.2°C
+//    440 => 11.1°C
+// 
 
 #define SCREEN_WIDTH 128  // OLED display width, in pixels
 #define SCREEN_HEIGHT 64  // OLED display height, in pixels

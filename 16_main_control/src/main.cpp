@@ -7,8 +7,6 @@
 #include <sml/sml_crc16.h>
 #include <sml/sml_file.h>
 
-#include "../../../haus/esmart3_nano_rf/src/esmart3_module.h"
-#include "../../../haus/relay_counter_nano_rf/src/relay_module.h"
 #include "can_ids.h"
 #include "defines.h"
 #include "helper.h"
@@ -16,6 +14,7 @@
 #include "hmInverter.h"
 #include "hmPayload.h"
 #include "template.h"
+#include "../../../haus/private.h"
 
 #define CAN_RX_PIN 26 /* G26 */
 #define CAN_TX_PIN 27 /* G27 */

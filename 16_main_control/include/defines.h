@@ -71,12 +71,6 @@ union serial_u {
   uint8_t b[8];
 };
 
-#define MIN_SERIAL_INTERVAL 2  // 5
-#define MIN_SEND_INTERVAL 15
-#define MIN_MQTT_INTERVAL 60
-
-enum { MQTT_STATUS_OFFLINE = 0, MQTT_STATUS_PARTIAL, MQTT_STATUS_ONLINE };
-
 //-------------------------------------
 // EEPROM
 //-------------------------------------
@@ -84,15 +78,6 @@ enum { MQTT_STATUS_OFFLINE = 0, MQTT_STATUS_PARTIAL, MQTT_STATUS_ONLINE };
 #define PWD_LEN 64
 #define DEVNAME_LEN 16
 #define NTP_ADDR_LEN 32  // DNS Name
-
-#define MQTT_ADDR_LEN 64  // DNS Name
-#define MQTT_CLIENTID_LEN \
-  22                      // number of chars is limited to 23 up to v3.1 of MQTT
-#define MQTT_USER_LEN 65  // there is another byte necessary for \0
-#define MQTT_PWD_LEN 65
-#define MQTT_TOPIC_LEN 65
-
-#define MQTT_MAX_PACKET_SIZE 384
 
 typedef struct {
   uint32_t rxFail;

@@ -32,8 +32,8 @@ typedef struct {
   bool gotFragment;
 } invPayload_t;
 
-typedef std::function<void(uint8_t, Inverter<> *)> payloadListenerType;
-typedef std::function<void(Inverter<> *)> alarmListenerType;
+typedef std::function<void(uint8_t, Inverter *)> payloadListenerType;
+typedef std::function<void(Inverter *)> alarmListenerType;
 
 template <class HMSYSTEM, class HMRADIO>
 class HmPayload {
@@ -83,7 +83,7 @@ class HmPayload {
           0x03, 0xe7, 0x01, 0x42, 0x00, 0x03
       };
 
-      Inverter<> *iv = mSys->getInverterByPos(0);
+      Inverter *iv = mSys->getInverterByPos(0);
       record_t<> *rec = iv->getRecordStruct(0x0b);
       rec->ts = *mTimestamp;
       for (uint8_t i = 0; i < rec->length; i++) {
@@ -94,9 +94,9 @@ class HmPayload {
       notify(0x0b, iv);
   }*/
 
-  void ivSendHighPrio(Inverter<> *iv) { mHighPrioIv = iv; }
+  void ivSendHighPrio(Inverter *iv) { mHighPrioIv = iv; }
 
-  void ivSend(Inverter<> *iv, bool highPrio = false) {
+  void ivSend(Inverter *iv, bool highPrio = false) {
     if (!highPrio) {
       if (mPayload[iv->id].requested) {
         if (!mPayload[iv->id].complete) process(false);  // no retransmit
@@ -157,7 +157,7 @@ class HmPayload {
     }
   }
 
-  void add(Inverter<> *iv, packet_t *p) {
+  void add(Inverter *iv, packet_t *p) {
     if (p->packet[0] ==
         (TX_REQ_INFO + ALL_FRAMES)) {  // response from get information command
       mPayload[iv->id].txId = p->packet[0];
@@ -220,7 +220,7 @@ class HmPayload {
 
   void process(bool retransmit) {
     for (uint8_t id = 0; id < mSys->getNumInverters(); id++) {
-      Inverter<> *iv = mSys->getInverterByPos(id);
+      Inverter *iv = mSys->getInverterByPos(id);
       if (NULL == iv) continue;  // skip to next inverter
 
       if (IV_HM != iv->ivGen)  // only process HM inverters
@@ -367,7 +367,7 @@ class HmPayload {
   }
 
  private:
-  void notify(uint8_t val, Inverter<> *iv) {
+  void notify(uint8_t val, Inverter *iv) {
     if (NULL != mCbPayload) (mCbPayload)(val, iv);
   }
 
@@ -421,7 +421,7 @@ class HmPayload {
   uint32_t *mTimestamp;
   invPayload_t mPayload[MAX_NUM_INVERTERS];
   bool mSerialDebug;
-  Inverter<> *mHighPrioIv;
+  Inverter *mHighPrioIv;
 
   alarmListenerType mCbAlarm;
   payloadListenerType mCbPayload;

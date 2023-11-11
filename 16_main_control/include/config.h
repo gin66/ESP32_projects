@@ -132,30 +132,6 @@
 // NTP refresh interval in ms (default 12h)
 #define NTP_REFRESH_INTERVAL 12 * 3600 * 1000
 
-// default mqtt interval
-#define MQTT_INTERVAL 90
-
-// default MQTT broker uri
-#define DEF_MQTT_BROKER "\0"
-
-// default MQTT port
-#define DEF_MQTT_PORT 1883
-
-// default MQTT user
-#define DEF_MQTT_USER "\0"
-
-// default MQTT pwd
-#define DEF_MQTT_PWD "\0"
-
-// default MQTT topic
-#define DEF_MQTT_TOPIC "inverter"
-
-// discovery prefix
-#define MQTT_DISCOVERY_PREFIX "homeassistant"
-
-// reconnect delay
-#define MQTT_RECONNECT_DELAY 5000
-
 // Offset for midnight Ticker
 // relative to UTC
 //   may be negative for later in the next day or positive for earlier in

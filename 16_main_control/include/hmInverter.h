@@ -28,41 +28,31 @@
  */
 
 // forward declaration of class
-template <class REC_TYP = float>
 class Inverter;
 
 // prototypes
-template <class T = float>
-static T calcYieldTotalCh0(Inverter<> *iv, uint8_t arg0);
+static float calcYieldTotalCh0(Inverter *iv, uint8_t arg0);
 
-template <class T = float>
-static T calcYieldDayCh0(Inverter<> *iv, uint8_t arg0);
+static float calcYieldDayCh0(Inverter *iv, uint8_t arg0);
 
-template <class T = float>
-static T calcUdcCh(Inverter<> *iv, uint8_t arg0);
+static float calcUdcCh(Inverter *iv, uint8_t arg0);
 
-template <class T = float>
-static T calcPowerDcCh0(Inverter<> *iv, uint8_t arg0);
+static float calcPowerDcCh0(Inverter *iv, uint8_t arg0);
 
-template <class T = float>
-static T calcEffiencyCh0(Inverter<> *iv, uint8_t arg0);
+static float calcEffiencyCh0(Inverter *iv, uint8_t arg0);
 
-template <class T = float>
-static T calcIrradiation(Inverter<> *iv, uint8_t arg0);
+static float calcIrradiation(Inverter *iv, uint8_t arg0);
 
-template <class T = float>
-static T calcMaxPowerAcCh0(Inverter<> *iv, uint8_t arg0);
+static float calcMaxPowerAcCh0(Inverter *iv, uint8_t arg0);
 
-template <class T = float>
-static T calcMaxPowerDc(Inverter<> *iv, uint8_t arg0);
+static float calcMaxPowerDc(Inverter *iv, uint8_t arg0);
 
-template <class T = float>
-using func_t = T(Inverter<> *, uint8_t);
+//template <class T = float>
+//using func_t = T(Inverter<> *, uint8_t);
 
-template <class T = float>
 struct calcFunc_t {
   uint8_t funcId;   // unique id
-  func_t<T> *func;  // function pointer
+  float (*func)(Inverter *iv, uint8_t arg0);  // function pointer
 };
 
 template <class T = float>
@@ -106,8 +96,7 @@ class InfoCommand : public CommandAbstract {
 };
 
 // list of all available functions, mapped in hmDefines.h
-template <class T = float>
-const calcFunc_t<T> calcFunctions[] = {
+const calcFunc_t calcFunctions[] = {
     {CALC_YT_CH0, &calcYieldTotalCh0},   {CALC_YD_CH0, &calcYieldDayCh0},
     {CALC_UDC_CH, &calcUdcCh},           {CALC_PDC_CH0, &calcPowerDcCh0},
     {CALC_EFF_CH0, &calcEffiencyCh0},    {CALC_IRR_CH, &calcIrradiation},
@@ -121,7 +110,6 @@ enum class InverterStatus : uint8_t {
   WAS_ON
 };
 
-template <class REC_TYP>
 class Inverter {
  public:
   uint8_t ivGen;                   // generation of inverter (HM / MI)
@@ -135,10 +123,10 @@ class Inverter {
   uint8_t devControlCmd;           // carries the requested cmd
   serial_u radioId;                // id converted to modbus
   uint8_t channels;                // number of PV channels (1-4)
-  record_t<REC_TYP> recordMeas;    // structure for measured values
-  record_t<REC_TYP> recordInfo;    // structure for info values
-  record_t<REC_TYP> recordConfig;  // structure for system config values
-  record_t<REC_TYP> recordAlarm;   // structure for alarm values
+  record_t<float> recordMeas;    // structure for measured values
+  record_t<float> recordInfo;    // structure for info values
+  record_t<float> recordConfig;  // structure for system config values
+  record_t<float> recordAlarm;   // structure for alarm values
   // String        lastAlarmMsg;
   bool initialized;       // needed to check if the inverter was correctly added
                           // (ESP32 specific - union types are never null)
@@ -296,19 +284,19 @@ class Inverter {
               (FLD_Q == rec->assign[pos].fieldId) ||
               (FLD_PF == rec->assign[pos].fieldId)) {
             // temperature, Qvar, and power factor are a signed values
-            rec->record[pos] = ((REC_TYP)((int16_t)val)) / (REC_TYP)(div);
+            rec->record[pos] = ((float)((int16_t)val)) / (float)(div);
           } else if (FLD_YT == rec->assign[pos].fieldId) {
             rec->record[pos] =
-                ((REC_TYP)(val) / (REC_TYP)(div)*generalConfig->yieldEffiency) +
-                ((REC_TYP)config->yieldCor[rec->assign[pos].ch - 1]);
+                ((float)(val) / (float)(div)*generalConfig->yieldEffiency) +
+                ((float)config->yieldCor[rec->assign[pos].ch - 1]);
           } else if (FLD_YD == rec->assign[pos].fieldId) {
             rec->record[pos] =
-                (REC_TYP)(val) / (REC_TYP)(div)*generalConfig->yieldEffiency;
+                (float)(val) / (float)(div)*generalConfig->yieldEffiency;
           } else {
-            if ((REC_TYP)(div) > 1)
-              rec->record[pos] = (REC_TYP)(val) / (REC_TYP)(div);
+            if ((float)(div) > 1)
+              rec->record[pos] = (float)(val) / (float)(div);
             else
-              rec->record[pos] = (REC_TYP)(val);
+              rec->record[pos] = (float)(val);
           }
         }
       }
@@ -355,7 +343,7 @@ class Inverter {
     isProducing();
   }
 
-  bool setValue(uint8_t pos, record_t<> *rec, REC_TYP val) {
+  bool setValue(uint8_t pos, record_t<> *rec, float val) {
     // DPRINTLN(DBG_VERBOSE, F("hmInverter.h:setValue"));
     if (NULL == rec) return false;
     if (pos > rec->length) return false;
@@ -363,7 +351,7 @@ class Inverter {
     return true;
   }
 
-  REC_TYP getChannelFieldValue(uint8_t channel, uint8_t fieldId,
+  float getChannelFieldValue(uint8_t channel, uint8_t fieldId,
                                record_t<> *rec) {
     uint8_t pos = 0;
     if (NULL != rec) {
@@ -379,7 +367,7 @@ class Inverter {
       return 0;
   }
 
-  REC_TYP getValue(uint8_t pos, record_t<> *rec) {
+  float getValue(uint8_t pos, record_t<> *rec) {
     // DPRINTLN(DBG_VERBOSE, F("hmInverter.h:getValue"));
     if (NULL == rec) return 0;
     if (pos > rec->length) return 0;
@@ -391,7 +379,7 @@ class Inverter {
     record_t<> *rec = getRecordStruct(RealTimeRunData_Debug);
     for (uint8_t i = 0; i < rec->length; i++) {
       if (CMD_CALC == rec->assign[i].div) {
-        rec->record[i] = calcFunctions<REC_TYP>[rec->assign[i].start].func(
+        rec->record[i] = calcFunctions[rec->assign[i].start].func(
             this, rec->assign[i].num);
       }
       yield();
@@ -536,8 +524,8 @@ class Inverter {
     }
 
     if (0 != rec->length) {
-      rec->record = new REC_TYP[rec->length];
-      memset(rec->record, 0, sizeof(REC_TYP) * rec->length);
+      rec->record = new float[rec->length];
+      memset(rec->record, 0, sizeof(float) * rec->length);
     }
   }
 
@@ -735,10 +723,8 @@ class Inverter {
   bool mDevControlRequest;  // true if change needed
 };
 
-template <class REC_TYP>
-uint32_t *Inverter<REC_TYP>::timestamp{0};
-template <class REC_TYP>
-cfgInst_t *Inverter<REC_TYP>::generalConfig{0};
+uint32_t *Inverter::timestamp{0};
+cfgInst_t *Inverter::generalConfig{0};
 
 /**
  * To calculate values which are not transmitted by the unit there is a generic
@@ -746,12 +732,11 @@ cfgInst_t *Inverter<REC_TYP>::generalConfig{0};
  * The special command 0xff (CMDFF) must be used.
  */
 
-template <class T = float>
-static T calcYieldTotalCh0(Inverter<> *iv, uint8_t arg0) {
+static float calcYieldTotalCh0(Inverter *iv, uint8_t arg0) {
   // DPRINTLN(DBG_VERBOSE, F("hmInverter.h:calcYieldTotalCh0"));
   if (NULL != iv) {
     record_t<> *rec = iv->getRecordStruct(RealTimeRunData_Debug);
-    T yield = 0;
+    float yield = 0;
     for (uint8_t i = 1; i <= iv->channels; i++) {
       yield += iv->getChannelFieldValue(i, FLD_YT, rec);
     }
@@ -760,12 +745,11 @@ static T calcYieldTotalCh0(Inverter<> *iv, uint8_t arg0) {
   return 0.0;
 }
 
-template <class T = float>
-static T calcYieldDayCh0(Inverter<> *iv, uint8_t arg0) {
+static float calcYieldDayCh0(Inverter *iv, uint8_t arg0) {
   // DPRINTLN(DBG_VERBOSE, F("hmInverter.h:calcYieldDayCh0"));
   if (NULL != iv) {
     record_t<> *rec = iv->getRecordStruct(RealTimeRunData_Debug);
-    T yield = 0;
+    float yield = 0;
     for (uint8_t i = 1; i <= iv->channels; i++) {
       yield += iv->getChannelFieldValue(i, FLD_YD, rec);
     }
@@ -774,8 +758,7 @@ static T calcYieldDayCh0(Inverter<> *iv, uint8_t arg0) {
   return 0.0;
 }
 
-template <class T = float>
-static T calcUdcCh(Inverter<> *iv, uint8_t arg0) {
+static float calcUdcCh(Inverter *iv, uint8_t arg0) {
   // DPRINTLN(DBG_VERBOSE, F("hmInverter.h:calcUdcCh"));
   //  arg0 = channel of source
   record_t<> *rec = iv->getRecordStruct(RealTimeRunData_Debug);
@@ -788,12 +771,11 @@ static T calcUdcCh(Inverter<> *iv, uint8_t arg0) {
   return 0.0;
 }
 
-template <class T = float>
-static T calcPowerDcCh0(Inverter<> *iv, uint8_t arg0) {
+static float calcPowerDcCh0(Inverter *iv, uint8_t arg0) {
   // DPRINTLN(DBG_VERBOSE, F("hmInverter.h:calcPowerDcCh0"));
   if (NULL != iv) {
     record_t<> *rec = iv->getRecordStruct(RealTimeRunData_Debug);
-    T dcPower = 0;
+    float dcPower = 0;
     for (uint8_t i = 1; i <= iv->channels; i++) {
       dcPower += iv->getChannelFieldValue(i, FLD_PDC, rec);
     }
@@ -802,13 +784,12 @@ static T calcPowerDcCh0(Inverter<> *iv, uint8_t arg0) {
   return 0.0;
 }
 
-template <class T = float>
-static T calcEffiencyCh0(Inverter<> *iv, uint8_t arg0) {
+static float calcEffiencyCh0(Inverter *iv, uint8_t arg0) {
   // DPRINTLN(DBG_VERBOSE, F("hmInverter.h:calcEfficiencyCh0"));
   if (NULL != iv) {
     record_t<> *rec = iv->getRecordStruct(RealTimeRunData_Debug);
-    T acPower = iv->getChannelFieldValue(CH0, FLD_PAC, rec);
-    T dcPower = 0;
+    float acPower = iv->getChannelFieldValue(CH0, FLD_PAC, rec);
+    float dcPower = 0;
     for (uint8_t i = 1; i <= iv->channels; i++) {
       dcPower += iv->getChannelFieldValue(i, FLD_PDC, rec);
     }
@@ -818,7 +799,7 @@ static T calcEffiencyCh0(Inverter<> *iv, uint8_t arg0) {
 }
 
 template <class T = float>
-static T calcIrradiation(Inverter<> *iv, uint8_t arg0) {
+static T calcIrradiation(Inverter *iv, uint8_t arg0) {
   // DPRINTLN(DBG_VERBOSE, F("hmInverter.h:calcIrradiation"));
   //  arg0 = channel
   if (NULL != iv) {
@@ -830,13 +811,12 @@ static T calcIrradiation(Inverter<> *iv, uint8_t arg0) {
   return 0.0;
 }
 
-template <class T = float>
-static T calcMaxPowerAcCh0(Inverter<> *iv, uint8_t arg0) {
+static float calcMaxPowerAcCh0(Inverter *iv, uint8_t arg0) {
   // DPRINTLN(DBG_VERBOSE, F("hmInverter.h:calcMaxPowerAcCh0"));
-  T acMaxPower = 0.0;
+  float acMaxPower = 0.0;
   if (NULL != iv) {
     record_t<> *rec = iv->getRecordStruct(RealTimeRunData_Debug);
-    T acPower = iv->getChannelFieldValue(arg0, FLD_PAC, rec);
+    float acPower = iv->getChannelFieldValue(arg0, FLD_PAC, rec);
 
     for (uint8_t i = 0; i < rec->length; i++) {
       if ((FLD_MP == rec->assign[i].fieldId) && (0 == rec->assign[i].ch)) {
@@ -848,14 +828,13 @@ static T calcMaxPowerAcCh0(Inverter<> *iv, uint8_t arg0) {
   return acMaxPower;
 }
 
-template <class T = float>
-static T calcMaxPowerDc(Inverter<> *iv, uint8_t arg0) {
+static float calcMaxPowerDc(Inverter *iv, uint8_t arg0) {
   // DPRINTLN(DBG_VERBOSE, F("hmInverter.h:calcMaxPowerDc"));
   //  arg0 = channel
-  T dcMaxPower = 0.0;
+  float dcMaxPower = 0.0;
   if (NULL != iv) {
     record_t<> *rec = iv->getRecordStruct(RealTimeRunData_Debug);
-    T dcPower = iv->getChannelFieldValue(arg0, FLD_PDC, rec);
+    float dcPower = iv->getChannelFieldValue(arg0, FLD_PDC, rec);
 
     for (uint8_t i = 0; i < rec->length; i++) {
       if ((FLD_MP == rec->assign[i].fieldId) && (arg0 == rec->assign[i].ch)) {

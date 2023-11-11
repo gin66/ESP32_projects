@@ -126,16 +126,6 @@ typedef struct {
 } cfgLed_t;
 
 typedef struct {
-  char broker[MQTT_ADDR_LEN];
-  uint16_t port;
-  char clientId[MQTT_CLIENTID_LEN];
-  char user[MQTT_USER_LEN];
-  char pwd[MQTT_PWD_LEN];
-  char topic[MQTT_TOPIC_LEN];
-  uint16_t interval;
-} cfgMqtt_t;
-
-typedef struct {
   bool enabled;
   char name[MAX_NAME_LENGTH];
   serial_u serial;
@@ -182,7 +172,6 @@ typedef struct {
   cfgNtp_t ntp;
   cfgSun_t sun;
   cfgSerial_t serial;
-  cfgMqtt_t mqtt;
   cfgLed_t led;
   cfgInst_t inst;
   plugins_t plugin;
@@ -271,7 +260,6 @@ class settings {
         if (root.containsKey(F("ntp"))) jsonNtp(root[F("ntp")]);
         if (root.containsKey(F("sun"))) jsonSun(root[F("sun")]);
         if (root.containsKey(F("serial"))) jsonSerial(root[F("serial")]);
-        if (root.containsKey(F("mqtt"))) jsonMqtt(root[F("mqtt")]);
         if (root.containsKey(F("led"))) jsonLed(root[F("led")]);
         if (root.containsKey(F("plugin"))) jsonPlugin(root[F("plugin")]);
         if (root.containsKey(F("inst"))) jsonInst(root[F("inst")]);
@@ -297,7 +285,6 @@ class settings {
     jsonNtp(root.createNestedObject(F("ntp")), true);
     jsonSun(root.createNestedObject(F("sun")), true);
     jsonSerial(root.createNestedObject(F("serial")), true);
-    jsonMqtt(root.createNestedObject(F("mqtt")), true);
     jsonLed(root.createNestedObject(F("led")), true);
     jsonPlugin(root.createNestedObject(F("plugin")), true);
     jsonInst(root.createNestedObject(F("inst")), true);
@@ -402,13 +389,6 @@ class settings {
     mCfg.serial.interval = SERIAL_INTERVAL;
     mCfg.serial.showIv = false;
     mCfg.serial.debug = false;
-
-    mCfg.mqtt.port = DEF_MQTT_PORT;
-    snprintf(mCfg.mqtt.broker, MQTT_ADDR_LEN, "%s", DEF_MQTT_BROKER);
-    snprintf(mCfg.mqtt.user, MQTT_USER_LEN, "%s", DEF_MQTT_USER);
-    snprintf(mCfg.mqtt.pwd, MQTT_PWD_LEN, "%s", DEF_MQTT_PWD);
-    snprintf(mCfg.mqtt.topic, MQTT_TOPIC_LEN, "%s", DEF_MQTT_TOPIC);
-    mCfg.mqtt.interval = 0;  // off
 
     mCfg.inst.rstYieldMidNight = false;
     mCfg.inst.rstValsNotAvail = false;
@@ -578,25 +558,6 @@ class settings {
       getVal<uint16_t>(obj, F("intvl"), &mCfg.serial.interval);
       getVal<bool>(obj, F("show"), &mCfg.serial.showIv);
       getVal<bool>(obj, F("debug"), &mCfg.serial.debug);
-    }
-  }
-
-  void jsonMqtt(JsonObject obj, bool set = false) {
-    if (set) {
-      obj[F("broker")] = mCfg.mqtt.broker;
-      obj[F("port")] = mCfg.mqtt.port;
-      obj[F("user")] = mCfg.mqtt.user;
-      obj[F("pwd")] = mCfg.mqtt.pwd;
-      obj[F("topic")] = mCfg.mqtt.topic;
-      obj[F("intvl")] = mCfg.mqtt.interval;
-
-    } else {
-      getVal<uint16_t>(obj, F("port"), &mCfg.mqtt.port);
-      getVal<uint16_t>(obj, F("intvl"), &mCfg.mqtt.interval);
-      getChar(obj, F("broker"), mCfg.mqtt.broker, MQTT_ADDR_LEN);
-      getChar(obj, F("user"), mCfg.mqtt.user, MQTT_USER_LEN);
-      getChar(obj, F("pwd"), mCfg.mqtt.pwd, MQTT_PWD_LEN);
-      getChar(obj, F("topic"), mCfg.mqtt.topic, MQTT_TOPIC_LEN);
     }
   }
 

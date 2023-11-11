@@ -13,6 +13,7 @@
 #include "hmDefines.h"
 #include "hmInverter.h"
 #include "hmPayload.h"
+#include "hmSystem.h"
 #include "template.h"
 #include "../../../haus/private.h"
 

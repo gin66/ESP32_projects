@@ -96,7 +96,15 @@ const int max_duty = 1 << resolution;
 //    520 => 12°C
 //    450 => 11.2°C
 //    440 => 11.1°C
+//
+// Uoutter_avg:
+//    500 => 598 Ohm => 7.0°C
 // 
+// U = R / (R+4.3k) * 3.3V * 4096/3.3V
+// U/4096 = R / (R+4.3k)
+// 4096 /U= 1+4.3k/R
+// (4096-U)/U = 4.3k/R
+// R = 4.3k*U/(4096-U)
 
 #define SCREEN_WIDTH 128  // OLED display width, in pixels
 #define SCREEN_HEIGHT 64  // OLED display height, in pixels

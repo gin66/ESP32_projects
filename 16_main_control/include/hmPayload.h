@@ -223,8 +223,8 @@ class HmPayload {
       Inverter *iv = mSys->getInverterByPos(id);
       if (NULL == iv) continue;  // skip to next inverter
 
-      if (IV_HM != iv->ivGen)  // only process HM inverters
-        continue;              // skip to next inverter
+      //if (IV_HM != iv->ivGen)  // only process HM inverters
+      //  continue;              // skip to next inverter
 
       if ((mPayload[iv->id].txId != (TX_REQ_INFO + ALL_FRAMES)) &&
           (0 != mPayload[iv->id].txId)) {
@@ -302,7 +302,7 @@ class HmPayload {
           // DBGHEXLN(mPayload[iv->id].txId);
           // DPRINT(DBG_DEBUG, F("procPyld: max:  "));
           // DPRINTLN(DBG_DEBUG, String(mPayload[iv->id].maxPackId));
-          record_t<> *rec =
+          record_t *rec =
               iv->getRecordStruct(mPayload[iv->id].txCmd);  // choose the parser
           mPayload[iv->id].complete = true;
 

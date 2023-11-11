@@ -99,10 +99,22 @@ const int max_duty = 1 << resolution;
 //
 // Uoutter_avg:
 //    500 => 598 Ohm => 7.0°C
+//    465 => 550 Ohm => 3.9°C
+//
+// B=-6030 with points as above and 7.0°C as T_0
+//
+// B=-5050
+// T_0 = 293K
+// R_0 = 2000Ohm
+// R(T) = R_0 * e^(B*(1/T-1/T_0))
 // 
+// or 
+//
+// T(R) = 1 / (1/B * ln(R(T)/R_0) + 1/T_0)
+//
 // U = R / (R+4.3k) * 3.3V * 4096/3.3V
 // U/4096 = R / (R+4.3k)
-// 4096 /U= 1+4.3k/R
+// 4096/U= 1+4.3k/R
 // (4096-U)/U = 4.3k/R
 // R = 4.3k*U/(4096-U)
 
@@ -115,7 +127,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 OneWire oneWire(10);
 DS18B20 tempsensor(&oneWire);
-#define TEMP_OFFSET 4.0
+#define TEMP_OFFSET 10.0
 
 // Control voltage:
 //    0-2.5V: Pump off
@@ -128,11 +140,13 @@ uint32_t control_voltage_mV = 0;
 uint16_t Usupply = 0;
 uint16_t Uoutter = 0;
 uint32_t Uoutter_avg = 0;
+float out_temp = 0;
 uint16_t Ucontrol = 0;
 uint32_t Usupply_mV = 0;
 uint32_t Ucontrol_mV = 0;
-float temp = 0.0;
-bool temp_valid = false;
+float inner_temp = 0.0;
+float inner_raw_temp = 0.0;
+bool inner_temp_valid = false;
 int dutycycle = max_duty;
 uint8_t nvs_err = 0;
 
@@ -175,8 +189,10 @@ void publish_func(DynamicJsonDocument *json) {
   (*json)["Ucontrol_mV_soll"] = control_voltage_mV;
   (*json)["dutycycle"] = dutycycle;
   (*json)["Vorlauf_temp"] = VORLAUF_TEMP(Ucontrol_mV);
-  if (temp_valid) {
-    (*json)["temp"] = temp;
+  (*json)["out_temp"] = out_temp;
+  if (inner_temp_valid) {
+    (*json)["inner_temp"] = inner_temp;
+    (*json)["inner_raw_temp"] = inner_raw_temp;
   }
 }
 
@@ -317,7 +333,7 @@ void display_temp_page(struct tm *timeinfo_p) {
            timeinfo_p);
   display.println(strftime_buf);
 
-  display.setTextSize(3);
+  display.setTextSize(2);
   if (Ucontrol_mV > 2500) {
     display.print(VORLAUF_TEMP(Ucontrol_mV));
     display.print(
@@ -327,14 +343,19 @@ void display_temp_page(struct tm *timeinfo_p) {
     display.print("AUS");
   }
   display.println();
-  if (temp_valid) {
-    display.print(temp);
+  if (inner_temp_valid) {
+    display.print(inner_temp);
     display.print(
         "\xf7"
         "C");
   } else {
     display.print("???");
   }
+  display.println();
+  display.print(out_temp, 1);
+  display.print(
+        "\xf7"
+        "C");
   display.display();
 }
 
@@ -377,9 +398,9 @@ void display_debug_page(struct tm *timeinfo_p) {
   display.print("=>");
   display.print(Usupply_mV);
   display.println("mV");
-  if (temp_valid) {
+  if (inner_temp_valid) {
     display.print("Temp=");
-    display.println(temp);
+    display.println(inner_temp);
   } else {
     display.println("Temp: not working");
   }
@@ -402,6 +423,13 @@ void loop() {
   // Uoutter is 0..<4096
   // Uoutter_avg is 32bit
   Uoutter_avg += Uoutter - (Uoutter_avg >> 8);
+  float tmp = Uoutter_avg / 256.0;
+  float R = 3400 * tmp / (4096.0 - tmp);
+  const float B = -6030;
+  const float T_0 = 273.15 + 7.0;
+  const float R_0 = 598;
+  tmp = log(R / R_0)/B + 1.0/T_0;
+  out_temp = 1.0 / tmp - 273.15;
 
   uint32_t ms_now = millis();
   uint32_t delta = ms_now - last_millis;
@@ -429,14 +457,15 @@ void loop() {
   if (temp_requested) {
     temp_requested = false;
     if (tempsensor.isConversionComplete()) {
-      temp = tempsensor.getTempC() - TEMP_OFFSET;
-      temp_valid = true;
+      inner_raw_temp = tempsensor.getTempC();
+      inner_temp = inner_raw_temp - TEMP_OFFSET;
+      inner_temp_valid = true;
     }
   } else if (tempsensor.isConnected(3)) {
     temp_requested = true;
     tempsensor.requestTemperatures();
   } else {
-    temp_valid = false;
+    inner_temp_valid = false;
   }
 
   struct tm timeinfo;

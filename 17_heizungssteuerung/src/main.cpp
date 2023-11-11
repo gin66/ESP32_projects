@@ -160,7 +160,7 @@ void publish_func(DynamicJsonDocument *json) {
   (*json)["nvs_err"] = nvs_err;
   (*json)["Usupply"] = Usupply;
   (*json)["Uoutter"] = Uoutter;
-  (*json)["Uoutter_avg"] = Uoutter_avg;
+  (*json)["Uoutter_avg"] = (Uoutter_avg+128)>>8;
   (*json)["Ucontrol"] = Ucontrol;
   (*json)["Usupply_mV"] = Usupply_mV;
   (*json)["Ucontrol_mV_ist"] = Ucontrol_mV;
@@ -363,7 +363,7 @@ void display_debug_page(struct tm *timeinfo_p) {
     display.println("AUS");
   }
   display.print("Uoutter=");
-  display.println(Uoutter_avg);
+  display.println((Uoutter_avg+128)>>8);
   display.print("Uin=");
   display.print(Usupply);
   display.print("=>");

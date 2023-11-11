@@ -119,7 +119,7 @@ uint32_t control_voltage_mV = 0;
 
 uint16_t Usupply = 0;
 uint16_t Uoutter = 0;
-uint16_t Uoutter_avg = 0;
+uint32_t Uoutter_avg = 0;
 uint16_t Ucontrol = 0;
 uint32_t Usupply_mV = 0;
 uint32_t Ucontrol_mV = 0;
@@ -392,7 +392,8 @@ void loop() {
   Ucontrol_mV /= 128;
 
   // Uoutter is 0..<4096
-  Uoutter_avg += Uoutter - (Uoutter_avg >> 4);
+  // Uoutter_avg is 32bit
+  Uoutter_avg += Uoutter - (Uoutter_avg >> 8);
 
   uint32_t ms_now = millis();
   uint32_t delta = ms_now - last_millis;

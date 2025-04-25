@@ -2,8 +2,8 @@
 #include "tpl_command.h"
 
 #include <Arduino.h>
-#include <driver/adc.h>
-#include <esp_int_wdt.h>
+//#include <esp_adc/adc_oneshot.h>
+#include <esp_private/esp_int_wdt.h>
 #include <esp_task_wdt.h>
 #include <esp_wifi.h>
 
@@ -98,8 +98,9 @@ void TaskCommandCore1(void *pvParameters) {
           //  => ping works, but no communication possible
           //  result of esp_wifi_stop() is not printed
           //  ==> set up watchdog for reset in case this does not work
-          esp_task_wdt_init(5, true);
-          esp_task_wdt_add(NULL);
+  	  const esp_task_wdt_config_t wdt_config = {
+	      .timeout_ms = 5000, .idle_core_mask = 1, .trigger_panic = true};
+	  esp_task_wdt_reconfigure(&wdt_config);
           esp_wifi_stop();
 #ifdef IS_ESP32CAM
           Serial.println("Prepare esp32cam for deepsleep");

@@ -226,7 +226,7 @@ void json_update(DynamicJsonDocument *json) {
 
 //---------------------------------------------------
 #define STACK_SIZE 2000
-#define PRIORITY configMAX_PRIORITIES
+#define PRIORITY configMAX_PRIORITIES-1
 #define POLLING_RATE_MS 1000
 
 uint16_t sml_base_id = 0;

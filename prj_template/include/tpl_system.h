@@ -1,7 +1,7 @@
 #include <Arduino.h>
 
-#include "../../private_bot.h"
-#include "../../private_sha.h"
+#include "../../../.private/private_bot.h"
+#include "../../../.private/private_sha.h"
 
 #define CORE_0 0
 #define CORE_1 1
@@ -87,9 +87,13 @@ void tpl_update_stack_info();
 void tpl_system_setup(uint32_t deep_sleep_secs = 0);
 bool tpl_write_config();
 
-extern RTC_DATA_ATTR uint16_t rtc_watchpoint;
+struct rtc_data_s {
+   uint16_t watchpoint;
+   uint32_t bootCount;
+};
+extern struct rtc_data_s rtc_data;
 #define WATCH(i)               \
   {                            \
-    rtc_watchpoint = i;        \
+    rtc_data.watchpoint = i;   \
     tpl_config.watchpoint = i; \
   }

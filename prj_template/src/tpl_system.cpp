@@ -1,12 +1,13 @@
 #include "tpl_system.h"
 
 #include <SPIFFS.h>
-#include <esp_int_wdt.h>
+#include <esp_private/esp_int_wdt.h>
 #include <esp_task_wdt.h>
 #include <rom/rtc.h>
 
-RTC_DATA_ATTR uint16_t rtc_watchpoint;
-static RTC_DATA_ATTR uint32_t bootCount = 0;
+RTC_DATA_ATTR struct rtc_data_s rtc_data = {
+   .bootCount = 0
+};
 
 struct tpl_task_s tpl_tasks = {.task_wifi_manager = NULL,
                                .task_net_watchdog = NULL,
@@ -103,8 +104,12 @@ static const char *reason[] = {
 
 void tpl_hard_restart() {
   // https://github.com/espressif/arduino-esp32/issues/1270
-  esp_task_wdt_init(1, true);
-  esp_task_wdt_add(NULL);
+  const esp_task_wdt_config_t twdt_config = {
+			.timeout_ms = 1000,
+			.idle_core_mask = (1 << configNUM_CORES) - 1,    // Bitmask of all cores,
+			.trigger_panic = true,
+	};
+  esp_task_wdt_reconfigure(&twdt_config);
   while (true)
     ;
 }
@@ -127,9 +132,9 @@ void TaskOnTimeWatchdog(void *pvParameters) {
 #endif
 
 void tpl_system_setup(uint32_t deep_sleep_secs) {
-  bootCount++;
-  tpl_config.bootCount = bootCount;
-  tpl_config.last_seen_watchpoint = rtc_watchpoint;
+  rtc_data.bootCount++;
+  tpl_config.bootCount = rtc_data.bootCount;
+  tpl_config.last_seen_watchpoint = rtc_data.watchpoint;
   uint16_t r0 = rtc_get_reset_reason(0);
   uint16_t r1 = rtc_get_reset_reason(1);
   tpl_config.reset_reason = (r0 << 8) | r1;

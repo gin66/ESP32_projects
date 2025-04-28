@@ -16,6 +16,7 @@ target/
 00_starter/data/serverindex.html
 00_starter/include/template.h
 00_starter/include/tpl_app_camera.h
+00_starter/include/tpl_broadcast.h
 00_starter/include/tpl_command.h
 00_starter/include/tpl_esp_camera.h
 00_starter/include/tpl_net_watchdog.h
@@ -26,6 +27,7 @@ target/
 00_starter/include/tpl_wifi.h
 00_starter/include/wifi_secrets.h
 00_starter/min_spiffs.csv
+00_starter/src/tpl_broadcast.cpp
 00_starter/src/tpl_command.cpp
 00_starter/src/tpl_esp_camera.cpp
 00_starter/src/tpl_net_watchdog.cpp
@@ -43,6 +45,7 @@ target/
 01_qrcode/data/serverindex.html
 01_qrcode/include/template.h
 01_qrcode/include/tpl_app_camera.h
+01_qrcode/include/tpl_broadcast.h
 01_qrcode/include/tpl_command.h
 01_qrcode/include/tpl_esp_camera.h
 01_qrcode/include/tpl_net_watchdog.h
@@ -53,6 +56,7 @@ target/
 01_qrcode/include/tpl_wifi.h
 01_qrcode/include/wifi_secrets.h
 01_qrcode/min_spiffs.csv
+01_qrcode/src/tpl_broadcast.cpp
 01_qrcode/src/tpl_command.cpp
 01_qrcode/src/tpl_esp_camera.cpp
 01_qrcode/src/tpl_net_watchdog.cpp
@@ -70,6 +74,7 @@ target/
 02_garage/data/serverindex.html
 02_garage/include/template.h
 02_garage/include/tpl_app_camera.h
+02_garage/include/tpl_broadcast.h
 02_garage/include/tpl_command.h
 02_garage/include/tpl_esp_camera.h
 02_garage/include/tpl_net_watchdog.h
@@ -80,6 +85,7 @@ target/
 02_garage/include/tpl_wifi.h
 02_garage/include/wifi_secrets.h
 02_garage/min_spiffs.csv
+02_garage/src/tpl_broadcast.cpp
 02_garage/src/tpl_command.cpp
 02_garage/src/tpl_esp_camera.cpp
 02_garage/src/tpl_net_watchdog.cpp
@@ -97,6 +103,7 @@ target/
 03_monitor/data/serverindex.html
 03_monitor/include/template.h
 03_monitor/include/tpl_app_camera.h
+03_monitor/include/tpl_broadcast.h
 03_monitor/include/tpl_command.h
 03_monitor/include/tpl_esp_camera.h
 03_monitor/include/tpl_net_watchdog.h
@@ -107,6 +114,7 @@ target/
 03_monitor/include/tpl_wifi.h
 03_monitor/include/wifi_secrets.h
 03_monitor/min_spiffs.csv
+03_monitor/src/tpl_broadcast.cpp
 03_monitor/src/tpl_command.cpp
 03_monitor/src/tpl_esp_camera.cpp
 03_monitor/src/tpl_net_watchdog.cpp
@@ -124,6 +132,7 @@ target/
 04_herd/data/serverindex.html
 04_herd/include/template.h
 04_herd/include/tpl_app_camera.h
+04_herd/include/tpl_broadcast.h
 04_herd/include/tpl_command.h
 04_herd/include/tpl_esp_camera.h
 04_herd/include/tpl_net_watchdog.h
@@ -134,6 +143,7 @@ target/
 04_herd/include/tpl_wifi.h
 04_herd/include/wifi_secrets.h
 04_herd/min_spiffs.csv
+04_herd/src/tpl_broadcast.cpp
 04_herd/src/tpl_command.cpp
 04_herd/src/tpl_esp_camera.cpp
 04_herd/src/tpl_net_watchdog.cpp
@@ -151,6 +161,7 @@ target/
 05_heizung/data/serverindex.html
 05_heizung/include/template.h
 05_heizung/include/tpl_app_camera.h
+05_heizung/include/tpl_broadcast.h
 05_heizung/include/tpl_command.h
 05_heizung/include/tpl_esp_camera.h
 05_heizung/include/tpl_net_watchdog.h
@@ -161,6 +172,7 @@ target/
 05_heizung/include/tpl_wifi.h
 05_heizung/include/wifi_secrets.h
 05_heizung/min_spiffs.csv
+05_heizung/src/tpl_broadcast.cpp
 05_heizung/src/tpl_command.cpp
 05_heizung/src/tpl_esp_camera.cpp
 05_heizung/src/tpl_net_watchdog.cpp
@@ -178,6 +190,7 @@ target/
 06_wasserzaehler/data/serverindex.html
 06_wasserzaehler/include/template.h
 06_wasserzaehler/include/tpl_app_camera.h
+06_wasserzaehler/include/tpl_broadcast.h
 06_wasserzaehler/include/tpl_command.h
 06_wasserzaehler/include/tpl_esp_camera.h
 06_wasserzaehler/include/tpl_net_watchdog.h
@@ -188,6 +201,7 @@ target/
 06_wasserzaehler/include/tpl_wifi.h
 06_wasserzaehler/include/wifi_secrets.h
 06_wasserzaehler/min_spiffs.csv
+06_wasserzaehler/src/tpl_broadcast.cpp
 06_wasserzaehler/src/tpl_command.cpp
 06_wasserzaehler/src/tpl_esp_camera.cpp
 06_wasserzaehler/src/tpl_net_watchdog.cpp
@@ -211,6 +225,7 @@ target/
 07_testbot/data/serverindex.html
 07_testbot/include/template.h
 07_testbot/include/tpl_app_camera.h
+07_testbot/include/tpl_broadcast.h
 07_testbot/include/tpl_command.h
 07_testbot/include/tpl_esp_camera.h
 07_testbot/include/tpl_net_watchdog.h
@@ -221,6 +236,7 @@ target/
 07_testbot/include/tpl_wifi.h
 07_testbot/include/wifi_secrets.h
 07_testbot/min_spiffs.csv
+07_testbot/src/tpl_broadcast.cpp
 07_testbot/src/tpl_command.cpp
 07_testbot/src/tpl_esp_camera.cpp
 07_testbot/src/tpl_net_watchdog.cpp
@@ -238,6 +254,7 @@ target/
 08_eink/data/serverindex.html
 08_eink/include/template.h
 08_eink/include/tpl_app_camera.h
+08_eink/include/tpl_broadcast.h
 08_eink/include/tpl_command.h
 08_eink/include/tpl_esp_camera.h
 08_eink/include/tpl_net_watchdog.h
@@ -248,6 +265,7 @@ target/
 08_eink/include/tpl_wifi.h
 08_eink/include/wifi_secrets.h
 08_eink/min_spiffs.csv
+08_eink/src/tpl_broadcast.cpp
 08_eink/src/tpl_command.cpp
 08_eink/src/tpl_esp_camera.cpp
 08_eink/src/tpl_net_watchdog.cpp
@@ -265,6 +283,7 @@ target/
 09_psramcheck/data/serverindex.html
 09_psramcheck/include/template.h
 09_psramcheck/include/tpl_app_camera.h
+09_psramcheck/include/tpl_broadcast.h
 09_psramcheck/include/tpl_command.h
 09_psramcheck/include/tpl_esp_camera.h
 09_psramcheck/include/tpl_net_watchdog.h
@@ -275,6 +294,7 @@ target/
 09_psramcheck/include/tpl_wifi.h
 09_psramcheck/include/wifi_secrets.h
 09_psramcheck/min_spiffs.csv
+09_psramcheck/src/tpl_broadcast.cpp
 09_psramcheck/src/tpl_command.cpp
 09_psramcheck/src/tpl_esp_camera.cpp
 09_psramcheck/src/tpl_net_watchdog.cpp
@@ -292,6 +312,7 @@ target/
 10_mpu6050/data/serverindex.html
 10_mpu6050/include/template.h
 10_mpu6050/include/tpl_app_camera.h
+10_mpu6050/include/tpl_broadcast.h
 10_mpu6050/include/tpl_command.h
 10_mpu6050/include/tpl_esp_camera.h
 10_mpu6050/include/tpl_net_watchdog.h
@@ -302,6 +323,7 @@ target/
 10_mpu6050/include/tpl_wifi.h
 10_mpu6050/include/wifi_secrets.h
 10_mpu6050/min_spiffs.csv
+10_mpu6050/src/tpl_broadcast.cpp
 10_mpu6050/src/tpl_command.cpp
 10_mpu6050/src/tpl_esp_camera.cpp
 10_mpu6050/src/tpl_net_watchdog.cpp
@@ -319,6 +341,7 @@ target/
 11_esp32cam_servo/data/serverindex.html
 11_esp32cam_servo/include/template.h
 11_esp32cam_servo/include/tpl_app_camera.h
+11_esp32cam_servo/include/tpl_broadcast.h
 11_esp32cam_servo/include/tpl_command.h
 11_esp32cam_servo/include/tpl_esp_camera.h
 11_esp32cam_servo/include/tpl_net_watchdog.h
@@ -329,6 +352,7 @@ target/
 11_esp32cam_servo/include/tpl_wifi.h
 11_esp32cam_servo/include/wifi_secrets.h
 11_esp32cam_servo/min_spiffs.csv
+11_esp32cam_servo/src/tpl_broadcast.cpp
 11_esp32cam_servo/src/tpl_command.cpp
 11_esp32cam_servo/src/tpl_esp_camera.cpp
 11_esp32cam_servo/src/tpl_net_watchdog.cpp
@@ -346,6 +370,7 @@ target/
 12_esp32cam_stepper/data/serverindex.html
 12_esp32cam_stepper/include/template.h
 12_esp32cam_stepper/include/tpl_app_camera.h
+12_esp32cam_stepper/include/tpl_broadcast.h
 12_esp32cam_stepper/include/tpl_command.h
 12_esp32cam_stepper/include/tpl_esp_camera.h
 12_esp32cam_stepper/include/tpl_net_watchdog.h
@@ -356,6 +381,7 @@ target/
 12_esp32cam_stepper/include/tpl_wifi.h
 12_esp32cam_stepper/include/wifi_secrets.h
 12_esp32cam_stepper/min_spiffs.csv
+12_esp32cam_stepper/src/tpl_broadcast.cpp
 12_esp32cam_stepper/src/tpl_command.cpp
 12_esp32cam_stepper/src/tpl_esp_camera.cpp
 12_esp32cam_stepper/src/tpl_net_watchdog.cpp
@@ -373,6 +399,7 @@ target/
 13_s0_reader/data/serverindex.html
 13_s0_reader/include/template.h
 13_s0_reader/include/tpl_app_camera.h
+13_s0_reader/include/tpl_broadcast.h
 13_s0_reader/include/tpl_command.h
 13_s0_reader/include/tpl_esp_camera.h
 13_s0_reader/include/tpl_net_watchdog.h
@@ -383,6 +410,7 @@ target/
 13_s0_reader/include/tpl_wifi.h
 13_s0_reader/include/wifi_secrets.h
 13_s0_reader/min_spiffs.csv
+13_s0_reader/src/tpl_broadcast.cpp
 13_s0_reader/src/tpl_command.cpp
 13_s0_reader/src/tpl_esp_camera.cpp
 13_s0_reader/src/tpl_net_watchdog.cpp
@@ -400,6 +428,7 @@ target/
 14_power_control/data/serverindex.html
 14_power_control/include/template.h
 14_power_control/include/tpl_app_camera.h
+14_power_control/include/tpl_broadcast.h
 14_power_control/include/tpl_command.h
 14_power_control/include/tpl_esp_camera.h
 14_power_control/include/tpl_net_watchdog.h
@@ -410,6 +439,7 @@ target/
 14_power_control/include/tpl_wifi.h
 14_power_control/include/wifi_secrets.h
 14_power_control/min_spiffs.csv
+14_power_control/src/tpl_broadcast.cpp
 14_power_control/src/tpl_command.cpp
 14_power_control/src/tpl_esp_camera.cpp
 14_power_control/src/tpl_net_watchdog.cpp
@@ -427,6 +457,7 @@ target/
 15_power_log_eink/data/serverindex.html
 15_power_log_eink/include/template.h
 15_power_log_eink/include/tpl_app_camera.h
+15_power_log_eink/include/tpl_broadcast.h
 15_power_log_eink/include/tpl_command.h
 15_power_log_eink/include/tpl_esp_camera.h
 15_power_log_eink/include/tpl_net_watchdog.h
@@ -437,6 +468,7 @@ target/
 15_power_log_eink/include/tpl_wifi.h
 15_power_log_eink/include/wifi_secrets.h
 15_power_log_eink/min_spiffs.csv
+15_power_log_eink/src/tpl_broadcast.cpp
 15_power_log_eink/src/tpl_command.cpp
 15_power_log_eink/src/tpl_esp_camera.cpp
 15_power_log_eink/src/tpl_net_watchdog.cpp
@@ -454,6 +486,7 @@ target/
 16_main_control/data/serverindex.html
 16_main_control/include/template.h
 16_main_control/include/tpl_app_camera.h
+16_main_control/include/tpl_broadcast.h
 16_main_control/include/tpl_command.h
 16_main_control/include/tpl_esp_camera.h
 16_main_control/include/tpl_net_watchdog.h
@@ -464,6 +497,7 @@ target/
 16_main_control/include/tpl_wifi.h
 16_main_control/include/wifi_secrets.h
 16_main_control/min_spiffs.csv
+16_main_control/src/tpl_broadcast.cpp
 16_main_control/src/tpl_command.cpp
 16_main_control/src/tpl_esp_camera.cpp
 16_main_control/src/tpl_net_watchdog.cpp
@@ -481,6 +515,7 @@ target/
 17_heizungssteuerung/data/serverindex.html
 17_heizungssteuerung/include/template.h
 17_heizungssteuerung/include/tpl_app_camera.h
+17_heizungssteuerung/include/tpl_broadcast.h
 17_heizungssteuerung/include/tpl_command.h
 17_heizungssteuerung/include/tpl_esp_camera.h
 17_heizungssteuerung/include/tpl_net_watchdog.h
@@ -491,6 +526,7 @@ target/
 17_heizungssteuerung/include/tpl_wifi.h
 17_heizungssteuerung/include/wifi_secrets.h
 17_heizungssteuerung/min_spiffs.csv
+17_heizungssteuerung/src/tpl_broadcast.cpp
 17_heizungssteuerung/src/tpl_command.cpp
 17_heizungssteuerung/src/tpl_esp_camera.cpp
 17_heizungssteuerung/src/tpl_net_watchdog.cpp

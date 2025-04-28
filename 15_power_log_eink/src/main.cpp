@@ -54,6 +54,7 @@ uint32_t file_log_error_cnt = 0;
 
 float consumption_Wh = 0.0;
 float production_Wh = 0.0;
+float current_W = 0.0;
 struct sml_buffer_s {
   time_t receive_time;
   int16_t valid_bytes;
@@ -150,6 +151,7 @@ void publish(DynamicJsonDocument *json, sml_file *file) {
               value = -value;
             }
             (*json)["Power_W"] = value;
+            current_W = value;
           }
         } else if (entry->value->type == SML_TYPE_OCTET_STRING) {
           char *value;
@@ -299,6 +301,68 @@ static void handle_rx_message(twai_message_t &message) {
   }
 }
 
+void DisplayTask(void *parameter) {
+  display.init();  // enable diagnostic output on Serial
+
+  display.setRotation(1);
+  display.fillScreen(GxEPD_WHITE);
+  display.setTextColor(GxEPD_BLACK);
+  display.setFont(&FreeMonoBold9pt7b);
+  display.setCursor(1, 0);
+  while (true) {
+  display.fillScreen(GxEPD_WHITE);
+
+  display.setCursor(0, 10);
+
+  display.print(WiFi.SSID());
+  display.print(" ");
+  display.println(WiFi.localIP());
+
+  char strftime_buf[64];
+  struct tm timeinfo;
+  time_t now = time(nullptr);
+  localtime_r(&now, &timeinfo);
+  strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M ", &timeinfo);
+  display.println(strftime_buf);
+
+  char line[64];
+  sprintf(line,"Used:   %.3f kWh", consumption_Wh/1000);
+  display.println(line);
+  sprintf(line,"Make:   %.3f kWh", production_Wh/1000);
+  display.println(line);
+  sprintf(line,"Actual: %.1f W", current_W);
+  display.println(line);
+
+  display.setTextColor(GxEPD_BLACK);
+
+  display.setCursor(0, display.height() - 10);
+
+  display.print("SDCard:");
+  if (sdOK) {
+    uint32_t cardSize = SD.cardSize() / (1024 * 1024);
+    uint8_t cardType = SD.cardType();
+
+    if (cardType == CARD_MMC) {
+      display.print("MMC ");
+    } else if (cardType == CARD_SD) {
+      display.print("SDSC ");
+    } else if (cardType == CARD_SDHC) {
+      display.print("SDHC ");
+    } else {
+      display.print("UNKNOWN ");
+    }
+    display.print(cardSize);
+    display.println("MB");
+  } else {
+    display.println("None");
+  }
+
+  display.update();
+  const TickType_t xDelay = 30000 / portTICK_PERIOD_MS;
+  vTaskDelay(xDelay);
+  }
+}
+
 void CANTask(void *parameter) {
   while (true) {
     // Check if alert happened
@@ -390,13 +454,7 @@ void setup() {
   });
 
   SPI.begin(SPI_CLK, SPI_MISO, SPI_MOSI, ELINK_SS);
-  display.init();  // enable diagnostic output on Serial
-
-  display.setRotation(1);
-  display.fillScreen(GxEPD_WHITE);
-  display.setTextColor(GxEPD_BLACK);
-  display.setFont(&FreeMonoBold9pt7b);
-  display.setCursor(0, 0);
+  xTaskCreate(DisplayTask, "DisplayTask", STACK_SIZE, NULL, 0, NULL);
 
   sdSPI.begin(SDCARD_CLK, SDCARD_MISO, SDCARD_MOSI, SDCARD_SS);
 
@@ -431,6 +489,8 @@ void setup() {
     return;
   }
 
+  tpl_broadcast_setup();
+
   // Reconfigure alerts to detect frame receive, Bus-Off error and RX queue
   // full states
   uint32_t alerts_to_enable = TWAI_ALERT_RX_DATA | TWAI_ALERT_ERR_PASS |
@@ -444,49 +504,6 @@ void setup() {
     return;
   }
   Serial.println("Setup done.");
-}
-
-void update_display() {
-  display.fillScreen(GxEPD_WHITE);
-
-  display.setCursor(0, 10);
-
-  display.print(WiFi.SSID());
-  display.print(" ");
-  display.println(WiFi.localIP());
-
-  char strftime_buf[64];
-  struct tm timeinfo;
-  time_t now = time(nullptr);
-  localtime_r(&now, &timeinfo);
-  strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M ", &timeinfo);
-  display.println(strftime_buf);
-
-  display.setTextColor(GxEPD_BLACK);
-
-  display.setCursor(0, display.height() - 10);
-
-  display.print("SDCard:");
-  if (sdOK) {
-    uint32_t cardSize = SD.cardSize() / (1024 * 1024);
-    uint8_t cardType = SD.cardType();
-
-    if (cardType == CARD_MMC) {
-      display.print("MMC ");
-    } else if (cardType == CARD_SD) {
-      display.print("SDSC ");
-    } else if (cardType == CARD_SDHC) {
-      display.print("SDHC ");
-    } else {
-      display.print("UNKNOWN ");
-    }
-    display.print(cardSize);
-    display.println("MB");
-  } else {
-    display.println("None");
-  }
-
-  display.update();
 }
 
 void log_to_sdcard(struct tm *timeinfo) {
@@ -525,6 +542,7 @@ void log_to_sdcard(struct tm *timeinfo) {
 }
 
 uint32_t next_stack_info = 0;
+uint32_t no_ip_ms = 0;
 
 uint8_t last_sec = 255;
 void loop() {
@@ -549,14 +567,55 @@ void loop() {
     message.data[1] = timeinfo.tm_min;
     message.data[2] = timeinfo.tm_hour;
     message.data[3] = timeinfo.tm_wday;
-    twai_transmit(&message, portMAX_DELAY);
+    twai_status_info_t status;
+    twai_get_status_info(&status);
+    if (status.msgs_to_tx < 5) {
+      twai_transmit(&message, portMAX_DELAY);
+    }
+    else {
+      Serial.println("CAN TX queue full");
+    }
+
+    // broadcast
+    struct packet_s {
+        uint8_t tm_sec;
+        uint8_t tm_min;
+        uint8_t tm_hour;
+        uint8_t tm_wday;
+	float consumption_Wh;
+	float production_Wh;
+	float current_W;
+    } packet;
+    packet.consumption_Wh = consumption_Wh;
+    packet.production_Wh = production_Wh;
+    packet.current_W = current_W;
+    packet.tm_sec = timeinfo.tm_sec;
+    packet.tm_min = timeinfo.tm_min;
+    packet.tm_hour = timeinfo.tm_hour;
+    packet.tm_wday = timeinfo.tm_wday;
+    if ((packet.consumption_Wh == consumption_Wh) &&
+        (packet.production_Wh == production_Wh) &&
+        (packet.current_W == current_W)) {
+       // ensure to get consistent values (no partial writes)
+       tpl_broadcast((uint8_t *)&packet, sizeof(packet));
+    }
 
     if (timeinfo.tm_sec == 0) {
-      Serial.println("update display");
-      update_display();
+      Serial.println("log to sdcard");
       log_to_sdcard(&timeinfo);
     }
   }
+  // Check if IP is 0.0.0.0
+  IPAddress localIP = WiFi.localIP();
+  if (localIP == IPAddress(0, 0, 0, 0)) {
+     if (ms - no_ip_ms > 5*60*1000) {
+       ESP.restart();
+     }
+  }
+  else {
+     no_ip_ms = ms;
+  }
+
   const TickType_t xDelay = 100 / portTICK_PERIOD_MS;
   vTaskDelay(xDelay);
 }

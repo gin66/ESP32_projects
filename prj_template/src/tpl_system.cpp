@@ -1,7 +1,8 @@
 #include "tpl_system.h"
 
 #include <SPIFFS.h>
-#include <esp_private/esp_int_wdt.h>
+//#include <esp_private/esp_int_wdt.h>
+#include <esp_int_wdt.h>
 #include <esp_task_wdt.h>
 #include <rom/rtc.h>
 
@@ -104,12 +105,14 @@ static const char *reason[] = {
 
 void tpl_hard_restart() {
   // https://github.com/espressif/arduino-esp32/issues/1270
-  const esp_task_wdt_config_t twdt_config = {
-			.timeout_ms = 1000,
-			.idle_core_mask = (1 << configNUM_CORES) - 1,    // Bitmask of all cores,
-			.trigger_panic = true,
-	};
-  esp_task_wdt_reconfigure(&twdt_config);
+  // const esp_task_wdt_config_t twdt_config = {
+  //			.timeout_ms = 1000,
+  //			.idle_core_mask = (1 << configNUM_CORES) - 1,    // Bitmask of all cores,
+  //			.trigger_panic = true,
+  //	};
+  // esp_task_wdt_reconfigure(&twdt_config);
+  esp_task_wdt_init(1, true);
+  esp_task_wdt_add(NULL);
   while (true)
     ;
 }

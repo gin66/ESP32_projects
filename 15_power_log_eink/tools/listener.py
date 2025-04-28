@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import socket
+import struct
 
 # UDP settings
 UDP_IP = "0.0.0.0"  # Listen on all interfaces
@@ -15,4 +16,9 @@ print(f"Listening for UDP broadcasts on port {UDP_PORT}...")
 
 while True:
     data, addr = sock.recvfrom(1024)  # Buffer size for receiving
-    print(f"Received packet from {addr}: {data}")
+    if len(data) == 16:
+        tm_sec,tm_min,tm_hour,tm_wday,consume_Wh,produce_Wh,current_W = struct.unpack('<4B3f',data)
+        print(f"{addr}: {tm_wday}:{tm_hour}:{tm_min}:{tm_sec} used={consume_Wh}Wh produced={produce_Wh}Wh actual={current_W}W")
+    else:
+        print(f"Received packet from {addr}: {data}")
+

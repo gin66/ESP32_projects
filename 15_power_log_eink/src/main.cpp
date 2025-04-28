@@ -102,12 +102,49 @@ struct sml_buffer_s {
 // , Datum 1-0:96.90.2*255(F0F6)               Prüfsumme - CRC der eingestellten
 // Parameter 1-0:97.97.0*255(00000000)           FF - Status Register - Interner
 // Gerätefehler
-void publish(DynamicJsonDocument *json, sml_file *file) {
-  (*json)["in_publish"] = true;
+const uint8_t sml_header[8] = {0x1b, 0x1b, 0x1b, 0x1b, 0x01, 0x01, 0x01, 0x01};
+
+void json_publish(DynamicJsonDocument *json) {
+  (*json)["publish"] = "called";
+  //(*json)["valid_sml"] = file->messages_len;
+  //(*json)["sml_time"] = buf->receive_time;
+  (*json)["sml_error"] = sml_error_cnt;
+  (*json)["Consumption_Wh"] = consumption_Wh;
+  (*json)["Production_Wh"] = production_Wh;
+  (*json)["Power_W"] = current_W;
+}
+
+void json_update(DynamicJsonDocument *json) {
+  //  if (json->containsKey("moveBoth")) {
+  //    int32_t steps = (*json)["moveBoth"];
+  //    stepper1->move(steps);
+  //    stepper2->move(steps);
+  //  }
+}
+
+//---------------------------------------------------
+#define STACK_SIZE 2000
+#define PRIORITY configMAX_PRIORITIES - 1
+#define POLLING_RATE_MS 1000
+
+uint16_t sml_base_id = 0;
+uint16_t sml_received_length = 0;
+int8_t receive_buffer = 0;
+uint32_t can_tx_error_cnt = 0;
+uint32_t can_tx_retry_cnt = 0;
+uint32_t can_rx_error_cnt = 0;
+uint32_t can_rx_queue_full_cnt = 0;
+uint32_t can_error_passive_cnt = 0;
+uint32_t can_error_bus_error_cnt = 0;
+uint32_t can_receive_cnt = 0;
+
+void sml_publish(sml_file *file) {
   for (int i = 0; i < file->messages_len; i++) {
     char name[20];
     sprintf(name, "Name %d", i);
     sml_message *message = file->messages[i];
+    //(*json)["valid_sml"] = file->messages_len;
+    //(*json)["sml_time"] = buf->receive_time;
     if (*message->message_body->tag == SML_MESSAGE_OPEN_RESPONSE) {
     } else if (*message->message_body->tag == SML_MESSAGE_CLOSE_RESPONSE) {
     } else if (*message->message_body->tag == SML_MESSAGE_GET_LIST_RESPONSE) {
@@ -137,110 +174,80 @@ void publish(DynamicJsonDocument *json, sml_file *file) {
           int prec = -scaler;
           if (prec < 0) prec = 0;
           value = value * pow(10, scaler);
-          sprintf(buffer, "%s %.*f", obisIdentifier, prec, value);
-          (*json)[name] = buffer;
+          // sprintf(buffer, "%s %.*f", obisIdentifier, prec, value);
+          //(*json)[name] = buffer;
           if (strcmp(obisIdentifier, "1-0:1.8.0/255") == 0) {
-            (*json)["Consumption_Wh"] = value;
             consumption_Wh = value;
           } else if (strcmp(obisIdentifier, "1-0:2.8.0/255") == 0) {
-            (*json)["Production_Wh"] = value;
             production_Wh = value;
           } else if (strcmp(obisIdentifier, "1-0:16.7.0/255") == 0) {
             if (entry->status &&
                 ((*entry->status->data.status16 & 0x20) != 0)) {
               value = -value;
             }
-            (*json)["Power_W"] = value;
             current_W = value;
           }
-        } else if (entry->value->type == SML_TYPE_OCTET_STRING) {
-          char *value;
-          sml_value_to_strhex(entry->value, &value, true);
-          (*json)[name] = value;
-          free(value);
-        } else if (entry->value->type == SML_TYPE_BOOLEAN) {
-          (*json)[name] = entry->value->data.boolean;
+          //        } else if (entry->value->type == SML_TYPE_OCTET_STRING) {
+          //          char *value;
+          //          sml_value_to_strhex(entry->value, &value, true);
+          //          (*json)[name] = value;
+          //          free(value);
+          //        } else if (entry->value->type == SML_TYPE_BOOLEAN) {
+          //          (*json)[name] = entry->value->data.boolean;
         }
 
-        else {
-          sprintf(buffer, "Unknown %s %d", obisIdentifier,
-                  entry->value->type & SML_TYPE_FIELD);
-          (*json)[name] = buffer;
-        }
+        //        else {
+        //          sprintf(buffer, "Unknown %s %d", obisIdentifier,
+        //                  entry->value->type & SML_TYPE_FIELD);
+        //          (*json)[name] = buffer;
+        //        }
       }
     } else {
-      sprintf(name, "Unknown_tag %d", i);
-      (*json)[name] = *message->message_body->tag;
+      //      sprintf(name, "Unknown_tag %d", i);
+      //      (*json)[name] = *message->message_body->tag;
     }
   }
 }
 
-const uint8_t sml_header[8] = {0x1b, 0x1b, 0x1b, 0x1b, 0x01, 0x01, 0x01, 0x01};
-
-void json_publish(DynamicJsonDocument *json) {
-  (*json)["publish"] = "called";
-  for (uint8_t i = 0; i < 3; i++) {
-    struct sml_buffer_s *buf = &sml_buffers[i];
-    if (buf->locked || buf->valid_bytes < 0) {
-      continue;
-    }
-    buf->locked = true;
-    // read back, if it was really locked
-    if (buf->locked) {
-      if (buf->valid_bytes >= 0) {
-        (*json)["can_b64"] = base64::encode(&buf->data[2], buf->valid_bytes);
-        bool err = true;
-        if (buf->valid_bytes > 16) {
-          if (memcmp(&buf->data[2], sml_header, 8) == 0) {
-            uint16_t chksum =
-                sml_crc16_calculate(&buf->data[2], buf->valid_bytes - 2);
-            if (((chksum >> 8) == buf->data[buf->valid_bytes]) &&
-                ((chksum & 0xff) == buf->data[buf->valid_bytes + 1])) {
-              sml_file *file =
-                  sml_file_parse(&buf->data[2 + 8], buf->valid_bytes - 16);
-              (*json)["valid_sml"] = file->messages_len;
-              (*json)["sml_time"] = buf->receive_time;
-              publish(json, file);
-              sml_file_free(file);
-              err = false;
+void SMLTask(void *parameter) {
+  while (true) {
+    for (uint8_t i = 0; i < 3; i++) {
+      struct sml_buffer_s *buf = &sml_buffers[i];
+      if (buf->locked || buf->valid_bytes < 0) {
+        continue;
+      }
+      buf->locked = true;
+      // read back, if it was really locked
+      if (buf->locked) {
+        if (buf->valid_bytes >= 0) {
+          bool err = true;
+          if (buf->valid_bytes > 16) {
+            if (memcmp(&buf->data[2], sml_header, 8) == 0) {
+              uint16_t chksum =
+                  sml_crc16_calculate(&buf->data[2], buf->valid_bytes - 2);
+              if (((chksum >> 8) == buf->data[buf->valid_bytes]) &&
+                  ((chksum & 0xff) == buf->data[buf->valid_bytes + 1])) {
+                sml_file *file =
+                    sml_file_parse(&buf->data[2 + 8], buf->valid_bytes - 16);
+                sml_publish(file);
+                sml_file_free(file);
+                err = false;
+              }
             }
           }
-        }
-        if (err) {
-          (*json)["sml_error"] = true;
-          sml_error_cnt++;
+          if (err) {
+            sml_error_cnt++;
+          }
+          buf->locked = false;
+          break;
         }
         buf->locked = false;
-        break;
       }
-      buf->locked = false;
     }
+    const TickType_t xDelay = 100 / portTICK_PERIOD_MS;
+    vTaskDelay(xDelay);
   }
 }
-
-void json_update(DynamicJsonDocument *json) {
-  //  if (json->containsKey("moveBoth")) {
-  //    int32_t steps = (*json)["moveBoth"];
-  //    stepper1->move(steps);
-  //    stepper2->move(steps);
-  //  }
-}
-
-//---------------------------------------------------
-#define STACK_SIZE 2000
-#define PRIORITY configMAX_PRIORITIES-1
-#define POLLING_RATE_MS 1000
-
-uint16_t sml_base_id = 0;
-uint16_t sml_received_length = 0;
-int8_t receive_buffer = 0;
-uint32_t can_tx_error_cnt = 0;
-uint32_t can_tx_retry_cnt = 0;
-uint32_t can_rx_error_cnt = 0;
-uint32_t can_rx_queue_full_cnt = 0;
-uint32_t can_error_passive_cnt = 0;
-uint32_t can_error_bus_error_cnt = 0;
-uint32_t can_receive_cnt = 0;
 
 static void handle_rx_message(twai_message_t &message) {
   // Process received message
@@ -310,56 +317,56 @@ void DisplayTask(void *parameter) {
   display.setFont(&FreeMonoBold9pt7b);
   display.setCursor(1, 0);
   while (true) {
-  display.fillScreen(GxEPD_WHITE);
+    display.fillScreen(GxEPD_WHITE);
 
-  display.setCursor(0, 10);
+    display.setCursor(0, 10);
 
-  display.print(WiFi.SSID());
-  display.print(" ");
-  display.println(WiFi.localIP());
+    display.print(WiFi.SSID());
+    display.print(" ");
+    display.println(WiFi.localIP());
 
-  char strftime_buf[64];
-  struct tm timeinfo;
-  time_t now = time(nullptr);
-  localtime_r(&now, &timeinfo);
-  strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M ", &timeinfo);
-  display.println(strftime_buf);
+    char strftime_buf[64];
+    struct tm timeinfo;
+    time_t now = time(nullptr);
+    localtime_r(&now, &timeinfo);
+    strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M ", &timeinfo);
+    display.println(strftime_buf);
 
-  char line[64];
-  sprintf(line,"Used:   %.3f kWh", consumption_Wh/1000);
-  display.println(line);
-  sprintf(line,"Make:   %.3f kWh", production_Wh/1000);
-  display.println(line);
-  sprintf(line,"Actual: %.1f W", current_W);
-  display.println(line);
+    char line[64];
+    sprintf(line, "Used:   %.3f kWh", consumption_Wh / 1000);
+    display.println(line);
+    sprintf(line, "Make:   %.3f kWh", production_Wh / 1000);
+    display.println(line);
+    sprintf(line, "Actual: %.1f W", current_W);
+    display.println(line);
 
-  display.setTextColor(GxEPD_BLACK);
+    display.setTextColor(GxEPD_BLACK);
 
-  display.setCursor(0, display.height() - 10);
+    display.setCursor(0, display.height() - 10);
 
-  display.print("SDCard:");
-  if (sdOK) {
-    uint32_t cardSize = SD.cardSize() / (1024 * 1024);
-    uint8_t cardType = SD.cardType();
+    display.print("SDCard:");
+    if (sdOK) {
+      uint32_t cardSize = SD.cardSize() / (1024 * 1024);
+      uint8_t cardType = SD.cardType();
 
-    if (cardType == CARD_MMC) {
-      display.print("MMC ");
-    } else if (cardType == CARD_SD) {
-      display.print("SDSC ");
-    } else if (cardType == CARD_SDHC) {
-      display.print("SDHC ");
+      if (cardType == CARD_MMC) {
+        display.print("MMC ");
+      } else if (cardType == CARD_SD) {
+        display.print("SDSC ");
+      } else if (cardType == CARD_SDHC) {
+        display.print("SDHC ");
+      } else {
+        display.print("UNKNOWN ");
+      }
+      display.print(cardSize);
+      display.println("MB");
     } else {
-      display.print("UNKNOWN ");
+      display.println("None");
     }
-    display.print(cardSize);
-    display.println("MB");
-  } else {
-    display.println("None");
-  }
 
-  display.update();
-  const TickType_t xDelay = 30000 / portTICK_PERIOD_MS;
-  vTaskDelay(xDelay);
+    display.update();
+    const TickType_t xDelay = 30000 / portTICK_PERIOD_MS;
+    vTaskDelay(xDelay);
   }
 }
 
@@ -455,6 +462,8 @@ void setup() {
 
   SPI.begin(SPI_CLK, SPI_MISO, SPI_MOSI, ELINK_SS);
   xTaskCreate(DisplayTask, "DisplayTask", STACK_SIZE, NULL, 0, NULL);
+
+  xTaskCreate(SMLTask, "SMLTask", STACK_SIZE, NULL, 0, NULL);
 
   sdSPI.begin(SDCARD_CLK, SDCARD_MISO, SDCARD_MOSI, SDCARD_SS);
 
@@ -571,20 +580,19 @@ void loop() {
     twai_get_status_info(&status);
     if (status.msgs_to_tx < 5) {
       twai_transmit(&message, portMAX_DELAY);
-    }
-    else {
+    } else {
       Serial.println("CAN TX queue full");
     }
 
     // broadcast
     struct packet_s {
-        uint8_t tm_sec;
-        uint8_t tm_min;
-        uint8_t tm_hour;
-        uint8_t tm_wday;
-	float consumption_Wh;
-	float production_Wh;
-	float current_W;
+      uint8_t tm_sec;
+      uint8_t tm_min;
+      uint8_t tm_hour;
+      uint8_t tm_wday;
+      float consumption_Wh;
+      float production_Wh;
+      float current_W;
     } packet;
     packet.consumption_Wh = consumption_Wh;
     packet.production_Wh = production_Wh;
@@ -596,8 +604,8 @@ void loop() {
     if ((packet.consumption_Wh == consumption_Wh) &&
         (packet.production_Wh == production_Wh) &&
         (packet.current_W == current_W)) {
-       // ensure to get consistent values (no partial writes)
-       tpl_broadcast((uint8_t *)&packet, sizeof(packet));
+      // ensure to get consistent values (no partial writes)
+      tpl_broadcast((uint8_t *)&packet, sizeof(packet));
     }
 
     if (timeinfo.tm_sec == 0) {
@@ -608,12 +616,11 @@ void loop() {
   // Check if IP is 0.0.0.0
   IPAddress localIP = WiFi.localIP();
   if (localIP == IPAddress(0, 0, 0, 0)) {
-     if (ms - no_ip_ms > 5*60*1000) {
-       ESP.restart();
-     }
-  }
-  else {
-     no_ip_ms = ms;
+    if (ms - no_ip_ms > 5 * 60 * 1000) {
+      ESP.restart();
+    }
+  } else {
+    no_ip_ms = ms;
   }
 
   const TickType_t xDelay = 100 / portTICK_PERIOD_MS;

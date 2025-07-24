@@ -1,0 +1,1 @@
+../../prj_template/include/tpl_app_camera.h

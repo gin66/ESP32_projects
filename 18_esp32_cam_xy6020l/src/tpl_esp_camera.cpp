@@ -1,0 +1,1 @@
+../../prj_template/src/tpl_esp_camera.cpp

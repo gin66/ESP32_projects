@@ -1,0 +1,1 @@
+../../prj_template/tools/stacktrace.sh

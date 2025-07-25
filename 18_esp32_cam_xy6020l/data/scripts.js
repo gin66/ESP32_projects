@@ -322,7 +322,7 @@ var board_definition_esp32_cam = `
 	</thead>
 	<tbody>
 	<tr> <td>                </td><td>        </td><td></td> <td rowspan="14">
-	<img src="https://external-content.duckduckgo.com/iu/?u=https%3A%2F%2Ftse2.explicit.bing.net%2Fth%3Fid%3DOIP.rbKEDmGA5WCEY5GGk3Fv5gAAAA%26pid%3DApi&f=1" height=300px/>
+	<img src="https://github.com/gin66/ESP32_projects/blob/master/img/esp32cam.jpg?raw=true" height=300px/>
 	</td> <td > </td> <td> </td><td> </td> </tr>
 	<tr> <td> 5V             </td><td>        </td><td            ></td><td            ></td><td>        </td><td> 3.3V     </td> </tr>
 	<tr> <td> GND            </td><td>        </td><td            ></td><td id="GPIO16"></td><td> GPIO16 </td><td> U2RXD    </td> </tr>

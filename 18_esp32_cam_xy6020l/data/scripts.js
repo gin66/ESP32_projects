@@ -50,6 +50,12 @@
         return uint16Array;
       }
       function process(data) {
+        for (let key in data) {
+           let element = document.getElementById(key);
+           if (element) {
+              element.innerHTML = data[key];
+          }
+        }
         document.getElementById("mem_free").innerHTML = data["mem_free"];
         document.getElementById("uptime").innerHTML = data["millis"] / 1000;
         document.getElementById("ssid").innerHTML = data["SSID"];

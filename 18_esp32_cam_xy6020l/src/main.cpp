@@ -48,10 +48,10 @@ struct XY6020Data {
     uint16_t tempOfs;  // internal temperature offset
     uint16_t tempExtOfs; // external temperature offset
 } xydata[3];
-volatile uint8_t valid_xy = 0;
+volatile uint32_t valid_xy = 0;
 
 struct stromzaehler_packet_s stromzaehler_packet[3];
-volatile uint8_t valid_strom = 0;
+volatile uint32_t valid_strom = 0;
 
 void updateStruct(XY6020Data *xyd) {
     xyd->cv = xy.getCV();
@@ -95,35 +95,35 @@ void print_info() {
 uint16_t duty = 0;
 
 void publish(DynamicJsonDocument *json) {
-    struct XY6020Data *xyd = &xydata[valid_xy];  
-    (*json)["cv"] = xyd->cv / 100.0; // V
-    (*json)["cc"] = xyd->cc / 100.0; // A
-    (*json)["inV"] = xyd->inV / 100.0; // V
-    (*json)["actV"] = xyd->actV / 100.0; // V
-    (*json)["actC"] = xyd->actC / 100.0; // A
-    (*json)["actP"] = xyd->actP / 100.0; // W
-    (*json)["charge"] = xyd->charge / 1000.0; // Ah
-    (*json)["energy"] = xyd->energy / 1000.0; // Wh
-    (*json)["hour"] = xyd->hour;
-    (*json)["min"] = xyd->min;
-    (*json)["sec"] = xyd->sec;
-    (*json)["temp"] = xyd->temp / 10.0; // °C/F
-    (*json)["tempExt"] = xyd->tempExt / 10.0; // °C/F
-    (*json)["lockOn"] = xyd->lockOn;
-    (*json)["protect"] = xyd->protect;
-    (*json)["ccActive"] = xyd->ccActive;
-    (*json)["cvActive"] = xyd->cvActive;
-    (*json)["outputOn"] = xyd->outputOn;
-    (*json)["model"] = xyd->model;
-    (*json)["version"] = xyd->version;
-    (*json)["slaveAdd"] = xyd->slaveAdd;
-    (*json)["tempOfs"] = xyd->tempOfs / 10.0; // °C/F
-    (*json)["tempExtOfs"] = xyd->tempExtOfs / 10.0; // °C/F
-    struct stromzaehler_packet_s *packet = &stromzaehler_packet[valid_strom];
-    (*json)["time"]["hour"] = packet->tm_hour;
-    (*json)["time"]["minute"] = packet->tm_min;
-    (*json)["time"]["second"] = packet->tm_sec;
-    (*json)["weekday"] = packet->tm_wday;
+    struct XY6020Data *xyd = &xydata[valid_xy % 3];  
+    (*json)["xy_cv"] = xyd->cv / 100.0; // V
+    (*json)["xy_cc"] = xyd->cc / 100.0; // A
+    (*json)["xy_inV"] = xyd->inV / 100.0; // V
+    (*json)["xy_actV"] = xyd->actV / 100.0; // V
+    (*json)["xy_actC"] = xyd->actC / 100.0; // A
+    (*json)["xy_actP"] = xyd->actP / 100.0; // W
+    (*json)["xy_charge"] = xyd->charge / 1000.0; // Ah
+    (*json)["xy_energy"] = xyd->energy / 1000.0; // Wh
+    (*json)["xy_hour"] = xyd->hour;
+    (*json)["xy_min"] = xyd->min;
+    (*json)["xy_sec"] = xyd->sec;
+    (*json)["xy_temp"] = xyd->temp / 10.0; // °C/F
+    (*json)["xy_tempExt"] = xyd->tempExt / 10.0; // °C/F
+    (*json)["xy_lockOn"] = xyd->lockOn;
+    (*json)["xy_protect"] = xyd->protect;
+    (*json)["xy_ccActive"] = xyd->ccActive;
+    (*json)["xy_cvActive"] = xyd->cvActive;
+    (*json)["xy_outputOn"] = xyd->outputOn;
+    (*json)["xy_model"] = xyd->model;
+    (*json)["xy_version"] = xyd->version;
+    (*json)["xy_slaveAdd"] = xyd->slaveAdd;
+    (*json)["xy_tempOfs"] = xyd->tempOfs / 10.0; // °C/F
+    (*json)["xy_tempExtOfs"] = xyd->tempExtOfs / 10.0; // °C/F
+    struct stromzaehler_packet_s *packet = &stromzaehler_packet[valid_strom % 3];
+    (*json)["strom_hour"] = packet->tm_hour;
+    (*json)["strom_minute"] = packet->tm_min;
+    (*json)["strom_second"] = packet->tm_sec;
+    (*json)["strom_weekday"] = packet->tm_wday;
     (*json)["consumption_Wh"] = packet->consumption_Wh;
     (*json)["production_Wh"] = packet->production_Wh;
     (*json)["current_W"] = packet->current_W;
@@ -144,7 +144,7 @@ void setup() {
 
   Serial.begin(115200);
   Serial.setDebugOutput(true);
-  Serial1.begin(115200, SERIAL_8N1, 16, 0); // 9600 baud, RX=GPIO16, TX=GPIO00
+  Serial1.begin(115200, SERIAL_8N1, 16, 0); // 115200 baud, RX=GPIO16, TX=GPIO00
 
   // Wait OTA
   tpl_wifi_setup(true, true, (gpio_num_t)tpl_ledPin);
@@ -165,18 +165,34 @@ void setup() {
   Serial.println("Done.");
 }
 
-bool requested = false;
+enum class XY_State {
+  idle,
+  request,
+  ongoing
+} xy_current = XY_State::idle;
+uint32_t last_millis = 0;
 
 void loop() {
   xy.task();
 
-  if (!requested) {
-    xy.ReadAllHRegs();
-  }
-  else if (xy.HRegUpdated()) {
-    uint8_t newvalid_xy = (valid_xy >= 2) ? 0 : valid_xy+1;
-    updateStruct(&xydata[newvalid_xy]);
-    valid_xy = newvalid_xy;
+  uint32_t now = millis();
+  switch (xy_current) {
+    case XY_State::idle:
+       if (now-last_millis > 500) {
+         last_millis = now;
+         xy_current = XY_State::request;
+       }
+       break;
+    case XY_State::request:
+       xy.ReadAllHRegs();
+       xy_current = XY_State::ongoing;
+       break;
+    case XY_State::ongoing:
+       if (xy.HRegUpdated()) {
+         updateStruct(&xydata[(valid_xy+1) % 3]);
+         valid_xy++;
+         xy_current = XY_State::idle;
+       }
   }
 
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
@@ -189,10 +205,9 @@ void loop() {
 
   int packetSize = udp2.parsePacket();
   if (packetSize == sizeof(struct stromzaehler_packet_s)) {
-    uint8_t newvalid = (valid_strom >= 2) ? 0 : valid_strom+1;
-    struct stromzaehler_packet_s *packet = &stromzaehler_packet[newvalid];
+    struct stromzaehler_packet_s *packet = &stromzaehler_packet[(valid_strom+1) % 3];
     udp2.read((uint8_t*)packet, sizeof(struct stromzaehler_packet_s));
-    valid_strom = newvalid;
+    valid_strom++;
     // Use packet data
     Serial.printf("Time: %02d:%02d:%02d, Weekday: %d, Consumption: %.2f Wh, Production: %.2f Wh, Current: %.2f W\n",
                   packet->tm_hour, packet->tm_min, packet->tm_sec, packet->tm_wday,

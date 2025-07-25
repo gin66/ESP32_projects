@@ -41,8 +41,8 @@ esp_err_t tpl_camera_setup(uint8_t* fail_cnt, framesize_t frame_size,
     camera_config.pin_pclk = PCLK_GPIO_NUM;
     camera_config.pin_vsync = VSYNC_GPIO_NUM;
     camera_config.pin_href = HREF_GPIO_NUM;
-    camera_config.pin_sscb_sda = SIOD_GPIO_NUM;
-    camera_config.pin_sscb_scl = SIOC_GPIO_NUM;
+    camera_config.pin_sccb_sda = SIOD_GPIO_NUM;
+    camera_config.pin_sccb_scl = SIOC_GPIO_NUM;
     // Do not let the driver to operate PWDN_GPIO_NUM;
     camera_config.pin_pwdn = -1;  // PWDN_GPIO_NUM;
     camera_config.pin_reset = RESET_GPIO_NUM;

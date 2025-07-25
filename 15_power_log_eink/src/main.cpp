@@ -585,15 +585,7 @@ void loop() {
     }
 
     // broadcast
-    struct packet_s {
-      uint8_t tm_sec;
-      uint8_t tm_min;
-      uint8_t tm_hour;
-      uint8_t tm_wday;
-      float consumption_Wh;
-      float production_Wh;
-      float current_W;
-    } packet;
+    struct stromzaehler_packet_s packet;
     packet.consumption_Wh = consumption_Wh;
     packet.production_Wh = production_Wh;
     packet.current_W = current_W;

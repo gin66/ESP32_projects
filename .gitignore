@@ -542,3 +542,4 @@ target/
 17_heizungssteuerung/tools/stacktrace.sh
 17_heizungssteuerung/tools/upload.sh
 .DS_Store
+sweep

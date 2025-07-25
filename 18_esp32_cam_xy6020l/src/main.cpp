@@ -48,7 +48,10 @@ struct XY6020Data {
     uint16_t tempOfs;  // internal temperature offset
     uint16_t tempExtOfs; // external temperature offset
 } xydata[3];
-volatile uint8_t valid = 0;
+volatile uint8_t valid_xy = 0;
+
+struct stromzaehler_packet_s stromzaehler_packet[3];
+volatile uint8_t valid_strom = 0;
 
 void updateStruct(XY6020Data *xyd) {
     xyd->cv = xy.getCV();
@@ -92,7 +95,7 @@ void print_info() {
 uint16_t duty = 0;
 
 void publish(DynamicJsonDocument *json) {
-    struct XY6020Data *xyd = &xydata[valid];  
+    struct XY6020Data *xyd = &xydata[valid_xy];  
     (*json)["cv"] = xyd->cv / 100.0; // V
     (*json)["cc"] = xyd->cc / 100.0; // A
     (*json)["inV"] = xyd->inV / 100.0; // V
@@ -116,6 +119,14 @@ void publish(DynamicJsonDocument *json) {
     (*json)["slaveAdd"] = xyd->slaveAdd;
     (*json)["tempOfs"] = xyd->tempOfs / 10.0; // °C/F
     (*json)["tempExtOfs"] = xyd->tempExtOfs / 10.0; // °C/F
+    struct stromzaehler_packet_s *packet = &stromzaehler_packet[valid_strom];
+    (*json)["time"]["hour"] = packet->tm_hour;
+    (*json)["time"]["minute"] = packet->tm_min;
+    (*json)["time"]["second"] = packet->tm_sec;
+    (*json)["weekday"] = packet->tm_wday;
+    (*json)["consumption_Wh"] = packet->consumption_Wh;
+    (*json)["production_Wh"] = packet->production_Wh;
+    (*json)["current_W"] = packet->current_W;
 }
 
 void servo_update(DynamicJsonDocument *json) {
@@ -163,9 +174,9 @@ void loop() {
     xy.ReadAllHRegs();
   }
   else if (xy.HRegUpdated()) {
-    uint8_t newvalid = (valid >= 2) ? 0 : valid+1;
-    updateStruct(&xydata[newvalid]);
-    valid = newvalid;
+    uint8_t newvalid_xy = (valid_xy >= 2) ? 0 : valid_xy+1;
+    updateStruct(&xydata[newvalid_xy]);
+    valid_xy = newvalid_xy;
   }
 
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
@@ -177,12 +188,14 @@ void loop() {
   ledcWrite(0, duty / 9);
 
   int packetSize = udp2.parsePacket();
-  if (packetSize == sizeof(stromzaehler_packet_s)) {
-    struct stromzaehler_packet_s packet;
-    udp2.read((uint8_t*)&packet, sizeof(packet));
+  if (packetSize == sizeof(struct stromzaehler_packet_s)) {
+    uint8_t newvalid = (valid_strom >= 2) ? 0 : valid_strom+1;
+    struct stromzaehler_packet_s *packet = &stromzaehler_packet[newvalid];
+    udp2.read((uint8_t*)packet, sizeof(struct stromzaehler_packet_s));
+    valid_strom = newvalid;
     // Use packet data
     Serial.printf("Time: %02d:%02d:%02d, Weekday: %d, Consumption: %.2f Wh, Production: %.2f Wh, Current: %.2f W\n",
-                  packet.tm_hour, packet.tm_min, packet.tm_sec, packet.tm_wday,
-                  packet.consumption_Wh, packet.production_Wh, packet.current_W);
+                  packet->tm_hour, packet->tm_min, packet->tm_sec, packet->tm_wday,
+                  packet->consumption_Wh, packet->production_Wh, packet->current_W);
   }
 }

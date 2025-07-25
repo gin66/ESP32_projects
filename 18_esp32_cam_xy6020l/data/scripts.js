@@ -108,7 +108,7 @@
             // Let us open a web socket
             var url = "ws://" + location.hostname + ":81/";
             if (location.hostname == "") {
-              url = "ws://esp32_08.local:81/";
+              url = "ws://esp32_18.local:81/";
             }
             document.getElementById("state").innerHTML = "connecting " + url;
             ws = new WebSocket(url);

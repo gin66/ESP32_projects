@@ -93,9 +93,28 @@ void print_info() {
 }
 
 uint16_t duty = 0;
+bool force_off;
+enum class XY_State {
+  idle,
+  request,
+  ongoing
+} xy_current = XY_State::idle;
 
 void publish(DynamicJsonDocument *json) {
-    struct XY6020Data *xyd = &xydata[valid_xy % 3];  
+    (*json)["force_off"] = force_off;
+    switch (xy_current) {
+       case XY_State::idle:
+          (*json)["xy_state"] = "idle";
+          break;
+       case XY_State::request:
+          (*json)["xy_state"] = "request";
+          break;
+       case XY_State::ongoing:
+          (*json)["xy_state"] = "ongoing";
+          break;
+    }
+    struct XY6020Data *xyd = &xydata[valid_xy % 3];
+    (*json)["xy_valid"] = valid_xy;
     (*json)["xy_cv"] = xyd->cv / 100.0; // V
     (*json)["xy_cc"] = xyd->cc / 100.0; // A
     (*json)["xy_inV"] = xyd->inV / 100.0; // V
@@ -120,6 +139,7 @@ void publish(DynamicJsonDocument *json) {
     (*json)["xy_tempOfs"] = xyd->tempOfs / 10.0; // °C/F
     (*json)["xy_tempExtOfs"] = xyd->tempExtOfs / 10.0; // °C/F
     struct stromzaehler_packet_s *packet = &stromzaehler_packet[valid_strom % 3];
+    (*json)["strom_valid"] = valid_strom;
     (*json)["strom_hour"] = packet->tm_hour;
     (*json)["strom_minute"] = packet->tm_min;
     (*json)["strom_second"] = packet->tm_sec;
@@ -144,7 +164,7 @@ void setup() {
 
   Serial.begin(115200);
   Serial.setDebugOutput(true);
-  Serial1.begin(115200, SERIAL_8N1, 16, 0); // 115200 baud, RX=GPIO16, TX=GPIO00
+  Serial1.begin(115200, SERIAL_8N1, 12, 13); // 115200 baud, RX=GPIO12, TX=GPIO13
 
   // Wait OTA
   tpl_wifi_setup(true, true, (gpio_num_t)tpl_ledPin);
@@ -165,12 +185,15 @@ void setup() {
   Serial.println("Done.");
 }
 
-enum class XY_State {
-  idle,
-  request,
-  ongoing
-} xy_current = XY_State::idle;
-uint32_t last_millis = 0;
+int32_t last_millis = 0;
+
+#define MIN_CC 5
+int32_t last_strom_ms = 0;
+bool temp_off = false;
+bool current_on = true;
+uint16_t current_cv = 2850;// 0.01V
+uint16_t current_cc = MIN_CC;  // 0.01A
+int32_t wait_valid = 0;
 
 void loop() {
   xy.task();
@@ -195,8 +218,78 @@ void loop() {
        }
   }
 
-  const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
-  vTaskDelay(xDelay);
+  if ((((int32_t)valid_xy - wait_valid) > 0) && (xy_current == XY_State::idle) && xy.TxBufEmpty()) {
+     wait_valid = valid_xy;
+     // Over temperature
+     if (xy.getTemp() > 600) {
+        temp_off = true;
+     }
+     if (xy.getTempExt() > 600) {
+        temp_off = true;
+     }
+     if ((xy.getTemp() < 400) && (xy.getTempExt() < 400)) {
+        temp_off = false;
+     }
+     force_off = (valid_strom == 0) || temp_off;
+     // No stromzaehler input
+     if ((now - last_strom_ms) > 5000) {
+        force_off = true;
+     }
+     if (force_off) {
+        current_on = false;
+        if (xy.getOutputOn()) {
+          xy.setOutput(false);
+        }
+     }
+     else {
+        if (xy.getOutputOn()) {
+           float current_W = stromzaehler_packet[valid_strom % 3].current_W;
+           float U_out = xy.getActV() * 0.01;
+           float I_out = xy.getActC() * 0.01;
+           float P_out = xy.getActP() * 0.01;
+           uint16_t new_cc = xy.getCC();
+           current_cc = new_cc;
+           if (current_W > 0) {
+              // Too much power
+              if (current_W > P_out) {
+                 new_cc = MIN_CC; // off
+              }
+              else {
+                 float dI = (current_W - P_out)/U_out;
+                 dI *= 100;
+                 dI += current_cc;
+                 new_cc = uint16_t(dI);
+                 if (new_cc < MIN_CC) {
+                    new_cc = MIN_CC;
+                 }
+              }
+           }
+           else if (current_W < -5) {
+              float dI = (current_W - P_out)/U_out;
+              dI *= 95;
+              new_cc = current_cc + uint16_t(dI);
+           }
+           if (new_cc > 2000) {
+              new_cc = 2000;
+           }
+           if (current_cc != new_cc) {
+              xy.setCC(new_cc);
+              current_cc = new_cc;
+           }
+        }
+        else {
+           if (xy.getCV() != current_cv) {
+               xy.setCV(current_cv);
+           }
+           else if (xy.getCC() != current_cc) {
+               xy.setCC(current_cc);
+           }
+           else {
+               xy.setOutput(true);
+           }
+        }
+     }
+  }
 
   // 1-2 ms with 20ms => duty = 1*65536/20..2*65536/20 = 3276.8 .. 6553.6
   //
@@ -208,6 +301,7 @@ void loop() {
     struct stromzaehler_packet_s *packet = &stromzaehler_packet[(valid_strom+1) % 3];
     udp2.read((uint8_t*)packet, sizeof(struct stromzaehler_packet_s));
     valid_strom++;
+    last_strom_ms = now;
     // Use packet data
     Serial.printf("Time: %02d:%02d:%02d, Weekday: %d, Consumption: %.2f Wh, Production: %.2f Wh, Current: %.2f W\n",
                   packet->tm_hour, packet->tm_min, packet->tm_sec, packet->tm_wday,

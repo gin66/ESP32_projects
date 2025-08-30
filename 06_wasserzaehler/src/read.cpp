@@ -284,6 +284,7 @@ void filter_by_geometry(struct read_s *read) {
   // Check the distance of the remaining pointer to the outter.
   // The lower distance indicates the 0.0001m³ pointer
   for (uint8_t i = 0; i < 5; i++) {
+    break;
     if ((i == c1) || (i == c2) || (i == c3) || (i == c4)) {
       continue;
     }
@@ -326,6 +327,10 @@ void filter_by_geometry(struct read_s *read) {
 
     // Now c1 is 0.1, c2 0.01, c3 0.001 and c4 0.0001
   }
+  c1 = 0;
+  c2 = 1;
+  c3 = 2;
+  c4 = 3;
 
   struct pointer_s p_new[4];
   p_new[0] = read->pointer[c1];
@@ -463,7 +468,7 @@ void find_pointer(uint8_t *digitized, uint8_t *filtered, uint8_t *temp,
   find_candidates(filtered, read);
 
   // printf("candidates: %d\n", read->candidates);
-  if (read->candidates != 5) {
+  if (read->candidates != 4) {
     read->candidates = 0;
     return;
   }

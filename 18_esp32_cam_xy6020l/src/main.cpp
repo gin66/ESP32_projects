@@ -194,6 +194,9 @@ bool current_on = true;
 uint16_t current_cv = 2850;// 0.01V
 uint16_t current_cc = MIN_CC;  // 0.01A
 int32_t wait_valid = 0;
+#define HIST_V 8 
+uint16_t v_hist[HIST_V] = { 0,0,0,0,0,0,0,0 };
+uint16_t avg_v;
 
 void loop() {
   xy.task();
@@ -214,8 +217,23 @@ void loop() {
        if (xy.HRegUpdated()) {
          updateStruct(&xydata[(valid_xy+1) % 3]);
          valid_xy++;
+         v_hist[valid_xy % HIST_V] = xy.getActV();
+         uint16_t avg = 0;
+         for (uint8_t i = 0;i < HIST_V;i++) {
+            avg += v_hist[i];
+         }
+         avg_v = avg / HIST_V;
          xy_current = XY_State::idle;
        }
+  }
+
+  uint16_t max_cc = 2000; // *0.01A
+  if (avg_v > current_cv) {
+      uint16_t dv = avg_v - current_cv;
+      if (dv > 20) {
+         dv = 20;
+      }
+      max_cc -= dv*100;
   }
 
   if ((((int32_t)valid_xy - wait_valid) > 0) && (xy_current == XY_State::idle) && xy.TxBufEmpty()) {
@@ -265,12 +283,13 @@ void loop() {
               }
            }
            else if (current_W < -5) {
-              float dI = (current_W - P_out)/U_out;
+              float dI = -current_W/U_out;
               dI *= 95;
-              new_cc = current_cc + uint16_t(dI);
+              // with averaging
+              new_cc = (xy.getActC() + uint16_t(dI) + 7*new_cc)/8;
            }
-           if (new_cc > 2000) {
-              new_cc = 2000;
+           if (new_cc > max_cc) {
+              new_cc = max_cc;
            }
            if (current_cc != new_cc) {
               xy.setCC(new_cc);

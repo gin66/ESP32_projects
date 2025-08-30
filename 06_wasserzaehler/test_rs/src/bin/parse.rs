@@ -43,7 +43,7 @@ fn mark(image: &mut Vec<u8>, r: &Reader, ps: &PointerShape) {
             || col_from < FRAME
             || col_to < FRAME
         {
-            println!("INVALID DATA");
+            println!("INVALID DATA {:?} {}", r.pointer[i as usize], FRAME);
             return;
         }
 
@@ -377,7 +377,7 @@ fn main() -> std::io::Result<()> {
         writer.write_image_data(&data)?; // Save
 
         if r.candidates == 4 {
-            results.push((timestamp.timestamp(), r));
+            results.push((timestamp.and_utc().timestamp(), r));
         }
     }
 

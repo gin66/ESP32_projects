@@ -75,9 +75,11 @@ void power_chart_set_chart_obj(lv_obj_t *chart) {
     lv_chart_set_axis_range(chart_obj, LV_CHART_AXIS_PRIMARY_Y, 0, 100);
     Serial.println("[PowerChart] Initial chart range set to 0-100");
     
-    // Enable grid lines
-    lv_obj_set_style_line_width(chart_obj, 1, LV_PART_MAIN);
-    lv_obj_set_style_border_width(chart_obj, 1, LV_PART_MAIN);
+    // Remove grid lines by setting divider line count to 0
+    lv_chart_set_div_line_count(chart_obj, 0, 0);
+    
+    // Ensure background color from eezStudio is preserved
+    lv_obj_set_style_bg_opa(chart_obj, LV_OPA_COVER, LV_PART_MAIN);
     
     // Initialize chart data with zeros
     // With LV_CHART_UPDATE_MODE_SHIFT, new values will automatically shift old ones

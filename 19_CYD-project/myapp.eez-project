@@ -159,6 +159,7 @@
                 "conditionalStyles": [],
                 "childStyles": []
               },
+              "hiddenInEditor": false,
               "timeline": [],
               "eventHandlers": [],
               "identifier": "Value",
@@ -179,7 +180,14 @@
               "disabledStateType": "literal",
               "states": "",
               "localStyles": {
-                "objID": "97d074ac-a8cf-435a-f62e-d508535a67a9"
+                "objID": "97d074ac-a8cf-435a-f62e-d508535a67a9",
+                "definition": {
+                  "MAIN": {
+                    "DEFAULT": {
+                      "bg_color": "#ffffff"
+                    }
+                  }
+                }
               },
               "group": "",
               "groupIndex": 0,
@@ -209,6 +217,7 @@
                 "conditionalStyles": [],
                 "childStyles": []
               },
+              "hiddenInEditor": false,
               "timeline": [],
               "eventHandlers": [],
               "leftUnit": "px",
@@ -250,6 +259,7 @@
                 "conditionalStyles": [],
                 "childStyles": []
               },
+              "hiddenInEditor": false,
               "timeline": [],
               "eventHandlers": [],
               "leftUnit": "px",
@@ -291,6 +301,7 @@
                 "conditionalStyles": [],
                 "childStyles": []
               },
+              "hiddenInEditor": false,
               "timeline": [],
               "eventHandlers": [
                 {
@@ -321,6 +332,7 @@
                     "conditionalStyles": [],
                     "childStyles": []
                   },
+                  "hiddenInEditor": false,
                   "timeline": [],
                   "eventHandlers": [],
                   "leftUnit": "px",
@@ -368,7 +380,15 @@
               "disabledStateType": "literal",
               "states": "",
               "localStyles": {
-                "objID": "0a21473f-84fa-4723-9cca-5a4ed80f2465"
+                "objID": "0a21473f-84fa-4723-9cca-5a4ed80f2465",
+                "definition": {
+                  "MAIN": {
+                    "DEFAULT": {
+                      "text_color": "#000000",
+                      "bg_color": "#2196f3"
+                    }
+                  }
+                }
               },
               "group": "",
               "groupIndex": 0
@@ -388,6 +408,7 @@
                 "conditionalStyles": [],
                 "childStyles": []
               },
+              "hiddenInEditor": false,
               "timeline": [],
               "eventHandlers": [],
               "identifier": "powerChart",
@@ -408,7 +429,15 @@
               "disabledStateType": "literal",
               "states": "",
               "localStyles": {
-                "objID": "7a7b00d3-0a4a-426a-b5c3-d68c7c705457"
+                "objID": "7a7b00d3-0a4a-426a-b5c3-d68c7c705457",
+                "definition": {
+                  "MAIN": {
+                    "DEFAULT": {
+                      "bg_color": "#101010",
+                      "bg_opa": 255
+                    }
+                  }
+                }
               },
               "group": "",
               "groupIndex": 0
@@ -428,6 +457,7 @@
                 "conditionalStyles": [],
                 "childStyles": []
               },
+              "hiddenInEditor": false,
               "timeline": [],
               "eventHandlers": [],
               "identifier": "powMax",
@@ -447,7 +477,14 @@
               "disabledStateType": "literal",
               "states": "",
               "localStyles": {
-                "objID": "a1cd6eae-a88b-4219-c103-308e145582d5"
+                "objID": "a1cd6eae-a88b-4219-c103-308e145582d5",
+                "definition": {
+                  "MAIN": {
+                    "DEFAULT": {
+                      "text_color": "#ffffff"
+                    }
+                  }
+                }
               },
               "group": "",
               "groupIndex": 0,
@@ -471,6 +508,7 @@
                 "conditionalStyles": [],
                 "childStyles": []
               },
+              "hiddenInEditor": false,
               "timeline": [],
               "eventHandlers": [],
               "identifier": "powMin",
@@ -490,7 +528,14 @@
               "disabledStateType": "literal",
               "states": "",
               "localStyles": {
-                "objID": "a55295b2-4be8-451a-f065-7e04fd3cb41b"
+                "objID": "a55295b2-4be8-451a-f065-7e04fd3cb41b",
+                "definition": {
+                  "MAIN": {
+                    "DEFAULT": {
+                      "text_color": "#ffffff"
+                    }
+                  }
+                }
               },
               "group": "",
               "groupIndex": 0,
@@ -514,6 +559,7 @@
                 "conditionalStyles": [],
                 "childStyles": []
               },
+              "hiddenInEditor": false,
               "timeline": [],
               "eventHandlers": [],
               "identifier": "powCurrent",
@@ -533,7 +579,14 @@
               "disabledStateType": "literal",
               "states": "",
               "localStyles": {
-                "objID": "90ab38e6-de8d-4969-c756-73ddbf77ca9e"
+                "objID": "90ab38e6-de8d-4969-c756-73ddbf77ca9e",
+                "definition": {
+                  "MAIN": {
+                    "DEFAULT": {
+                      "text_color": "#2196f3"
+                    }
+                  }
+                }
               },
               "group": "",
               "groupIndex": 0,
@@ -545,7 +598,7 @@
             {
               "objID": "19105592-01a8-4ddc-ee8a-37bd318da3f5",
               "type": "LVGLLabelWidget",
-              "left": 284,
+              "left": 268,
               "top": 69,
               "width": 16,
               "height": 16,
@@ -557,6 +610,7 @@
                 "conditionalStyles": [],
                 "childStyles": []
               },
+              "hiddenInEditor": false,
               "timeline": [],
               "eventHandlers": [],
               "identifier": "",
@@ -576,7 +630,14 @@
               "disabledStateType": "literal",
               "states": "",
               "localStyles": {
-                "objID": "42d06be5-a096-4c8d-ad24-529970fd3656"
+                "objID": "42d06be5-a096-4c8d-ad24-529970fd3656",
+                "definition": {
+                  "MAIN": {
+                    "DEFAULT": {
+                      "text_color": "#ffffff"
+                    }
+                  }
+                }
               },
               "group": "",
               "groupIndex": 0,
@@ -594,7 +655,14 @@
           "disabledStateType": "literal",
           "states": "",
           "localStyles": {
-            "objID": "8eb86917-c831-b762-5685-8d01972e8a22"
+            "objID": "8eb86917-c831-b762-5685-8d01972e8a22",
+            "definition": {
+              "MAIN": {
+                "DEFAULT": {
+                  "bg_color": "#000000"
+                }
+              }
+            }
           },
           "groupIndex": 0
         }

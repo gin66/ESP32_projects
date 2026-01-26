@@ -113,21 +113,21 @@ static void update_power_labels(void) {
     if (objects.pow_current != NULL) {
         float current = power_chart_get_current();
         char buffer[16];
-        snprintf(buffer, sizeof(buffer), "%.1f", current);
+        snprintf(buffer, sizeof(buffer), "%.0f", current);
         lv_label_set_text(objects.pow_current, buffer);
     }
     
     if (objects.pow_min != NULL) {
         float min = power_chart_get_min();
         char buffer[16];
-        snprintf(buffer, sizeof(buffer), "%.1f", min);
+        snprintf(buffer, sizeof(buffer), "%.0f", min);
         lv_label_set_text(objects.pow_min, buffer);
     }
     
     if (objects.pow_max != NULL) {
         float max = power_chart_get_max();
         char buffer[16];
-        snprintf(buffer, sizeof(buffer), "%.1f", max);
+        snprintf(buffer, sizeof(buffer), "%.0f", max);
         lv_label_set_text(objects.pow_max, buffer);
     }
 }
@@ -208,70 +208,40 @@ static void init_power_labels(void) {
 static void init_power_chart_system() {
     Serial.println("[Chart] Initializing power chart system...");
     
-    lv_obj_t* chart_obj = NULL;
+    Serial.printf("[Chart] Checking objects.power_chart: %p\n", objects.power_chart);
     
-    Serial.printf("[Chart] Checking objects.main: %p\n", objects.main);
-    Serial.printf("[Chart] Checking objects.value: %p\n", objects.value);
-    
-    // Try to find the chart by checking all children of main screen
-    if (objects.main != NULL) {
-        Serial.println("[Chart] Scanning all children of main screen for chart...");
-        uint32_t child_count = lv_obj_get_child_count(objects.main);
-        Serial.printf("[Chart] Main screen has %d children\n", child_count);
+    if (objects.power_chart != NULL) {
+        Serial.println("[Chart] Found power_chart object from eeZ-Studio");
         
-        for (uint32_t i = 0; i < child_count; i++) {
-            lv_obj_t* child = lv_obj_get_child(objects.main, i);
-            lv_area_t coords;
-            lv_obj_get_coords(child, &coords);
-            int width = lv_area_get_width(&coords);
-            int height = lv_area_get_height(&coords);
-            
-            Serial.printf("[Chart] Child %d: pos(%d,%d) size(%dx%d)\n", 
-                         i, coords.x1, coords.y1, width, height);
-            
-            // Check if this looks like our chart (position and size)
-            // Chart should be at (67, 11) with size (234, 100) based on screens.c
-            if (abs(coords.x1 - 67) <= 5 && abs(coords.y1 - 11) <= 5 && 
-                abs(width - 234) <= 10 && abs(height - 100) <= 10) {
-                Serial.printf("[Chart] Found chart at child index %d! pos(%d,%d) size(%dx%d)\n", 
-                             i, coords.x1, coords.y1, width, height);
-                chart_obj = child;
-                break;
-            }
-        }
+        // Initialize power chart system
+        power_chart_init();
+        power_chart_set_chart_obj(objects.power_chart);
         
-        if (chart_obj == NULL) {
-            Serial.println("[Chart] ERROR: Could not find chart in main screen children");
-            Serial.println("[Chart] Creating a new chart object...");
-            
-            // Create a new chart object
-            chart_obj = lv_chart_create(objects.main);
+        Serial.println("[Chart] Power chart system initialized successfully");
+    } else {
+        Serial.println("[Chart] ERROR: objects.power_chart is NULL!");
+        Serial.println("[Chart] Creating a new chart object as fallback...");
+        
+        if (objects.main != NULL) {
+            // Create a new chart object as fallback
+            lv_obj_t* chart_obj = lv_chart_create(objects.main);
             if (chart_obj == NULL) {
                 Serial.println("[Chart] ERROR: Failed to create new chart object!");
                 return;
             }
             
-            // Set position and size to match the expected chart
-            lv_obj_set_pos(chart_obj, 67, 11);
-            lv_obj_set_size(chart_obj, 234, 100);
+            // Set position and size to match the expected chart from screens.c
+            lv_obj_set_pos(chart_obj, 9, 11);
+            lv_obj_set_size(chart_obj, 251, 100);
             
-            Serial.println("[Chart] Created new chart object");
+            // Initialize power chart system
+            power_chart_init();
+            power_chart_set_chart_obj(chart_obj);
+            
+            Serial.println("[Chart] Created new chart object as fallback");
+        } else {
+            Serial.println("[Chart] ERROR: objects.main is also NULL!");
         }
-    } else {
-        Serial.println("[Chart] ERROR: objects.main is NULL!");
-        return;
-    }
-    
-    if (chart_obj != NULL) {
-        Serial.println("[Chart] Found chart object, initializing power chart system...");
-        
-        // Initialize power chart system
-        power_chart_init();
-        power_chart_set_chart_obj(chart_obj);
-        
-        Serial.println("[Chart] Power chart system initialized successfully");
-    } else {
-        Serial.println("[Chart] ERROR: chart_obj is still NULL after all search attempts!");
     }
 }
 

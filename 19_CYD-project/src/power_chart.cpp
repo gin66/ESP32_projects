@@ -1,6 +1,7 @@
 #include "power_chart.h"
 #include <Arduino.h>
 #include <string.h>
+#include <math.h>
 
 // Circular buffer for power data
 static power_data_t power_buffer[POWER_BUFFER_SIZE];
@@ -13,6 +14,10 @@ static lv_chart_series_t *chart_series = NULL;
 
 // Current power value (most recent)
 static float current_power = 0.0f;
+
+// Calculated chart range values
+static float calculated_y_min = 0.0f;
+static float calculated_y_max = 100.0f;
 
 // Chart configuration
 static const int CHART_POINTS = 120;  // 120 seconds of data
@@ -27,6 +32,10 @@ void power_chart_init(void) {
     
     // Reset current power
     current_power = 0.0f;
+    
+    // Reset calculated range values
+    calculated_y_min = 0.0f;
+    calculated_y_max = 100.0f;
     
     // Chart will be configured when set_chart_obj is called
 }
@@ -159,23 +168,24 @@ void power_chart_update(void) {
         if (power > max_power) max_power = power;
     }
     
-    // Add 10% padding to range
-    float range = max_power - min_power;
-    if (range < 1.0) range = 1.0;  // Minimum range
+    // Calculate y_min and y_max as multiples of 50W with at least 50W range
+    // y_min should be the lower multiple of 50W, y_max the higher multiple of 50W
+    // This ensures y_max - y_min >= 50W
     
-    float padding = range * 0.1;
-    float y_min = min_power - padding;
-    float y_max = max_power + padding;
+    // Calculate y_min as floor(min_power / 50) * 50
+    calculated_y_min = floor(min_power / 50.0f) * 50.0f;
     
-    // Ensure minimum range of at least 10W for visibility
-    if (y_max - y_min < 10.0) {
-        float center = (y_min + y_max) / 2.0;
-        y_min = center - 5.0;
-        y_max = center + 5.0;
+    // Calculate y_max as ceil(max_power / 50) * 50
+    calculated_y_max = ceil(max_power / 50.0f) * 50.0f;
+    
+    // Ensure minimum range of 50W
+    if (calculated_y_max - calculated_y_min < 50.0f) {
+        // If range is less than 50W, increase y_max to meet the requirement
+        calculated_y_max = calculated_y_min + 50.0f;
     }
     
     // Update chart range
-    lv_chart_set_axis_range(chart_obj, LV_CHART_AXIS_PRIMARY_Y, (int32_t)y_min, (int32_t)y_max);
+    lv_chart_set_axis_range(chart_obj, LV_CHART_AXIS_PRIMARY_Y, (int32_t)calculated_y_min, (int32_t)calculated_y_max);
     
     // Get the most recent value (last in buffer)
     int latest_index = (buffer_head + buffer_count - 1) % POWER_BUFFER_SIZE;
@@ -188,7 +198,7 @@ void power_chart_update(void) {
     lv_chart_refresh(chart_obj);
     
     Serial.printf("[PowerChart] Chart updated. Range: %d - %d, Added value: %.1f\n", 
-                  (int32_t)y_min, (int32_t)y_max, latest_power);
+                  (int32_t)calculated_y_min, (int32_t)calculated_y_max, latest_power);
 }
 
 // Get current power value
@@ -196,36 +206,14 @@ float power_chart_get_current(void) {
     return current_power;
 }
 
-// Get minimum power value from buffer (within 120s window)
+// Get minimum power value (calculated chart range)
 float power_chart_get_min(void) {
-    if (buffer_count == 0) {
-        return current_power; // Return current if no buffer data
-    }
-    
-    float min_val = power_buffer[buffer_head].power_W;
-    for (int i = 0; i < buffer_count; i++) {
-        int index = (buffer_head + i) % POWER_BUFFER_SIZE;
-        if (power_buffer[index].power_W < min_val) {
-            min_val = power_buffer[index].power_W;
-        }
-    }
-    return min_val;
+    return calculated_y_min;
 }
 
-// Get maximum power value from buffer (within 120s window)
+// Get maximum power value (calculated chart range)
 float power_chart_get_max(void) {
-    if (buffer_count == 0) {
-        return current_power; // Return current if no buffer data
-    }
-    
-    float max_val = power_buffer[buffer_head].power_W;
-    for (int i = 0; i < buffer_count; i++) {
-        int index = (buffer_head + i) % POWER_BUFFER_SIZE;
-        if (power_buffer[index].power_W > max_val) {
-            max_val = power_buffer[index].power_W;
-        }
-    }
-    return max_val;
+    return calculated_y_max;
 }
 
 // Reset power statistics (not needed for buffer-based approach)

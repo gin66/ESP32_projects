@@ -70,6 +70,7 @@
           {
             "type": "border",
             "selected": 0,
+            "size": 93.5,
             "location": "bottom",
             "children": [
               {
@@ -122,7 +123,6 @@
                   "type": "tabset",
                   "id": "#e14bb291-c677-4edb-bc4b-07b53ee8165c",
                   "weight": 1,
-                  "selected": 1,
                   "enableClose": false,
                   "children": [
                     {
@@ -189,6 +189,7 @@
               "type": "tabset",
               "id": "EDITORS",
               "weight": 42.2811059907834,
+              "selected": 1,
               "enableDeleteWhenEmpty": false,
               "enableClose": false,
               "children": [
@@ -984,7 +985,8 @@
     "[myapp.eez-project]:/userPages/0[flow-state]": {
       "selection": {
         "0": {
-          "0": {
+          "3": {},
+          "4": {
             "$selected": true
           },
           "5": {}
@@ -992,8 +994,8 @@
       },
       "transform": {
         "translate": {
-          "x": -335.6500000000001,
-          "y": -213.9749999999999
+          "x": -315.6500000000001,
+          "y": -239.9749999999999
         },
         "scale": 1.75
       },
@@ -1020,9 +1022,7 @@
   "lvglState": "DEFAULT",
   "lvglExpandedPropertiesGroup": [
     "TEXT",
-    "MISCELLANEOUS",
-    "SHADOW",
-    "ARC"
+    "MISCELLANEOUS"
   ],
   "showInactiveFlowsInDebugger": true,
   "globalFlowZoom": true,

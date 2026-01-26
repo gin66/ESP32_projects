@@ -25,25 +25,25 @@ void create_screen_main() {
             // Value
             lv_obj_t *obj = lv_arc_create(parent_obj);
             objects.value = obj;
-            lv_obj_set_pos(obj, 208, 120);
+            lv_obj_set_pos(obj, 217, 140);
             lv_obj_set_size(obj, 102, 99);
             lv_arc_set_value(obj, 25);
         }
         {
             lv_obj_t *obj = lv_checkbox_create(parent_obj);
-            lv_obj_set_pos(obj, 15, 120);
+            lv_obj_set_pos(obj, 116, 184);
             lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
             lv_checkbox_set_text(obj, "Checkbox");
         }
         {
             lv_obj_t *obj = lv_checkbox_create(parent_obj);
-            lv_obj_set_pos(obj, 15, 144);
+            lv_obj_set_pos(obj, 116, 210);
             lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
             lv_checkbox_set_text(obj, "Checkbox");
         }
         {
             lv_obj_t *obj = lv_button_create(parent_obj);
-            lv_obj_set_pos(obj, 17, 169);
+            lv_obj_set_pos(obj, 9, 179);
             lv_obj_set_size(obj, 100, 50);
             lv_obj_add_event_cb(obj, action_button_pressed, LV_EVENT_PRESSED, (void *)0);
             {
@@ -58,15 +58,17 @@ void create_screen_main() {
             }
         }
         {
+            // powerChart
             lv_obj_t *obj = lv_chart_create(parent_obj);
-            lv_obj_set_pos(obj, 67, 11);
-            lv_obj_set_size(obj, 234, 100);
+            objects.power_chart = obj;
+            lv_obj_set_pos(obj, 9, 11);
+            lv_obj_set_size(obj, 251, 100);
         }
         {
             // powMax
             lv_obj_t *obj = lv_label_create(parent_obj);
             objects.pow_max = obj;
-            lv_obj_set_pos(obj, 15, 11);
+            lv_obj_set_pos(obj, 268, 11);
             lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
             lv_label_set_text(obj, "9999.9");
         }
@@ -74,7 +76,7 @@ void create_screen_main() {
             // powMin
             lv_obj_t *obj = lv_label_create(parent_obj);
             objects.pow_min = obj;
-            lv_obj_set_pos(obj, 17, 94);
+            lv_obj_set_pos(obj, 268, 95);
             lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
             lv_label_set_text(obj, "9999.9");
         }
@@ -82,9 +84,15 @@ void create_screen_main() {
             // powCurrent
             lv_obj_t *obj = lv_label_create(parent_obj);
             objects.pow_current = obj;
-            lv_obj_set_pos(obj, 17, 53);
+            lv_obj_set_pos(obj, 268, 45);
             lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
             lv_label_set_text(obj, "9999.9");
+        }
+        {
+            lv_obj_t *obj = lv_label_create(parent_obj);
+            lv_obj_set_pos(obj, 284, 69);
+            lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+            lv_label_set_text(obj, "W");
         }
     }
     

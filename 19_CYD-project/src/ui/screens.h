@@ -11,13 +11,16 @@ typedef struct _objects_t {
     lv_obj_t *main;
     lv_obj_t *value;
     lv_obj_t *obj0;
+    lv_obj_t *obj1;
+    lv_obj_t *obj2;
     lv_obj_t *power_chart;
     lv_obj_t *pow_max;
     lv_obj_t *pow_min;
     lv_obj_t *pow_current;
-    lv_obj_t *obj1;
+    lv_obj_t *obj3;
     lv_obj_t *consumedk_wh;
     lv_obj_t *producedk_wh;
+    lv_obj_t *debug;
 } objects_t;
 
 extern objects_t objects;

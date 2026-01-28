@@ -79,6 +79,9 @@ void power_chart_set_chart_obj(lv_obj_t *chart) {
     // Ensure background color from eezStudio is preserved
     lv_obj_set_style_bg_opa(chart_obj, LV_OPA_COVER, LV_PART_MAIN);
     
+    // Set small indicator dots (2x2 pixels)
+    lv_obj_set_style_size(chart_obj, 2, 2, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    
     // Initialize chart data with zeros
     // With LV_CHART_UPDATE_MODE_SHIFT, new values will automatically shift old ones
     lv_chart_set_all_values(chart_obj, chart_series, 0);

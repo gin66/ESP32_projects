@@ -23,11 +23,6 @@
 #define RXPIN 27
 #define TXPIN 22
 
-// CYD RGB LED Pins
-#define CYD_LED_RED 4
-#define CYD_LED_GREEN 16
-#define CYD_LED_BLUE 17
-
 //************* ESP32_projects template includes  *************
 #include "template.h"
 
@@ -64,6 +59,18 @@ XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
 
 // Touchscreen coordinates: (x, y) and pressure (z)
 int x, y, z;
+
+// Backlight control
+#define BACKLIGHT_DIM 51      // 20% brightness
+#define BACKLIGHT_FULL 255     // 100% brightness
+#define BACKLIGHT_TIMEOUT_MS 60000  // 1 minute
+#define BACKLIGHT_FADE_UP_MS 500    // 0.5s to go from dim to full
+#define BACKLIGHT_FADE_DOWN_MS 10000 // 10s to go from full to dim
+unsigned long g_last_touch_time = 0;
+unsigned long g_fade_start_time = 0;
+uint8_t g_backlight_current = BACKLIGHT_DIM;
+uint8_t g_backlight_target = BACKLIGHT_DIM;
+uint8_t g_backlight_fade_start = BACKLIGHT_DIM;
 
 #define DRAW_BUF_SIZE (SCREEN_WIDTH * SCREEN_HEIGHT / 10 * (LV_COLOR_DEPTH / 8))
 uint32_t draw_buf[DRAW_BUF_SIZE / 4];
@@ -272,11 +279,53 @@ void touchscreen_read(lv_indev_t * indev, lv_indev_data_t * data) {
     // Set the coordinates
     data->point.x = x;
     data->point.y = y;
-    // String touch_data = "X = " + String(x) + "  Y = " + String(y) + "  Z = " + String(z);
-    // Serial.println(touch_data);
+
+    // Trigger fade to full brightness on touch
+    g_last_touch_time = millis();
+    if (g_backlight_target != BACKLIGHT_FULL) {
+      g_backlight_fade_start = g_backlight_current;
+      g_backlight_target = BACKLIGHT_FULL;
+      g_fade_start_time = millis();
+    }
   }
   else {
     data->state = LV_INDEV_STATE_RELEASED;
+  }
+}
+
+void backlight_update() {
+  unsigned long now = millis();
+
+  // Check timeout: start fading down after 1 minute of no touch
+  if (g_backlight_target == BACKLIGHT_FULL && (now - g_last_touch_time > BACKLIGHT_TIMEOUT_MS)) {
+    g_backlight_fade_start = g_backlight_current;
+    g_backlight_target = BACKLIGHT_DIM;
+    g_fade_start_time = now;
+  }
+
+  // Handle fade animation
+  if (g_backlight_current != g_backlight_target) {
+    unsigned long fade_duration = (g_backlight_target == BACKLIGHT_FULL) ? BACKLIGHT_FADE_UP_MS : BACKLIGHT_FADE_DOWN_MS;
+    unsigned long elapsed = now - g_fade_start_time;
+
+    if (elapsed >= fade_duration) {
+      g_backlight_current = g_backlight_target;
+    } else {
+      int16_t delta = (int16_t)g_backlight_target - (int16_t)g_backlight_fade_start;
+      g_backlight_current = g_backlight_fade_start + (delta * elapsed / fade_duration);
+    }
+    ledcWrite(7, g_backlight_current);
+  }
+
+  // Debug output
+  if (objects.debug != NULL) {
+    static uint8_t last_debug_value = 0;
+    if (g_backlight_current != last_debug_value) {
+      last_debug_value = g_backlight_current;
+      char buf[32];
+      snprintf(buf, sizeof(buf), "BL: %d", g_backlight_current);
+      lv_label_set_text(objects.debug, buf);
+    }
   }
 }
 
@@ -328,14 +377,14 @@ void setup() {
   Serial.println(SW_NAME_REV);
   Serial.println(LVGL_Arduino);
 
-  pinMode(CYD_LED_RED, OUTPUT);
-  pinMode(CYD_LED_GREEN, OUTPUT);
-  pinMode(CYD_LED_BLUE, OUTPUT);
+  pinMode(tpl_ledPin_R, OUTPUT);
+  pinMode(tpl_ledPin_G, OUTPUT);
+  pinMode(tpl_ledPin_B, OUTPUT);
 
   // Turn off CYD RGB LED
-  digitalWrite(CYD_LED_BLUE, HIGH);
-  digitalWrite(CYD_LED_GREEN, HIGH);
-  digitalWrite(CYD_LED_RED, HIGH);
+  digitalWrite(tpl_ledPin_B, HIGH);
+  digitalWrite(tpl_ledPin_G, HIGH);
+  digitalWrite(tpl_ledPin_R, HIGH);
 
   // Initialize ESP32_projects template system
   tpl_system_setup(0);  // no deep sleep
@@ -350,6 +399,11 @@ void setup() {
 
   // Init TFT and Touch for esp32
   lv_init_esp32();
+
+  // Initialize backlight PWM after TFT init (channel 7 to avoid TFT_eSPI conflicts)
+  ledcSetup(7, 5000, 8);
+  ledcAttachPin(tpl_backlightPin, 7);
+  ledcWrite(7, BACKLIGHT_DIM);
 
   // Integrate EEZ Studio GUI
   ui_init();
@@ -379,6 +433,9 @@ void loop() {
 
   // Check for broadcast messages
   check_broadcast();
+
+  // Check backlight timeout
+  backlight_update();
 
   last_ms = now_ms;
   delay(5);           // let this time pass

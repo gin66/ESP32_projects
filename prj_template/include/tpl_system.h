@@ -11,6 +11,14 @@
 #define tpl_flashPin 4
 #endif
 
+#ifdef IS_ESP32CYD
+#define tpl_ledPin 4
+#define tpl_ledPin_R 4
+#define tpl_ledPin_G 16
+#define tpl_ledPin_B 17
+#define tpl_backlightPin 21
+#endif
+
 extern struct tpl_task_s {
   TaskHandle_t task_wifi_manager;
   TaskHandle_t task_net_watchdog;

@@ -33,19 +33,23 @@ void create_screen_main() {
         }
         {
             lv_obj_t *obj = lv_checkbox_create(parent_obj);
+            objects.obj0 = obj;
             lv_obj_set_pos(obj, 116, 184);
             lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
             lv_checkbox_set_text(obj, "Checkbox");
+            lv_obj_set_style_text_color(obj, lv_color_hex(0xffffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
         }
         {
             lv_obj_t *obj = lv_checkbox_create(parent_obj);
+            objects.obj1 = obj;
             lv_obj_set_pos(obj, 116, 210);
             lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
             lv_checkbox_set_text(obj, "Checkbox");
+            lv_obj_set_style_text_color(obj, lv_color_hex(0xffffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
         }
         {
             lv_obj_t *obj = lv_button_create(parent_obj);
-            objects.obj0 = obj;
+            objects.obj2 = obj;
             lv_obj_set_pos(obj, 9, 179);
             lv_obj_set_size(obj, 100, 50);
             lv_obj_add_event_cb(obj, action_button_pressed, LV_EVENT_PRESSED, (void *)0);
@@ -70,7 +74,6 @@ void create_screen_main() {
             lv_obj_set_size(obj, 251, 100);
             lv_obj_set_style_bg_color(obj, lv_color_hex(0xff101010), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_size(obj, 2, 2, LV_PART_INDICATOR | LV_STATE_DEFAULT);
         }
         {
             // powMax
@@ -101,7 +104,7 @@ void create_screen_main() {
         }
         {
             lv_obj_t *obj = lv_label_create(parent_obj);
-            objects.obj1 = obj;
+            objects.obj3 = obj;
             lv_obj_set_pos(obj, 268, 69);
             lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
             lv_obj_set_style_text_color(obj, lv_color_hex(0xffffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -122,8 +125,18 @@ void create_screen_main() {
             objects.producedk_wh = obj;
             lv_obj_set_pos(obj, 127, 120);
             lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-            lv_obj_set_style_text_color(obj, lv_color_hex(0xff7fff7f), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_color(obj, lv_color_hex(0xff1fff1f), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_text_opa(obj, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_label_set_text(obj, "8888.888kWh");
+        }
+        {
+            // debug
+            lv_obj_t *obj = lv_label_create(parent_obj);
+            objects.debug = obj;
+            lv_obj_set_pos(obj, 9, 151);
+            lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+            lv_obj_set_style_text_color(obj, lv_color_hex(0xff3030ff), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_label_set_text(obj, "TextTextTextTextTextTextText");
         }
     }
     

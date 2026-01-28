@@ -70,6 +70,7 @@ void create_screen_main() {
             lv_obj_set_size(obj, 251, 100);
             lv_obj_set_style_bg_color(obj, lv_color_hex(0xff101010), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_obj_set_style_bg_opa(obj, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_set_style_size(obj, 2, 2, LV_PART_INDICATOR | LV_STATE_DEFAULT);
         }
         {
             // powMax

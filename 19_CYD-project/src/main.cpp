@@ -332,6 +332,7 @@ void setup() {
   pinMode(CYD_LED_GREEN, OUTPUT);
   pinMode(CYD_LED_BLUE, OUTPUT);
 
+  // Turn off CYD RGB LED
   digitalWrite(CYD_LED_BLUE, HIGH);
   digitalWrite(CYD_LED_GREEN, HIGH);
   digitalWrite(CYD_LED_RED, HIGH);

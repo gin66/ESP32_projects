@@ -106,6 +106,24 @@ void create_screen_main() {
             lv_obj_set_style_text_color(obj, lv_color_hex(0xffffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
             lv_label_set_text(obj, "W");
         }
+        {
+            // consumedkWh
+            lv_obj_t *obj = lv_label_create(parent_obj);
+            objects.consumedk_wh = obj;
+            lv_obj_set_pos(obj, 9, 120);
+            lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+            lv_obj_set_style_text_color(obj, lv_color_hex(0xffffffff), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_label_set_text(obj, "18888.888kWh");
+        }
+        {
+            // producedkWh
+            lv_obj_t *obj = lv_label_create(parent_obj);
+            objects.producedk_wh = obj;
+            lv_obj_set_pos(obj, 127, 120);
+            lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+            lv_obj_set_style_text_color(obj, lv_color_hex(0xff7fff7f), LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_label_set_text(obj, "8888.888kWh");
+        }
     }
     
     tick_screen_main();

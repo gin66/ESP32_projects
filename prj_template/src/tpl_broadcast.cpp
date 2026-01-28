@@ -2,15 +2,11 @@
 
 #include "tpl_command.h"
 #include "tpl_system.h"
-#ifdef IS_ESP32CAM
-#include "tpl_esp_camera.h"
-#endif
 #include <string.h>
 
 WiFiUDP udp;
 static const char *broadcast = NULL;
 static uint16_t port;
-static void (*receive_callback)(void *data, size_t size) = NULL;
 
 void tpl_broadcast_setup(uint16_t udpPort, const char *broadcastAddress) {
   broadcast = broadcastAddress;
@@ -34,15 +30,7 @@ bool tpl_broadcast_receive(void *buffer, size_t buffer_size, size_t *received_si
             *received_size = bytes_read;
         }
         
-        if (receive_callback != NULL && bytes_read > 0) {
-            receive_callback(buffer, bytes_read);
-        }
-        
         return bytes_read > 0;
     }
     return false;
-}
-
-void tpl_broadcast_set_receive_callback(void (*callback)(void *data, size_t size)) {
-    receive_callback = callback;
 }

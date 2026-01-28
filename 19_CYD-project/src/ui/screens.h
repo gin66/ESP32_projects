@@ -16,6 +16,8 @@ typedef struct _objects_t {
     lv_obj_t *pow_min;
     lv_obj_t *pow_current;
     lv_obj_t *obj1;
+    lv_obj_t *consumedk_wh;
+    lv_obj_t *producedk_wh;
 } objects_t;
 
 extern objects_t objects;

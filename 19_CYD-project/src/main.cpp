@@ -110,25 +110,36 @@ unsigned long g_last_broadcast_time = 0;
 
 // Function to update power display labels
 static void update_power_labels(void) {
+    char buffer[16];
+    
     if (objects.pow_current != NULL) {
         float current = power_chart_get_current();
-        char buffer[16];
         snprintf(buffer, sizeof(buffer), "%.0f", current);
         lv_label_set_text(objects.pow_current, buffer);
     }
     
     if (objects.pow_min != NULL) {
         float min = power_chart_get_min();
-        char buffer[16];
         snprintf(buffer, sizeof(buffer), "%.0f", min);
         lv_label_set_text(objects.pow_min, buffer);
     }
     
     if (objects.pow_max != NULL) {
         float max = power_chart_get_max();
-        char buffer[16];
         snprintf(buffer, sizeof(buffer), "%.0f", max);
         lv_label_set_text(objects.pow_max, buffer);
+    }
+    
+    if (objects.consumedk_wh != NULL) {
+        float consumed_kWh = g_stromzaehler_data.consumption_Wh / 1000.0f;
+        snprintf(buffer, sizeof(buffer), "%.3f kWh", consumed_kWh);
+        lv_label_set_text(objects.consumedk_wh, buffer);
+    }
+    
+    if (objects.producedk_wh != NULL) {
+        float produced_kWh = g_stromzaehler_data.production_Wh / 1000.0f;
+        snprintf(buffer, sizeof(buffer), "%.3f kWh", produced_kWh);
+        lv_label_set_text(objects.producedk_wh, buffer);
     }
 }
 
@@ -351,10 +362,7 @@ void setup() {
   init_power_labels();
   
   Serial.println("[Main] Setup complete");
-
 }
-
-
 
 void loop() {
 
@@ -366,12 +374,11 @@ void loop() {
   lv_task_handler();  // let the GUI do its work
   lv_tick_inc(now_ms - last_ms);     // tell LVGL how much time has passed
 
-//  ui_tick(); // uncomment if using eez-flow
+  ui_tick(); // uncomment if using eez-flow
 
   // Check for broadcast messages
   check_broadcast();
 
   last_ms = now_ms;
   delay(5);           // let this time pass
-
 }

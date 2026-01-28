@@ -5,8 +5,7 @@
 
 // Circular buffer for power data
 static power_data_t power_buffer[POWER_BUFFER_SIZE];
-static int buffer_head = 0;
-static int buffer_count = 0;
+static uint32_t buffer_index = 0;  // Total values written (never wraps)
 
 // Chart object reference
 static lv_obj_t *chart_obj = NULL;
@@ -27,8 +26,7 @@ static const lv_chart_update_mode_t CHART_UPDATE_MODE = LV_CHART_UPDATE_MODE_SHI
 // Initialize the chart system
 void power_chart_init(void) {
     // Clear buffer
-    buffer_head = 0;
-    buffer_count = 0;
+    buffer_index = 0;
     
     // Reset current power
     current_power = 0.0f;
@@ -100,38 +98,12 @@ void power_chart_add_value(float power_W) {
         return;
     }
     
-    if (buffer_count >= POWER_BUFFER_SIZE) {
-        // Buffer full, overwrite oldest
-        buffer_head = (buffer_head + 1) % POWER_BUFFER_SIZE;
-        buffer_count--;
-    }
+    // Write at current index and advance
+    power_buffer[buffer_index % POWER_BUFFER_SIZE].power_W = power_W;
+    power_buffer[buffer_index % POWER_BUFFER_SIZE].timestamp_ms = millis();
+    buffer_index++;
     
-    // Add new value
-    int index = (buffer_head + buffer_count) % POWER_BUFFER_SIZE;
-    power_buffer[index].power_W = power_W;
-    power_buffer[index].timestamp_ms = millis();
-    buffer_count++;
-    
-    Serial.printf("[PowerChart] Buffer count: %d, head: %d\n", buffer_count, buffer_head);
-    
-    // Remove values older than 120 seconds
-    unsigned long current_time = millis();
-    int removed_count = 0;
-    while (buffer_count > 0) {
-        int oldest_index = buffer_head;
-        if (current_time - power_buffer[oldest_index].timestamp_ms <= 120000) {
-            break;  // Oldest value is within 120s
-        }
-        
-        // Remove oldest value
-        buffer_head = (buffer_head + 1) % POWER_BUFFER_SIZE;
-        buffer_count--;
-        removed_count++;
-    }
-    
-    if (removed_count > 0) {
-        Serial.printf("[PowerChart] Removed %d old values\n", removed_count);
-    }
+    Serial.printf("[PowerChart] Buffer index: %lu\n", buffer_index);
     
     // Update chart
     power_chart_update();
@@ -151,47 +123,36 @@ void power_chart_update(void) {
         return;
     }
     
-    if (buffer_count == 0) {
+    uint32_t count = (buffer_index < POWER_BUFFER_SIZE) ? buffer_index : POWER_BUFFER_SIZE;
+    if (count == 0) {
         Serial.println("[PowerChart] No data in buffer");
         return;
     }
     
-    Serial.printf("[PowerChart] Updating with %d data points\n", buffer_count);
-    
     // Calculate min and max values for auto-scaling
-    float min_power = power_buffer[buffer_head].power_W;
-    float max_power = power_buffer[buffer_head].power_W;
+    float min_power = power_buffer[0].power_W;
+    float max_power = power_buffer[0].power_W;
     
-    for (int i = 0; i < buffer_count; i++) {
-        int index = (buffer_head + i) % POWER_BUFFER_SIZE;
-        float power = power_buffer[index].power_W;
-        
+    for (uint32_t i = 1; i < count; i++) {
+        float power = power_buffer[i % POWER_BUFFER_SIZE].power_W;
         if (power < min_power) min_power = power;
         if (power > max_power) max_power = power;
     }
     
     // Calculate y_min and y_max as multiples of 50W with at least 50W range
-    // y_min should be the lower multiple of 50W, y_max the higher multiple of 50W
-    // This ensures y_max - y_min >= 50W
-    
-    // Calculate y_min as floor(min_power / 50) * 50
     calculated_y_min = floor(min_power / 50.0f) * 50.0f;
-    
-    // Calculate y_max as ceil(max_power / 50) * 50
     calculated_y_max = ceil(max_power / 50.0f) * 50.0f;
     
     // Ensure minimum range of 50W
     if (calculated_y_max - calculated_y_min < 50.0f) {
-        // If range is less than 50W, increase y_max to meet the requirement
         calculated_y_max = calculated_y_min + 50.0f;
     }
     
     // Update chart range
     lv_chart_set_axis_range(chart_obj, LV_CHART_AXIS_PRIMARY_Y, (int32_t)calculated_y_min, (int32_t)calculated_y_max);
     
-    // Get the most recent value (last in buffer)
-    int latest_index = (buffer_head + buffer_count - 1) % POWER_BUFFER_SIZE;
-    float latest_power = power_buffer[latest_index].power_W;
+    // Get the most recent value
+    float latest_power = power_buffer[(buffer_index - 1) % POWER_BUFFER_SIZE].power_W;
     
     // Use lv_chart_set_next_value for automatic rolling with SHIFT mode
     lv_chart_set_next_value(chart_obj, chart_series, (int32_t)latest_power);

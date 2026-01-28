@@ -22,6 +22,7 @@
           },
           {
             "type": "border",
+            "selected": 0,
             "size": 240,
             "location": "right",
             "children": [
@@ -189,22 +190,9 @@
               "type": "tabset",
               "id": "EDITORS",
               "weight": 42.2811059907834,
-              "selected": 1,
               "enableDeleteWhenEmpty": false,
               "enableClose": false,
               "children": [
-                {
-                  "type": "tab",
-                  "id": "#1ff8d777-f69c-42cd-8e60-36cc8222a978",
-                  "name": "Settings",
-                  "component": "editor",
-                  "config": {
-                    "objectPath": "[myapp.eez-project]:/settings",
-                    "subObjectPath": "[myapp.eez-project]:/settings",
-                    "permanent": false
-                  },
-                  "icon": "material:settings"
-                },
                 {
                   "type": "tab",
                   "id": "#8ec6170e-c9c9-4213-b36d-3338544a0435",
@@ -773,7 +761,8 @@
                       "component": "styles",
                       "enableClose": false
                     }
-                  ]
+                  ],
+                  "active": true
                 },
                 {
                   "type": "tabset",
@@ -986,18 +975,19 @@
       "selection": {
         "0": {
           "3": {},
-          "4": {
+          "4": {},
+          "5": {},
+          "9": {
             "$selected": true
-          },
-          "5": {}
+          }
         }
       },
       "transform": {
         "translate": {
-          "x": -315.6500000000001,
-          "y": -239.9749999999999
+          "x": -237.9999999999999,
+          "y": -204.875
         },
-        "scale": 1.75
+        "scale": 1.5
       },
       "timeline": {
         "isEditorActive": false,
@@ -1021,11 +1011,10 @@
   "lvglPart": "MAIN",
   "lvglState": "DEFAULT",
   "lvglExpandedPropertiesGroup": [
-    "TEXT",
-    "MISCELLANEOUS"
+    "TEXT"
   ],
   "showInactiveFlowsInDebugger": true,
   "globalFlowZoom": true,
-  "flowZoom": 1.75,
+  "flowZoom": 1.5,
   "implementationLanguage": "C"
 }

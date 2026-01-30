@@ -204,8 +204,7 @@
                   },
                   "icon": "svg:page"
                 }
-              ],
-              "active": true
+              ]
             },
             {
               "type": "row",
@@ -225,7 +224,8 @@
                       "enableClose": false,
                       "icon": "svg:properties"
                     }
-                  ]
+                  ],
+                  "active": true
                 },
                 {
                   "type": "tabset",
@@ -975,7 +975,9 @@
       "selection": {
         "0": {
           "3": {},
-          "4": {},
+          "4": {
+            "$selected": true
+          },
           "5": {},
           "9": {},
           "10": {}
@@ -1007,10 +1009,21 @@
   "showComponentDescriptions": true,
   "logsPanelFilter": "all",
   "selectedStylePropertyName": "",
-  "lvglPart": "MAIN",
+  "lvglPart": "INDICATOR",
   "lvglState": "DEFAULT",
   "lvglExpandedPropertiesGroup": [
-    "TEXT"
+    "PADDING",
+    "OUTLINE",
+    "IMAGE",
+    "LINE",
+    "MISCELLANEOUS",
+    "TEXT",
+    "ARC",
+    "SHADOW",
+    "BORDER",
+    "BACKGROUND",
+    "MARGIN",
+    "POSITION AND SIZE"
   ],
   "showInactiveFlowsInDebugger": true,
   "globalFlowZoom": true,

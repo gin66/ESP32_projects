@@ -36,8 +36,16 @@ void TaskWifiManager(void *pvParameters) {
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
   for (;;) {
     if (!tpl_config.wifi_manager_shutdown_request) {
-      if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("not connected: reconnect");
+      IPAddress ip = WiFi.localIP();
+      bool has_valid_ip = (ip[0] != 0 || ip[1] != 0 || ip[2] != 0 || ip[3] != 0);
+      if (WiFi.status() != WL_CONNECTED || !has_valid_ip) {
+        if (!has_valid_ip && WiFi.status() == WL_CONNECTED) {
+          Serial.println("IP is 0.0.0.0: force disconnect and reconnect");
+          WiFi.disconnect(/*wifioff=*/true);
+          vTaskDelay(100 / portTICK_PERIOD_MS);
+        } else {
+          Serial.println("not connected: reconnect");
+        }
         connect();
       } else {
         ArduinoOTA.handle();

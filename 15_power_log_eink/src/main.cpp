@@ -57,6 +57,40 @@ volatile float production_Wh = 0.0;
 volatile float current_W = 0.0;
 volatile uint32_t write_before = 0;
 volatile uint32_t write_after = 0;
+
+// --- Minute power history ring buffer (same pattern as 14_power_control) ---
+#define HISTORY_MINUTES (8 * 60)        // 8 h, 8 bytes/entry = 3.84 KB
+struct minute_entry_s { float w_min, w_max; };
+static struct minute_entry_s hist_buf[HISTORY_MINUTES];
+static uint32_t hist_write_idx = 0;    // next slot to write (monotonic)
+static uint32_t hist_read_idx  = 0;    // oldest valid slot (monotonic)
+
+// Pre-built JSON response for /hist.json — no streaming, no heap allocation.
+// 480 entries × ~15 chars + header ≈ 7.3 KB; buffer chosen with margin.
+#define HIST_JSON_BUFLEN 8192
+static char hist_json_buf[HIST_JSON_BUFLEN];
+
+// Accumulator for the minute currently in progress
+static float   acc_min    = 1e9f;
+static float   acc_max    = -1e9f;
+static uint8_t acc_tm_min = 255;
+
+static void history_accumulate(float w, uint8_t tm_min) {
+  if (tm_min != acc_tm_min) {
+    // Minute boundary — finalise previous entry
+    if (acc_tm_min != 255 && acc_max >= acc_min) {
+      hist_buf[hist_write_idx % HISTORY_MINUTES] = {acc_min, acc_max};
+      hist_write_idx++;
+      if (hist_write_idx - hist_read_idx > HISTORY_MINUTES)
+        hist_read_idx = hist_write_idx - HISTORY_MINUTES;
+    }
+    acc_min = acc_max = w;
+    acc_tm_min = tm_min;
+  } else {
+    if (w < acc_min) acc_min = w;
+    if (w > acc_max) acc_max = w;
+  }
+}
 struct sml_buffer_s {
   time_t receive_time;
   int16_t valid_bytes;
@@ -107,21 +141,19 @@ struct sml_buffer_s {
 const uint8_t sml_header[8] = {0x1b, 0x1b, 0x1b, 0x1b, 0x01, 0x01, 0x01, 0x01};
 
 void json_publish(DynamicJsonDocument *json) {
-  (*json)["publish"] = "called";
-  //(*json)["valid_sml"] = file->messages_len;
-  //(*json)["sml_time"] = buf->receive_time;
-  (*json)["sml_error"] = sml_error_cnt;
+  (*json)["sml_error"]      = sml_error_cnt;
   (*json)["Consumption_Wh"] = consumption_Wh;
-  (*json)["Production_Wh"] = production_Wh;
-  (*json)["Power_W"] = current_W;
+  (*json)["Production_Wh"]  = production_Wh;
+  (*json)["Power_W"]        = current_W;
+  // Publish only the ring-buffer indices; the browser re-fetches /hist.json
+  // when hist_write_idx advances (once per minute).  No hist data in the
+  // 100 ms broadcast — keeps the WebSocket frame small.
+  (*json)["hist_write_idx"] = hist_write_idx;
+  (*json)["hist_read_idx"]  = hist_read_idx;
 }
 
 void json_update(DynamicJsonDocument *json) {
-  //  if (json->containsKey("moveBoth")) {
-  //    int32_t steps = (*json)["moveBoth"];
-  //    stepper1->move(steps);
-  //    stepper2->move(steps);
-  //  }
+  (void)json;  // browser sends nothing; history is pushed by server
 }
 
 //---------------------------------------------------
@@ -453,6 +485,28 @@ void setup() {
   tpl_telegram_setup(BOTtoken, CHAT_ID);
 #endif
 
+  // Bulk history endpoint — built into a static global buffer (no streaming,
+  // no heap allocation, single send() call — avoids blocking the WebServer task).
+  tpl_server.on("/hist.json", HTTP_GET, []() {
+    uint32_t ri = hist_read_idx, wi = hist_write_idx;
+    int pos = snprintf(hist_json_buf, HIST_JSON_BUFLEN,
+                       "{\"ri\":%lu,\"wi\":%lu,\"d\":[", ri, wi);
+    for (uint32_t i = ri; i < wi; i++) {
+      int room = HIST_JSON_BUFLEN - pos - 4;
+      if (room < 20) break;
+      uint32_t slot = i % HISTORY_MINUTES;
+      pos += snprintf(hist_json_buf + pos, room, "%s[%.0f,%.0f]",
+                      i > ri ? "," : "",
+                      (double)hist_buf[slot].w_min,
+                      (double)hist_buf[slot].w_max);
+    }
+    hist_json_buf[pos++] = ']';
+    hist_json_buf[pos++] = '}';
+    hist_json_buf[pos]   = '\0';
+    tpl_server.sendHeader("Connection", "close");
+    tpl_server.send(200, "application/json", hist_json_buf);
+  });
+
   tpl_server.on("/can", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
     char can_info[255];
@@ -575,6 +629,7 @@ void loop() {
   localtime_r(&now, &timeinfo);
   if (timeinfo.tm_sec != last_sec) {
     last_sec = timeinfo.tm_sec;
+    history_accumulate(current_W, timeinfo.tm_min);
     twai_message_t message;
     message.flags = TWAI_MSG_FLAG_NONE;
     message.self = 1;

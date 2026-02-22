@@ -1,203 +1,311 @@
 <!doctype html>
-<html lang="en">
+<html lang="de">
   <head>
-    <!-- Required meta tags -->
     <meta charset="utf-8" />
     <title>Hausstrom</title>
     <meta name="esp32_15" content="" />
-    <meta name="Jochen Kiemes" content="" />
-
     <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <!-- FONT
-		–––––––––––––––––––––––––––––––––––––––––––––––––– -->
     <link
       href="//fonts.googleapis.com/css?family=Raleway:400,300,600"
       rel="stylesheet"
       type="text/css"
     />
-
-    <!-- Bootstrap CSS -->
     <link
       rel="stylesheet"
       href="https://stackpath.bootstrapcdn.com/bootstrap/5.0.0-alpha1/css/bootstrap.min.css"
       integrity="sha384-r4NyP46KrjDleawBgD5tp8Y7UzmLA05oM1iAEQ17CSuDqnUK2+k9luXQOfXJCJ4I"
       crossorigin="anonymous"
     />
-
     <script
       type="text/javascript"
       src="https://cdnjs.cloudflare.com/ajax/libs/canvasjs/1.7.0/canvasjs.js"
     ></script>
-    <script type="text/javascript">
-      window.onload = function () {};
 
-      function b64_to_u16(b64) {
-        var rawString = window.atob(b64);
-        var uint8Array = new Uint8Array(rawString.length);
-        for (var i = 0; i < rawString.length; i++) {
-          uint8Array[i] = rawString.charCodeAt(i);
-        }
-        var uint16Array = new Uint16Array(uint8Array.buffer);
-        return uint16Array;
-      }
-      function b64_to_u8(b64) {
-        var rawString = window.atob(b64);
-        var uint8Array = new Uint8Array(rawString.length);
-        for (var i = 0; i < rawString.length; i++) {
-          uint8Array[i] = rawString.charCodeAt(i);
-        }
-        return uint8Array;
-      }
-      function process(data) {
-        document.getElementById("mem_free").innerHTML = data["mem_free"];
-        document.getElementById("uptime").innerHTML = data["millis"] / 1000;
-        document.getElementById("ssid").innerHTML = data["SSID"];
-        document.getElementById("ip").innerHTML = data["IP"];
-        document.getElementById("dbm").innerHTML = data["wifi_dBm"];
-        document.getElementById("esp_time").innerHTML = data["time"];
-        if ("can_b64" in data) {
-          var can_data = b64_to_u8(data["can_b64"]);
-          if (can_data.length > 0) {
-            var s = "";
-            for (x in can_data) {
-              s = s + can_data[x].toString(16) + " ";
-            }
-            document.getElementById("can_data").innerHTML = s;
-          }
-        }
-        document.getElementById("consumption").innerHTML =
-          data["Consumption_Wh"];
-        document.getElementById("production").innerHTML = data["Production_Wh"];
-        document.getElementById("power").innerHTML = data["Power_W"];
-      }
+    <style>
+      body { background: #1a1a2e; color: #e0e0e0; }
+      .card { background: #16213e; border: 1px solid #0f3460; border-radius: 12px; }
+      .val-big   { font-size: 3.8rem; font-weight: 600; line-height: 1; }
+      .val-unit  { font-size: 1.4rem; color: #aaa; }
+      .val-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: #888; margin-bottom: 0.2rem; }
+      .val-sub   { font-size: 0.85rem; color: #666; margin-top: 0.3rem; }
+      .col-consume { color: #ff6b35; }
+      .col-export  { color: #4caf50; }
+      .col-idle    { color: #888; }
+      .kwh-big { font-size: 2rem; font-weight: 600; }
+      .err-badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.75rem; background: #333; color: #666; }
+      .err-badge.err { background: #5c1a1a; color: #ff6b6b; }
+      .sys-info { font-size: 0.72rem; color: #555; }
+    </style>
+
+    <script type="text/javascript">
       var ws = 0;
       var last_msg = 0;
-      function repeating() {
-        if ("WebSocket" in window) {
-          if (ws == 0 || ws.readyState >= 2) {
-            // Let us open a web socket
-            var url = "ws://" + location.hostname + ":81/";
-            if (location.hostname == "") {
-              url = "ws://esp32_15.local:81/";
-            }
-            document.getElementById("state").innerHTML = "connecting " + url;
-            ws = new WebSocket(url);
-            ws.binaryType = "arraybuffer";
-            last_msg = Date.now();
-            ws.onopen = function () {
-              document.getElementById("state").innerHTML = "open";
-              var now = Date.now();
-              last_msg = now;
-            };
+      var chart;
 
-            ws.onmessage = function (evt) {
-              document.getElementById("state").innerHTML = "receiving";
-              var now = Date.now();
-              if (document.getElementById("show_raw").checked) {
-                document.getElementById("raw").innerHTML = evt.data;
-              }
-              process(JSON.parse(evt.data));
-              var dt = now - last_msg;
-              document.getElementById("debug").innerHTML = dt;
-              last_msg = now;
-            };
-            ws.onerror = function () {
-              //ws.close();
-            };
+      // Server-driven history: keyed by monotonic minute index
+      var histData        = {};
+      var histWriteIdx    = 0;
+      var histReadIdx     = 0;
+      // Tracks the wi value at last successful fetch; prevents re-fetching
+      // when nothing changed and guards against duplicate in-flight requests.
+      var lastFetchedWi   = 0;
 
-            ws.onclose = function () {
-              // websocket is closed.
-              document.getElementById("state").innerHTML = "closed";
-              document.getElementById("raw").innerHTML = "";
-            };
-          } else {
-            var dt = Date.now() - last_msg;
-            if (dt > 5000) {
-              ws.close();
+      // Two chart series: consuming (>0 orange) and exporting (<0 green)
+      var posPoints = [];
+      var negPoints = [];
+
+      window.onload = function () {
+        chart = new CanvasJS.Chart("chartContainer", {
+          backgroundColor: "#16213e",
+          zoomEnabled: true,
+          axisX: {
+            valueFormatString: "HH:mm",
+            labelFontColor: "#666",
+            gridColor: "#0f3460",
+            lineColor: "#0f3460",
+            tickColor: "#0f3460"
+          },
+          axisY: {
+            includeZero: true,
+            title: "W",
+            titleFontColor: "#555",
+            labelFontColor: "#666",
+            gridColor: "#0f3460",
+            lineColor: "#0f3460",
+            tickColor: "#0f3460",
+            stripLines: [{ value: 0, color: "#445", thickness: 1 }]
+          },
+          data: [
+            {
+              name: "Bezug", showInLegend: true, legendText: "Bezug",
+              type: "area", color: "rgba(255,107,53,0.65)",
+              lineColor: "#ff6b35", lineThickness: 1.5, markerSize: 0,
+              xValueType: "dateTime", dataPoints: posPoints
+            },
+            {
+              name: "Einspeisung", showInLegend: true, legendText: "Einspeisung",
+              type: "area", color: "rgba(76,175,80,0.65)",
+              lineColor: "#4caf50", lineThickness: 1.5, markerSize: 0,
+              xValueType: "dateTime", dataPoints: negPoints
             }
-            document.getElementById("debug").innerHTML = dt;
-            document.getElementById("readystate").innerHTML = ws.readyState;
-          }
+          ]
+        });
+        chart.render();
+      };
+
+      // Rebuild both chart series from histData in index order
+      function rebuildChart() {
+        posPoints.length = 0;
+        negPoints.length = 0;
+        for (var i = histReadIdx; i < histWriteIdx; i++) {
+          if (!(i in histData)) continue;
+          var avg = (histData[i].w_min + histData[i].w_max) / 2;
+          // Compute timestamp: each index is one minute, write_idx = now
+          var t = new Date(Date.now() - (histWriteIdx - i) * 60000);
+          posPoints.push({ x: t, y: Math.max(avg, 0) });
+          negPoints.push({ x: t, y: Math.min(avg, 0) });
+        }
+        chart.render();
+      }
+
+      // Fetch full history from the server (single HTTP GET, no WebSocket traffic).
+      // Called on connect and whenever hist_write_idx advances (≈once per minute).
+      function fetchHistory() {
+        var base = location.hostname ? "http://" + location.hostname : "http://esp32_15.local";
+        fetch(base + "/hist.json")
+          .then(function(r) { return r.json(); })
+          .then(function(h) {
+            histReadIdx  = h.ri;
+            histWriteIdx = h.wi;
+            lastFetchedWi = h.wi;
+            histData = {};
+            h.d.forEach(function(entry, offset) {
+              histData[h.ri + offset] = { w_min: entry[0], w_max: entry[1] };
+            });
+            rebuildChart();
+          })
+          .catch(function() { lastFetchedWi = 0; });  // allow retry on failure
+      }
+
+      function process(data) {
+        var power = data["Power_W"];
+        var cons  = data["Consumption_Wh"];
+        var prod  = data["Production_Wh"];
+        var errs  = data["sml_error"];
+
+        // Current power
+        var pwrEl = document.getElementById("power_val");
+        var subEl = document.getElementById("power_sub");
+        pwrEl.textContent = Math.abs(power).toFixed(0);
+        if (power > 50) {
+          pwrEl.className = "val-big col-consume";
+          subEl.textContent = "vom Netz";
+        } else if (power < -50) {
+          pwrEl.className = "val-big col-export";
+          subEl.textContent = "ins Netz";
         } else {
-          // The browser doesn't support WebSocket
+          pwrEl.className = "val-big col-idle";
+          subEl.textContent = "ausgeglichen";
+        }
+
+        // Energy totals
+        document.getElementById("cons_kwh").textContent = (cons / 1000).toFixed(3);
+        document.getElementById("prod_kwh").textContent = (prod / 1000).toFixed(3);
+
+        // SML error badge
+        var badge = document.getElementById("sml_err");
+        badge.textContent = "SML err: " + errs;
+        badge.className = "err-badge" + (errs > 0 ? " err" : "");
+
+        // Track ring-buffer boundaries; evict stale browser-side entries.
+        var newWriteIdx = data["hist_write_idx"];
+        var newReadIdx  = data["hist_read_idx"];
+        if (newReadIdx > histReadIdx) {
+          for (var i = histReadIdx; i < newReadIdx; i++) delete histData[i];
+        }
+        histReadIdx  = newReadIdx;
+        histWriteIdx = newWriteIdx;
+
+        // Re-fetch /hist.json only when the server has a new minute entry.
+        // lastFetchedWi guards against duplicate in-flight requests.
+        if (newWriteIdx > lastFetchedWi) {
+          lastFetchedWi = newWriteIdx;
+          fetchHistory();
+        }
+
+        // System info
+        document.getElementById("sys_uptime").textContent =
+          (data["millis"] / 3600000).toFixed(1) + "h";
+        document.getElementById("sys_mem").textContent =
+          Math.round(data["mem_free"] / 1024) + "k";
+        document.getElementById("sys_ssid").textContent = data["SSID"];
+        document.getElementById("sys_ip").textContent   = data["IP"];
+        document.getElementById("sys_dbm").textContent  = data["wifi_dBm"];
+
+        if (document.getElementById("show_raw").checked) {
+          document.getElementById("raw").textContent = JSON.stringify(data, null, 2);
+        } else {
+          document.getElementById("raw").textContent = "";
+        }
+      }
+
+      function repeating() {
+        if (!("WebSocket" in window)) {
           alert("WebSocket NOT supported by your Browser!");
+          return;
+        }
+        if (ws == 0 || ws.readyState >= 2) {
+          var url = "ws://" + location.hostname + ":81/";
+          if (location.hostname == "") url = "ws://esp32_15.local:81/";
+          document.getElementById("ws_state").textContent = "…";
+          ws = new WebSocket(url);
+          ws.binaryType = "arraybuffer";
+          last_msg = Date.now();
+          ws.onopen = function () {
+            document.getElementById("ws_state").textContent = "●";
+            last_msg = Date.now();
+            lastFetchedWi = Number.MAX_SAFE_INTEGER;  // block duplicates during fetch
+            fetchHistory();
+          };
+          ws.onmessage = function (evt) {
+            document.getElementById("ws_state").textContent = "●";
+            var now = Date.now();
+            process(JSON.parse(evt.data));
+            document.getElementById("ws_dt").textContent = (now - last_msg) + "ms";
+            last_msg = now;
+          };
+          ws.onerror = function () {};
+          ws.onclose = function () {
+            document.getElementById("ws_state").textContent = "✕";
+            document.getElementById("raw").textContent = "";
+          };
+        } else {
+          var dt = Date.now() - last_msg;
+          if (dt > 5000) ws.close();
+          document.getElementById("ws_dt").textContent = dt + "ms";
         }
       }
       window.setInterval(repeating, 1000);
-      function send_flash_toggle() {
-        if (ws != 0 && ws.readyState == 1) {
-          ws.send(JSON.stringify({ flash: true }));
-        }
-      }
-      function request_video() {
-        if (ws != 0 && ws.readyState == 1) {
-          if (document.getElementById("video_on").checked) {
-            if (document.getElementById("video_raw").checked) {
-              ws.send(JSON.stringify({ image: true }));
-            } else {
-              ws.send(JSON.stringify({ image: false }));
-            }
-          }
-        }
-      }
-      function send_value(k, v) {
-        if (ws != 0 && ws.readyState == 1) {
-          var j = {};
-          j[k] = v;
-          console.log(j);
-          ws.send(JSON.stringify(j));
-        }
-      }
     </script>
   </head>
+
   <body>
-    <div class="container-fluid">
-      <div class="row">
-        <h2>esp32_15</h2>
-        <p>
-          ESP32-Time: <span id="esp_time"></span> Memory available:
-          <span id="mem_free"></span> Uptime: <span id="uptime"></span> Sample
-          Rate: <span id="sample_rate"></span> SSID: <span id="ssid"></span> IP:
-          <span id="ip"></span> dBm: <span id="dbm"></span>
-        </p>
+    <div class="container-fluid py-3" style="max-width:520px">
+
+      <!-- Header -->
+      <div class="d-flex align-items-center mb-3">
+        <h5 class="mb-0 me-auto">Hausstrom</h5>
+        <span id="sml_err" class="err-badge me-2">SML err: —</span>
+        <span id="ws_state" style="font-size:1rem">…</span>
       </div>
 
-      <div class="row">
-        <div>Consumption: <span id="consumption"></span> Wh</div>
-        <div>Production: <span id="production"></span> Wh</div>
-        <div>Power: <span id="power"></span> W</div>
+      <!-- Current power -->
+      <div class="card p-3 mb-3 text-center">
+        <div class="val-label">Aktuelle Leistung</div>
+        <div>
+          <span class="val-big col-idle" id="power_val">—</span>
+          <span class="val-unit"> W</span>
+        </div>
+        <div class="val-sub" id="power_sub">—</div>
       </div>
 
-      <div class="row row-cols-1 row-cols-sm-2 row-cols-md-4">
-        <form>
-          <input class="button-primary" type="checkbox" id="show_raw" />Show raw
-          messages
-        </form>
-        <form action="/serverIndex">
-          <button>SW Update</button>
-        </form>
-        <form action="/stack">
-          <button>Stack</button>
-        </form>
-        <form action="/can">
-          <button>CAN/SML Info</button>
-        </form>
-        <form action="/restart">
-          <button>Restart</button>
-        </form>
+      <!-- Energy totals -->
+      <div class="row g-2 mb-3">
+        <div class="col-6">
+          <div class="card p-3 text-center">
+            <div class="val-label">Bezug</div>
+            <div>
+              <span class="kwh-big col-consume" id="cons_kwh">—</span>
+              <span style="font-size:0.9rem; color:#aaa"> kWh</span>
+            </div>
+          </div>
+        </div>
+        <div class="col-6">
+          <div class="card p-3 text-center">
+            <div class="val-label">Einspeisung</div>
+            <div>
+              <span class="kwh-big col-export" id="prod_kwh">—</span>
+              <span style="font-size:0.9rem; color:#aaa"> kWh</span>
+            </div>
+          </div>
+        </div>
       </div>
+
+      <!-- Chart -->
+      <div class="card p-2 mb-3">
+        <div class="val-label ms-1 mb-1">Verlauf (bis 24 h)</div>
+        <div id="chartContainer" style="height:200px; width:100%"></div>
+      </div>
+
+      <!-- Utilities -->
+      <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+        <form action="/serverIndex" class="mb-0">
+          <button class="btn btn-sm btn-secondary">Update</button>
+        </form>
+        <form action="/can" class="mb-0">
+          <button class="btn btn-sm btn-secondary">CAN/SML</button>
+        </form>
+        <form action="/restart" class="mb-0">
+          <button class="btn btn-sm btn-secondary">Restart</button>
+        </form>
+        <div class="form-check mb-0">
+          <input class="form-check-input" type="checkbox" id="show_raw" />
+          <label class="form-check-label" for="show_raw" style="font-size:0.8rem">Raw</label>
+        </div>
+        <span class="ms-auto sys-info">
+          <span id="ws_dt"></span>
+          &nbsp;up <span id="sys_uptime">—</span>
+          &nbsp;<span id="sys_mem">—</span>
+          &nbsp;<span id="sys_ssid">—</span>
+          &nbsp;<span id="sys_ip">—</span>
+          &nbsp;<span id="sys_dbm">—</span>dBm
+        </span>
+      </div>
+
+      <pre id="raw" style="font-size:0.65rem; color:#555; white-space:pre-wrap;"></pre>
     </div>
-    <canvas id="image" width="0" height="0"> </canvas>
-    <div id="raw_image"></div>
-    <span id="debug" style="word-wrap: break-word"></span>
-    <span id="state"></span>
-    <span id="readystate"></span>
-    <span id="raw" style="word-wrap: break-word"></span>
-    <div id="can_data" style="word-wrap: break-word"></div>
 
-    <!-- Optional JavaScript -->
-    <!-- Popper.js first, then Bootstrap JS -->
     <script
       src="https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js"
       integrity="sha384-Q6E9RHvbIyZFJoft+2mJbHaEWldlvI9IOYy5n3zV9zzTtmI3UksdQRVvoxMfooAo"

@@ -140,9 +140,9 @@ uint32_t cpu_load_core1 = 0;
 void TaskCpuLoad(void *param) {
   (void)param;
   while (true) {
-    uint32_t cycles_start = esp_get_cycle_count();
+    uint32_t cycles_start = cpu_ll_get_cycle_count();
     vTaskDelay(100 / portTICK_PERIOD_MS);
-    uint32_t cycles_end = esp_get_cycle_count();
+    uint32_t cycles_end = cpu_ll_get_cycle_count();
 
     uint32_t delta = cycles_end - cycles_start;
     uint32_t expected = 240000;  // cycles per 100ms at 240MHz
@@ -153,9 +153,9 @@ void TaskCpuLoad(void *param) {
 void TaskCpuLoadCore1(void *param) {
   (void)param;
   while (true) {
-    uint32_t cycles_start = esp_get_cycle_count();
+    uint32_t cycles_start = cpu_ll_get_cycle_count();
     vTaskDelay(100 / portTICK_PERIOD_MS);
-    uint32_t cycles_end = esp_get_cycle_count();
+    uint32_t cycles_end = cpu_ll_get_cycle_count();
 
     uint32_t delta = cycles_end - cycles_start;
     uint32_t expected = 240000;  // cycles per 100ms at 240MHz

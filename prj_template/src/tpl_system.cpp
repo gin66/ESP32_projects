@@ -2,6 +2,7 @@
 
 #include <SPIFFS.h>
 //#include <esp_private/esp_int_wdt.h>
+#include <esp_freertos_hooks.h>
 #include <esp_int_wdt.h>
 #include <esp_task_wdt.h>
 #include <rom/rtc.h>
@@ -137,35 +138,55 @@ void TaskOnTimeWatchdog(void *pvParameters) {
 uint32_t cpu_load_core0 = 0;
 uint32_t cpu_load_core1 = 0;
 
-void TaskCpuLoad(void *param) {
-  (void)param;
-  while (true) {
-    uint32_t cycles_start = cpu_ll_get_cycle_count();
-    vTaskDelay(100 / portTICK_PERIOD_MS);
-    uint32_t cycles_end = cpu_ll_get_cycle_count();
+static volatile uint32_t idle_cnt_core0 = 0;
+static volatile uint32_t idle_cnt_core1 = 0;
 
-    uint32_t delta = cycles_end - cycles_start;
-    uint32_t expected = 240000;  // cycles per 100ms at 240MHz
-    cpu_load_core0 = (delta * 100) / expected;
-  }
+static bool idle_hook_core0() {
+  idle_cnt_core0++;
+  return false;
 }
 
-void TaskCpuLoadCore1(void *param) {
-  (void)param;
-  while (true) {
-    uint32_t cycles_start = cpu_ll_get_cycle_count();
-    vTaskDelay(100 / portTICK_PERIOD_MS);
-    uint32_t cycles_end = cpu_ll_get_cycle_count();
+static bool idle_hook_core1() {
+  idle_cnt_core1++;
+  return false;
+}
 
-    uint32_t delta = cycles_end - cycles_start;
-    uint32_t expected = 240000;  // cycles per 100ms at 240MHz
-    cpu_load_core1 = (delta * 100) / expected;
+void TaskCpuLoad(void *param) {
+  (void)param;
+
+  esp_register_freertos_idle_hook_for_cpu(idle_hook_core0, 0);
+  esp_register_freertos_idle_hook_for_cpu(idle_hook_core1, 1);
+
+  // Calibrate: measure idle counts for 1s while system is mostly idle
+  idle_cnt_core0 = 0;
+  idle_cnt_core1 = 0;
+  vTaskDelay(1000 / portTICK_PERIOD_MS);
+  uint32_t idle_max_core0 = idle_cnt_core0;
+  uint32_t idle_max_core1 = idle_cnt_core1;
+
+  while (true) {
+    idle_cnt_core0 = 0;
+    idle_cnt_core1 = 0;
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+
+    uint32_t cnt0 = idle_cnt_core0;
+    uint32_t cnt1 = idle_cnt_core1;
+
+    // Self-calibrate: update max if higher idle count observed
+    if (cnt0 > idle_max_core0) idle_max_core0 = cnt0;
+    if (cnt1 > idle_max_core1) idle_max_core1 = cnt1;
+
+    if (idle_max_core0 > 0) {
+      cpu_load_core0 = 100 - (cnt0 * 100 / idle_max_core0);
+    }
+    if (idle_max_core1 > 0) {
+      cpu_load_core1 = 100 - (cnt1 * 100 / idle_max_core1);
+    }
   }
 }
 
 void tpl_system_setup(uint32_t deep_sleep_secs) {
-  xTaskCreate(TaskCpuLoad, "CpuLoad", 2048, NULL, 0, NULL);
-  xTaskCreatePinnedToCore(TaskCpuLoadCore1, "CpuLoad1", 2048, NULL, 0, NULL, CORE_1);
+  xTaskCreate(TaskCpuLoad, "CpuLoad", 2048, NULL, 1, NULL);
   rtc_data.bootCount++;
   tpl_config.bootCount = rtc_data.bootCount;
   tpl_config.last_seen_watchpoint = rtc_data.watchpoint;

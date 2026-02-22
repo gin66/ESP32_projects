@@ -18,6 +18,8 @@
 #include <sml/sml_crc16.h>
 #include <sml/sml_file.h>
 
+#define DEBUG_OUTPUT 0  // Set to 0 to disable all Serial.print statements
+
 #define SPI_MOSI 23
 #define SPI_MISO -1
 #define SPI_CLK 18
@@ -291,6 +293,7 @@ void SMLTask(void *parameter) {
 
 static void handle_rx_message(twai_message_t &message) {
   // Process received message
+#if DEBUG_OUTPUT
   Serial.print(message.extd ? "Extended" : "Standard");
   Serial.printf("-ID: %x Bytes:", message.identifier);
   if (!(message.rtr)) {
@@ -298,52 +301,57 @@ static void handle_rx_message(twai_message_t &message) {
       Serial.printf(" %d = %02x,", i, message.data[i]);
     }
     Serial.println("");
+  }
+#endif
 
-    if ((message.identifier & ~0x1ff) == CAN_ID_STROMZAEHLER_INFO_BASIS) {
-      struct sml_buffer_s *active = &sml_buffers[receive_buffer];
-      int8_t buf_i = receive_buffer;
-      uint16_t this_id = message.identifier & ~0xff;
-      if (this_id != sml_base_id) {
-        if (sml_received_length > 2) {
-          Serial.println("Throw away received data");
-          sml_lost_bytes_cnt++;
+  if ((message.identifier & ~0x1ff) == CAN_ID_STROMZAEHLER_INFO_BASIS) {
+    struct sml_buffer_s *active = &sml_buffers[receive_buffer];
+    int8_t buf_i = receive_buffer;
+    uint16_t this_id = message.identifier & ~0xff;
+    if (this_id != sml_base_id) {
+      if (sml_received_length > 2) {
+#if DEBUG_OUTPUT
+        Serial.println("Throw away received data");
+#endif
+        sml_lost_bytes_cnt++;
+      }
+      // new sml message
+      // find buffer
+      for (uint8_t i = 0; i < 3; i++) {
+        if ((i != receive_buffer) && !sml_buffers[i].locked) {
+          receive_buffer = i;
+          active = &sml_buffers[i];
+          break;
         }
-        // new sml message
-        // find buffer
-        for (uint8_t i = 0; i < 3; i++) {
-          if ((i != receive_buffer) && !sml_buffers[i].locked) {
-            receive_buffer = i;
-            active = &sml_buffers[i];
-            break;
-          }
-        }
-        sml_received_length = 0;
-        active->valid_bytes = -1;
-        active->locked = false;
-        active->data[0] = 0;
-        active->data[1] = 0;
-        sml_base_id = this_id;
       }
-      if (message.data_length_code == 0) {
-        sml_empty_message_cnt++;
-      }
-      uint16_t off = message.identifier & 0xff;
-      off <<= 3;
-      for (uint8_t i = 0; i < message.data_length_code; i++) {
-        active->data[off++] = message.data[i];
-      }
-      sml_received_length += message.data_length_code;
-      uint16_t expected_length = active->data[1];
-      expected_length <<= 8;
-      expected_length += active->data[0];
-      if (expected_length + 2 == sml_received_length) {
-        Serial.println("Received OK data");
-        active->valid_bytes = sml_received_length - 2;
-        time_t now = time(nullptr);
-        active->receive_time = now;
-        sml_received_length = 0;
-        sml_base_id = 0;
-      }
+      sml_received_length = 0;
+      active->valid_bytes = -1;
+      active->locked = false;
+      active->data[0] = 0;
+      active->data[1] = 0;
+      sml_base_id = this_id;
+    }
+    if (message.data_length_code == 0) {
+      sml_empty_message_cnt++;
+    }
+    uint16_t off = message.identifier & 0xff;
+    off <<= 3;
+    for (uint8_t i = 0; i < message.data_length_code; i++) {
+      active->data[off++] = message.data[i];
+    }
+    sml_received_length += message.data_length_code;
+    uint16_t expected_length = active->data[1];
+    expected_length <<= 8;
+    expected_length += active->data[0];
+    if (expected_length + 2 == sml_received_length) {
+#if DEBUG_OUTPUT
+      Serial.println("Received OK data");
+#endif
+      active->valid_bytes = sml_received_length - 2;
+      time_t now = time(nullptr);
+      active->receive_time = now;
+      sml_received_length = 0;
+      sml_base_id = 0;
     }
   }
 }
@@ -420,22 +428,28 @@ void CANTask(void *parameter) {
 
     // Handle alerts
     if (alerts_triggered & TWAI_ALERT_ERR_PASS) {
+#if DEBUG_OUTPUT
       Serial.println("Alert: TWAI controller has become error passive.");
+#endif
       can_error_passive_cnt++;
     }
     if (alerts_triggered & TWAI_ALERT_BUS_ERROR) {
+#if DEBUG_OUTPUT
       Serial.println(
           "Alert: A (Bit, Stuff, CRC, Form, ACK) error has occurred on the "
           "bus.");
       Serial.printf("Bus error count: %d\n", twaistatus.bus_error_count);
+#endif
       can_error_bus_error_cnt++;
     }
     if (alerts_triggered & TWAI_ALERT_RX_QUEUE_FULL) {
+#if DEBUG_OUTPUT
       Serial.println(
           "Alert: The RX queue is full causing a received frame to be lost.");
       Serial.printf("RX buffered: %d\t", twaistatus.msgs_to_rx);
       Serial.printf("RX missed: %d\t", twaistatus.rx_missed_count);
       Serial.printf("RX overrun %d\n", twaistatus.rx_overrun_count);
+#endif
       can_rx_queue_full_cnt++;
     }
     if (alerts_triggered & TWAI_ALERT_TX_FAILED) {
@@ -547,14 +561,18 @@ void setup() {
   twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
   // Install TWAI driver
   if (twai_driver_install(&g_config, &t_config, &f_config) == ESP_OK) {
+#if DEBUG_OUTPUT
     Serial.println("TWAI Driver installed");
+#endif
   } else {
     Serial.println("Failed to install TWAI driver");
     return;
   }
   // Start TWAI driver
   if (twai_start() == ESP_OK) {
+#if DEBUG_OUTPUT
     Serial.println("TWAI Driver started");
+#endif
   } else {
     Serial.println("Failed to start TWAI driver");
     return;
@@ -568,13 +586,17 @@ void setup() {
                               TWAI_ALERT_BUS_ERROR | TWAI_ALERT_RX_QUEUE_FULL |
                               TWAI_ALERT_TX_FAILED | TWAI_ALERT_TX_RETRIED;
   if (twai_reconfigure_alerts(alerts_to_enable, NULL) == ESP_OK) {
+#if DEBUG_OUTPUT
     Serial.println("CAN Alerts reconfigured");
+#endif
     xTaskCreate(CANTask, "CANTask", STACK_SIZE, NULL, PRIORITY, NULL);
   } else {
     Serial.println("Failed to reconfigure alerts");
     return;
   }
+#if DEBUG_OUTPUT
   Serial.println("Setup done.");
+#endif
 }
 
 void log_to_sdcard(struct tm *timeinfo) {
@@ -621,7 +643,9 @@ void loop() {
   if ((int32_t)(ms - next_stack_info) > 0) {
     next_stack_info = ms + 500;
     tpl_update_stack_info();
+#if DEBUG_OUTPUT
     Serial.println(tpl_config.stack_info);
+#endif
   }
 
   struct tm timeinfo;
@@ -644,7 +668,9 @@ void loop() {
     if (status.msgs_to_tx < 5) {
       twai_transmit(&message, portMAX_DELAY);
     } else {
+#if DEBUG_OUTPUT
       Serial.println("CAN TX queue full");
+#endif
     }
 
     // broadcast - use before/after counters to detect torn reads
@@ -664,7 +690,9 @@ void loop() {
     }
 
     if (timeinfo.tm_sec == 0) {
+#if DEBUG_OUTPUT
       Serial.println("log to sdcard");
+#endif
       log_to_sdcard(&timeinfo);
     }
   }

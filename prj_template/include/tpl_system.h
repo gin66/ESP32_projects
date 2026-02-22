@@ -36,6 +36,9 @@ extern struct tpl_task_s {
   const char *app_name2;
 } tpl_tasks;
 
+extern uint32_t cpu_load_core0;
+extern uint32_t cpu_load_core1;
+
 extern struct tpl_config_s {
   uint32_t bootCount;
   volatile bool allow_deepsleep;

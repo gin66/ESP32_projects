@@ -134,7 +134,38 @@ void TaskOnTimeWatchdog(void *pvParameters) {
 }
 #endif
 
+uint32_t cpu_load_core0 = 0;
+uint32_t cpu_load_core1 = 0;
+
+void TaskCpuLoad(void *param) {
+  (void)param;
+  while (true) {
+    uint32_t cycles_start = esp_get_cycle_count();
+    vTaskDelay(100 / portTICK_PERIOD_MS);
+    uint32_t cycles_end = esp_get_cycle_count();
+
+    uint32_t delta = cycles_end - cycles_start;
+    uint32_t expected = 240000;  // cycles per 100ms at 240MHz
+    cpu_load_core0 = (delta * 100) / expected;
+  }
+}
+
+void TaskCpuLoadCore1(void *param) {
+  (void)param;
+  while (true) {
+    uint32_t cycles_start = esp_get_cycle_count();
+    vTaskDelay(100 / portTICK_PERIOD_MS);
+    uint32_t cycles_end = esp_get_cycle_count();
+
+    uint32_t delta = cycles_end - cycles_start;
+    uint32_t expected = 240000;  // cycles per 100ms at 240MHz
+    cpu_load_core1 = (delta * 100) / expected;
+  }
+}
+
 void tpl_system_setup(uint32_t deep_sleep_secs) {
+  xTaskCreate(TaskCpuLoad, "CpuLoad", 2048, NULL, 0, NULL);
+  xTaskCreatePinnedToCore(TaskCpuLoadCore1, "CpuLoad1", 2048, NULL, 0, NULL, CORE_1);
   rtc_data.bootCount++;
   tpl_config.bootCount = rtc_data.bootCount;
   tpl_config.last_seen_watchpoint = rtc_data.watchpoint;

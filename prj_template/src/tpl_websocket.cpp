@@ -84,11 +84,20 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
 
 #define WS_BUFLEN 4096
 char ws_buffer[WS_BUFLEN];
+static DynamicJsonDocument *ws_json = NULL;
+
 void TaskWebSocketCore0(void *pvParameters) {
   void (*publish_func)(DynamicJsonDocument *json) =
       (void (*)(DynamicJsonDocument *))pvParameters;
   const TickType_t xDelay = 1 + 10 / portTICK_PERIOD_MS;
   uint32_t send_status_ms = 0;
+
+  ws_json = new DynamicJsonDocument(4096);
+  if (!ws_json) {
+    Serial.println("Failed to allocate WebSocket JSON buffer");
+    vTaskDelete(NULL);
+    return;
+  }
 
   Serial.println("WebSocket Task started");
   webSocket.begin();
@@ -99,7 +108,7 @@ void TaskWebSocketCore0(void *pvParameters) {
     webSocket.loop();
 
     if (now > send_status_ms) {
-      send_status_ms = now + 100;
+      send_status_ms = now + 750;
       int clients = webSocket.connectedClients();
       if (clients > 0) {
         //Serial.print("Websockets=");
@@ -119,39 +128,40 @@ void TaskWebSocketCore0(void *pvParameters) {
           }
           data.setCharAt(i, ch);
         }
-        DynamicJsonDocument myObject(4096);
-        myObject["millis"] = millis();
-        myObject["mem_free"] = (long)ESP.getFreeHeap();
+        ws_json->clear();
+        (*ws_json)["millis"] = millis();
+        (*ws_json)["mem_free"] = (long)ESP.getFreeHeap();
 #ifdef IS_ESP32CAM
-        myObject["ps_free"] = (long)ESP.getFreePsram();
+        (*ws_json)["ps_free"] = (long)ESP.getFreePsram();
 #endif
-        myObject["stack_free"] = (long)uxTaskGetStackHighWaterMark(NULL);
-        myObject["reset_cpu0"] = tpl_config.reset_reason_cpu0;
-        myObject["reset_cpu1"] = tpl_config.reset_reason_cpu1;
-        myObject["watch"] = tpl_config.watchpoint;
-        myObject["last_watch"] = tpl_config.last_seen_watchpoint;
-        myObject["bootCount"] = tpl_config.bootCount;
-        // myObject["time"] = formattedTime;
-        // myObject["b64"] = base64::encode((uint8_t*)data_buf, data_idx);
-        // myObject["button_analog"] = analogRead(BUTTON_PIN);
-        // myObject["button_digital"] = digitalRead(BUTTON_PIN);
-        myObject["digital"] = data;
-        // myObject["sample_rate"] = I2S_SAMPLE_RATE;
-        myObject["wifi_dBm"] = WiFi.RSSI();
-        myObject["IP"] = WiFi.localIP().toString();
-        myObject["SSID"] = WiFi.SSID();
+        (*ws_json)["stack_free"] = (long)uxTaskGetStackHighWaterMark(NULL);
+        (*ws_json)["reset_cpu0"] = tpl_config.reset_reason_cpu0;
+        (*ws_json)["reset_cpu1"] = tpl_config.reset_reason_cpu1;
+        (*ws_json)["watch"] = tpl_config.watchpoint;
+        (*ws_json)["last_watch"] = tpl_config.last_seen_watchpoint;
+        (*ws_json)["bootCount"] = tpl_config.bootCount;
+        // (*ws_json)["time"] = formattedTime;
+        // (*ws_json)["b64"] = base64::encode((uint8_t*)data_buf, data_idx);
+        // (*ws_json)["button_analog"] = analogRead(BUTTON_PIN);
+        // (*ws_json)["button_digital"] = digitalRead(BUTTON_PIN);
+        (*ws_json)["digital"] = data;
+        // (*ws_json)["sample_rate"] = I2S_SAMPLE_RATE;
+        (*ws_json)["wifi_dBm"] = WiFi.RSSI();
+        (*ws_json)["IP"] = WiFi.localIP().toString();
+        (*ws_json)["SSID"] = WiFi.SSID();
 #ifdef HAS_STEPPERS
-        myObject["nr_stepper"] = tpl_spiffs_config.nr_steppers;
+        (*ws_json)["nr_stepper"] = tpl_spiffs_config.nr_steppers;
 #endif
-        myObject["dirty_config"] = tpl_spiffs_config.need_store;
+        (*ws_json)["dirty_config"] = tpl_spiffs_config.need_store;
+        (*ws_json)["cpu_load_core0"] = cpu_load_core0;
+        (*ws_json)["cpu_load_core1"] = cpu_load_core1;
 
         if (publish_func != NULL) {
-          publish_func(&myObject);
+          publish_func(ws_json);
         }
 
-        /* size_t bx = */ serializeJson(myObject, &ws_buffer, WS_BUFLEN);
-        String as_json = String(ws_buffer);
-        webSocket.broadcastTXT(as_json);
+        serializeJson(*ws_json, ws_buffer, WS_BUFLEN);
+        webSocket.broadcastTXT(ws_buffer, strlen(ws_buffer));
       }
     }
 #ifdef IS_ESP32CAM

@@ -80,6 +80,12 @@ void tpl_webserver_setup() {
     tpl_server.sendHeader("Connection", "close");
     tpl_server.send(200, "text/html", tpl_config.stack_info);
   });
+  tpl_server.on("/cpu", HTTP_GET, []() {
+    tpl_server.sendHeader("Connection", "close");
+    char buf[48];
+    snprintf(buf, sizeof(buf), "CPU0: %lu%% CPU1: %lu%%", cpu_load_core0, cpu_load_core1);
+    tpl_server.send(200, "text/html", buf);
+  });
   /*handling uploading firmware file */
   tpl_server.on(
       "/update", HTTP_POST,

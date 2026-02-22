@@ -1,15 +1,16 @@
 <!doctype html>
-<html lang="en">
+<html lang="de">
   <head>
-    <!-- Required meta tags -->
     <meta charset="utf-8" />
     <title>Heizungssteuerung</title>
     <meta name="esp32_17" content="" />
-    <meta name="Jochen Kiemes" content="" />
-
     <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <!-- Bootstrap CSS -->
+    <link
+      href="//fonts.googleapis.com/css?family=Raleway:400,300,600"
+      rel="stylesheet"
+      type="text/css"
+    />
     <link
       rel="stylesheet"
       href="https://stackpath.bootstrapcdn.com/bootstrap/5.0.0-alpha1/css/bootstrap.min.css"
@@ -17,190 +18,250 @@
       crossorigin="anonymous"
     />
 
-    <script
-      type="text/javascript"
-      src="https://cdnjs.cloudflare.com/ajax/libs/canvasjs/1.7.0/canvasjs.js"
-    ></script>
-    <script type="text/javascript">
-      var updateCount = 0;
-      var dataPoints = [];
-      var minMaxData = {};
-      var current_W = 0;
-      window.onload = function () {};
-      function b64_to_u16(b64) {
-        var rawString = window.atob(b64);
-        var uint8Array = new Uint8Array(rawString.length);
-        for (var i = 0; i < rawString.length; i++) {
-          uint8Array[i] = rawString.charCodeAt(i);
-        }
-        var uint16Array = new Uint16Array(uint8Array.buffer);
-        return uint16Array;
+    <style>
+      body { background: #1a1a2e; color: #e0e0e0; }
+      .card { background: #16213e; border: 1px solid #0f3460; border-radius: 12px; }
+      .temp-big { font-size: 3.5rem; font-weight: 600; line-height: 1; }
+      .temp-unit { font-size: 1.4rem; color: #aaa; }
+      .temp-label { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.1em; color: #888; margin-bottom: 0.25rem; }
+      .status-pill {
+        display: inline-block; padding: 0.25rem 0.8rem;
+        border-radius: 999px; font-size: 0.85rem; font-weight: 600;
       }
-      function process(data) {
-        var show_raw = document.getElementById("show_raw").checked;
-        document.getElementById("debug_data").hidden = !show_raw;
+      .status-off     { background: #333; color: #888; }
+      .status-pump    { background: #0f3460; color: #53c0f0; }
+      .status-heating { background: #7b2d00; color: #ffab76; }
+      .col-vorlauf { color: #ff6b35; }
+      .col-aussen  { color: #53c0f0; }
+      .col-innen   { color: #a8e6cf; }
+      .preset-btn {
+        min-width: 5rem; font-weight: 600;
+        background: #0f3460; border: 1px solid #1a5276; color: #ccc;
+        border-radius: 8px; padding: 0.5rem 0.4rem;
+      }
+      .preset-btn:hover { background: #1a5276; color: #fff; }
+      .preset-btn.active-preset { background: #c0392b; border-color: #e74c3c; color: #fff; }
+      .sys-info { font-size: 0.72rem; color: #555; }
+      .bar-bg { background: #0f3460; border-radius: 4px; height: 8px; overflow: hidden; }
+      .bar-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, #0f3460, #ff6b35); transition: width 0.5s; }
+    </style>
 
-        document.getElementById("mem_free").innerHTML = data["mem_free"];
-        document.getElementById("uptime").innerHTML = data["millis"] / 1000;
-        document.getElementById("ssid").innerHTML = data["SSID"];
-        document.getElementById("dbm").innerHTML = data["wifi_dBm"];
-        document.getElementById("esp_time").innerHTML = data["time"];
-        document.getElementById("sample_rate").innerHTML = data["sample_rate"];
-      }
+    <script type="text/javascript">
       var ws = 0;
       var last_msg = 0;
-      function repeating() {
-        if ("WebSocket" in window) {
-          if (ws == 0 || ws.readyState >= 2) {
-            // Let us open a web socket
-            var url = "ws://" + location.hostname + ":81/";
-            if (location.hostname == "") {
-              url = "ws://esp32_17.local:81/";
-            }
-            document.getElementById("state").innerHTML = "connecting " + url;
-            ws = new WebSocket(url);
-            ws.binaryType = "arraybuffer";
-            last_msg = Date.now();
-            ws.onopen = function () {
-              document.getElementById("state").innerHTML = "open";
-              var now = Date.now();
-              last_msg = now;
-            };
+      var current_soll_mV = 0;
 
-            ws.onmessage = function (evt) {
-              document.getElementById("state").innerHTML = "receiving";
-              var now = Date.now();
-              if (document.getElementById("show_raw").checked) {
-                document.getElementById("raw").innerHTML = evt.data;
-              } else {
-                document.getElementById("raw").innerHTML = "";
-              }
-              process(JSON.parse(evt.data));
-              var dt = now - last_msg;
-              document.getElementById("debug").innerHTML = dt;
-              last_msg = now;
-            };
-            ws.onerror = function () {
-              //ws.close();
-            };
+      // Vorlauf temp from control voltage (mirrors firmware macro)
+      function vorlaufTemp(cv_mV) {
+        return cv_mV > 2500 ? Math.round((cv_mV + 6134) / 257) : null;
+      }
 
-            ws.onclose = function () {
-              // websocket is closed.
-              document.getElementById("state").innerHTML = "closed";
-              document.getElementById("raw").innerHTML = "";
-            };
-          } else {
-            var dt = Date.now() - last_msg;
-            if (dt > 5000) {
-              ws.close();
-            }
-            document.getElementById("debug").innerHTML = dt;
-            document.getElementById("readystate").innerHTML = ws.readyState;
-          }
+      function tempColor(t) {
+        if (t === null || t < 35) return "#53c0f0";
+        if (t < 50) return "#ffab76";
+        return "#ff6b35";
+      }
+
+      function updateActivePreset(soll_mV) {
+        document.querySelectorAll(".preset-btn").forEach(function(b) {
+          var mv = parseInt(b.dataset.mv);
+          b.classList.toggle("active-preset", mv === soll_mV);
+        });
+      }
+
+      function process(data) {
+        var soll_mV = data["Ucontrol_mV_soll"];
+        var ist_mV  = data["Ucontrol_mV_ist"];
+        current_soll_mV = soll_mV;
+
+        // Vorlauf temperature
+        var vt = vorlaufTemp(ist_mV);
+        var vtEl = document.getElementById("vorlauf_temp");
+        if (vt !== null) {
+          vtEl.textContent = vt;
+          vtEl.style.color = tempColor(vt);
         } else {
-          // The browser doesn't support WebSocket
-          alert("WebSocket NOT supported by your Browser!");
+          vtEl.textContent = "—";
+          vtEl.style.color = "#555";
+        }
+
+        // Setpoint display
+        var soll_t = vorlaufTemp(soll_mV);
+        document.getElementById("vorlauf_soll").textContent =
+          soll_mV > 2500 ? (soll_t !== null ? "Soll: " + soll_t + "°C" : "Pumpe") : "Aus";
+
+        // Duty cycle bar (0..1024 = 0..100%)
+        var duty = data["dutycycle"];
+        var pct = Math.round(duty / 1024 * 100);
+        document.getElementById("duty_bar").style.width = pct + "%";
+        document.getElementById("duty_pct").textContent = pct + "%";
+
+        // Heating status pill
+        var pillEl = document.getElementById("status_pill");
+        if (ist_mV <= 2500) {
+          pillEl.className = "status-pill status-off";
+          pillEl.textContent = "Aus";
+        } else if (vt !== null && vt < 40) {
+          pillEl.className = "status-pill status-pump";
+          pillEl.textContent = "Pumpe";
+        } else {
+          pillEl.className = "status-pill status-heating";
+          pillEl.textContent = "Heizung";
+        }
+
+        // Outdoor temperature
+        var ot = data["out_temp"];
+        if (ot !== undefined) {
+          document.getElementById("out_temp").textContent = ot.toFixed(1);
+        }
+
+        // Indoor temperature (only present when valid)
+        if ("inner_temp" in data) {
+          document.getElementById("inner_temp").textContent =
+            data["inner_temp"].toFixed(1);
+          document.getElementById("inner_card").hidden = false;
+        } else {
+          document.getElementById("inner_card").hidden = true;
+        }
+
+        // Active preset highlight
+        updateActivePreset(soll_mV);
+
+        // System info
+        document.getElementById("sys_uptime").textContent =
+          (data["millis"] / 1000 / 3600).toFixed(1) + "h";
+        document.getElementById("sys_mem").textContent =
+          Math.round(data["mem_free"] / 1024) + "k";
+        document.getElementById("sys_ssid").textContent = data["SSID"];
+        document.getElementById("sys_dbm").textContent  = data["wifi_dBm"];
+
+        if (document.getElementById("show_raw").checked) {
+          document.getElementById("raw").textContent = JSON.stringify(data, null, 2);
+        } else {
+          document.getElementById("raw").textContent = "";
         }
       }
-      window.setInterval(repeating, 1000);
-      function send_vorlauf_control(mV) {
+
+      function sendCV(mV) {
         if (ws != 0 && ws.readyState == 1) {
           ws.send(JSON.stringify({ control_voltage_mV: mV }));
         }
       }
+
+      function repeating() {
+        if ("WebSocket" in window) {
+          if (ws == 0 || ws.readyState >= 2) {
+            var url = "ws://" + location.hostname + ":81/";
+            if (location.hostname == "") url = "ws://esp32_17.local:81/";
+            document.getElementById("ws_state").textContent = "…";
+            ws = new WebSocket(url);
+            ws.binaryType = "arraybuffer";
+            last_msg = Date.now();
+            ws.onopen  = function() { document.getElementById("ws_state").textContent = "●"; last_msg = Date.now(); };
+            ws.onmessage = function(evt) {
+              document.getElementById("ws_state").textContent = "●";
+              process(JSON.parse(evt.data));
+              var now = Date.now();
+              document.getElementById("ws_dt").textContent = (now - last_msg) + "ms";
+              last_msg = now;
+            };
+            ws.onerror = function() {};
+            ws.onclose = function() { document.getElementById("ws_state").textContent = "✕"; };
+          } else {
+            var dt = Date.now() - last_msg;
+            if (dt > 5000) ws.close();
+          }
+        }
+      }
+      window.setInterval(repeating, 1000);
     </script>
   </head>
+
   <body>
-    <div class="container-fluid">
-      <div class="row">
-        <h2>esp32_17: Heizungssteuerung</h2>
-        <form action="/serverIndex">
-          <button>SW Update</button>
-        </form>
-        <p>
-          ESP32-Time: <span id="esp_time"></span> Memory available:
-          <span id="mem_free"></span> Uptime: <span id="uptime"></span> Sample
-          Rate: <span id="sample_rate"></span> SSID:
-          <span id="ssid"></span> dBm: <span id="dbm"></span> tmp:
-          <span id="tmp"></span>
-        </p>
-        <span id="debug" style="word-wrap: break-word"></span>
-        <span id="state"></span>
-        <span id="readystate"></span>
-        <span id="raw" style="word-wrap: break-word"></span>
-      </div>
-      <div id="debug_data"></div>
+    <div class="container-fluid py-3" style="max-width:520px">
 
-      <div class="row row-cols-1 row-cols-sm-2 row-cols-md-4">
-        <form>
-          <button
-            class="button-primary"
-            type="button"
-            onClick="send_vorlauf_control(0);"
-          >
-            Heizung aus
-          </button>
-          <button
-            class="button-primary"
-            type="button"
-            onClick="send_vorlauf_control(3000);"
-          >
-            Pumpe an
-          </button>
-          <button
-            class="button-primary"
-            type="button"
-            onClick="send_vorlauf_control(4400);"
-          >
-            40°C
-          </button>
-          <button
-            class="button-primary"
-            type="button"
-            onClick="send_vorlauf_control(6850);"
-          >
-            50°C
-          </button>
-          <button
-            class="button-primary"
-            type="button"
-            onClick="send_vorlauf_control(9300);"
-          >
-            60°C
-          </button>
-          <button
-            class="button-primary"
-            type="button"
-            onClick="send_vorlauf_control(11750);"
-          >
-            70°C
-          </button>
-        </form>
-        <!-- 
-        <form action="/heizung">
-          <button class="button-primary">Heizung</button>
-        </form>
-        <form>
-          <button
-            class="button-primary"
-            type="button"
-            onClick="send_heizung();"
-          >
-            Heizung via ws
-          </button>
-        </form>
-	-->
+      <!-- Header -->
+      <div class="d-flex align-items-center mb-3">
+        <h5 class="mb-0 me-auto">Heizungssteuerung</h5>
+        <span id="status_pill" class="status-pill status-off">—</span>
       </div>
+
+      <!-- Vorlauf temperature — main display -->
+      <div class="card p-3 mb-3 text-center">
+        <div class="temp-label">Vorlauftemperatur</div>
+        <div>
+          <span class="temp-big col-vorlauf" id="vorlauf_temp">—</span>
+          <span class="temp-unit">°C</span>
+        </div>
+        <div class="mt-1" style="font-size:0.8rem; color:#777" id="vorlauf_soll">—</div>
+        <div class="mt-2">
+          <div class="d-flex justify-content-between mb-1" style="font-size:0.75rem; color:#666">
+            <span>Stellglied</span><span id="duty_pct">—</span>
+          </div>
+          <div class="bar-bg"><div class="bar-fill" id="duty_bar" style="width:0%"></div></div>
+        </div>
+      </div>
+
+      <!-- Außen + Innen -->
+      <div class="row g-2 mb-3">
+        <div class="col-6">
+          <div class="card p-3 text-center">
+            <div class="temp-label">Außentemperatur</div>
+            <div>
+              <span class="temp-big col-aussen" id="out_temp">—</span>
+              <span class="temp-unit">°C</span>
+            </div>
+          </div>
+        </div>
+        <div class="col-6" id="inner_card">
+          <div class="card p-3 text-center">
+            <div class="temp-label">Innentemperatur</div>
+            <div>
+              <span class="temp-big col-innen" id="inner_temp">—</span>
+              <span class="temp-unit">°C</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Preset buttons -->
+      <div class="card p-3 mb-3">
+        <div class="temp-label mb-2">Solltemperatur</div>
+        <div class="d-flex flex-wrap gap-2">
+          <button class="preset-btn" data-mv="0"     onclick="sendCV(0)">Aus</button>
+          <button class="preset-btn" data-mv="3000"  onclick="sendCV(3000)">Pumpe</button>
+          <button class="preset-btn" data-mv="4400"  onclick="sendCV(4400)">40°C</button>
+          <button class="preset-btn" data-mv="6850"  onclick="sendCV(6850)">50°C</button>
+          <button class="preset-btn" data-mv="9300"  onclick="sendCV(9300)">60°C</button>
+          <button class="preset-btn" data-mv="11750" onclick="sendCV(11750)">70°C</button>
+        </div>
+      </div>
+
+      <!-- System info + utilities -->
+      <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+        <form action="/serverIndex" class="mb-0">
+          <button class="btn btn-sm btn-secondary">Update</button>
+        </form>
+        <form action="/restart" class="mb-0">
+          <button class="btn btn-sm btn-secondary">Restart</button>
+        </form>
+        <div class="form-check mb-0">
+          <input class="form-check-input" type="checkbox" id="show_raw" />
+          <label class="form-check-label" for="show_raw" style="font-size:0.8rem">Raw</label>
+        </div>
+        <span class="ms-auto sys-info">
+          <span id="ws_state">…</span>
+          <span id="ws_dt"></span>
+          &nbsp;up <span id="sys_uptime">—</span>
+          &nbsp;<span id="sys_mem">—</span>
+          &nbsp;<span id="sys_ssid">—</span>
+          &nbsp;<span id="sys_dbm">—</span>dBm
+        </span>
+      </div>
+
+      <pre id="raw" style="font-size:0.65rem; color:#555; white-space:pre-wrap;"></pre>
     </div>
-    <canvas id="image" width="0" height="0"> </canvas>
-    <div id="raw_image"></div>
-    <form>
-      <input class="button-primary" type="checkbox" id="show_raw" />
-      Show raw messages
-    </form>
 
-    <!-- Optional JavaScript -->
-    <!-- Popper.js first, then Bootstrap JS -->
     <script
       src="https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js"
       integrity="sha384-Q6E9RHvbIyZFJoft+2mJbHaEWldlvI9IOYy5n3zV9zzTtmI3UksdQRVvoxMfooAo"

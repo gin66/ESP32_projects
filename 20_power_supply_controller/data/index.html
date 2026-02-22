@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>HM310T Power Supply</title>
+    <meta name="esp32_20" content="" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <link
+      href="//fonts.googleapis.com/css?family=Raleway:400,300,600"
+      rel="stylesheet"
+      type="text/css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://stackpath.bootstrapcdn.com/bootstrap/5.0.0-alpha1/css/bootstrap.min.css"
+      integrity="sha384-r4NyP46KrjDleawBgD5tp8Y7UzmLA05oM1iAEQ17CSuDqnUK2+k9luXQOfXJCJ4I"
+      crossorigin="anonymous"
+    />
+
+    <style>
+      .psu-value { font-size: 2.5rem; font-weight: 600; }
+      .psu-unit  { font-size: 1rem; color: #888; }
+      .psu-label { font-size: 0.85rem; text-transform: uppercase; color: #aaa; }
+      .output-on  { background-color: #28a745; color: white; }
+      .output-off { background-color: #dc3545; color: white; }
+      .card { margin-bottom: 1rem; }
+    </style>
+
+    <script type="text/javascript">
+      var ws = 0;
+      var last_msg = 0;
+
+      function process(data) {
+        // System info
+        document.getElementById("mem_free").innerHTML = data["mem_free"];
+        document.getElementById("uptime").innerHTML = (data["millis"] / 1000).toFixed(0);
+        document.getElementById("ssid").innerHTML = data["SSID"];
+        document.getElementById("ip").innerHTML = data["IP"];
+        document.getElementById("dbm").innerHTML = data["wifi_dBm"];
+
+        if (!data["hm_valid"]) {
+          document.getElementById("hm_status").innerHTML = "&#x26A0; No device";
+          return;
+        }
+        document.getElementById("hm_status").innerHTML = "OK";
+
+        // Measurements
+        document.getElementById("v_out").innerHTML = (data["v_out"] / 100).toFixed(2);
+        document.getElementById("i_out").innerHTML = (data["i_out"] / 1000).toFixed(3);
+        document.getElementById("p_out").innerHTML = (data["p_out"] / 100).toFixed(2);
+
+        // Setpoints
+        document.getElementById("v_set_disp").innerHTML = (data["v_set"] / 100).toFixed(2);
+        document.getElementById("i_set_disp").innerHTML = (data["i_set"] / 1000).toFixed(3);
+
+        // Output state button
+        var btn = document.getElementById("output_btn");
+        if (data["output"] == 1) {
+          btn.className = "btn output-on w-100";
+          btn.innerHTML = "OUTPUT ON";
+        } else {
+          btn.className = "btn output-off w-100";
+          btn.innerHTML = "OUTPUT OFF";
+        }
+      }
+
+      function send_value(k, v) {
+        if (ws != 0 && ws.readyState == 1) {
+          var j = {};
+          j[k] = v;
+          ws.send(JSON.stringify(j));
+        }
+      }
+
+      function toggle_output() {
+        var btn = document.getElementById("output_btn");
+        var next = btn.innerHTML.indexOf("OFF") >= 0 ? 1 : 0;
+        send_value("output", next);
+      }
+
+      function set_voltage() {
+        var v = parseFloat(document.getElementById("v_input").value);
+        if (!isNaN(v) && v >= 0 && v <= 33) {
+          send_value("v_set", Math.round(v * 100));
+        }
+      }
+
+      function set_current() {
+        var i = parseFloat(document.getElementById("i_input").value);
+        if (!isNaN(i) && i >= 0 && i <= 10) {
+          send_value("i_set", Math.round(i * 1000));
+        }
+      }
+
+      function repeating() {
+        if ("WebSocket" in window) {
+          if (ws == 0 || ws.readyState >= 2) {
+            var url = "ws://" + location.hostname + ":81/";
+            if (location.hostname == "") {
+              url = "ws://esp32_20.local:81/";
+            }
+            document.getElementById("state").innerHTML = "connecting " + url;
+            ws = new WebSocket(url);
+            ws.binaryType = "arraybuffer";
+            last_msg = Date.now();
+
+            ws.onopen = function () {
+              document.getElementById("state").innerHTML = "open";
+              last_msg = Date.now();
+            };
+            ws.onmessage = function (evt) {
+              document.getElementById("state").innerHTML = "receiving";
+              var now = Date.now();
+              if (document.getElementById("show_raw").checked) {
+                document.getElementById("raw").innerHTML = evt.data;
+              }
+              process(JSON.parse(evt.data));
+              document.getElementById("debug").innerHTML = now - last_msg;
+              last_msg = now;
+            };
+            ws.onerror = function () {};
+            ws.onclose = function () {
+              document.getElementById("state").innerHTML = "closed";
+              document.getElementById("raw").innerHTML = "";
+            };
+          } else {
+            var dt = Date.now() - last_msg;
+            if (dt > 5000) ws.close();
+            document.getElementById("debug").innerHTML = dt;
+            document.getElementById("readystate").innerHTML = ws.readyState;
+          }
+        } else {
+          alert("WebSocket NOT supported by your Browser!");
+        }
+      }
+      window.setInterval(repeating, 1000);
+    </script>
+  </head>
+
+  <body>
+    <div class="container-fluid mt-2">
+
+      <div class="row mb-2">
+        <div class="col">
+          <h4>esp32_20 &mdash; HM310T Power Supply
+            <small class="text-muted" id="hm_status"></small>
+          </h4>
+          <small>
+            SSID: <span id="ssid"></span> &nbsp;
+            IP: <span id="ip"></span> &nbsp;
+            dBm: <span id="dbm"></span> &nbsp;
+            Mem: <span id="mem_free"></span> &nbsp;
+            Up: <span id="uptime"></span>s
+          </small>
+        </div>
+      </div>
+
+      <!-- Measurements -->
+      <div class="row">
+        <div class="col-4">
+          <div class="card text-center p-2">
+            <div class="psu-label">Voltage</div>
+            <div class="psu-value"><span id="v_out">--</span></div>
+            <div class="psu-unit">V</div>
+          </div>
+        </div>
+        <div class="col-4">
+          <div class="card text-center p-2">
+            <div class="psu-label">Current</div>
+            <div class="psu-value"><span id="i_out">--</span></div>
+            <div class="psu-unit">A</div>
+          </div>
+        </div>
+        <div class="col-4">
+          <div class="card text-center p-2">
+            <div class="psu-label">Power</div>
+            <div class="psu-value"><span id="p_out">--</span></div>
+            <div class="psu-unit">W</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Output toggle -->
+      <div class="row mb-2">
+        <div class="col">
+          <button id="output_btn" class="btn output-off w-100" onclick="toggle_output()">
+            OUTPUT OFF
+          </button>
+        </div>
+      </div>
+
+      <!-- Setpoints -->
+      <div class="row">
+        <div class="col-6">
+          <div class="card p-2">
+            <div class="psu-label">Voltage set &mdash; now <span id="v_set_disp">--</span> V</div>
+            <div class="input-group mt-1">
+              <input id="v_input" type="number" class="form-control" step="0.1" min="0" max="33" placeholder="V" />
+              <button class="btn btn-primary" onclick="set_voltage()">Set V</button>
+            </div>
+          </div>
+        </div>
+        <div class="col-6">
+          <div class="card p-2">
+            <div class="psu-label">Current set &mdash; now <span id="i_set_disp">--</span> A</div>
+            <div class="input-group mt-1">
+              <input id="i_input" type="number" class="form-control" step="0.01" min="0" max="10" placeholder="A" />
+              <button class="btn btn-primary" onclick="set_current()">Set I</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Utility buttons -->
+      <div class="row row-cols-auto g-2 mt-1">
+        <div class="col"><form action="/serverIndex"><button class="btn btn-sm btn-secondary">SW Update</button></form></div>
+        <div class="col"><form action="/restart"><button class="btn btn-sm btn-secondary">Restart</button></form></div>
+        <div class="col"><form action="/stack"><button class="btn btn-sm btn-secondary">Stack</button></form></div>
+        <div class="col">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="show_raw" />
+            <label class="form-check-label" for="show_raw">Raw</label>
+          </div>
+        </div>
+      </div>
+
+      <small>
+        <span id="state"></span>
+        <span id="readystate"></span>
+        <span id="debug"></span>ms
+      </small>
+      <div id="raw" style="word-wrap: break-word; font-size: 0.7rem;"></div>
+    </div>
+
+    <script
+      src="https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js"
+      integrity="sha384-Q6E9RHvbIyZFJoft+2mJbHaEWldlvI9IOYy5n3zV9zzTtmI3UksdQRVvoxMfooAo"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://stackpath.bootstrapcdn.com/bootstrap/5.0.0-alpha1/js/bootstrap.min.js"
+      integrity="sha384-oesi62hOLfzrys4LxRF63OJCXdXDipiYWBnvTl9Y9/TRlw5xlKIEHpNyvvDShgf/"
+      crossorigin="anonymous"
+    ></script>
+  </body>
+</html>

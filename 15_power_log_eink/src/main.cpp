@@ -52,9 +52,11 @@ uint32_t sml_empty_message_cnt = 0;
 uint32_t sml_error_cnt = 0;
 uint32_t file_log_error_cnt = 0;
 
-float consumption_Wh = 0.0;
-float production_Wh = 0.0;
-float current_W = 0.0;
+volatile float consumption_Wh = 0.0;
+volatile float production_Wh = 0.0;
+volatile float current_W = 0.0;
+volatile uint32_t write_before = 0;
+volatile uint32_t write_after = 0;
 struct sml_buffer_s {
   time_t receive_time;
   int16_t valid_bytes;
@@ -177,15 +179,21 @@ void sml_publish(sml_file *file) {
           // sprintf(buffer, "%s %.*f", obisIdentifier, prec, value);
           //(*json)[name] = buffer;
           if (strcmp(obisIdentifier, "1-0:1.8.0/255") == 0) {
+            write_before++;
             consumption_Wh = value;
+            write_after = write_before;
           } else if (strcmp(obisIdentifier, "1-0:2.8.0/255") == 0) {
+            write_before++;
             production_Wh = value;
+            write_after = write_before;
           } else if (strcmp(obisIdentifier, "1-0:16.7.0/255") == 0) {
             if (entry->status &&
                 ((*entry->status->data.status16 & 0x20) != 0)) {
               value = -value;
             }
+            write_before++;
             current_W = value;
+            write_after = write_before;
           }
           //        } else if (entry->value->type == SML_TYPE_OCTET_STRING) {
           //          char *value;
@@ -584,7 +592,8 @@ void loop() {
       Serial.println("CAN TX queue full");
     }
 
-    // broadcast
+    // broadcast - use before/after counters to detect torn reads
+    uint32_t before = write_after;
     struct stromzaehler_packet_s packet;
     packet.consumption_Wh = consumption_Wh;
     packet.production_Wh = production_Wh;
@@ -593,10 +602,9 @@ void loop() {
     packet.tm_min = timeinfo.tm_min;
     packet.tm_hour = timeinfo.tm_hour;
     packet.tm_wday = timeinfo.tm_wday;
-    if ((packet.consumption_Wh == consumption_Wh) &&
-        (packet.production_Wh == production_Wh) &&
-        (packet.current_W == current_W)) {
-      // ensure to get consistent values (no partial writes)
+    uint32_t after = write_before;
+    if (before == after) {
+      // consistent read - no write in progress
       tpl_broadcast((uint8_t *)&packet, sizeof(packet));
     }
 

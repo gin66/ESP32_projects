@@ -128,6 +128,9 @@ static void update_power_labels(void) {
     if (objects.pow_min != NULL) {
         float min = power_chart_get_min();
         snprintf(buffer, sizeof(buffer), "%.0f", min);
+        if (strlen(buffer) > 5) {
+            Serial.printf("[ERROR] power_min suspicious: %s (raw: %f)\n", buffer, min);
+        }
         lv_label_set_text(objects.pow_min, buffer);
     }
     

@@ -4,6 +4,7 @@
 //#include <esp_private/esp_int_wdt.h>
 #include <esp_freertos_hooks.h>
 #include <esp_int_wdt.h>
+#include <esp_timer.h>
 #include <esp_task_wdt.h>
 #include <rom/rtc.h>
 
@@ -138,16 +139,28 @@ void TaskOnTimeWatchdog(void *pvParameters) {
 uint32_t cpu_load_core0 = 0;
 uint32_t cpu_load_core1 = 0;
 
-static volatile uint32_t idle_cnt_core0 = 0;
-static volatile uint32_t idle_cnt_core1 = 0;
+static volatile uint32_t idle_us_core0 = 0;
+static volatile uint32_t idle_us_core1 = 0;
 
 static bool idle_hook_core0() {
-  idle_cnt_core0++;
+  static int64_t prev = 0;
+  int64_t now = esp_timer_get_time();
+  int64_t delta = now - prev;
+  prev = now;
+  if (delta > 0 && delta < 500) {
+    idle_us_core0 += (uint32_t)delta;
+  }
   return false;
 }
 
 static bool idle_hook_core1() {
-  idle_cnt_core1++;
+  static int64_t prev = 0;
+  int64_t now = esp_timer_get_time();
+  int64_t delta = now - prev;
+  prev = now;
+  if (delta > 0 && delta < 500) {
+    idle_us_core1 += (uint32_t)delta;
+  }
   return false;
 }
 
@@ -157,30 +170,21 @@ void TaskCpuLoad(void *param) {
   esp_register_freertos_idle_hook_for_cpu(idle_hook_core0, 0);
   esp_register_freertos_idle_hook_for_cpu(idle_hook_core1, 1);
 
-  // Calibrate: measure idle counts for 1s while system is mostly idle
-  idle_cnt_core0 = 0;
-  idle_cnt_core1 = 0;
-  vTaskDelay(1000 / portTICK_PERIOD_MS);
-  uint32_t idle_max_core0 = idle_cnt_core0;
-  uint32_t idle_max_core1 = idle_cnt_core1;
-
   while (true) {
-    idle_cnt_core0 = 0;
-    idle_cnt_core1 = 0;
+    idle_us_core0 = 0;
+    idle_us_core1 = 0;
+    int64_t start = esp_timer_get_time();
     vTaskDelay(1000 / portTICK_PERIOD_MS);
+    int64_t elapsed = esp_timer_get_time() - start;
 
-    uint32_t cnt0 = idle_cnt_core0;
-    uint32_t cnt1 = idle_cnt_core1;
+    uint32_t us0 = idle_us_core0;
+    uint32_t us1 = idle_us_core1;
 
-    // Self-calibrate: update max if higher idle count observed
-    if (cnt0 > idle_max_core0) idle_max_core0 = cnt0;
-    if (cnt1 > idle_max_core1) idle_max_core1 = cnt1;
-
-    if (idle_max_core0 > 0) {
-      cpu_load_core0 = 100 - (cnt0 * 100 / idle_max_core0);
-    }
-    if (idle_max_core1 > 0) {
-      cpu_load_core1 = 100 - (cnt1 * 100 / idle_max_core1);
+    if (elapsed > 0) {
+      int32_t load0 = 100 - (int32_t)(us0 * 100 / elapsed);
+      int32_t load1 = 100 - (int32_t)(us1 * 100 / elapsed);
+      cpu_load_core0 = (load0 < 0) ? 0 : (uint32_t)load0;
+      cpu_load_core1 = (load1 < 0) ? 0 : (uint32_t)load1;
     }
   }
 }

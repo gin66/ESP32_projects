@@ -51,7 +51,7 @@ void TaskWatchdog(void* pvParameters) {
 bool tpl_net_watchdog_setup() {
   BaseType_t rc;
 
-  rc = xTaskCreatePinnedToCore(TaskWatchdog, "Net Watchdog", 2688, NULL, 0,
+  rc = xTaskCreatePinnedToCore(TaskWatchdog, "Net Watchdog", 4096, NULL, 0,
                                &tpl_tasks.task_net_watchdog, CORE_0);
   if (rc == pdPASS) {
     // Add this task to task watchdog

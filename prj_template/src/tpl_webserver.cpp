@@ -152,6 +152,6 @@ void tpl_webserver_setup() {
                          "max-age=31536000");
   tpl_server.begin();
 
-  xTaskCreatePinnedToCore(TaskWebServerCore0, "WebServer", 3072, NULL, 1,
+  xTaskCreatePinnedToCore(TaskWebServerCore0, "WebServer", 4096, NULL, 1,
                           &tpl_tasks.task_webserver, CORE_1);
 }

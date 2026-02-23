@@ -22,5 +22,6 @@ target/
 [0-9][0-9]_*/tools/dump.sh
 [0-9][0-9]_*/tools/stacktrace.sh
 [0-9][0-9]_*/tools/generate_version.py
+[0-9][0-9]_*/include/version.h
 .DS_Store
 sweep/

@@ -31,9 +31,9 @@ extern struct tpl_task_s {
   TaskHandle_t task_command;
   TaskHandle_t task_telegram;
   TaskHandle_t task_app1;
-  const char *app_name1;
+  const char* app_name1;
   TaskHandle_t task_app2;
-  const char *app_name2;
+  const char* app_name2;
 } tpl_tasks;
 
 extern uint32_t cpu_load_core0;
@@ -53,17 +53,17 @@ extern struct tpl_config_s {
   volatile bool bot_send_jpg_image;
 #endif
 #ifdef BOTtoken
-  const char *receive_bot_token;  // do not change
-  const char *send_bot_token;
-  const char *bot_message;
+  const char* receive_bot_token;  // do not change
+  const char* send_bot_token;
+  const char* bot_message;
   volatile bool bot_send_message;
 #endif
   uint16_t reset_reason;
-  const char *reset_reason_cpu0;
-  const char *reset_reason_cpu1;
+  const char* reset_reason_cpu0;
+  const char* reset_reason_cpu1;
   uint32_t deepsleep_time_secs;  // =0 means off
-  const char *stack_info;
-  uint8_t *curr_jpg;
+  const char* stack_info;
+  uint8_t* curr_jpg;
   size_t curr_jpg_len;
   uint32_t last_seen_watchpoint;
   uint32_t watchpoint;
@@ -99,8 +99,8 @@ void tpl_system_setup(uint32_t deep_sleep_secs = 0);
 bool tpl_write_config();
 
 struct rtc_data_s {
-   uint16_t watchpoint;
-   uint32_t bootCount;
+  uint16_t watchpoint;
+  uint32_t bootCount;
 };
 extern struct rtc_data_s rtc_data;
 #define WATCH(i)               \

@@ -64,7 +64,7 @@ void setup() {
   tpl_server.on("/dump", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
     tpl_server.send_P(200, "Content-Type: application/octet-stream",
-                      (const char *)psram_buffer, sizeof(*psram_buffer));
+                      (const char*)psram_buffer, sizeof(*psram_buffer));
   });
 
   Serial.println("Setup done.");
@@ -84,7 +84,7 @@ void setup() {
     uint32_t settle_till = millis() + 10000;
     while ((int32_t)(settle_till - millis()) > 0) {
       // let the camera adjust
-      camera_fb_t *fb = esp_camera_fb_get();
+      camera_fb_t* fb = esp_camera_fb_get();
       if (fb) {
         esp_camera_fb_return(fb);
       }
@@ -92,12 +92,12 @@ void setup() {
     }
     {
       // take picture
-      camera_fb_t *fb = esp_camera_fb_get();
+      camera_fb_t* fb = esp_camera_fb_get();
       // flash off
       digitalWrite(tpl_flashPin, LOW);
       if (fb) {
         tpl_config.curr_jpg_len = fb->len;
-        tpl_config.curr_jpg = (uint8_t *)ps_malloc(fb->len);
+        tpl_config.curr_jpg = (uint8_t*)ps_malloc(fb->len);
         if (tpl_config.curr_jpg) {
           memcpy(tpl_config.curr_jpg, fb->buf, fb->len);
         }
@@ -126,10 +126,10 @@ void setup() {
     Serial.println("Image captured");
     bool send_image = true;
     // process image
-    uint8_t *raw_image = (uint8_t *)ps_malloc(WIDTH * HEIGHT * 3);
-    uint8_t *digitized_image = (uint8_t *)ps_malloc(WIDTH * HEIGHT / 8);
-    uint8_t *filtered_image = (uint8_t *)ps_malloc(WIDTH * HEIGHT / 8);
-    uint8_t *temp_image = (uint8_t *)ps_malloc(WIDTH * HEIGHT / 8);
+    uint8_t* raw_image = (uint8_t*)ps_malloc(WIDTH * HEIGHT * 3);
+    uint8_t* digitized_image = (uint8_t*)ps_malloc(WIDTH * HEIGHT / 8);
+    uint8_t* filtered_image = (uint8_t*)ps_malloc(WIDTH * HEIGHT / 8);
+    uint8_t* temp_image = (uint8_t*)ps_malloc(WIDTH * HEIGHT / 8);
 
     if (raw_image && digitized_image && filtered_image && temp_image) {
       fmt2rgb888(tpl_config.curr_jpg, tpl_config.curr_jpg_len, PIXFORMAT_JPEG,

@@ -27,8 +27,8 @@
 
 struct galois_field {
   int p;
-  const uint8_t *log;
-  const uint8_t *exp;
+  const uint8_t* log;
+  const uint8_t* exp;
 };
 
 static const uint8_t gf16_exp[16] = {0x01, 0x02, 0x04, 0x08, 0x03, 0x06,
@@ -97,8 +97,8 @@ static const struct galois_field gf256 = {
  * Polynomial operations
  */
 
-static void poly_add(uint8_t *dst, const uint8_t *src, uint8_t c, int shift,
-                     const struct galois_field *gf) {
+static void poly_add(uint8_t* dst, const uint8_t* src, uint8_t c, int shift,
+                     const struct galois_field* gf) {
   int i;
   int log_c = gf->log[c];
 
@@ -115,8 +115,8 @@ static void poly_add(uint8_t *dst, const uint8_t *src, uint8_t c, int shift,
   }
 }
 
-static uint8_t poly_eval(const uint8_t *s, uint8_t x,
-                         const struct galois_field *gf) {
+static uint8_t poly_eval(const uint8_t* s, uint8_t x,
+                         const struct galois_field* gf) {
   int i;
   uint8_t sum = 0;
   uint8_t log_x = gf->log[x];
@@ -138,8 +138,8 @@ static uint8_t poly_eval(const uint8_t *s, uint8_t x,
  * Berlekamp-Massey algorithm for finding error locator polynomials.
  */
 
-static void berlekamp_massey(const uint8_t *s, int N,
-                             const struct galois_field *gf, uint8_t *sigma) {
+static void berlekamp_massey(const uint8_t* s, int N,
+                             const struct galois_field* gf, uint8_t* sigma) {
   uint8_t C[MAX_POLY];
   uint8_t B[MAX_POLY];
   int L = 0;
@@ -191,7 +191,7 @@ static void berlekamp_massey(const uint8_t *s, int N,
  * Generator polynomial for GF(2^8) is x^8 + x^4 + x^3 + x^2 + 1
  */
 
-static int block_syndromes(const uint8_t *data, int bs, int npar, uint8_t *s) {
+static int block_syndromes(const uint8_t* data, int bs, int npar, uint8_t* s) {
   int nonzero = 0;
   int i;
 
@@ -214,7 +214,7 @@ static int block_syndromes(const uint8_t *data, int bs, int npar, uint8_t *s) {
   return nonzero;
 }
 
-static void eloc_poly(uint8_t *omega, const uint8_t *s, const uint8_t *sigma,
+static void eloc_poly(uint8_t* omega, const uint8_t* s, const uint8_t* sigma,
                       int npar) {
   int i;
 
@@ -239,8 +239,8 @@ static void eloc_poly(uint8_t *omega, const uint8_t *s, const uint8_t *sigma,
   }
 }
 
-static quirc_decode_error_t correct_block(uint8_t *data,
-                                          const struct quirc_rs_params *ecc) {
+static quirc_decode_error_t correct_block(uint8_t* data,
+                                          const struct quirc_rs_params* ecc) {
   int npar = ecc->bs - ecc->dw;
   uint8_t s[MAX_POLY];
   uint8_t sigma[MAX_POLY];
@@ -289,7 +289,7 @@ static quirc_decode_error_t correct_block(uint8_t *data,
 #define FORMAT_SYNDROMES (FORMAT_MAX_ERROR * 2)
 #define FORMAT_BITS 15
 
-static int format_syndromes(uint16_t u, uint8_t *s) {
+static int format_syndromes(uint16_t u, uint8_t* s) {
   int i;
   int nonzero = 0;
 
@@ -308,7 +308,7 @@ static int format_syndromes(uint16_t u, uint8_t *s) {
   return nonzero;
 }
 
-static quirc_decode_error_t correct_format(uint16_t *f_ret) {
+static quirc_decode_error_t correct_format(uint16_t* f_ret) {
   uint16_t u = *f_ret;
   int i;
   uint8_t s[MAX_POLY];
@@ -343,13 +343,13 @@ struct datastream {
   uint8_t data[QUIRC_MAX_PAYLOAD];
 };
 
-static inline int grid_bit(const struct quirc_code *code, int x, int y) {
+static inline int grid_bit(const struct quirc_code* code, int x, int y) {
   int p = y * code->size + x;
   return (code->cell_bitmap[p >> 3] >> (p & 7)) & 1;
 }
 
-static quirc_decode_error_t read_format(const struct quirc_code *code,
-                                        struct quirc_data *data, int which) {
+static quirc_decode_error_t read_format(const struct quirc_code* code,
+                                        struct quirc_data* data, int which) {
   int i;
   uint16_t format = 0;
   uint16_t fdata;
@@ -404,7 +404,7 @@ static int mask_bit(int mask, int i, int j) {
 }
 
 static int reserved_cell(int version, int i, int j) {
-  const struct quirc_version_info *ver = &quirc_version_db[version];
+  const struct quirc_version_info* ver = &quirc_version_db[version];
   int size = version * 4 + 17;
   int ai = -1, aj = -1, a;
 
@@ -447,8 +447,8 @@ static int reserved_cell(int version, int i, int j) {
   return 0;
 }
 
-static void read_bit(const struct quirc_code *code, struct quirc_data *data,
-                     struct datastream *ds, int i, int j) {
+static void read_bit(const struct quirc_code* code, struct quirc_data* data,
+                     struct datastream* ds, int i, int j) {
   int bitpos = ds->data_bits & 7;
   int bytepos = ds->data_bits >> 3;
   int v = grid_bit(code, j, i);
@@ -460,8 +460,8 @@ static void read_bit(const struct quirc_code *code, struct quirc_data *data,
   ds->data_bits++;
 }
 
-static void read_data(const struct quirc_code *code, struct quirc_data *data,
-                      struct datastream *ds) {
+static void read_data(const struct quirc_code* code, struct quirc_data* data,
+                      struct datastream* ds) {
   int y = code->size - 1;
   int x = code->size - 1;
   int dir = -1;
@@ -483,10 +483,10 @@ static void read_data(const struct quirc_code *code, struct quirc_data *data,
   }
 }
 
-static quirc_decode_error_t codestream_ecc(struct quirc_data *data,
-                                           struct datastream *ds) {
-  const struct quirc_version_info *ver = &quirc_version_db[data->version];
-  const struct quirc_rs_params *sb_ecc = &ver->ecc[data->ecc_level];
+static quirc_decode_error_t codestream_ecc(struct quirc_data* data,
+                                           struct datastream* ds) {
+  const struct quirc_version_info* ver = &quirc_version_db[data->version];
+  const struct quirc_rs_params* sb_ecc = &ver->ecc[data->ecc_level];
   struct quirc_rs_params lb_ecc;
   const int lb_count =
       (ver->data_bytes - sb_ecc->bs * sb_ecc->ns) / (sb_ecc->bs + 1);
@@ -500,8 +500,8 @@ static quirc_decode_error_t codestream_ecc(struct quirc_data *data,
   lb_ecc.bs++;
 
   for (i = 0; i < bc; i++) {
-    uint8_t *dst = ds->data + dst_offset;
-    const struct quirc_rs_params *ecc = (i < sb_ecc->ns) ? sb_ecc : &lb_ecc;
+    uint8_t* dst = ds->data + dst_offset;
+    const struct quirc_rs_params* ecc = (i < sb_ecc->ns) ? sb_ecc : &lb_ecc;
     const int num_ec = ecc->bs - ecc->dw;
     quirc_decode_error_t err;
     int j;
@@ -521,11 +521,11 @@ static quirc_decode_error_t codestream_ecc(struct quirc_data *data,
   return QUIRC_SUCCESS;
 }
 
-static inline int bits_remaining(const struct datastream *ds) {
+static inline int bits_remaining(const struct datastream* ds) {
   return ds->data_bits - ds->ptr;
 }
 
-static int take_bits(struct datastream *ds, int len) {
+static int take_bits(struct datastream* ds, int len) {
   int ret = 0;
 
   while (len && (ds->ptr < ds->data_bits)) {
@@ -542,7 +542,7 @@ static int take_bits(struct datastream *ds, int len) {
   return ret;
 }
 
-static int numeric_tuple(struct quirc_data *data, struct datastream *ds,
+static int numeric_tuple(struct quirc_data* data, struct datastream* ds,
                          int bits, int digits) {
   int tuple;
   int i;
@@ -560,8 +560,8 @@ static int numeric_tuple(struct quirc_data *data, struct datastream *ds,
   return 0;
 }
 
-static quirc_decode_error_t decode_numeric(struct quirc_data *data,
-                                           struct datastream *ds) {
+static quirc_decode_error_t decode_numeric(struct quirc_data* data,
+                                           struct datastream* ds) {
   int bits = 14;
   int count;
 
@@ -592,7 +592,7 @@ static quirc_decode_error_t decode_numeric(struct quirc_data *data,
   return QUIRC_SUCCESS;
 }
 
-static int alpha_tuple(struct quirc_data *data, struct datastream *ds, int bits,
+static int alpha_tuple(struct quirc_data* data, struct datastream* ds, int bits,
                        int digits) {
   int tuple;
   int i;
@@ -602,7 +602,7 @@ static int alpha_tuple(struct quirc_data *data, struct datastream *ds, int bits,
   tuple = take_bits(ds, bits);
 
   for (i = 0; i < digits; i++) {
-    static const char *alpha_map =
+    static const char* alpha_map =
         "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:";
 
     data->payload[data->payload_len + digits - i - 1] = alpha_map[tuple % 45];
@@ -613,8 +613,8 @@ static int alpha_tuple(struct quirc_data *data, struct datastream *ds, int bits,
   return 0;
 }
 
-static quirc_decode_error_t decode_alpha(struct quirc_data *data,
-                                         struct datastream *ds) {
+static quirc_decode_error_t decode_alpha(struct quirc_data* data,
+                                         struct datastream* ds) {
   int bits = 13;
   int count;
 
@@ -640,8 +640,8 @@ static quirc_decode_error_t decode_alpha(struct quirc_data *data,
   return QUIRC_SUCCESS;
 }
 
-static quirc_decode_error_t decode_byte(struct quirc_data *data,
-                                        struct datastream *ds) {
+static quirc_decode_error_t decode_byte(struct quirc_data* data,
+                                        struct datastream* ds) {
   int bits = 16;
   int count;
   int i;
@@ -659,8 +659,8 @@ static quirc_decode_error_t decode_byte(struct quirc_data *data,
   return QUIRC_SUCCESS;
 }
 
-static quirc_decode_error_t decode_kanji(struct quirc_data *data,
-                                         struct datastream *ds) {
+static quirc_decode_error_t decode_kanji(struct quirc_data* data,
+                                         struct datastream* ds) {
   int bits = 12;
   int count;
   int i;
@@ -697,8 +697,8 @@ static quirc_decode_error_t decode_kanji(struct quirc_data *data,
   return QUIRC_SUCCESS;
 }
 
-static quirc_decode_error_t decode_eci(struct quirc_data *data,
-                                       struct datastream *ds) {
+static quirc_decode_error_t decode_eci(struct quirc_data* data,
+                                       struct datastream* ds) {
   if (bits_remaining(ds) < 8) return QUIRC_ERROR_DATA_UNDERFLOW;
 
   data->eci = take_bits(ds, 8);
@@ -716,8 +716,8 @@ static quirc_decode_error_t decode_eci(struct quirc_data *data,
   return QUIRC_SUCCESS;
 }
 
-static quirc_decode_error_t decode_payload(struct quirc_data *data,
-                                           struct datastream *ds) {
+static quirc_decode_error_t decode_payload(struct quirc_data* data,
+                                           struct datastream* ds) {
   while (bits_remaining(ds) >= 4) {
     quirc_decode_error_t err = QUIRC_SUCCESS;
     int type = take_bits(ds, 4);
@@ -761,8 +761,8 @@ done:
   return QUIRC_SUCCESS;
 }
 
-quirc_decode_error_t quirc_decode(const struct quirc_code *code,
-                                  struct quirc_data *data) {
+quirc_decode_error_t quirc_decode(const struct quirc_code* code,
+                                  struct quirc_data* data) {
   quirc_decode_error_t err;
   struct datastream ds;
 
@@ -791,7 +791,7 @@ quirc_decode_error_t quirc_decode(const struct quirc_code *code,
   return QUIRC_SUCCESS;
 }
 
-void quirc_flip(struct quirc_code *code) {
+void quirc_flip(struct quirc_code* code) {
   struct quirc_code flipped = {0};
   unsigned int offset = 0;
   for (int y = 0; y < code->size; y++) {

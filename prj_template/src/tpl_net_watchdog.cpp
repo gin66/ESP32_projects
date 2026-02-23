@@ -17,12 +17,12 @@ void TaskWatchdog(void* pvParameters) {
   const TickType_t xDelay = 1000 / portTICK_PERIOD_MS;
   for (;;) {
     esp_task_wdt_reset();
-    
+
     // First check if we have a valid IP address
     // ESP32Ping may return success even with IP 0.0.0.0
     IPAddress ip = WiFi.localIP();
     bool has_valid_ip = (ip[0] != 0 || ip[1] != 0 || ip[2] != 0 || ip[3] != 0);
-    
+
     bool success = has_valid_ip && Ping.ping(NET_WATCHDOG, 1);
     if (!success) {
       tpl_fail++;

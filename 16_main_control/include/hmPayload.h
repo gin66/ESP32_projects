@@ -32,8 +32,8 @@ typedef struct {
   bool gotFragment;
 } invPayload_t;
 
-typedef std::function<void(uint8_t, Inverter *)> payloadListenerType;
-typedef std::function<void(Inverter *)> alarmListenerType;
+typedef std::function<void(uint8_t, Inverter*)> payloadListenerType;
+typedef std::function<void(Inverter*)> alarmListenerType;
 
 template <class HMSYSTEM, class HMRADIO>
 class HmPayload {
@@ -42,8 +42,8 @@ class HmPayload {
 
   // void setup(IApp *app, HMSYSTEM *sys, HMRADIO *radio, statistics_t *stat,
   // uint8_t maxRetransmits, uint32_t *timestamp) {
-  void setup(HMSYSTEM *sys, HMRADIO *radio, statistics_t *stat,
-             uint8_t maxRetransmits, uint32_t *timestamp) {
+  void setup(HMSYSTEM* sys, HMRADIO* radio, statistics_t* stat,
+             uint8_t maxRetransmits, uint32_t* timestamp) {
     mSys = sys;
     mRadio = radio;
     mStat = stat;
@@ -94,9 +94,9 @@ class HmPayload {
       notify(0x0b, iv);
   }*/
 
-  void ivSendHighPrio(Inverter *iv) { mHighPrioIv = iv; }
+  void ivSendHighPrio(Inverter* iv) { mHighPrioIv = iv; }
 
-  void ivSend(Inverter *iv, bool highPrio = false) {
+  void ivSend(Inverter* iv, bool highPrio = false) {
     if (!highPrio) {
       if (mPayload[iv->id].requested) {
         if (!mPayload[iv->id].complete) process(false);  // no retransmit
@@ -157,12 +157,12 @@ class HmPayload {
     }
   }
 
-  void add(Inverter *iv, packet_t *p) {
+  void add(Inverter* iv, packet_t* p) {
     if (p->packet[0] ==
         (TX_REQ_INFO + ALL_FRAMES)) {  // response from get information command
       mPayload[iv->id].txId = p->packet[0];
       // DPRINTLN(DBG_DEBUG, F("Response from info request received"));
-      uint8_t *pid = &p->packet[9];
+      uint8_t* pid = &p->packet[9];
       if (*pid == 0x00) {
         // DPRINTLN(DBG_DEBUG, F("fragment number zero received and ignored"));
       } else {
@@ -220,11 +220,11 @@ class HmPayload {
 
   void process(bool retransmit) {
     for (uint8_t id = 0; id < mSys->getNumInverters(); id++) {
-      Inverter *iv = mSys->getInverterByPos(id);
+      Inverter* iv = mSys->getInverterByPos(id);
       if (NULL == iv) continue;  // skip to next inverter
 
-      //if (IV_HM != iv->ivGen)  // only process HM inverters
-      //  continue;              // skip to next inverter
+      // if (IV_HM != iv->ivGen)  // only process HM inverters
+      //   continue;              // skip to next inverter
 
       if ((mPayload[iv->id].txId != (TX_REQ_INFO + ALL_FRAMES)) &&
           (0 != mPayload[iv->id].txId)) {
@@ -302,7 +302,7 @@ class HmPayload {
           // DBGHEXLN(mPayload[iv->id].txId);
           // DPRINT(DBG_DEBUG, F("procPyld: max:  "));
           // DPRINTLN(DBG_DEBUG, String(mPayload[iv->id].maxPackId));
-          record_t *rec =
+          record_t* rec =
               iv->getRecordStruct(mPayload[iv->id].txCmd);  // choose the parser
           mPayload[iv->id].complete = true;
 
@@ -367,11 +367,11 @@ class HmPayload {
   }
 
  private:
-  void notify(uint8_t val, Inverter *iv) {
+  void notify(uint8_t val, Inverter* iv) {
     if (NULL != mCbPayload) (mCbPayload)(val, iv);
   }
 
-  bool build(uint8_t id, bool *complete) {
+  bool build(uint8_t id, bool* complete) {
     // DPRINTLN(DBG_VERBOSE, F("build"));
     uint16_t crc = 0xffff, crcRcv = 0x0000;
     if (mPayload[id].maxPackId > MAX_PAYLOAD_ENTRIES)
@@ -414,14 +414,14 @@ class HmPayload {
   }
 
   // IApp *mApp;
-  HMSYSTEM *mSys;
-  HMRADIO *mRadio;
-  statistics_t *mStat;
+  HMSYSTEM* mSys;
+  HMRADIO* mRadio;
+  statistics_t* mStat;
   uint8_t mMaxRetrans;
-  uint32_t *mTimestamp;
+  uint32_t* mTimestamp;
   invPayload_t mPayload[MAX_NUM_INVERTERS];
   bool mSerialDebug;
-  Inverter *mHighPrioIv;
+  Inverter* mHighPrioIv;
 
   alarmListenerType mCbAlarm;
   payloadListenerType mCbPayload;

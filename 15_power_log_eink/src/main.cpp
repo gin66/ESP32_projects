@@ -61,11 +61,13 @@ volatile uint32_t write_before = 0;
 volatile uint32_t write_after = 0;
 
 // --- Minute power history ring buffer (same pattern as 14_power_control) ---
-#define HISTORY_MINUTES (8 * 60)        // 8 h, 8 bytes/entry = 3.84 KB
-struct minute_entry_s { float w_min, w_max; };
+#define HISTORY_MINUTES (8 * 60)  // 8 h, 8 bytes/entry = 3.84 KB
+struct minute_entry_s {
+  float w_min, w_max;
+};
 static struct minute_entry_s hist_buf[HISTORY_MINUTES];
-static uint32_t hist_write_idx = 0;    // next slot to write (monotonic)
-static uint32_t hist_read_idx  = 0;    // oldest valid slot (monotonic)
+static uint32_t hist_write_idx = 0;  // next slot to write (monotonic)
+static uint32_t hist_read_idx = 0;   // oldest valid slot (monotonic)
 
 // Pre-built JSON response for /hist.json — no streaming, no heap allocation.
 // 480 entries × ~15 chars + header ≈ 7.3 KB; buffer chosen with margin.
@@ -73,8 +75,8 @@ static uint32_t hist_read_idx  = 0;    // oldest valid slot (monotonic)
 static char hist_json_buf[HIST_JSON_BUFLEN];
 
 // Accumulator for the minute currently in progress
-static float   acc_min    = 1e9f;
-static float   acc_max    = -1e9f;
+static float acc_min = 1e9f;
+static float acc_max = -1e9f;
 static uint8_t acc_tm_min = 255;
 
 static void history_accumulate(float w, uint8_t tm_min) {
@@ -142,19 +144,19 @@ struct sml_buffer_s {
 // Gerätefehler
 const uint8_t sml_header[8] = {0x1b, 0x1b, 0x1b, 0x1b, 0x01, 0x01, 0x01, 0x01};
 
-void json_publish(DynamicJsonDocument *json) {
-  (*json)["sml_error"]      = sml_error_cnt;
+void json_publish(DynamicJsonDocument* json) {
+  (*json)["sml_error"] = sml_error_cnt;
   (*json)["Consumption_Wh"] = consumption_Wh;
-  (*json)["Production_Wh"]  = production_Wh;
-  (*json)["Power_W"]        = current_W;
+  (*json)["Production_Wh"] = production_Wh;
+  (*json)["Power_W"] = current_W;
   // Publish only the ring-buffer indices; the browser re-fetches /hist.json
   // when hist_write_idx advances (once per minute).  No hist data in the
   // 100 ms broadcast — keeps the WebSocket frame small.
   (*json)["hist_write_idx"] = hist_write_idx;
-  (*json)["hist_read_idx"]  = hist_read_idx;
+  (*json)["hist_read_idx"] = hist_read_idx;
 }
 
-void json_update(DynamicJsonDocument *json) {
+void json_update(DynamicJsonDocument* json) {
   (void)json;  // browser sends nothing; history is pushed by server
 }
 
@@ -174,19 +176,19 @@ uint32_t can_error_passive_cnt = 0;
 uint32_t can_error_bus_error_cnt = 0;
 uint32_t can_receive_cnt = 0;
 
-void sml_publish(sml_file *file) {
+void sml_publish(sml_file* file) {
   for (int i = 0; i < file->messages_len; i++) {
     char name[20];
     sprintf(name, "Name %d", i);
-    sml_message *message = file->messages[i];
+    sml_message* message = file->messages[i];
     //(*json)["valid_sml"] = file->messages_len;
     //(*json)["sml_time"] = buf->receive_time;
     if (*message->message_body->tag == SML_MESSAGE_OPEN_RESPONSE) {
     } else if (*message->message_body->tag == SML_MESSAGE_CLOSE_RESPONSE) {
     } else if (*message->message_body->tag == SML_MESSAGE_GET_LIST_RESPONSE) {
-      sml_list *entry;
-      sml_get_list_response *body;
-      body = (sml_get_list_response *)message->message_body->data;
+      sml_list* entry;
+      sml_get_list_response* body;
+      body = (sml_get_list_response*)message->message_body->data;
       uint8_t index;
       for (entry = body->val_list, index = 0; entry != NULL;
            entry = entry->next, index++) {
@@ -251,10 +253,10 @@ void sml_publish(sml_file *file) {
   }
 }
 
-void SMLTask(void *parameter) {
+void SMLTask(void* parameter) {
   while (true) {
     for (uint8_t i = 0; i < 3; i++) {
-      struct sml_buffer_s *buf = &sml_buffers[i];
+      struct sml_buffer_s* buf = &sml_buffers[i];
       if (buf->locked || buf->valid_bytes < 0) {
         continue;
       }
@@ -269,7 +271,7 @@ void SMLTask(void *parameter) {
                   sml_crc16_calculate(&buf->data[2], buf->valid_bytes - 2);
               if (((chksum >> 8) == buf->data[buf->valid_bytes]) &&
                   ((chksum & 0xff) == buf->data[buf->valid_bytes + 1])) {
-                sml_file *file =
+                sml_file* file =
                     sml_file_parse(&buf->data[2 + 8], buf->valid_bytes - 16);
                 sml_publish(file);
                 sml_file_free(file);
@@ -291,7 +293,7 @@ void SMLTask(void *parameter) {
   }
 }
 
-static void handle_rx_message(twai_message_t &message) {
+static void handle_rx_message(twai_message_t& message) {
   // Process received message
 #if DEBUG_OUTPUT
   Serial.print(message.extd ? "Extended" : "Standard");
@@ -305,7 +307,7 @@ static void handle_rx_message(twai_message_t &message) {
 #endif
 
   if ((message.identifier & ~0x1ff) == CAN_ID_STROMZAEHLER_INFO_BASIS) {
-    struct sml_buffer_s *active = &sml_buffers[receive_buffer];
+    struct sml_buffer_s* active = &sml_buffers[receive_buffer];
     int8_t buf_i = receive_buffer;
     uint16_t this_id = message.identifier & ~0xff;
     if (this_id != sml_base_id) {
@@ -356,7 +358,7 @@ static void handle_rx_message(twai_message_t &message) {
   }
 }
 
-void DisplayTask(void *parameter) {
+void DisplayTask(void* parameter) {
   display.init();  // enable diagnostic output on Serial
 
   display.setRotation(1);
@@ -418,7 +420,7 @@ void DisplayTask(void *parameter) {
   }
 }
 
-void CANTask(void *parameter) {
+void CANTask(void* parameter) {
   while (true) {
     // Check if alert happened
     uint32_t alerts_triggered;
@@ -500,7 +502,8 @@ void setup() {
 #endif
 
   // Bulk history endpoint — built into a static global buffer (no streaming,
-  // no heap allocation, single send() call — avoids blocking the WebServer task).
+  // no heap allocation, single send() call — avoids blocking the WebServer
+  // task).
   tpl_server.on("/hist.json", HTTP_GET, []() {
     uint32_t ri = hist_read_idx, wi = hist_write_idx;
     int pos = snprintf(hist_json_buf, HIST_JSON_BUFLEN,
@@ -510,13 +513,12 @@ void setup() {
       if (room < 20) break;
       uint32_t slot = i % HISTORY_MINUTES;
       pos += snprintf(hist_json_buf + pos, room, "%s[%.0f,%.0f]",
-                      i > ri ? "," : "",
-                      (double)hist_buf[slot].w_min,
+                      i > ri ? "," : "", (double)hist_buf[slot].w_min,
                       (double)hist_buf[slot].w_max);
     }
     hist_json_buf[pos++] = ']';
     hist_json_buf[pos++] = '}';
-    hist_json_buf[pos]   = '\0';
+    hist_json_buf[pos] = '\0';
     tpl_server.sendHeader("Connection", "close");
     tpl_server.send(200, "application/json", hist_json_buf);
   });
@@ -599,7 +601,7 @@ void setup() {
 #endif
 }
 
-void log_to_sdcard(struct tm *timeinfo) {
+void log_to_sdcard(struct tm* timeinfo) {
   if ((production_Wh == 0.0) || (consumption_Wh == 0.0)) {
     return;
   }
@@ -686,7 +688,7 @@ void loop() {
     uint32_t after = write_before;
     if (before == after) {
       // consistent read - no write in progress
-      tpl_broadcast((uint8_t *)&packet, sizeof(packet));
+      tpl_broadcast((uint8_t*)&packet, sizeof(packet));
     }
 
     if (timeinfo.tm_sec == 0) {

@@ -20,10 +20,10 @@
 
 #include "quirc_internal.h"
 
-const char *quirc_version(void) { return "1.0"; }
+const char* quirc_version(void) { return "1.0"; }
 
-struct quirc *quirc_new(void) {
-  struct quirc *q = ps_malloc(sizeof(*q));
+struct quirc* quirc_new(void) {
+  struct quirc* q = ps_malloc(sizeof(*q));
 
   if (!q) return NULL;
 
@@ -31,7 +31,7 @@ struct quirc *quirc_new(void) {
   return q;
 }
 
-void quirc_destroy(struct quirc *q) {
+void quirc_destroy(struct quirc* q) {
   free(q->image);
   /* q->pixels may alias q->image when their type representation is of the
      same size, so we need to be careful here to avoid a double free */
@@ -39,9 +39,9 @@ void quirc_destroy(struct quirc *q) {
   free(q);
 }
 
-int quirc_resize(struct quirc *q, int w, int h) {
-  uint8_t *image = NULL;
-  quirc_pixel_t *pixels = NULL;
+int quirc_resize(struct quirc* q, int w, int h) {
+  uint8_t* image = NULL;
+  quirc_pixel_t* pixels = NULL;
 
   /*
    * XXX: w and h should be size_t (or at least unsigned) as negatives
@@ -96,9 +96,9 @@ fail:
   return -1;
 }
 
-int quirc_count(const struct quirc *q) { return q->num_grids; }
+int quirc_count(const struct quirc* q) { return q->num_grids; }
 
-static const char *const error_table[] = {
+static const char* const error_table[] = {
     [QUIRC_SUCCESS] = "Success",
     [QUIRC_ERROR_INVALID_GRID_SIZE] = "Invalid grid size",
     [QUIRC_ERROR_INVALID_VERSION] = "Invalid version",
@@ -108,7 +108,7 @@ static const char *const error_table[] = {
     [QUIRC_ERROR_DATA_OVERFLOW] = "Data overflow",
     [QUIRC_ERROR_DATA_UNDERFLOW] = "Data underflow"};
 
-const char *quirc_strerror(quirc_decode_error_t err) {
+const char* quirc_strerror(quirc_decode_error_t err) {
   if (err >= 0 && err < sizeof(error_table) / sizeof(error_table[0]))
     return error_table[err];
 

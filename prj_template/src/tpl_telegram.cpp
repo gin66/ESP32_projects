@@ -14,9 +14,9 @@
 #include "tpl_esp_camera.h"
 #endif
 
-static const char *chatId = NULL;
+static const char* chatId = NULL;
 
-static uint8_t *jpeg_to_send = NULL;
+static uint8_t* jpeg_to_send = NULL;
 static size_t jpeg_len = 0;
 static size_t dataBytesSent;
 static bool isMoreDataAvailable() {
@@ -31,9 +31,9 @@ static bool isMoreDataAvailable() {
   }
 }
 #define CHUNKSIZE 512
-static byte *getNextBuffer() {
+static byte* getNextBuffer() {
   if (jpeg_to_send) {
-    byte *buf = &jpeg_to_send[dataBytesSent];
+    byte* buf = &jpeg_to_send[dataBytesSent];
     // dataBytesSent += CHUNKSIZE;
     return buf;
   } else {
@@ -54,7 +54,7 @@ static int getNextBufferLen() {
   }
 }
 
-void handleNewMessages(UniversalTelegramBot *bot, int numNewMessages) {
+void handleNewMessages(UniversalTelegramBot* bot, int numNewMessages) {
   Serial.println("handleNewMessages");
   Serial.println(String(numNewMessages));
 
@@ -109,7 +109,7 @@ void handleNewMessages(UniversalTelegramBot *bot, int numNewMessages) {
   }
 }
 
-void TaskTelegramCore1(void *pvParameters) {
+void TaskTelegramCore1(void* pvParameters) {
   const unsigned long BOT_MTBS = 1000;  // mean time between scan messages
   unsigned long bot_lasttime = 0;  // last time messages' scan has been done
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
@@ -136,7 +136,7 @@ void TaskTelegramCore1(void *pvParameters) {
       bot.updateToken(tpl_config.send_bot_token);
       jpeg_to_send = tpl_config.curr_jpg;
       jpeg_len = tpl_config.curr_jpg_len;
-      camera_fb_t *fb = NULL;
+      camera_fb_t* fb = NULL;
       if (jpeg_to_send == NULL) {
         // take picture if needed
         Serial.println("take picture");
@@ -214,7 +214,7 @@ void TaskTelegramCore1(void *pvParameters) {
   }
 }
 //---------------------------------------------------
-void tpl_telegram_setup(const char *chat_id) {
+void tpl_telegram_setup(const char* chat_id) {
   chatId = chat_id;
 
   xTaskCreatePinnedToCore(TaskTelegramCore1, "Telegram", 6072, NULL, 1,

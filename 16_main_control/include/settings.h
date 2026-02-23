@@ -218,13 +218,13 @@ class settings {
     // DPRINTLN(DBG_INFO, F("FS stopped"));
   }
 
-  void getPtr(settings_t *&cfg) { cfg = &mCfg; }
+  void getPtr(settings_t*& cfg) { cfg = &mCfg; }
 
   bool getValid(void) { return mCfg.valid; }
 
   inline bool getLastSaveSucceed() { return mLastSaveSucceed; }
 
-  void getInfo(uint32_t *used, uint32_t *size) {
+  void getInfo(uint32_t* used, uint32_t* size) {
 #if !defined(ESP32)
     FSInfo info;
     LittleFS.info(info);
@@ -239,7 +239,7 @@ class settings {
 #endif
   }
 
-  bool readSettings(const char *path) {
+  bool readSettings(const char* path) {
     loadDefaults();
     File fp = LittleFS.open(path, "r");
     if (!fp) {
@@ -451,15 +451,15 @@ class settings {
       getVal<bool>(obj, F("dark"), &mCfg.sys.darkMode);
       getVal<bool>(obj, F("reb"), &mCfg.sys.schedReboot);
       if (obj.containsKey(F("ip")))
-        ah::ip2Arr(mCfg.sys.ip.ip, obj[F("ip")].as<const char *>());
+        ah::ip2Arr(mCfg.sys.ip.ip, obj[F("ip")].as<const char*>());
       if (obj.containsKey(F("mask")))
-        ah::ip2Arr(mCfg.sys.ip.mask, obj[F("mask")].as<const char *>());
+        ah::ip2Arr(mCfg.sys.ip.mask, obj[F("mask")].as<const char*>());
       if (obj.containsKey(F("dns1")))
-        ah::ip2Arr(mCfg.sys.ip.dns1, obj[F("dns1")].as<const char *>());
+        ah::ip2Arr(mCfg.sys.ip.dns1, obj[F("dns1")].as<const char*>());
       if (obj.containsKey(F("dns2")))
-        ah::ip2Arr(mCfg.sys.ip.dns2, obj[F("dns2")].as<const char *>());
+        ah::ip2Arr(mCfg.sys.ip.dns2, obj[F("dns2")].as<const char*>());
       if (obj.containsKey(F("gtwy")))
-        ah::ip2Arr(mCfg.sys.ip.gateway, obj[F("gtwy")].as<const char *>());
+        ah::ip2Arr(mCfg.sys.ip.gateway, obj[F("gtwy")].as<const char*>());
 
       if (mCfg.sys.protectionMask == 0)
         mCfg.sys.protectionMask =
@@ -640,7 +640,7 @@ class settings {
     }
   }
 
-  void jsonIv(JsonObject obj, cfgIv_t *cfg, bool set = false) {
+  void jsonIv(JsonObject obj, cfgIv_t* cfg, bool set = false) {
     if (set) {
       obj[F("en")] = (bool)cfg->enabled;
       obj[F("name")] = cfg->name;
@@ -661,30 +661,30 @@ class settings {
         if (obj.containsKey(F("pwr"))) cfg->chMaxPwr[i] = obj[F("pwr")][i];
         if (obj.containsKey(F("chName")))
           snprintf(cfg->chName[i], MAX_NAME_LENGTH, "%s",
-                   obj[F("chName")][i].as<const char *>());
+                   obj[F("chName")][i].as<const char*>());
       }
     }
   }
 
 #if defined(ESP32)
-  void getChar(JsonObject obj, const char *key, char *dst, int maxLen) {
+  void getChar(JsonObject obj, const char* key, char* dst, int maxLen) {
     if (obj.containsKey(key))
-      snprintf(dst, maxLen, "%s", obj[key].as<const char *>());
+      snprintf(dst, maxLen, "%s", obj[key].as<const char*>());
   }
 
   template <typename T = uint8_t>
-  void getVal(JsonObject obj, const char *key, T *dst) {
+  void getVal(JsonObject obj, const char* key, T* dst) {
     if (obj.containsKey(key)) *dst = obj[key];
   }
 #else
-  void getChar(JsonObject obj, const __FlashStringHelper *key, char *dst,
+  void getChar(JsonObject obj, const __FlashStringHelper* key, char* dst,
                int maxLen) {
     if (obj.containsKey(key))
-      snprintf(dst, maxLen, "%s", obj[key].as<const char *>());
+      snprintf(dst, maxLen, "%s", obj[key].as<const char*>());
   }
 
   template <typename T = uint8_t>
-  void getVal(JsonObject obj, const __FlashStringHelper *key, T *dst) {
+  void getVal(JsonObject obj, const __FlashStringHelper* key, T* dst) {
     if (obj.containsKey(key)) *dst = obj[key];
   }
 #endif

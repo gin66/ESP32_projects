@@ -107,8 +107,8 @@ const int max_duty = 1 << resolution;
 // T_0 = 293K
 // R_0 = 2000Ohm
 // R(T) = R_0 * e^(B*(1/T-1/T_0))
-// 
-// or 
+//
+// or
 //
 // T(R) = 1 / (1/B * ln(R(T)/R_0) + 1/T_0)
 //
@@ -135,7 +135,7 @@ DS18B20 tempsensor(&oneWire);
 //    temp ~= 3.89 * cv + 23.87
 uint32_t control_voltage_mV = 0;
 #define VORLAUF_TEMP(cv_mV) (((cv_mV) + 6134) / 257)
-#define CONTROL_VOLTAGE_MV(temp) (245 * (temp)-5400)
+#define CONTROL_VOLTAGE_MV(temp) (245 * (temp) - 5400)
 
 uint16_t Usupply = 0;
 uint16_t Uoutter = 0;
@@ -178,11 +178,11 @@ void write_control_voltage_to_nvs() {
 
 // can be used as parameter to tpl_websocket_setup
 // void add_ws_info(DynamicJsonDocument* myObject) {}
-void publish_func(DynamicJsonDocument *json) {
+void publish_func(DynamicJsonDocument* json) {
   (*json)["nvs_err"] = nvs_err;
   (*json)["Usupply"] = Usupply;
   (*json)["Uoutter"] = Uoutter;
-  (*json)["Uoutter_avg"] = (Uoutter_avg+128)>>8;
+  (*json)["Uoutter_avg"] = (Uoutter_avg + 128) >> 8;
   (*json)["Ucontrol"] = Ucontrol;
   (*json)["Usupply_mV"] = Usupply_mV;
   (*json)["Ucontrol_mV_ist"] = Ucontrol_mV;
@@ -196,7 +196,7 @@ void publish_func(DynamicJsonDocument *json) {
   }
 }
 
-void process_func(DynamicJsonDocument *json) {
+void process_func(DynamicJsonDocument* json) {
   if ((*json).containsKey("control_voltage_mV")) {
     uint32_t cv = (*json)["control_voltage_mV"];
     if (cv != control_voltage_mV) {
@@ -213,8 +213,7 @@ void setup() {
   // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
   if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println(F("SSD1306 allocation failed"));
-    for (;;)
-      ;  // Don't proceed, loop forever
+    for (;;);  // Don't proceed, loop forever
   }
 
   // Show initial display buffer contents on the screen --
@@ -318,7 +317,7 @@ bool temp_requested = false;
 uint32_t last_millis_temp = 0;
 uint32_t last_millis = 0;
 
-void display_temp_page(struct tm *timeinfo_p) {
+void display_temp_page(struct tm* timeinfo_p) {
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(WHITE);
@@ -355,12 +354,12 @@ void display_temp_page(struct tm *timeinfo_p) {
   display.println();
   display.print(out_temp, 1);
   display.print(
-        "\xf7"
-        "C");
+      "\xf7"
+      "C");
   display.display();
 }
 
-void display_debug_page(struct tm *timeinfo_p) {
+void display_debug_page(struct tm* timeinfo_p) {
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(WHITE);
@@ -393,7 +392,7 @@ void display_debug_page(struct tm *timeinfo_p) {
     display.println("AUS");
   }
   display.print("Uoutter=");
-  display.println((Uoutter_avg+128)>>8);
+  display.println((Uoutter_avg + 128) >> 8);
   display.print("Uin=");
   display.print(Usupply);
   display.print("=>");
@@ -429,7 +428,7 @@ void loop() {
   const float B = -6030;
   const float T_0 = 273.15 + 7.0;
   const float R_0 = 598;
-  tmp = log(R / R_0)/B + 1.0/T_0;
+  tmp = log(R / R_0) / B + 1.0 / T_0;
   out_temp = 1.0 / tmp - 273.15;
 
   uint32_t ms_now = millis();
@@ -461,19 +460,18 @@ void loop() {
       inner_raw_temp = tempsensor.getTempC();
       inner_temp = inner_raw_temp - TEMP_OFFSET;
       inner_temp_valid = true;
-    }
-    else if ((uint32_t)(ms_now - last_millis_temp) > 1000) {
+    } else if ((uint32_t)(ms_now - last_millis_temp) > 1000) {
       // timeout
       temp_requested = false;
     }
   } else if ((uint32_t)(ms_now - last_millis_temp) > 5000) {
     last_millis_temp = ms_now;
     if (tempsensor.isConnected(3)) {
-       temp_requested = true;
-       tempsensor.requestTemperatures();
-     } else {
-       inner_temp_valid = false;
-     }
+      temp_requested = true;
+      tempsensor.requestTemperatures();
+    } else {
+      inner_temp_valid = false;
+    }
   }
 
   struct tm timeinfo;

@@ -5,8 +5,8 @@
 
 #include "pointer_shape.h"
 
-void digitize(const uint8_t *bgr_888, uint8_t *digitized, uint8_t first) {
-  uint8_t *out = digitized;
+void digitize(const uint8_t* bgr_888, uint8_t* digitized, uint8_t first) {
+  uint8_t* out = digitized;
   for (uint32_t i = WIDTH * HEIGHT; i > 0; i -= 8) {
     uint8_t mask = 0;
     for (uint8_t j = 0; j < 8; j++) {
@@ -63,13 +63,13 @@ void digitize(const uint8_t *bgr_888, uint8_t *digitized, uint8_t first) {
   }
 }
 
-static void filter(uint8_t *digitized, uint8_t *filtered) {
-  uint8_t *out = filtered;
+static void filter(uint8_t* digitized, uint8_t* filtered) {
+  uint8_t* out = filtered;
   for (uint16_t nbytes = WIDTH / 8 * HEIGHT; nbytes > 0; nbytes--) {
     *out++ = 0;
   }
 
-  uint8_t *in = &digitized[WIDTH / 8];
+  uint8_t* in = &digitized[WIDTH / 8];
   out = &filtered[WIDTH / 8];
   for (uint16_t nbytes = WIDTH / 8 * (HEIGHT - 2); nbytes > 0; nbytes--) {
     uint8_t p = *in;
@@ -89,9 +89,9 @@ static void filter(uint8_t *digitized, uint8_t *filtered) {
 uint8_t min(uint8_t a, uint8_t b) { return (a > b) ? b : a; }
 uint8_t max(uint8_t a, uint8_t b) { return (a > b) ? a : b; }
 
-void find_candidates(uint8_t *bitimage, struct read_s *read) {
+void find_candidates(uint8_t* bitimage, struct read_s* read) {
   read->candidates = 0;
-  uint8_t *p = bitimage;
+  uint8_t* p = bitimage;
 
   uint8_t last_row_areas = 0;
   struct area_s {
@@ -163,7 +163,7 @@ void find_candidates(uint8_t *bitimage, struct read_s *read) {
         new_i++;
       } else if (area_finished) {
         if (last_areas[last_i].cnt > 1) {
-          struct pointer_s *px = &read->pointer[read->candidates];
+          struct pointer_s* px = &read->pointer[read->candidates];
           px->row_from = row - last_areas[last_i].cnt;
           px->row_to = row - 1;
           px->col_from = last_areas[last_i].from * 8;
@@ -176,7 +176,7 @@ void find_candidates(uint8_t *bitimage, struct read_s *read) {
             uint16_t smallest = HEIGHT;
             uint8_t min_i = 0;
             for (uint8_t i = 0; i <= 5; i++) {
-              struct pointer_s *px = &read->pointer[i];
+              struct pointer_s* px = &read->pointer[i];
               if (px->row_to - px->row_from <= smallest) {
                 smallest = px->row_to - px->row_from;
                 min_i = i;
@@ -199,7 +199,7 @@ void find_candidates(uint8_t *bitimage, struct read_s *read) {
   }
 }
 
-void filter_by_geometry(struct read_s *read) {
+void filter_by_geometry(struct read_s* read) {
   // Here are 5 candidates !
   //
   // Find most distant candidates.
@@ -347,7 +347,7 @@ void filter_by_geometry(struct read_s *read) {
   // printf("%d %d %d %d\n",c1,c2,c3,c4);
 }
 
-void update_center(const uint8_t *digitized, struct pointer_s *px,
+void update_center(const uint8_t* digitized, struct pointer_s* px,
                    int16_t radius2) {
   int16_t row_center = px->row_center2 / 2;
   int16_t col_center = px->col_center2 / 2;
@@ -385,9 +385,9 @@ void update_center(const uint8_t *digitized, struct pointer_s *px,
   px->col_center2 += c_sum * 2 / points;
 }
 
-int16_t calc_match(const uint8_t *digitized, const struct pointer_s *px,
+int16_t calc_match(const uint8_t* digitized, const struct pointer_s* px,
                    int16_t radius2, uint8_t angle) {
-  const struct shape_s *shape = &shapes[angle];
+  const struct shape_s* shape = &shapes[angle];
 
   int16_t row_center = px->row_center2 / 2;
   int16_t col_center = px->col_center2 / 2;
@@ -444,7 +444,7 @@ int16_t calc_match(const uint8_t *digitized, const struct pointer_s *px,
   return res;
 }
 
-void find_direction(const uint8_t *digitized, struct pointer_s *px,
+void find_direction(const uint8_t* digitized, struct pointer_s* px,
                     int16_t radius2) {
   uint8_t best_angle = 0;
   int32_t max_mom = 0;
@@ -459,8 +459,8 @@ void find_direction(const uint8_t *digitized, struct pointer_s *px,
   // printf("=> %d\n", best_angle);
 }
 
-void find_pointer(uint8_t *digitized, uint8_t *filtered, uint8_t *temp,
-                  struct read_s *read) {
+void find_pointer(uint8_t* digitized, uint8_t* filtered, uint8_t* temp,
+                  struct read_s* read) {
   filter(digitized, filtered);
   filter(filtered, temp);
   filter(temp, filtered);
@@ -478,12 +478,12 @@ void find_pointer(uint8_t *digitized, uint8_t *filtered, uint8_t *temp,
   }
 }
 
-void eval_pointer(uint8_t *digitized, struct read_s *read) {
+void eval_pointer(uint8_t* digitized, struct read_s* read) {
   if (read->candidates == 0) {
     return;
   }
   for (uint8_t i = 0; i < 4; i++) {
-    struct pointer_s *px = &read->pointer[i];
+    struct pointer_s* px = &read->pointer[i];
     update_center(digitized, px, read->radius2);
     find_direction(digitized, px, read->radius2);
   }

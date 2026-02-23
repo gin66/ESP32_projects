@@ -13,7 +13,7 @@
 Changed typedefs to be fully compatible w/ Arduino 08/09/2010 */
 
 /* POINTER defines a generic pointer type */
-typedef unsigned char *POINTER;
+typedef unsigned char* POINTER;
 
 /* UINT2 defines a two byte word */
 typedef unsigned int UINT2;

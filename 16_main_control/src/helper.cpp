@@ -7,7 +7,7 @@
 // #include "dbg.h"
 
 namespace ah {
-void ip2Arr(uint8_t ip[], const char *ipStr) {
+void ip2Arr(uint8_t ip[], const char* ipStr) {
   uint8_t p = 1;
   memset(ip, 0, 4);
   for (uint8_t i = 0; i < 16; i++) {
@@ -20,7 +20,7 @@ void ip2Arr(uint8_t ip[], const char *ipStr) {
 }
 
 // note: char *str needs to be at least 16 bytes long
-void ip2Char(uint8_t ip[], char *str) {
+void ip2Char(uint8_t ip[], char* str) {
   if (0 == ip[0])
     str[0] = '\0';
   else
@@ -70,7 +70,7 @@ String getTimeStr(time_t t) {
   return String(str);
 }
 
-uint64_t Serial2u64(const char *val) {
+uint64_t Serial2u64(const char* val) {
   char tmp[3];
   uint64_t ret = 0ULL;
   uint64_t u64;

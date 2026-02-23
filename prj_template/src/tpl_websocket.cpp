@@ -8,9 +8,9 @@
 #endif
 
 WebSocketsServer webSocket = WebSocketsServer(81);
-void (*tpl_process_func)(DynamicJsonDocument *json) = NULL;
+void (*tpl_process_func)(DynamicJsonDocument* json) = NULL;
 
-void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
                     size_t length) {
   switch (type) {
     case WStype_DISCONNECTED:
@@ -23,9 +23,9 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
       break;
     case WStype_TEXT: {
       Serial.print("received from websocket: ");
-      Serial.println((char *)payload);
+      Serial.println((char*)payload);
       DynamicJsonDocument json(4096);
-      deserializeJson(json, (char *)payload);
+      deserializeJson(json, (char*)payload);
       if (json.containsKey("sleep")) {
         tpl_config.allow_deepsleep = json["sleep"];
       }
@@ -85,11 +85,11 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
 
 #define WS_BUFLEN 4096
 char ws_buffer[WS_BUFLEN];
-static DynamicJsonDocument *ws_json = NULL;
+static DynamicJsonDocument* ws_json = NULL;
 
-void TaskWebSocketCore0(void *pvParameters) {
-  void (*publish_func)(DynamicJsonDocument *json) =
-      (void (*)(DynamicJsonDocument *))pvParameters;
+void TaskWebSocketCore0(void* pvParameters) {
+  void (*publish_func)(DynamicJsonDocument* json) =
+      (void (*)(DynamicJsonDocument*))pvParameters;
   const TickType_t xDelay = 1 + 10 / portTICK_PERIOD_MS;
   uint32_t send_status_ms = 0;
 
@@ -112,13 +112,13 @@ void TaskWebSocketCore0(void *pvParameters) {
       send_status_ms = now + 750;
       int clients = webSocket.connectedClients();
       if (clients > 0) {
-        //Serial.print("Websockets=");
-        //Serial.println(clients);
+        // Serial.print("Websockets=");
+        // Serial.println(clients);
         String data = "................................................";
         for (int i = 0; i < 48; i++) {
           char ch = '-';
-          volatile uint32_t *reg = portInputRegister(digitalPinToPort(i));
-          volatile uint32_t *ddr = portModeRegister(digitalPinToPort(i));
+          volatile uint32_t* reg = portInputRegister(digitalPinToPort(i));
+          volatile uint32_t* ddr = portModeRegister(digitalPinToPort(i));
           if (reg) {
             uint32_t mask = digitalPinToBitMask(i);
             if (ddr && (*ddr & mask)) {
@@ -168,7 +168,7 @@ void TaskWebSocketCore0(void *pvParameters) {
     }
 #ifdef IS_ESP32CAM
     if (tpl_config.ws_send_jpg_image) {
-      camera_fb_t *fb = esp_camera_fb_get();
+      camera_fb_t* fb = esp_camera_fb_get();
       if (fb) {
         webSocket.broadcastBIN(fb->buf, fb->len);
         esp_camera_fb_return(fb);
@@ -182,10 +182,10 @@ void TaskWebSocketCore0(void *pvParameters) {
 
 //---------------------------------------------------
 //
-void tpl_websocket_setup(void (*publish_func)(DynamicJsonDocument *json),
-                         void (*process_json)(DynamicJsonDocument *json)) {
+void tpl_websocket_setup(void (*publish_func)(DynamicJsonDocument* json),
+                         void (*process_json)(DynamicJsonDocument* json)) {
   tpl_process_func = process_json;
   xTaskCreatePinnedToCore(TaskWebSocketCore0, "WebSocket", 4096,
-                          (void *)publish_func, 1, &tpl_tasks.task_websocket,
+                          (void*)publish_func, 1, &tpl_tasks.task_websocket,
                           CORE_0);
 }

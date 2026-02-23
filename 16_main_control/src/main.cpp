@@ -7,6 +7,7 @@
 #include <sml/sml_crc16.h>
 #include <sml/sml_file.h>
 
+#include "../../../haus/private.h"
 #include "can_ids.h"
 #include "defines.h"
 #include "helper.h"
@@ -15,7 +16,6 @@
 #include "hmPayload.h"
 #include "hmSystem.h"
 #include "template.h"
-#include "../../../haus/private.h"
 
 #define CAN_RX_PIN 26 /* G26 */
 #define CAN_TX_PIN 27 /* G27 */
@@ -96,18 +96,18 @@ struct sml_buffer_s {
 // , Datum 1-0:96.90.2*255(F0F6)               Prüfsumme - CRC der eingestellten
 // Parameter 1-0:97.97.0*255(00000000)           FF - Status Register - Interner
 // Gerätefehler
-void publish(DynamicJsonDocument *json, sml_file *file) {
+void publish(DynamicJsonDocument* json, sml_file* file) {
   (*json)["in_publish"] = true;
   for (int i = 0; i < file->messages_len; i++) {
     char name[20];
     sprintf(name, "Name %d", i);
-    sml_message *message = file->messages[i];
+    sml_message* message = file->messages[i];
     if (*message->message_body->tag == SML_MESSAGE_OPEN_RESPONSE) {
     } else if (*message->message_body->tag == SML_MESSAGE_CLOSE_RESPONSE) {
     } else if (*message->message_body->tag == SML_MESSAGE_GET_LIST_RESPONSE) {
-      sml_list *entry;
-      sml_get_list_response *body;
-      body = (sml_get_list_response *)message->message_body->data;
+      sml_list* entry;
+      sml_get_list_response* body;
+      body = (sml_get_list_response*)message->message_body->data;
       uint8_t index;
       for (entry = body->val_list, index = 0; entry != NULL;
            entry = entry->next, index++) {
@@ -147,7 +147,7 @@ void publish(DynamicJsonDocument *json, sml_file *file) {
             (*json)["Power_W"] = value;
           }
         } else if (entry->value->type == SML_TYPE_OCTET_STRING) {
-          char *value;
+          char* value;
           sml_value_to_strhex(entry->value, &value, true);
           (*json)[name] = value;
           free(value);
@@ -170,10 +170,10 @@ void publish(DynamicJsonDocument *json, sml_file *file) {
 
 const uint8_t sml_header[8] = {0x1b, 0x1b, 0x1b, 0x1b, 0x01, 0x01, 0x01, 0x01};
 
-void json_publish(DynamicJsonDocument *json) {
+void json_publish(DynamicJsonDocument* json) {
   (*json)["publish"] = "called";
   for (uint8_t i = 0; i < 3; i++) {
-    struct sml_buffer_s *buf = &sml_buffers[i];
+    struct sml_buffer_s* buf = &sml_buffers[i];
     if (buf->locked || buf->valid_bytes < 0) {
       continue;
     }
@@ -189,7 +189,7 @@ void json_publish(DynamicJsonDocument *json) {
                 sml_crc16_calculate(&buf->data[2], buf->valid_bytes - 2);
             if (((chksum >> 8) == buf->data[buf->valid_bytes]) &&
                 ((chksum & 0xff) == buf->data[buf->valid_bytes + 1])) {
-              sml_file *file =
+              sml_file* file =
                   sml_file_parse(&buf->data[2 + 8], buf->valid_bytes - 16);
               (*json)["valid_sml"] = file->messages_len;
               (*json)["sml_time"] = buf->receive_time;
@@ -211,7 +211,7 @@ void json_publish(DynamicJsonDocument *json) {
   }
 }
 
-void json_update(DynamicJsonDocument *json) {
+void json_update(DynamicJsonDocument* json) {
   //  if (json->containsKey("moveBoth")) {
   //    int32_t steps = (*json)["moveBoth"];
   //    stepper1->move(steps);
@@ -235,7 +235,7 @@ uint32_t can_error_passive_cnt = 0;
 uint32_t can_error_bus_error_cnt = 0;
 uint32_t can_receive_cnt = 0;
 
-static void handle_rx_message(twai_message_t &message) {
+static void handle_rx_message(twai_message_t& message) {
   // Process received message
   Serial.print(message.extd ? "Extended" : "Standard");
   Serial.printf("-ID: %x Bytes:", message.identifier);
@@ -246,7 +246,7 @@ static void handle_rx_message(twai_message_t &message) {
     Serial.println("");
 
     if ((message.identifier & ~0x1ff) == CAN_ID_STROMZAEHLER_INFO_BASIS) {
-      struct sml_buffer_s *active = &sml_buffers[receive_buffer];
+      struct sml_buffer_s* active = &sml_buffers[receive_buffer];
       int8_t buf_i = receive_buffer;
       uint16_t this_id = message.identifier & ~0xff;
       if (this_id != sml_base_id) {
@@ -294,7 +294,7 @@ static void handle_rx_message(twai_message_t &message) {
   }
 }
 
-void CANTask(void *parameter) {
+void CANTask(void* parameter) {
   while (true) {
     // Check if alert happened
     uint32_t alerts_triggered;

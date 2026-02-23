@@ -57,10 +57,10 @@ bool sdOK = false;
 #define ACCELERATION 3200
 
 FastAccelStepperEngine engine = FastAccelStepperEngine();
-FastAccelStepper *stepper1 = NULL;
-FastAccelStepper *stepper2 = NULL;
+FastAccelStepper* stepper1 = NULL;
+FastAccelStepper* stepper2 = NULL;
 
-void move_update(DynamicJsonDocument *json) {
+void move_update(DynamicJsonDocument* json) {
   if (json->containsKey("moveBoth")) {
     int32_t steps = (*json)["moveBoth"];
     stepper1->move(steps);

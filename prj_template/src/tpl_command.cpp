@@ -2,8 +2,8 @@
 #include "tpl_command.h"
 
 #include <Arduino.h>
-//#include <esp_adc/adc_oneshot.h>
-//#include <esp_private/esp_int_wdt.h>
+// #include <esp_adc/adc_oneshot.h>
+// #include <esp_private/esp_int_wdt.h>
 #include <esp_int_wdt.h>
 #include <esp_task_wdt.h>
 #include <esp_wifi.h>
@@ -15,7 +15,7 @@ volatile enum Command tpl_command = CmdIdle;
 
 #ifdef IS_ESP32CAM
 void psram_flush_cache() {
-  volatile uint8_t *psram = (volatile uint8_t *)SOC_EXTRAM_DATA_LOW;
+  volatile uint8_t* psram = (volatile uint8_t*)SOC_EXTRAM_DATA_LOW;
   /*
    *     Single-core and even/odd mode only have 32K of cache evenly
    * distributed over the address lines. We can clear the cache by just
@@ -29,7 +29,7 @@ void psram_flush_cache() {
 }
 #endif
 
-void TaskCommandCore1(void *pvParameters) {
+void TaskCommandCore1(void* pvParameters) {
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
   void (*func)(enum Command command) = (void (*)(enum Command))pvParameters;
 
@@ -99,9 +99,9 @@ void TaskCommandCore1(void *pvParameters) {
           //  => ping works, but no communication possible
           //  result of esp_wifi_stop() is not printed
           //  ==> set up watchdog for reset in case this does not work
-  	  //const esp_task_wdt_config_t wdt_config = {
-	  //    .timeout_ms = 5000, .idle_core_mask = 1, .trigger_panic = true};
-	  //esp_task_wdt_reconfigure(&wdt_config);
+          // const esp_task_wdt_config_t wdt_config = {
+          //    .timeout_ms = 5000, .idle_core_mask = 1, .trigger_panic = true};
+          // esp_task_wdt_reconfigure(&wdt_config);
           esp_task_wdt_init(5, true);
           esp_task_wdt_add(NULL);
           esp_wifi_stop();
@@ -135,6 +135,6 @@ void TaskCommandCore1(void *pvParameters) {
 }
 //---------------------------------------------------
 void tpl_command_setup(void (*func)(enum Command command)) {
-  xTaskCreatePinnedToCore(TaskCommandCore1, "Command", 2048, (void *)func, 1,
+  xTaskCreatePinnedToCore(TaskCommandCore1, "Command", 2048, (void*)func, 1,
                           &tpl_tasks.task_command, CORE_1);
 }

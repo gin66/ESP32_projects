@@ -23,19 +23,65 @@
     ></script>
 
     <style>
-      body { background: #1a1a2e; color: #e0e0e0; }
-      .card { background: #16213e; border: 1px solid #0f3460; border-radius: 12px; }
-      .val-big   { font-size: 3.8rem; font-weight: 600; line-height: 1; }
-      .val-unit  { font-size: 1.4rem; color: #aaa; }
-      .val-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: #888; margin-bottom: 0.2rem; }
-      .val-sub   { font-size: 0.85rem; color: #666; margin-top: 0.3rem; }
-      .col-consume { color: #ff6b35; }
-      .col-export  { color: #4caf50; }
-      .col-idle    { color: #888; }
-      .kwh-big { font-size: 2rem; font-weight: 600; }
-      .err-badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.75rem; background: #333; color: #666; }
-      .err-badge.err { background: #5c1a1a; color: #ff6b6b; }
-      .sys-info { font-size: 0.72rem; color: #555; }
+      body {
+        background: #1a1a2e;
+        color: #e0e0e0;
+      }
+      .card {
+        background: #16213e;
+        border: 1px solid #0f3460;
+        border-radius: 12px;
+      }
+      .val-big {
+        font-size: 3.8rem;
+        font-weight: 600;
+        line-height: 1;
+      }
+      .val-unit {
+        font-size: 1.4rem;
+        color: #aaa;
+      }
+      .val-label {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: #888;
+        margin-bottom: 0.2rem;
+      }
+      .val-sub {
+        font-size: 0.85rem;
+        color: #666;
+        margin-top: 0.3rem;
+      }
+      .col-consume {
+        color: #ff6b35;
+      }
+      .col-export {
+        color: #4caf50;
+      }
+      .col-idle {
+        color: #888;
+      }
+      .kwh-big {
+        font-size: 2rem;
+        font-weight: 600;
+      }
+      .err-badge {
+        display: inline-block;
+        padding: 0.1rem 0.5rem;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        background: #333;
+        color: #666;
+      }
+      .err-badge.err {
+        background: #5c1a1a;
+        color: #ff6b6b;
+      }
+      .sys-info {
+        font-size: 0.72rem;
+        color: #555;
+      }
     </style>
 
     <script type="text/javascript">
@@ -44,12 +90,12 @@
       var chart;
 
       // Server-driven history: keyed by monotonic minute index
-      var histData        = {};
-      var histWriteIdx    = 0;
-      var histReadIdx     = 0;
+      var histData = {};
+      var histWriteIdx = 0;
+      var histReadIdx = 0;
       // Tracks the wi value at last successful fetch; prevents re-fetching
       // when nothing changed and guards against duplicate in-flight requests.
-      var lastFetchedWi   = 0;
+      var lastFetchedWi = 0;
 
       // Two chart series: consuming (>0 orange) and exporting (<0 green)
       var posPoints = [];
@@ -64,7 +110,7 @@
             labelFontColor: "#666",
             gridColor: "#0f3460",
             lineColor: "#0f3460",
-            tickColor: "#0f3460"
+            tickColor: "#0f3460",
           },
           axisY: {
             includeZero: true,
@@ -74,22 +120,34 @@
             gridColor: "#0f3460",
             lineColor: "#0f3460",
             tickColor: "#0f3460",
-            stripLines: [{ value: 0, color: "#445", thickness: 1 }]
+            stripLines: [{ value: 0, color: "#445", thickness: 1 }],
           },
           data: [
             {
-              name: "Bezug", showInLegend: true, legendText: "Bezug",
-              type: "area", color: "rgba(255,107,53,0.65)",
-              lineColor: "#ff6b35", lineThickness: 1.5, markerSize: 0,
-              xValueType: "dateTime", dataPoints: posPoints
+              name: "Bezug",
+              showInLegend: true,
+              legendText: "Bezug",
+              type: "area",
+              color: "rgba(255,107,53,0.65)",
+              lineColor: "#ff6b35",
+              lineThickness: 1.5,
+              markerSize: 0,
+              xValueType: "dateTime",
+              dataPoints: posPoints,
             },
             {
-              name: "Einspeisung", showInLegend: true, legendText: "Einspeisung",
-              type: "area", color: "rgba(76,175,80,0.65)",
-              lineColor: "#4caf50", lineThickness: 1.5, markerSize: 0,
-              xValueType: "dateTime", dataPoints: negPoints
-            }
-          ]
+              name: "Einspeisung",
+              showInLegend: true,
+              legendText: "Einspeisung",
+              type: "area",
+              color: "rgba(76,175,80,0.65)",
+              lineColor: "#4caf50",
+              lineThickness: 1.5,
+              markerSize: 0,
+              xValueType: "dateTime",
+              dataPoints: negPoints,
+            },
+          ],
         });
         chart.render();
       };
@@ -112,27 +170,33 @@
       // Fetch full history from the server (single HTTP GET, no WebSocket traffic).
       // Called on connect and whenever hist_write_idx advances (≈once per minute).
       function fetchHistory() {
-        var base = location.hostname ? "http://" + location.hostname : "http://esp32_15.local";
+        var base = location.hostname
+          ? "http://" + location.hostname
+          : "http://esp32_15.local";
         fetch(base + "/hist.json")
-          .then(function(r) { return r.json(); })
-          .then(function(h) {
-            histReadIdx  = h.ri;
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (h) {
+            histReadIdx = h.ri;
             histWriteIdx = h.wi;
             lastFetchedWi = h.wi;
             histData = {};
-            h.d.forEach(function(entry, offset) {
+            h.d.forEach(function (entry, offset) {
               histData[h.ri + offset] = { w_min: entry[0], w_max: entry[1] };
             });
             rebuildChart();
           })
-          .catch(function() { lastFetchedWi = 0; });  // allow retry on failure
+          .catch(function () {
+            lastFetchedWi = 0;
+          }); // allow retry on failure
       }
 
       function process(data) {
         var power = data["Power_W"];
-        var cons  = data["Consumption_Wh"];
-        var prod  = data["Production_Wh"];
-        var errs  = data["sml_error"];
+        var cons = data["Consumption_Wh"];
+        var prod = data["Production_Wh"];
+        var errs = data["sml_error"];
 
         // Current power
         var pwrEl = document.getElementById("power_val");
@@ -150,8 +214,12 @@
         }
 
         // Energy totals
-        document.getElementById("cons_kwh").textContent = (cons / 1000).toFixed(3);
-        document.getElementById("prod_kwh").textContent = (prod / 1000).toFixed(3);
+        document.getElementById("cons_kwh").textContent = (cons / 1000).toFixed(
+          3,
+        );
+        document.getElementById("prod_kwh").textContent = (prod / 1000).toFixed(
+          3,
+        );
 
         // SML error badge
         var badge = document.getElementById("sml_err");
@@ -160,11 +228,11 @@
 
         // Track ring-buffer boundaries; evict stale browser-side entries.
         var newWriteIdx = data["hist_write_idx"];
-        var newReadIdx  = data["hist_read_idx"];
+        var newReadIdx = data["hist_read_idx"];
         if (newReadIdx > histReadIdx) {
           for (var i = histReadIdx; i < newReadIdx; i++) delete histData[i];
         }
-        histReadIdx  = newReadIdx;
+        histReadIdx = newReadIdx;
         histWriteIdx = newWriteIdx;
 
         // Re-fetch /hist.json only when the server has a new minute entry.
@@ -180,11 +248,15 @@
         document.getElementById("sys_mem").textContent =
           Math.round(data["mem_free"] / 1024) + "k";
         document.getElementById("sys_ssid").textContent = data["SSID"];
-        document.getElementById("sys_ip").textContent   = data["IP"];
-        document.getElementById("sys_dbm").textContent  = data["wifi_dBm"];
+        document.getElementById("sys_ip").textContent = data["IP"];
+        document.getElementById("sys_dbm").textContent = data["wifi_dBm"];
 
         if (document.getElementById("show_raw").checked) {
-          document.getElementById("raw").textContent = JSON.stringify(data, null, 2);
+          document.getElementById("raw").textContent = JSON.stringify(
+            data,
+            null,
+            2,
+          );
         } else {
           document.getElementById("raw").textContent = "";
         }
@@ -205,14 +277,15 @@
           ws.onopen = function () {
             document.getElementById("ws_state").textContent = "●";
             last_msg = Date.now();
-            lastFetchedWi = Number.MAX_SAFE_INTEGER;  // block duplicates during fetch
+            lastFetchedWi = Number.MAX_SAFE_INTEGER; // block duplicates during fetch
             fetchHistory();
           };
           ws.onmessage = function (evt) {
             document.getElementById("ws_state").textContent = "●";
             var now = Date.now();
             process(JSON.parse(evt.data));
-            document.getElementById("ws_dt").textContent = (now - last_msg) + "ms";
+            document.getElementById("ws_dt").textContent =
+              now - last_msg + "ms";
             last_msg = now;
           };
           ws.onerror = function () {};
@@ -231,13 +304,12 @@
   </head>
 
   <body>
-    <div class="container-fluid py-3" style="max-width:520px">
-
+    <div class="container-fluid py-3" style="max-width: 520px">
       <!-- Header -->
       <div class="d-flex align-items-center mb-3">
         <h5 class="mb-0 me-auto">Hausstrom</h5>
         <span id="sml_err" class="err-badge me-2">SML err: —</span>
-        <span id="ws_state" style="font-size:1rem">…</span>
+        <span id="ws_state" style="font-size: 1rem">…</span>
       </div>
 
       <!-- Current power -->
@@ -257,7 +329,7 @@
             <div class="val-label">Bezug</div>
             <div>
               <span class="kwh-big col-consume" id="cons_kwh">—</span>
-              <span style="font-size:0.9rem; color:#aaa"> kWh</span>
+              <span style="font-size: 0.9rem; color: #aaa"> kWh</span>
             </div>
           </div>
         </div>
@@ -266,7 +338,7 @@
             <div class="val-label">Einspeisung</div>
             <div>
               <span class="kwh-big col-export" id="prod_kwh">—</span>
-              <span style="font-size:0.9rem; color:#aaa"> kWh</span>
+              <span style="font-size: 0.9rem; color: #aaa"> kWh</span>
             </div>
           </div>
         </div>
@@ -275,7 +347,7 @@
       <!-- Chart -->
       <div class="card p-2 mb-3">
         <div class="val-label ms-1 mb-1">Verlauf (bis 8 h)</div>
-        <div id="chartContainer" style="height:200px; width:100%"></div>
+        <div id="chartContainer" style="height: 200px; width: 100%"></div>
       </div>
 
       <!-- Utilities -->
@@ -291,19 +363,27 @@
         </form>
         <div class="form-check mb-0">
           <input class="form-check-input" type="checkbox" id="show_raw" />
-          <label class="form-check-label" for="show_raw" style="font-size:0.8rem">Raw</label>
+          <label
+            class="form-check-label"
+            for="show_raw"
+            style="font-size: 0.8rem"
+            >Raw</label
+          >
         </div>
         <span class="ms-auto sys-info">
           <span id="ws_dt"></span>
-          &nbsp;up <span id="sys_uptime">—</span>
-          &nbsp;<span id="sys_mem">—</span>
-          &nbsp;<span id="sys_ssid">—</span>
-          &nbsp;<span id="sys_ip">—</span>
+          &nbsp;up <span id="sys_uptime">—</span> &nbsp;<span id="sys_mem"
+            >—</span
+          >
+          &nbsp;<span id="sys_ssid">—</span> &nbsp;<span id="sys_ip">—</span>
           &nbsp;<span id="sys_dbm">—</span>dBm
         </span>
       </div>
 
-      <pre id="raw" style="font-size:0.65rem; color:#555; white-space:pre-wrap;"></pre>
+      <pre
+        id="raw"
+        style="font-size: 0.65rem; color: #555; white-space: pre-wrap"
+      ></pre>
     </div>
 
     <script

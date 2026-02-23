@@ -1,16 +1,14 @@
 #include "tpl_system.h"
 
 #include <SPIFFS.h>
-//#include <esp_private/esp_int_wdt.h>
+// #include <esp_private/esp_int_wdt.h>
 #include <esp_freertos_hooks.h>
 #include <esp_int_wdt.h>
-#include <esp_timer.h>
 #include <esp_task_wdt.h>
+#include <esp_timer.h>
 #include <rom/rtc.h>
 
-RTC_DATA_ATTR struct rtc_data_s rtc_data = {
-   .bootCount = 0
-};
+RTC_DATA_ATTR struct rtc_data_s rtc_data = {.bootCount = 0};
 
 struct tpl_task_s tpl_tasks = {.task_wifi_manager = NULL,
                                .task_net_watchdog = NULL,
@@ -69,7 +67,7 @@ TplSpiffsConfig tpl_spiffs_config = TplSpiffsConfig();
     }                                                                     \
   }
 void tpl_update_stack_info() {
-  char *p = stack_info;
+  char* p = stack_info;
   p += sprintf(p, "Stackfree: this=%d", uxTaskGetStackHighWaterMark(NULL));
   ADD_STACK_INFO("net_watchdog", tpl_tasks.task_net_watchdog);
 #ifdef MAX_ON_TIME_S
@@ -85,7 +83,7 @@ void tpl_update_stack_info() {
   ADD_STACK_INFO(tpl_tasks.app_name2, tpl_tasks.task_app2);
 }
 
-static const char *reason[] = {
+static const char* reason[] = {
     "OK",
     "POWERON_RESET",
     "?",
@@ -109,17 +107,16 @@ void tpl_hard_restart() {
   // https://github.com/espressif/arduino-esp32/issues/1270
   // const esp_task_wdt_config_t twdt_config = {
   //			.timeout_ms = 1000,
-  //			.idle_core_mask = (1 << configNUM_CORES) - 1,    // Bitmask of all cores,
-  //			.trigger_panic = true,
+  //			.idle_core_mask = (1 << configNUM_CORES) - 1,    //
+  //Bitmask of all cores, 			.trigger_panic = true,
   //	};
   // esp_task_wdt_reconfigure(&twdt_config);
   esp_task_wdt_init(1, true);
   esp_task_wdt_add(NULL);
-  while (true)
-    ;
+  while (true);
 }
 #ifdef MAX_ON_TIME_S
-void TaskOnTimeWatchdog(void *pvParameters) {
+void TaskOnTimeWatchdog(void* pvParameters) {
   Serial.println("start on time watchdog");
   const TickType_t xDelay = 1000 / portTICK_PERIOD_MS;
   for (uint8_t i = 0; i < MAX_ON_TIME_S; i++) {
@@ -164,7 +161,7 @@ static bool idle_hook_core1() {
   return false;
 }
 
-void TaskCpuLoad(void *param) {
+void TaskCpuLoad(void* param) {
   (void)param;
 
   esp_register_freertos_idle_hook_for_cpu(idle_hook_core0, 0);
@@ -222,7 +219,7 @@ void tpl_system_setup(uint32_t deep_sleep_secs) {
       f = SPIFFS.open(SPIFFS_CONFIG_FNAME, "rb");
       f.setTimeout(0);
       readSize =
-          f.readBytes((char *)&tpl_spiffs_config, sizeof(TplSpiffsConfig));
+          f.readBytes((char*)&tpl_spiffs_config, sizeof(TplSpiffsConfig));
       if ((readSize != sizeof(TplSpiffsConfig)) ||
           (tpl_spiffs_config.version != SPIFFS_CONFIG_VERSION)) {
         tpl_spiffs_config.init();
@@ -243,7 +240,7 @@ bool tpl_write_config() {
     tpl_spiffs_config.need_store = true;
     return false;
   }
-  writeSize = f.write((byte *)&tpl_spiffs_config, sizeof(TplSpiffsConfig));
+  writeSize = f.write((byte*)&tpl_spiffs_config, sizeof(TplSpiffsConfig));
   f.close();
   if (!(writeSize == sizeof(TplSpiffsConfig))) {
     tpl_spiffs_config.need_store = true;

@@ -26,15 +26,15 @@ extern "C" {
 struct quirc;
 
 /* Obtain the library version string. */
-const char *quirc_version(void);
+const char* quirc_version(void);
 
 /* Construct a new QR-code recognizer. This function will return NULL
  * if sufficient memory could not be allocated.
  */
-struct quirc *quirc_new(void);
+struct quirc* quirc_new(void);
 
 /* Destroy a QR-code recognizer. */
-void quirc_destroy(struct quirc *q);
+void quirc_destroy(struct quirc* q);
 
 /* Resize the QR-code recognizer. The size of an image must be
  * specified before codes can be analyzed.
@@ -42,7 +42,7 @@ void quirc_destroy(struct quirc *q);
  * This function returns 0 on success, or -1 if sufficient memory could
  * not be allocated.
  */
-int quirc_resize(struct quirc *q, int w, int h);
+int quirc_resize(struct quirc* q, int w, int h);
 
 /* These functions are used to process images for QR-code recognition.
  * quirc_begin() must first be called to obtain access to a buffer into
@@ -53,8 +53,8 @@ int quirc_resize(struct quirc *q, int w, int h);
  * the image for QR-code recognition. The locations and content of each
  * code may be obtained using accessor functions described below.
  */
-uint8_t *quirc_begin(struct quirc *q, int *w, int *h);
-void quirc_end(struct quirc *q);
+uint8_t* quirc_begin(struct quirc* q, int* w, int* h);
+void quirc_end(struct quirc* q);
 
 /* This structure describes a location in the input image buffer. */
 struct quirc_point {
@@ -75,7 +75,7 @@ typedef enum {
 } quirc_decode_error_t;
 
 /* Return a string error message for an error code. */
-const char *quirc_strerror(quirc_decode_error_t err);
+const char* quirc_strerror(quirc_decode_error_t err);
 
 /* Limits on the maximum size of QR-codes and their content. */
 #define QUIRC_MAX_VERSION 40
@@ -158,17 +158,17 @@ struct quirc_data {
 /* Return the number of QR-codes identified in the last processed
  * image.
  */
-int quirc_count(const struct quirc *q);
+int quirc_count(const struct quirc* q);
 
 /* Extract the QR-code specified by the given index. */
-void quirc_extract(const struct quirc *q, int index, struct quirc_code *code);
+void quirc_extract(const struct quirc* q, int index, struct quirc_code* code);
 
 /* Decode a QR-code, returning the payload data. */
-quirc_decode_error_t quirc_decode(const struct quirc_code *code,
-                                  struct quirc_data *data);
+quirc_decode_error_t quirc_decode(const struct quirc_code* code,
+                                  struct quirc_data* data);
 
 /* Flip a QR-code according to optional mirror feature of ISO 18004:2015 */
-void quirc_flip(struct quirc_code *code);
+void quirc_flip(struct quirc_code* code);
 
 #ifdef __cplusplus
 }

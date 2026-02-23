@@ -16,7 +16,7 @@
 
 using namespace std;
 
-uint32_t *p = NULL;
+uint32_t* p = NULL;
 
 //---------------------------------------------------
 
@@ -33,7 +33,7 @@ void print_info() {
 
 uint16_t duty = 0;
 
-void servo_update(DynamicJsonDocument *json) {
+void servo_update(DynamicJsonDocument* json) {
   if (json->containsKey("servo")) {
     duty = (*json)["servo"];
   }

@@ -13,11 +13,11 @@
 #error BUFFER too small
 #endif
 
-struct psram_buffer_s *psram_buffer;
+struct psram_buffer_s* psram_buffer;
 
-void psram_buffer_init(struct psram_buffer_s *old_psram_buffer) {
+void psram_buffer_init(struct psram_buffer_s* old_psram_buffer) {
   if (old_psram_buffer == NULL) {
-    psram_buffer = (struct psram_buffer_s *)ps_malloc(PSRAM_BUFFER_SIZE);
+    psram_buffer = (struct psram_buffer_s*)ps_malloc(PSRAM_BUFFER_SIZE);
   } else {
     psram_buffer = old_psram_buffer;
   }
@@ -67,7 +67,7 @@ int8_t psram_buffer_add(uint32_t timestamp, uint16_t angle0, uint16_t angle1,
   if (psram_buffer->windex - NUM_ENTRIES == psram_buffer->rindex) {
     psram_buffer->rindex++;
   }
-  struct entry_s *e = &ENTRY(psram_buffer->windex);
+  struct entry_s* e = &ENTRY(psram_buffer->windex);
   psram_buffer->windex++;
   e->timestamp = timestamp;
   uint8_t norm_angle0 = angle0 * ANG_STEP / 9;
@@ -187,7 +187,7 @@ int8_t psram_buffer_add(uint32_t timestamp, uint16_t angle0, uint16_t angle1,
   for (uint16_t i = psram_buffer->rindex;
        (i & NUM_ENTRIES_MASK) != (psram_buffer->windex & NUM_ENTRIES_MASK);
        i++) {
-    struct entry_s *e = &ENTRY(i);
+    struct entry_s* e = &ENTRY(i);
     if ((e->angle[0] == norm_angle0) && (e->angle[1] == norm_angle1) &&
         (e->angle[2] == norm_angle2) && (e->angle[3] == norm_angle3)) {
       if (timestamp - e->timestamp > 3600) {
@@ -236,7 +236,7 @@ uint32_t cumulated_consumption() { return psram_buffer->cumulated_consumption; }
 uint16_t num_entries() {
   return ((uint16_t)(psram_buffer->windex - psram_buffer->rindex));
 }
-struct entry_s *get_entry(uint16_t i) {
+struct entry_s* get_entry(uint16_t i) {
   if (i >= num_entries()) {
     return NULL;
   }

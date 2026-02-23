@@ -19,12 +19,30 @@
     />
 
     <style>
-      .psu-value { font-size: 2.5rem; font-weight: 600; }
-      .psu-unit  { font-size: 1rem; color: #888; }
-      .psu-label { font-size: 0.85rem; text-transform: uppercase; color: #aaa; }
-      .output-on  { background-color: #28a745; color: white; }
-      .output-off { background-color: #dc3545; color: white; }
-      .card { margin-bottom: 1rem; }
+      .psu-value {
+        font-size: 2.5rem;
+        font-weight: 600;
+      }
+      .psu-unit {
+        font-size: 1rem;
+        color: #888;
+      }
+      .psu-label {
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        color: #aaa;
+      }
+      .output-on {
+        background-color: #28a745;
+        color: white;
+      }
+      .output-off {
+        background-color: #dc3545;
+        color: white;
+      }
+      .card {
+        margin-bottom: 1rem;
+      }
     </style>
 
     <script type="text/javascript">
@@ -34,7 +52,9 @@
       function process(data) {
         // System info
         document.getElementById("mem_free").innerHTML = data["mem_free"];
-        document.getElementById("uptime").innerHTML = (data["millis"] / 1000).toFixed(0);
+        document.getElementById("uptime").innerHTML = (
+          data["millis"] / 1000
+        ).toFixed(0);
         document.getElementById("ssid").innerHTML = data["SSID"];
         document.getElementById("ip").innerHTML = data["IP"];
         document.getElementById("dbm").innerHTML = data["wifi_dBm"];
@@ -46,13 +66,23 @@
         document.getElementById("hm_status").innerHTML = "OK";
 
         // Measurements
-        document.getElementById("v_out").innerHTML = (data["v_out"] / 100).toFixed(2);
-        document.getElementById("i_out").innerHTML = (data["i_out"] / 1000).toFixed(3);
-        document.getElementById("p_out").innerHTML = (data["p_out"] / 100).toFixed(2);
+        document.getElementById("v_out").innerHTML = (
+          data["v_out"] / 100
+        ).toFixed(2);
+        document.getElementById("i_out").innerHTML = (
+          data["i_out"] / 1000
+        ).toFixed(3);
+        document.getElementById("p_out").innerHTML = (
+          data["p_out"] / 100
+        ).toFixed(2);
 
         // Setpoints
-        document.getElementById("v_set_disp").innerHTML = (data["v_set"] / 100).toFixed(2);
-        document.getElementById("i_set_disp").innerHTML = (data["i_set"] / 1000).toFixed(3);
+        document.getElementById("v_set_disp").innerHTML = (
+          data["v_set"] / 100
+        ).toFixed(2);
+        document.getElementById("i_set_disp").innerHTML = (
+          data["i_set"] / 1000
+        ).toFixed(3);
 
         // Output state button
         var btn = document.getElementById("output_btn");
@@ -140,18 +170,16 @@
 
   <body>
     <div class="container-fluid mt-2">
-
       <div class="row mb-2">
         <div class="col">
-          <h4>esp32_20 &mdash; HM310T Power Supply
+          <h4>
+            esp32_20 &mdash; HM310T Power Supply
             <small class="text-muted" id="hm_status"></small>
           </h4>
           <small>
-            SSID: <span id="ssid"></span> &nbsp;
-            IP: <span id="ip"></span> &nbsp;
-            dBm: <span id="dbm"></span> &nbsp;
-            Mem: <span id="mem_free"></span> &nbsp;
-            Up: <span id="uptime"></span>s
+            SSID: <span id="ssid"></span> &nbsp; IP:
+            <span id="ip"></span> &nbsp; dBm: <span id="dbm"></span> &nbsp; Mem:
+            <span id="mem_free"></span> &nbsp; Up: <span id="uptime"></span>s
           </small>
         </div>
       </div>
@@ -184,7 +212,11 @@
       <!-- Output toggle -->
       <div class="row mb-2">
         <div class="col">
-          <button id="output_btn" class="btn output-off w-100" onclick="toggle_output()">
+          <button
+            id="output_btn"
+            class="btn output-off w-100"
+            onclick="toggle_output()"
+          >
             OUTPUT OFF
           </button>
         </div>
@@ -194,19 +226,43 @@
       <div class="row">
         <div class="col-6">
           <div class="card p-2">
-            <div class="psu-label">Voltage set &mdash; now <span id="v_set_disp">--</span> V</div>
+            <div class="psu-label">
+              Voltage set &mdash; now <span id="v_set_disp">--</span> V
+            </div>
             <div class="input-group mt-1">
-              <input id="v_input" type="number" class="form-control" step="0.1" min="0" max="33" placeholder="V" />
-              <button class="btn btn-primary" onclick="set_voltage()">Set V</button>
+              <input
+                id="v_input"
+                type="number"
+                class="form-control"
+                step="0.1"
+                min="0"
+                max="33"
+                placeholder="V"
+              />
+              <button class="btn btn-primary" onclick="set_voltage()">
+                Set V
+              </button>
             </div>
           </div>
         </div>
         <div class="col-6">
           <div class="card p-2">
-            <div class="psu-label">Current set &mdash; now <span id="i_set_disp">--</span> A</div>
+            <div class="psu-label">
+              Current set &mdash; now <span id="i_set_disp">--</span> A
+            </div>
             <div class="input-group mt-1">
-              <input id="i_input" type="number" class="form-control" step="0.01" min="0" max="10" placeholder="A" />
-              <button class="btn btn-primary" onclick="set_current()">Set I</button>
+              <input
+                id="i_input"
+                type="number"
+                class="form-control"
+                step="0.01"
+                min="0"
+                max="10"
+                placeholder="A"
+              />
+              <button class="btn btn-primary" onclick="set_current()">
+                Set I
+              </button>
             </div>
           </div>
         </div>
@@ -214,9 +270,21 @@
 
       <!-- Utility buttons -->
       <div class="row row-cols-auto g-2 mt-1">
-        <div class="col"><form action="/serverIndex"><button class="btn btn-sm btn-secondary">SW Update</button></form></div>
-        <div class="col"><form action="/restart"><button class="btn btn-sm btn-secondary">Restart</button></form></div>
-        <div class="col"><form action="/stack"><button class="btn btn-sm btn-secondary">Stack</button></form></div>
+        <div class="col">
+          <form action="/serverIndex">
+            <button class="btn btn-sm btn-secondary">SW Update</button>
+          </form>
+        </div>
+        <div class="col">
+          <form action="/restart">
+            <button class="btn btn-sm btn-secondary">Restart</button>
+          </form>
+        </div>
+        <div class="col">
+          <form action="/stack">
+            <button class="btn btn-sm btn-secondary">Stack</button>
+          </form>
+        </div>
         <div class="col">
           <div class="form-check">
             <input class="form-check-input" type="checkbox" id="show_raw" />
@@ -230,7 +298,7 @@
         <span id="readystate"></span>
         <span id="debug"></span>ms
       </small>
-      <div id="raw" style="word-wrap: break-word; font-size: 0.7rem;"></div>
+      <div id="raw" style="word-wrap: break-word; font-size: 0.7rem"></div>
     </div>
 
     <script

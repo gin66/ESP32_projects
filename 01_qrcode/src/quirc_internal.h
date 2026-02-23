@@ -76,8 +76,8 @@ struct quirc_grid {
 };
 
 struct quirc {
-  uint8_t *image;
-  quirc_pixel_t *pixels;
+  uint8_t* image;
+  quirc_pixel_t* pixels;
   int w;
   int h;
 

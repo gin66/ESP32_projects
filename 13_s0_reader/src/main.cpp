@@ -24,7 +24,7 @@ uint32_t request_idx = 1;
 
 // can be used as parameter to tpl_websocket_setup
 // void add_ws_info(DynamicJsonDocument* myObject) {}
-void publish_func(DynamicJsonDocument *json) {
+void publish_func(DynamicJsonDocument* json) {
   (*json)["aport"] = analogRead(34);
   (*json)["dport"] = digitalRead(34);
   (*json)["cumulated_pulses"] = cumulated_pulses;
@@ -33,14 +33,14 @@ void publish_func(DynamicJsonDocument *json) {
   (*json)["write_idx"] = minute_data_write_idx;
   //(*json)["b64"] = base64::encode((uint8_t*)watts, WATTS_ENTRIES *
   // sizeof(struct minute_data));
-  struct minute_data *x = &watts[request_idx % WATTS_ENTRIES];
+  struct minute_data* x = &watts[request_idx % WATTS_ENTRIES];
   (*json)["idx"] = request_idx;
   (*json)["min_at_idx"] = x->watts_min;
   (*json)["max_at_idx"] = x->watts_max;
   (*json)["pulses_at_idx"] = x->pulses;
 }
 
-void process_func(DynamicJsonDocument *json) {
+void process_func(DynamicJsonDocument* json) {
   if ((*json).containsKey("request_minute")) {
     request_idx = (*json)["request_minute"];
   }
@@ -122,7 +122,7 @@ void loop() {
         r_idx++;
       }
 
-      struct minute_data *x = &watts[w_idx];
+      struct minute_data* x = &watts[w_idx];
       x->watts_min = w_current;
       x->watts_max = w_current;
       x->pulses = 0;
@@ -130,7 +130,7 @@ void loop() {
     last = now;
 
     uint16_t w_idx = minute_data_write_idx % WATTS_ENTRIES;
-    struct minute_data *x = &watts[w_idx];
+    struct minute_data* x = &watts[w_idx];
     x->watts_min = min(x->watts_min, w_current);
     x->watts_max = max(x->watts_max, w_current);
     x->pulses++;

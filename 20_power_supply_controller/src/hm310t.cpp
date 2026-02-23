@@ -4,17 +4,17 @@
 #include "tpl_system.h"
 
 volatile hm310t_state_s hm310t_state = {};
-volatile hm310t_cmd_s   hm310t_cmd   = {};
+volatile hm310t_cmd_s hm310t_cmd = {};
 
 // MAX3421E on VSPI (SCK=18, MISO=19, MOSI=23, SS=5), INT=4
-static USB   Usb;
+static USB Usb;
 static CH340 ch340(&Usb);
 
 // ---------------------------------------------------------------------------
 // Modbus RTU helpers
 // ---------------------------------------------------------------------------
 
-static uint16_t crc16(const uint8_t *buf, uint16_t len) {
+static uint16_t crc16(const uint8_t* buf, uint16_t len) {
   uint16_t crc = 0xFFFF;
   for (uint16_t i = 0; i < len; i++) {
     crc ^= buf[i];
@@ -36,15 +36,19 @@ static void flush_rx() {
 }
 
 // FC03: read `count` contiguous holding registers starting at `reg`.
-static bool read_regs(uint16_t reg, uint16_t count, uint16_t *out) {
+static bool read_regs(uint16_t reg, uint16_t count, uint16_t* out) {
   flush_rx();
 
   uint8_t req[8];
-  req[0] = HM310T_ADDR; req[1] = 0x03;
-  req[2] = reg >> 8;    req[3] = reg & 0xFF;
-  req[4] = count >> 8;  req[5] = count & 0xFF;
+  req[0] = HM310T_ADDR;
+  req[1] = 0x03;
+  req[2] = reg >> 8;
+  req[3] = reg & 0xFF;
+  req[4] = count >> 8;
+  req[5] = count & 0xFF;
   uint16_t crc = crc16(req, 6);
-  req[6] = crc & 0xFF;  req[7] = crc >> 8;
+  req[6] = crc & 0xFF;
+  req[7] = crc >> 8;
   ch340.write(req, 8);
 
   // Accumulate response bytes within timeout
@@ -65,18 +69,19 @@ static bool read_regs(uint16_t reg, uint16_t count, uint16_t *out) {
   }
 
   if (rx < rlen) {
-    Serial.printf("HM310T: read_regs(0x%04X,%d) timeout rx=%d\n", reg, count, rx);
+    Serial.printf("HM310T: read_regs(0x%04X,%d) timeout rx=%d\n", reg, count,
+                  rx);
     return false;
   }
   uint16_t rcrc = crc16(resp, rlen - 2);
-  if (resp[rlen-2] != (rcrc & 0xFF) || resp[rlen-1] != (rcrc >> 8)) {
+  if (resp[rlen - 2] != (rcrc & 0xFF) || resp[rlen - 1] != (rcrc >> 8)) {
     Serial.printf("HM310T: CRC mismatch reg=0x%04X\n", reg);
     return false;
   }
   if (resp[0] != HM310T_ADDR || resp[1] != 0x03) return false;
 
   for (uint16_t i = 0; i < count; i++)
-    out[i] = ((uint16_t)resp[3 + i*2] << 8) | resp[4 + i*2];
+    out[i] = ((uint16_t)resp[3 + i * 2] << 8) | resp[4 + i * 2];
   return true;
 }
 
@@ -85,11 +90,15 @@ static bool write_reg(uint16_t reg, uint16_t val) {
   flush_rx();
 
   uint8_t req[8];
-  req[0] = HM310T_ADDR; req[1] = 0x06;
-  req[2] = reg >> 8;    req[3] = reg & 0xFF;
-  req[4] = val >> 8;    req[5] = val & 0xFF;
+  req[0] = HM310T_ADDR;
+  req[1] = 0x06;
+  req[2] = reg >> 8;
+  req[3] = reg & 0xFF;
+  req[4] = val >> 8;
+  req[5] = val & 0xFF;
   uint16_t crc = crc16(req, 6);
-  req[6] = crc & 0xFF;  req[7] = crc >> 8;
+  req[6] = crc & 0xFF;
+  req[7] = crc >> 8;
   ch340.write(req, 8);
 
   // FC06 response is an echo of the request
@@ -125,7 +134,7 @@ static bool write_reg(uint16_t reg, uint16_t val) {
 // FreeRTOS task
 // ---------------------------------------------------------------------------
 
-static void TaskHM310T(void *) {
+static void TaskHM310T(void*) {
   Serial.println("HM310T: USB init");
   SPI.begin(18, 19, 23, 5);  // MAX3421E VSPI: SCK, MISO, MOSI, SS
   if (Usb.Init() == -1) {
@@ -153,11 +162,13 @@ static void TaskHM310T(void *) {
     // --- Pending writes (one per cycle; each takes ~1 s settle) ---
     if (hm310t_cmd.pending_v) {
       hm310t_cmd.pending_v = false;
-      Serial.printf("HM310T: set V=%d (%.2fV)\n", hm310t_cmd.new_v, hm310t_cmd.new_v * 0.01f);
+      Serial.printf("HM310T: set V=%d (%.2fV)\n", hm310t_cmd.new_v,
+                    hm310t_cmd.new_v * 0.01f);
       write_reg(HM310T_REG_VSET, hm310t_cmd.new_v);
     } else if (hm310t_cmd.pending_i) {
       hm310t_cmd.pending_i = false;
-      Serial.printf("HM310T: set I=%d (%.3fA)\n", hm310t_cmd.new_i, hm310t_cmd.new_i * 0.001f);
+      Serial.printf("HM310T: set I=%d (%.3fA)\n", hm310t_cmd.new_i,
+                    hm310t_cmd.new_i * 0.001f);
       write_reg(HM310T_REG_ISET, hm310t_cmd.new_i);
     } else if (hm310t_cmd.pending_output) {
       hm310t_cmd.pending_output = false;
@@ -179,12 +190,12 @@ static void TaskHM310T(void *) {
 
     if (ok1 && ok2 && ok3) {
       hm310t_state.output = output_reg;
-      hm310t_state.v_out  = meas[0];
-      hm310t_state.i_out  = meas[1];
-      hm310t_state.p_out  = ((uint32_t)meas[2] << 16) | meas[3];
-      hm310t_state.v_set  = sp[0];
-      hm310t_state.i_set  = sp[1];
-      hm310t_state.valid  = true;
+      hm310t_state.v_out = meas[0];
+      hm310t_state.i_out = meas[1];
+      hm310t_state.p_out = ((uint32_t)meas[2] << 16) | meas[3];
+      hm310t_state.v_set = sp[0];
+      hm310t_state.i_set = sp[1];
+      hm310t_state.valid = true;
       WATCH(11);
     } else {
       hm310t_state.valid = false;

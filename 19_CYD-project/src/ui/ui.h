@@ -3,8 +3,6 @@
 
 #include <lvgl.h>
 
-
-
 #if defined(EEZ_FOR_LVGL)
 #include <eez/flow/lvgl_api.h>
 #endif
@@ -17,8 +15,6 @@
 extern "C" {
 #endif
 
-
-
 void ui_init();
 void ui_tick();
 
@@ -30,4 +26,4 @@ void loadScreen(enum ScreensEnum screenId);
 }
 #endif
 
-#endif // EEZ_LVGL_UI_GUI_H
+#endif  // EEZ_LVGL_UI_GUI_H

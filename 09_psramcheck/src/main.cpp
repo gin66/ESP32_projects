@@ -16,7 +16,7 @@
 
 using namespace std;
 
-uint32_t *p = NULL;
+uint32_t* p = NULL;
 
 //---------------------------------------------------
 
@@ -33,7 +33,7 @@ void print_info() {
 void setup() {
 #define MAGIC 0xdeadbeaf
 #define PROBE_SIZE (1024 * 1024)
-  p = (uint32_t *)ps_malloc(PROBE_SIZE);
+  p = (uint32_t*)ps_malloc(PROBE_SIZE);
 
   tpl_system_setup(10);  // 10secs deep sleep time
 
@@ -65,7 +65,7 @@ void setup() {
   tpl_server.on("/dump", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
     tpl_server.send_P(200, "Content-Type: application/octet-stream",
-                      (const char *)p, PROBE_SIZE);
+                      (const char*)p, PROBE_SIZE);
   });
 
   Serial.println("Done.");

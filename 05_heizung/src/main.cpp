@@ -36,9 +36,9 @@ struct ps_image_s {
 };
 
 #define OK_WORDS 7
-void store_image(struct ps_image_s *p, uint8_t *jpeg, size_t jpeg_len) {
-  uint32_t *in = (uint32_t *)jpeg;
-  uint32_t *out = p->buf_1111111X;
+void store_image(struct ps_image_s* p, uint8_t* jpeg, size_t jpeg_len) {
+  uint32_t* in = (uint32_t*)jpeg;
+  uint32_t* out = p->buf_1111111X;
   uint32_t transferred = 0;
   uint32_t checksum = 0;
   while (transferred < jpeg_len) {
@@ -59,7 +59,7 @@ void store_image(struct ps_image_s *p, uint8_t *jpeg, size_t jpeg_len) {
   p->magic = MAGIC_IMAGE;
   p->overwritten = MAGIC_IMAGE;
 }
-size_t have_image(struct ps_image_s *p) {
+size_t have_image(struct ps_image_s* p) {
   if (p->magic != MAGIC_IMAGE) {
     return 0;
   }
@@ -68,10 +68,10 @@ size_t have_image(struct ps_image_s *p) {
   }
   return p->img_len;
 }
-bool read_image(struct ps_image_s *p, uint8_t *jpeg) {
+bool read_image(struct ps_image_s* p, uint8_t* jpeg) {
   uint32_t jpeg_len = p->img_len;
-  uint32_t *in = p->buf_1111111X;
-  uint32_t *out = (uint32_t *)jpeg;
+  uint32_t* in = p->buf_1111111X;
+  uint32_t* out = (uint32_t*)jpeg;
   uint32_t transferred = 0;
   uint32_t checksum = 0;
   while (transferred < jpeg_len) {
@@ -102,11 +102,11 @@ void print_info() {
   Serial.print(" Free PSRAM: ");
   Serial.println(ESP.getFreePsram());
 }
-struct ps_image_s *p = NULL;
+struct ps_image_s* p = NULL;
 
 void setup() {
   if (psramFound()) {
-    p = (struct ps_image_s *)ps_malloc(sizeof(ps_image_s));
+    p = (struct ps_image_s*)ps_malloc(sizeof(ps_image_s));
   }
 
   tpl_system_setup(10 * 60);  // 10mins deep sleep time
@@ -127,7 +127,7 @@ void setup() {
   tpl_server.on("/dump", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
     tpl_server.send_P(200, "Content-Type: application/octet-stream",
-                      (const char *)p, sizeof(struct ps_image_s));
+                      (const char*)p, sizeof(struct ps_image_s));
   });
 
   if (p) {
@@ -137,7 +137,7 @@ void setup() {
     if (img_len > 0) {
       // have image, then send
       tpl_config.curr_jpg_len = img_len;
-      tpl_config.curr_jpg = (uint8_t *)ps_malloc(img_len + 8 * 32);
+      tpl_config.curr_jpg = (uint8_t*)ps_malloc(img_len + 8 * 32);
       if (tpl_config.curr_jpg) {
         WATCH(101)
         tpl_telegram_setup(CHAT_ID);
@@ -177,14 +177,14 @@ void setup() {
           uint32_t settle_till = millis() + 600;
           while ((int32_t)(settle_till - millis()) > 0) {
             // let the camera adjust
-            camera_fb_t *fb = esp_camera_fb_get();
+            camera_fb_t* fb = esp_camera_fb_get();
             if (fb) {
               esp_camera_fb_return(fb);
             }
             vTaskDelay(xDelay);
           }
           // take picture
-          camera_fb_t *fb = esp_camera_fb_get();
+          camera_fb_t* fb = esp_camera_fb_get();
           // flash off
           digitalWrite(tpl_flashPin, LOW);
           if (fb) {

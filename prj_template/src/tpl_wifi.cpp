@@ -14,14 +14,14 @@ WiFiMulti wifiMulti;
 static void connect() {
   if (!automode) {
     automode = true;
-    const struct net_s *net = &nets[0];
+    const struct net_s* net = &nets[0];
     while (net->ssid) {
       wifiMulti.addAP(net->ssid, net->passwd);
       net++;
     }
   }
   if (wifiMulti.run() == WL_CONNECTED) {
-    const struct net_s *net = &nets[0];
+    const struct net_s* net = &nets[0];
     String ssid = WiFi.SSID();
     for (int i = 0; net->ssid; i++, net++) {
       if (ssid.equals(net->ssid)) {
@@ -32,12 +32,13 @@ static void connect() {
   }
 }
 
-void TaskWifiManager(void *pvParameters) {
+void TaskWifiManager(void* pvParameters) {
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
   for (;;) {
     if (!tpl_config.wifi_manager_shutdown_request) {
       IPAddress ip = WiFi.localIP();
-      bool has_valid_ip = (ip[0] != 0 || ip[1] != 0 || ip[2] != 0 || ip[3] != 0);
+      bool has_valid_ip =
+          (ip[0] != 0 || ip[1] != 0 || ip[2] != 0 || ip[3] != 0);
       if (WiFi.status() != WL_CONNECTED || !has_valid_ip) {
         if (!has_valid_ip && WiFi.status() == WL_CONNECTED) {
           Serial.println("IP is 0.0.0.0: force disconnect and reconnect");
@@ -73,13 +74,13 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
     }
   }
   if (need_connect) {
-  if (verbose) {
-    Serial.println("WiFi connected");
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
-  }
+    if (verbose) {
+      Serial.println("WiFi connected");
+      Serial.print("IP address: ");
+      Serial.println(WiFi.localIP());
+    }
 
-  WiFi.setSleep(false);  // Disable WiFi power saving to reduce latency
+    WiFi.setSleep(false);  // Disable WiFi power saving to reduce latency
     connect();
   }
   if (verbose) {

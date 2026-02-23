@@ -19,31 +19,93 @@
     />
 
     <style>
-      body { background: #1a1a2e; color: #e0e0e0; }
-      .card { background: #16213e; border: 1px solid #0f3460; border-radius: 12px; }
-      .temp-big { font-size: 3.5rem; font-weight: 600; line-height: 1; }
-      .temp-unit { font-size: 1.4rem; color: #aaa; }
-      .temp-label { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.1em; color: #888; margin-bottom: 0.25rem; }
+      body {
+        background: #1a1a2e;
+        color: #e0e0e0;
+      }
+      .card {
+        background: #16213e;
+        border: 1px solid #0f3460;
+        border-radius: 12px;
+      }
+      .temp-big {
+        font-size: 3.5rem;
+        font-weight: 600;
+        line-height: 1;
+      }
+      .temp-unit {
+        font-size: 1.4rem;
+        color: #aaa;
+      }
+      .temp-label {
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: #888;
+        margin-bottom: 0.25rem;
+      }
       .status-pill {
-        display: inline-block; padding: 0.25rem 0.8rem;
-        border-radius: 999px; font-size: 0.85rem; font-weight: 600;
+        display: inline-block;
+        padding: 0.25rem 0.8rem;
+        border-radius: 999px;
+        font-size: 0.85rem;
+        font-weight: 600;
       }
-      .status-off     { background: #333; color: #888; }
-      .status-pump    { background: #0f3460; color: #53c0f0; }
-      .status-heating { background: #7b2d00; color: #ffab76; }
-      .col-vorlauf { color: #ff6b35; }
-      .col-aussen  { color: #53c0f0; }
-      .col-innen   { color: #a8e6cf; }
+      .status-off {
+        background: #333;
+        color: #888;
+      }
+      .status-pump {
+        background: #0f3460;
+        color: #53c0f0;
+      }
+      .status-heating {
+        background: #7b2d00;
+        color: #ffab76;
+      }
+      .col-vorlauf {
+        color: #ff6b35;
+      }
+      .col-aussen {
+        color: #53c0f0;
+      }
+      .col-innen {
+        color: #a8e6cf;
+      }
       .preset-btn {
-        min-width: 5rem; font-weight: 600;
-        background: #0f3460; border: 1px solid #1a5276; color: #ccc;
-        border-radius: 8px; padding: 0.5rem 0.4rem;
+        min-width: 5rem;
+        font-weight: 600;
+        background: #0f3460;
+        border: 1px solid #1a5276;
+        color: #ccc;
+        border-radius: 8px;
+        padding: 0.5rem 0.4rem;
       }
-      .preset-btn:hover { background: #1a5276; color: #fff; }
-      .preset-btn.active-preset { background: #c0392b; border-color: #e74c3c; color: #fff; }
-      .sys-info { font-size: 0.72rem; color: #555; }
-      .bar-bg { background: #0f3460; border-radius: 4px; height: 8px; overflow: hidden; }
-      .bar-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, #0f3460, #ff6b35); transition: width 0.5s; }
+      .preset-btn:hover {
+        background: #1a5276;
+        color: #fff;
+      }
+      .preset-btn.active-preset {
+        background: #c0392b;
+        border-color: #e74c3c;
+        color: #fff;
+      }
+      .sys-info {
+        font-size: 0.72rem;
+        color: #555;
+      }
+      .bar-bg {
+        background: #0f3460;
+        border-radius: 4px;
+        height: 8px;
+        overflow: hidden;
+      }
+      .bar-fill {
+        height: 100%;
+        border-radius: 4px;
+        background: linear-gradient(90deg, #0f3460, #ff6b35);
+        transition: width 0.5s;
+      }
     </style>
 
     <script type="text/javascript">
@@ -63,7 +125,7 @@
       }
 
       function updateActivePreset(soll_mV) {
-        document.querySelectorAll(".preset-btn").forEach(function(b) {
+        document.querySelectorAll(".preset-btn").forEach(function (b) {
           var mv = parseInt(b.dataset.mv);
           b.classList.toggle("active-preset", mv === soll_mV);
         });
@@ -71,7 +133,7 @@
 
       function process(data) {
         var soll_mV = data["Ucontrol_mV_soll"];
-        var ist_mV  = data["Ucontrol_mV_ist"];
+        var ist_mV = data["Ucontrol_mV_ist"];
         current_soll_mV = soll_mV;
 
         // Vorlauf temperature
@@ -88,11 +150,15 @@
         // Setpoint display
         var soll_t = vorlaufTemp(soll_mV);
         document.getElementById("vorlauf_soll").textContent =
-          soll_mV > 2500 ? (soll_t !== null ? "Soll: " + soll_t + "°C" : "Pumpe") : "Aus";
+          soll_mV > 2500
+            ? soll_t !== null
+              ? "Soll: " + soll_t + "°C"
+              : "Pumpe"
+            : "Aus";
 
         // Duty cycle bar (0..1024 = 0..100%)
         var duty = data["dutycycle"];
-        var pct = Math.round(duty / 1024 * 100);
+        var pct = Math.round((duty / 1024) * 100);
         document.getElementById("duty_bar").style.width = pct + "%";
         document.getElementById("duty_pct").textContent = pct + "%";
 
@@ -133,10 +199,14 @@
         document.getElementById("sys_mem").textContent =
           Math.round(data["mem_free"] / 1024) + "k";
         document.getElementById("sys_ssid").textContent = data["SSID"];
-        document.getElementById("sys_dbm").textContent  = data["wifi_dBm"];
+        document.getElementById("sys_dbm").textContent = data["wifi_dBm"];
 
         if (document.getElementById("show_raw").checked) {
-          document.getElementById("raw").textContent = JSON.stringify(data, null, 2);
+          document.getElementById("raw").textContent = JSON.stringify(
+            data,
+            null,
+            2,
+          );
         } else {
           document.getElementById("raw").textContent = "";
         }
@@ -157,16 +227,22 @@
             ws = new WebSocket(url);
             ws.binaryType = "arraybuffer";
             last_msg = Date.now();
-            ws.onopen  = function() { document.getElementById("ws_state").textContent = "●"; last_msg = Date.now(); };
-            ws.onmessage = function(evt) {
+            ws.onopen = function () {
+              document.getElementById("ws_state").textContent = "●";
+              last_msg = Date.now();
+            };
+            ws.onmessage = function (evt) {
               document.getElementById("ws_state").textContent = "●";
               process(JSON.parse(evt.data));
               var now = Date.now();
-              document.getElementById("ws_dt").textContent = (now - last_msg) + "ms";
+              document.getElementById("ws_dt").textContent =
+                now - last_msg + "ms";
               last_msg = now;
             };
-            ws.onerror = function() {};
-            ws.onclose = function() { document.getElementById("ws_state").textContent = "✕"; };
+            ws.onerror = function () {};
+            ws.onclose = function () {
+              document.getElementById("ws_state").textContent = "✕";
+            };
           } else {
             var dt = Date.now() - last_msg;
             if (dt > 5000) ws.close();
@@ -178,8 +254,7 @@
   </head>
 
   <body>
-    <div class="container-fluid py-3" style="max-width:520px">
-
+    <div class="container-fluid py-3" style="max-width: 520px">
       <!-- Header -->
       <div class="d-flex align-items-center mb-3">
         <h5 class="mb-0 me-auto">Heizungssteuerung</h5>
@@ -193,12 +268,23 @@
           <span class="temp-big col-vorlauf" id="vorlauf_temp">—</span>
           <span class="temp-unit">°C</span>
         </div>
-        <div class="mt-1" style="font-size:0.8rem; color:#777" id="vorlauf_soll">—</div>
+        <div
+          class="mt-1"
+          style="font-size: 0.8rem; color: #777"
+          id="vorlauf_soll"
+        >
+          —
+        </div>
         <div class="mt-2">
-          <div class="d-flex justify-content-between mb-1" style="font-size:0.75rem; color:#666">
+          <div
+            class="d-flex justify-content-between mb-1"
+            style="font-size: 0.75rem; color: #666"
+          >
             <span>Stellglied</span><span id="duty_pct">—</span>
           </div>
-          <div class="bar-bg"><div class="bar-fill" id="duty_bar" style="width:0%"></div></div>
+          <div class="bar-bg">
+            <div class="bar-fill" id="duty_bar" style="width: 0%"></div>
+          </div>
         </div>
       </div>
 
@@ -228,12 +314,24 @@
       <div class="card p-3 mb-3">
         <div class="temp-label mb-2">Solltemperatur</div>
         <div class="d-flex flex-wrap gap-2">
-          <button class="preset-btn" data-mv="0"     onclick="sendCV(0)">Aus</button>
-          <button class="preset-btn" data-mv="3000"  onclick="sendCV(3000)">Pumpe</button>
-          <button class="preset-btn" data-mv="4400"  onclick="sendCV(4400)">40°C</button>
-          <button class="preset-btn" data-mv="6850"  onclick="sendCV(6850)">50°C</button>
-          <button class="preset-btn" data-mv="9300"  onclick="sendCV(9300)">60°C</button>
-          <button class="preset-btn" data-mv="11750" onclick="sendCV(11750)">70°C</button>
+          <button class="preset-btn" data-mv="0" onclick="sendCV(0)">
+            Aus
+          </button>
+          <button class="preset-btn" data-mv="3000" onclick="sendCV(3000)">
+            Pumpe
+          </button>
+          <button class="preset-btn" data-mv="4400" onclick="sendCV(4400)">
+            40°C
+          </button>
+          <button class="preset-btn" data-mv="6850" onclick="sendCV(6850)">
+            50°C
+          </button>
+          <button class="preset-btn" data-mv="9300" onclick="sendCV(9300)">
+            60°C
+          </button>
+          <button class="preset-btn" data-mv="11750" onclick="sendCV(11750)">
+            70°C
+          </button>
         </div>
       </div>
 
@@ -247,19 +345,28 @@
         </form>
         <div class="form-check mb-0">
           <input class="form-check-input" type="checkbox" id="show_raw" />
-          <label class="form-check-label" for="show_raw" style="font-size:0.8rem">Raw</label>
+          <label
+            class="form-check-label"
+            for="show_raw"
+            style="font-size: 0.8rem"
+            >Raw</label
+          >
         </div>
         <span class="ms-auto sys-info">
           <span id="ws_state">…</span>
           <span id="ws_dt"></span>
-          &nbsp;up <span id="sys_uptime">—</span>
-          &nbsp;<span id="sys_mem">—</span>
-          &nbsp;<span id="sys_ssid">—</span>
-          &nbsp;<span id="sys_dbm">—</span>dBm
+          &nbsp;up <span id="sys_uptime">—</span> &nbsp;<span id="sys_mem"
+            >—</span
+          >
+          &nbsp;<span id="sys_ssid">—</span> &nbsp;<span id="sys_dbm">—</span
+          >dBm
         </span>
       </div>
 
-      <pre id="raw" style="font-size:0.65rem; color:#555; white-space:pre-wrap;"></pre>
+      <pre
+        id="raw"
+        style="font-size: 0.65rem; color: #555; white-space: pre-wrap"
+      ></pre>
     </div>
 
     <script

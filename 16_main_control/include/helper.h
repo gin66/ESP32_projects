@@ -24,7 +24,7 @@ static Timezone gTimezone(CEST, CET);
 
 #define CP_U32_LittleEndian(buf, v) \
   ({                                \
-    uint8_t *b = buf;               \
+    uint8_t* b = buf;               \
     b[0] = ((v >> 24) & 0xff);      \
     b[1] = ((v >> 16) & 0xff);      \
     b[2] = ((v >> 8) & 0xff);       \
@@ -33,7 +33,7 @@ static Timezone gTimezone(CEST, CET);
 
 #define CP_U32_BigEndian(buf, v) \
   ({                             \
-    uint8_t *b = buf;            \
+    uint8_t* b = buf;            \
     b[3] = ((v >> 24) & 0xff);   \
     b[2] = ((v >> 16) & 0xff);   \
     b[1] = ((v >> 8) & 0xff);    \
@@ -41,14 +41,14 @@ static Timezone gTimezone(CEST, CET);
   })
 
 namespace ah {
-void ip2Arr(uint8_t ip[], const char *ipStr);
-void ip2Char(uint8_t ip[], char *str);
+void ip2Arr(uint8_t ip[], const char* ipStr);
+void ip2Char(uint8_t ip[], char* str);
 double round3(double value);
 String getDateTimeStr(time_t t);
 String getDateTimeStrShort(time_t t);
 String getDateTimeStrFile(time_t t);
 String getTimeStr(time_t t);
-uint64_t Serial2u64(const char *val);
+uint64_t Serial2u64(const char* val);
 void dumpBuf(uint8_t buf[], uint8_t len);
 }  // namespace ah
 

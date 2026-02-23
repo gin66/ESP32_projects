@@ -35,7 +35,7 @@ using namespace std;
 #define endSwitch1 2
 
 FastAccelStepperEngine engine = FastAccelStepperEngine();
-FastAccelStepper *stepper1 = NULL;
+FastAccelStepper* stepper1 = NULL;
 
 //---------------------------------------------------
 
@@ -54,11 +54,11 @@ volatile bool isHoming = true;
 volatile bool hitSwitch = false;
 volatile bool homed = false;
 
-void move_publish(DynamicJsonDocument *json) {
+void move_publish(DynamicJsonDocument* json) {
   (*json)["position"] = stepper1->getCurrentPosition();
 }
 
-void move_update(DynamicJsonDocument *json) {
+void move_update(DynamicJsonDocument* json) {
   if (json->containsKey("move1")) {
     int32_t steps = (*json)["move1"];
     stepper1->move(steps);

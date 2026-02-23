@@ -6,7 +6,7 @@
 // Constructor
 // ---------------------------------------------------------------------------
 
-CH340::CH340(USB *p) : pUsb(p), bAddress(0) {
+CH340::CH340(USB* p) : pUsb(p), bAddress(0) {
   memset(epInfo, 0, sizeof(epInfo));
   epInfo[0].maxPktSize = 8;
   epInfo[0].bmNakPower = USB_NAK_MAX_POWER;
@@ -30,23 +30,26 @@ bool CH340::VIDPIDOK(uint16_t vid, uint16_t pid) {
 
 uint8_t CH340::Init(uint8_t parent, uint8_t port, bool lowspeed) {
   uint8_t buf[sizeof(USB_DEVICE_DESCRIPTOR)];
-  auto *udd = reinterpret_cast<USB_DEVICE_DESCRIPTOR *>(buf);
+  auto* udd = reinterpret_cast<USB_DEVICE_DESCRIPTOR*>(buf);
   uint8_t rcode;
-  EpInfo *oldep_ptr = NULL;
-  AddressPool &addrPool = pUsb->GetAddressPool();
+  EpInfo* oldep_ptr = NULL;
+  AddressPool& addrPool = pUsb->GetAddressPool();
 
   if (bAddress) return USB_ERROR_CLASS_INSTANCE_ALREADY_IN_USE;
 
-  UsbDevice *p = addrPool.GetUsbDevicePtr(0);
+  UsbDevice* p = addrPool.GetUsbDevicePtr(0);
   if (!p || !p->epinfo) return USB_ERROR_ADDRESS_NOT_FOUND_IN_POOL;
 
   // Temporarily point device at our epInfo so EP0 control transfers work
-  oldep_ptr  = p->epinfo;
-  p->epinfo  = epInfo;
+  oldep_ptr = p->epinfo;
+  p->epinfo = epInfo;
   p->lowspeed = lowspeed;
 
   rcode = pUsb->getDevDescr(0, 0, sizeof(USB_DEVICE_DESCRIPTOR), buf);
-  if (rcode) { p->epinfo = oldep_ptr; return rcode; }
+  if (rcode) {
+    p->epinfo = oldep_ptr;
+    return rcode;
+  }
 
   epInfo[0].maxPktSize = udd->bMaxPacketSize0;
 
@@ -64,10 +67,10 @@ uint8_t CH340::Init(uint8_t parent, uint8_t port, bool lowspeed) {
   p->epinfo = oldep_ptr;
 
   // CH340G bulk endpoints are fixed: IN=0x01, OUT=0x02, pktsize=32
-  epInfo[1].epAddr     = 0x01;
+  epInfo[1].epAddr = 0x01;
   epInfo[1].maxPktSize = 0x20;
   epInfo[1].bmNakPower = USB_NAK_NOWAIT;
-  epInfo[2].epAddr     = 0x02;
+  epInfo[2].epAddr = 0x02;
   epInfo[2].maxPktSize = 0x20;
   epInfo[2].bmNakPower = USB_NAK_NOWAIT;
 
@@ -76,13 +79,22 @@ uint8_t CH340::Init(uint8_t parent, uint8_t port, bool lowspeed) {
   p->lowspeed = lowspeed;
 
   rcode = pUsb->setEpInfoEntry(bAddress, CH340_N_EP, epInfo);
-  if (rcode) { Release(); return rcode; }
+  if (rcode) {
+    Release();
+    return rcode;
+  }
 
   rcode = pUsb->setConf(bAddress, 0, 1);
-  if (rcode) { Release(); return rcode; }
+  if (rcode) {
+    Release();
+    return rcode;
+  }
 
   rcode = serialInit(9600);
-  if (rcode) { Release(); return rcode; }
+  if (rcode) {
+    Release();
+    return rcode;
+  }
 
   Serial.println("CH340: ready at 9600 8N1");
   return 0;
@@ -99,18 +111,14 @@ uint8_t CH340::Release() {
 // ---------------------------------------------------------------------------
 
 uint8_t CH340::vendorWrite(uint8_t req, uint16_t wVal, uint16_t wIdx) {
-  return pUsb->ctrlReq(bAddress, 0,
-                       0x40, req,
-                       wVal & 0xFF, wVal >> 8,
-                       wIdx, 0, 0, NULL, NULL);
+  return pUsb->ctrlReq(bAddress, 0, 0x40, req, wVal & 0xFF, wVal >> 8, wIdx, 0,
+                       0, NULL, NULL);
 }
 
 uint8_t CH340::vendorRead(uint8_t req, uint16_t wVal, uint16_t wIdx,
-                          uint8_t *buf, uint16_t len) {
-  return pUsb->ctrlReq(bAddress, 0,
-                       0xC0, req,
-                       wVal & 0xFF, wVal >> 8,
-                       wIdx, len, len, buf, NULL);
+                          uint8_t* buf, uint16_t len) {
+  return pUsb->ctrlReq(bAddress, 0, 0xC0, req, wVal & 0xFF, wVal >> 8, wIdx,
+                       len, len, buf, NULL);
 }
 
 // ---------------------------------------------------------------------------
@@ -123,9 +131,12 @@ uint8_t CH340::serialInit(uint32_t baud) {
   Serial.printf("CH340 version: 0x%02X 0x%02X\n", ver[0], ver[1]);
 
   // Compute baud divisor
-  uint32_t factor  = 1532620800UL / baud;
-  uint8_t  divisor = 3;
-  while (factor > 0xfff0 && divisor > 0) { factor >>= 3; divisor--; }
+  uint32_t factor = 1532620800UL / baud;
+  uint8_t divisor = 3;
+  while (factor > 0xfff0 && divisor > 0) {
+    factor >>= 3;
+    divisor--;
+  }
   if (factor > 0xfff0) return USB_ERROR_UNSUPPORTED_FEATURE;
 
   // wVal encodes the prescaler; wIdx is the LCR (8N1)
@@ -143,13 +154,16 @@ uint8_t CH340::serialInit(uint32_t baud) {
 // Bulk I/O
 // ---------------------------------------------------------------------------
 
-uint8_t CH340::write(const uint8_t *buf, uint16_t len) {
-  return pUsb->outTransfer(bAddress, epInfo[2].epAddr, len, (uint8_t *)buf);
+uint8_t CH340::write(const uint8_t* buf, uint16_t len) {
+  return pUsb->outTransfer(bAddress, epInfo[2].epAddr, len, (uint8_t*)buf);
 }
 
-uint8_t CH340::read(uint8_t *buf, uint16_t maxlen, uint16_t *actual) {
+uint8_t CH340::read(uint8_t* buf, uint16_t maxlen, uint16_t* actual) {
   *actual = maxlen;
   uint8_t r = pUsb->inTransfer(bAddress, epInfo[1].epAddr, actual, buf);
-  if (r == hrNAK) { *actual = 0; return 0; }  // no data yet — not an error
+  if (r == hrNAK) {
+    *actual = 0;
+    return 0;
+  }  // no data yet — not an error
   return r;
 }

@@ -5,6 +5,7 @@
 
 #include "tpl_command.h"
 #include "tpl_system.h"
+#include "version.h"
 #ifdef IS_ESP32CAM
 #include "tpl_esp_camera.h"
 #endif
@@ -85,6 +86,14 @@ void tpl_webserver_setup() {
     char buf[48];
     snprintf(buf, sizeof(buf), "CPU0: %lu%% CPU1: %lu%%", cpu_load_core0, cpu_load_core1);
     tpl_server.send(200, "text/html", buf);
+  });
+  tpl_server.on("/version", HTTP_GET, []() {
+    tpl_server.sendHeader("Connection", "close");
+    char buf[256];
+    snprintf(buf, sizeof(buf),
+      "{\"git_hash\":\"%s\",\"git_branch\":\"%s\",\"build_time\":\"%s\",\"version\":\"%s\"}",
+      GIT_HASH, GIT_BRANCH, BUILD_TIME, VERSION_STRING);
+    tpl_server.send(200, "application/json", buf);
   });
   /*handling uploading firmware file */
   tpl_server.on(

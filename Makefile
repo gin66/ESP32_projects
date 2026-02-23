@@ -13,6 +13,20 @@ links:
 	for i in [0-9]*/data; do (cd $$i;echo $$i; ln -sf ../../prj_template/data/*.html .);done
 	for i in [0-9]*/src; do (cd $$i;echo $$i; ln -sf ../../prj_template/src/*.cpp .);done
 	for i in [0-9]*/src; do (cd $$i;echo $$i; ln -sf ../../../.private/private_wifi_secrets.cpp wifi_secrets.cpp);done
+	# Generate empty version.h if not present in project include
+	for i in [0-9]*; do \
+		if [ ! -f "$$i/include/version.h" ]; then \
+			echo "Creating empty version.h for $$i"; \
+			echo '// Auto-generated placeholder' > "$$i/include/version.h"; \
+			echo '#ifndef VERSION_H' >> "$$i/include/version.h"; \
+			echo '#define VERSION_H' >> "$$i/include/version.h"; \
+			echo '#define GIT_HASH "0000000"' >> "$$i/include/version.h"; \
+			echo '#define GIT_BRANCH "unknown"' >> "$$i/include/version.h"; \
+			echo '#define BUILD_TIME "1970-01-01 00:00:00"' >> "$$i/include/version.h"; \
+			echo '#define VERSION_STRING "unknown-0000000"' >> "$$i/include/version.h"; \
+			echo '#endif' >> "$$i/include/version.h"; \
+		fi \
+	done
 	# Update .gitignore
 	mv .gitignore .gitignore2
 	gawk 'skip==0{print} /##===/{skip=1}' .gitignore2 >.gitignore

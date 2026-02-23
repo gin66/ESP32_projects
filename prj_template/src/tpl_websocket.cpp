@@ -2,6 +2,7 @@
 
 #include "tpl_command.h"
 #include "tpl_system.h"
+#include "version.h"
 #ifdef IS_ESP32CAM
 #include "tpl_esp_camera.h"
 #endif
@@ -155,6 +156,7 @@ void TaskWebSocketCore0(void *pvParameters) {
         (*ws_json)["dirty_config"] = tpl_spiffs_config.need_store;
         (*ws_json)["cpu_load_core0"] = cpu_load_core0;
         (*ws_json)["cpu_load_core1"] = cpu_load_core1;
+        (*ws_json)["version"] = VERSION_STRING;
 
         if (publish_func != NULL) {
           publish_func(ws_json);

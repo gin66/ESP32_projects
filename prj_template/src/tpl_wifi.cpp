@@ -73,9 +73,13 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
     }
   }
   if (need_connect) {
-    if (verbose) {
-      Serial.println("Connecting Wifi...");
-    }
+  if (verbose) {
+    Serial.println("WiFi connected");
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+  }
+
+  WiFi.setSleep(false);  // Disable WiFi power saving to reduce latency
     connect();
   }
   if (verbose) {

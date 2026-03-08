@@ -1,9 +1,13 @@
 #include "template.h"
 #include <NeoPixelBus.h>
 #include <math.h>
+#include <FS.h>
+#include <SPIFFS.h>
 
 #define STRIP_LED_PIN 32
 #define STRIP_LED_COUNT 80
+#define WAVE_CONFIG_FNAME "/wave_cfg.bin"
+#define WAVE_CONFIG_VERSION 0x0101
 
 NeoPixelBus<NeoRgbwFeature, NeoEsp32Rmt0Ws2814Method> strip(STRIP_LED_COUNT, STRIP_LED_PIN);
 
@@ -13,6 +17,30 @@ enum LedMode {
   ModeRainbow,
   ModeRainbowWave,
   ModeWhite
+};
+
+struct WaveConfig {
+  uint16_t version;
+  uint16_t waveWidth;
+  uint32_t waveSpeed;
+  bool bidirectional;
+  float acceleration;
+  uint16_t staticSegmentCount;
+  uint16_t staticSegmentOffset;
+  bool need_store;
+  
+  void init() {
+    version = WAVE_CONFIG_VERSION;
+    waveWidth = STRIP_LED_COUNT / 5;
+    waveSpeed = 2000;
+    bidirectional = true;
+    acceleration = 0.0f;
+    staticSegmentCount = STRIP_LED_COUNT;
+    staticSegmentOffset = 0;
+    need_store = false;
+  }
+  
+  WaveConfig() { init(); }
 };
 
 static volatile LedMode currentMode = ModeRainbowWave;
@@ -25,7 +53,9 @@ static volatile uint32_t rainbowSpeed = 3000;
 static volatile uint32_t whiteSpeed = 8000;
 static volatile uint16_t ledCount = STRIP_LED_COUNT;
 
+static WaveConfig waveConfig;
 static unsigned long startTime = 0;
+static float waveVelocity = 1.0f;
 
 static inline uint8_t clamp16to8(int16_t value) {
   if (value < 0) return 0;
@@ -83,6 +113,32 @@ const char* getModeString() {
   }
 }
 
+bool loadWaveConfig() {
+  if (SPIFFS.exists(WAVE_CONFIG_FNAME)) {
+    File f = SPIFFS.open(WAVE_CONFIG_FNAME, "rb");
+    if (f) {
+      WaveConfig temp;
+      size_t readSize = f.readBytes((char*)&temp, sizeof(WaveConfig));
+      f.close();
+      if (readSize == sizeof(WaveConfig) && temp.version == WAVE_CONFIG_VERSION) {
+        waveConfig = temp;
+        return true;
+      }
+    }
+  }
+  waveConfig.init();
+  return false;
+}
+
+bool saveWaveConfig() {
+  File f = SPIFFS.open(WAVE_CONFIG_FNAME, "wb");
+  if (!f) return false;
+  waveConfig.need_store = false;
+  size_t writeSize = f.write((uint8_t*)&waveConfig, sizeof(WaveConfig));
+  f.close();
+  return writeSize == sizeof(WaveConfig);
+}
+
 void processLedCommand(DynamicJsonDocument* json) {
   if (json->containsKey("command")) {
     String cmd = (*json)["command"].as<String>();
@@ -115,6 +171,32 @@ void processLedCommand(DynamicJsonDocument* json) {
     else if (cmd == "led_count") {
       ledCount = (*json)["value"];
     }
+    else if (cmd == "wave_width") {
+      waveConfig.waveWidth = (*json)["value"];
+      waveConfig.need_store = true;
+    }
+    else if (cmd == "wave_speed") {
+      waveConfig.waveSpeed = (*json)["value"];
+      waveConfig.need_store = true;
+    }
+    else if (cmd == "wave_bidirectional") {
+      waveConfig.bidirectional = (*json)["value"];
+      waveConfig.need_store = true;
+      waveVelocity = 1.0f;
+    }
+    else if (cmd == "wave_acceleration") {
+      waveConfig.acceleration = (*json)["value"];
+      waveConfig.need_store = true;
+      waveVelocity = 1.0f;
+    }
+    else if (cmd == "static_segment_count") {
+      waveConfig.staticSegmentCount = (*json)["value"];
+      waveConfig.need_store = true;
+    }
+    else if (cmd == "static_segment_offset") {
+      waveConfig.staticSegmentOffset = (*json)["value"];
+      waveConfig.need_store = true;
+    }
   }
 }
 
@@ -133,6 +215,12 @@ void publishLedStatus(DynamicJsonDocument* json) {
   (*json)["rainbow_speed"] = rainbowSpeed;
   (*json)["white_speed"] = whiteSpeed;
   (*json)["led_count"] = ledCount;
+  (*json)["wave_width"] = waveConfig.waveWidth;
+  (*json)["wave_speed"] = waveConfig.waveSpeed;
+  (*json)["wave_bidirectional"] = waveConfig.bidirectional;
+  (*json)["wave_acceleration"] = waveConfig.acceleration;
+  (*json)["static_segment_count"] = waveConfig.staticSegmentCount;
+  (*json)["static_segment_offset"] = waveConfig.staticSegmentOffset;
 }
 
 void handleLedCommand(enum Command cmd) {
@@ -202,6 +290,7 @@ void setup() {
   startTime = millis();
   
   tpl_wifi_setup(true, true, (gpio_num_t)255);
+  loadWaveConfig();
   addLedEndpoints();
   tpl_webserver_setup();
   tpl_websocket_setup(publishLedStatus, processLedCommand);
@@ -221,6 +310,10 @@ void loop() {
   float bf = (float)ledBrightness / 255.0f;
   uint16_t count = (ledCount < STRIP_LED_COUNT) ? ledCount : STRIP_LED_COUNT;
   
+  if (waveConfig.need_store) {
+    saveWaveConfig();
+  }
+  
   switch (currentMode) {
     case ModeOff:
       for (int i = 0; i < count; i++) {
@@ -230,12 +323,26 @@ void loop() {
       
     case ModeStatic:
       for (int i = 0; i < count; i++) {
-        strip.SetPixelColor(i, correctColor(
-          (uint8_t)((float)staticR * bf),
-          (uint8_t)((float)staticG * bf),
-          (uint8_t)((float)staticB * bf),
-          (uint8_t)((float)staticW * bf)
-        ));
+        strip.SetPixelColor(i, RgbwColor(0, 0, 0, 0));
+      }
+      {
+        uint16_t segCount = waveConfig.staticSegmentCount;
+        uint16_t segOffset = waveConfig.staticSegmentOffset;
+        if (segCount > count) segCount = count;
+        uint16_t maxOffset = count - segCount;
+        if (segOffset > maxOffset) segOffset = maxOffset;
+        
+        for (uint16_t i = 0; i < segCount; i++) {
+          uint16_t ledIdx = segOffset + i;
+          if (ledIdx < count) {
+            strip.SetPixelColor(ledIdx, correctColor(
+              (uint8_t)((float)staticR * bf),
+              (uint8_t)((float)staticG * bf),
+              (uint8_t)((float)staticB * bf),
+              (uint8_t)((float)staticW * bf)
+            ));
+          }
+        }
       }
       break;
       
@@ -252,21 +359,47 @@ void loop() {
     }
     
     case ModeRainbowWave: {
-      int forwardDuration = 2000;
-      int backwardDuration = 2000;
-      int cycleDuration = forwardDuration + backwardDuration;
-      int cyclePos = elapsed % cycleDuration;
+      static unsigned long lastWaveUpdate = 0;
+      static float wavePosition = 0.0f;
+      static int waveDirection = 1;
       
-      float wavePos;
-      if (cyclePos < forwardDuration) {
-        wavePos = (float)cyclePos / (float)forwardDuration;
+      float waveWidth = (float)waveConfig.waveWidth;
+      
+      if (waveConfig.bidirectional) {
+        int cycleDuration = waveConfig.waveSpeed * 2;
+        int cyclePos = elapsed % cycleDuration;
+        
+        if (cyclePos < (int)waveConfig.waveSpeed) {
+          wavePosition = (float)cyclePos / (float)waveConfig.waveSpeed;
+        } else {
+          wavePosition = 1.0f - (float)(cyclePos - waveConfig.waveSpeed) / (float)waveConfig.waveSpeed;
+        }
       } else {
-        wavePos = 1.0f - (float)(cyclePos - forwardDuration) / (float)backwardDuration;
+        if (waveConfig.acceleration != 0.0f) {
+          unsigned long dt = currentTime - lastWaveUpdate;
+          if (dt > 20) {
+            waveVelocity += waveConfig.acceleration * (float)dt / 1000.0f;
+            if (waveVelocity < 0.1f) waveVelocity = 0.1f;
+            if (waveVelocity > 5.0f) waveVelocity = 5.0f;
+            
+            wavePosition += waveDirection * waveVelocity * (float)dt / (float)waveConfig.waveSpeed;
+            lastWaveUpdate = currentTime;
+          }
+          
+          if (wavePosition >= 1.0f) {
+            wavePosition = 0.0f;
+            waveVelocity = 1.0f;
+          }
+          if (wavePosition < 0.0f) {
+            wavePosition = 0.0f;
+          }
+        } else {
+          wavePosition = fmod((float)elapsed / (float)waveConfig.waveSpeed, 1.0f);
+        }
       }
       
       float hueOffset = fmod((float)elapsed / (float)rainbowSpeed, 1.0f);
-      float centerPos = wavePos * (float)(count - 1);
-      float waveWidth = (float)count / 5.0f;
+      float centerPos = wavePosition * (float)(count - 1);
       
       for (int i = 0; i < count; i++) {
         float dist = fabsf((float)i - centerPos);

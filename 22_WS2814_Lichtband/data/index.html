@@ -165,6 +165,36 @@
             />
           </div>
         </div>
+        <hr style="margin: 15px 0" />
+        <h4>LED Segment Control</h4>
+        <div>
+          <label>Number of LEDs: <span id="segment_count_value">80</span></label
+          ><br />
+          <input
+            type="range"
+            id="segment_count"
+            min="1"
+            max="80"
+            value="80"
+            oninput="updateSegmentCount(this.value)"
+            style="width: 100%"
+          />
+        </div>
+        <div style="margin-top: 10px">
+          <label
+            >Position (offset from start):
+            <span id="segment_offset_value">0</span></label
+          ><br />
+          <input
+            type="range"
+            id="segment_offset"
+            min="0"
+            max="79"
+            value="0"
+            oninput="updateSegmentOffset(this.value)"
+            style="width: 100%"
+          />
+        </div>
       </div>
 
       <div class="control-group">
@@ -195,6 +225,67 @@
           style="width: 300px"
         />
         <span id="white_speed_value">8000</span> ms
+      </div>
+
+      <div class="control-group">
+        <h3>Rainbow Wave Settings</h3>
+
+        <label>Wave Width (LEDs):</label>
+        <input
+          type="range"
+          id="wave_width"
+          min="1"
+          max="80"
+          value="16"
+          step="1"
+          oninput="setWaveWidth(this.value)"
+          style="width: 300px"
+        />
+        <span id="wave_width_value">16</span> LEDs
+
+        <br /><br />
+        <label>Wave Speed (ms):</label>
+        <input
+          type="range"
+          id="wave_speed"
+          min="500"
+          max="10000"
+          value="2000"
+          step="100"
+          oninput="setWaveSpeed(this.value)"
+          style="width: 300px"
+        />
+        <span id="wave_speed_value">2000</span> ms
+
+        <br /><br />
+        <label>
+          <input
+            type="checkbox"
+            id="wave_bidirectional"
+            onchange="setWaveBidirectional(this.checked)"
+            checked
+          />
+          Bidirectional (bounce back and forth)
+        </label>
+
+        <div id="acceleration_group">
+          <br />
+          <label>Acceleration (0 = constant speed):</label>
+          <input
+            type="range"
+            id="wave_acceleration"
+            min="-2.0"
+            max="2.0"
+            value="0.0"
+            step="0.1"
+            oninput="setWaveAcceleration(this.value)"
+            style="width: 300px"
+          />
+          <span id="wave_acceleration_value">0.0</span>
+          <small style="display: block; color: #666; margin-top: 5px">
+            Positive = accelerate forward, Negative = decelerate (like falling)
+          </small>
+        </div>
       </div>
 
       <div class="control-group">
@@ -267,8 +358,45 @@
             document.getElementById("white_speed_value").innerHTML =
               data.white_speed;
           }
-          if (data.led_count)
+          if (data.led_count) {
             document.getElementById("led_count").value = data.led_count;
+            updateLedCountForSegment(data.led_count);
+          }
+
+          if (data.wave_width !== undefined) {
+            document.getElementById("wave_width").value = data.wave_width;
+            document.getElementById("wave_width_value").innerHTML =
+              data.wave_width;
+          }
+          if (data.wave_speed !== undefined) {
+            document.getElementById("wave_speed").value = data.wave_speed;
+            document.getElementById("wave_speed_value").innerHTML =
+              data.wave_speed;
+          }
+          if (data.wave_bidirectional !== undefined) {
+            document.getElementById("wave_bidirectional").checked =
+              data.wave_bidirectional;
+            updateAccelerationVisibility();
+          }
+          if (data.wave_acceleration !== undefined) {
+            document.getElementById("wave_acceleration").value =
+              data.wave_acceleration;
+            document.getElementById("wave_acceleration_value").innerHTML =
+              data.wave_acceleration;
+          }
+          if (data.static_segment_count !== undefined) {
+            document.getElementById("segment_count").value =
+              data.static_segment_count;
+            document.getElementById("segment_count_value").innerHTML =
+              data.static_segment_count;
+            updateSegmentOffsetMax();
+          }
+          if (data.static_segment_offset !== undefined) {
+            document.getElementById("segment_offset").value =
+              data.static_segment_offset;
+            document.getElementById("segment_offset_value").innerHTML =
+              data.static_segment_offset;
+          }
 
           document.getElementById("debug").innerHTML = JSON.stringify(data);
         };
@@ -382,8 +510,74 @@
         sendCommand({ command: "led_count", value: parseInt(value) });
       }
 
+      function setWaveWidth(value) {
+        document.getElementById("wave_width_value").innerHTML = value;
+        sendCommand({ command: "wave_width", value: parseInt(value) });
+      }
+
+      function setWaveSpeed(value) {
+        document.getElementById("wave_speed_value").innerHTML = value;
+        sendCommand({ command: "wave_speed", value: parseInt(value) });
+      }
+
+      function setWaveBidirectional(value) {
+        sendCommand({ command: "wave_bidirectional", value: value });
+        updateAccelerationVisibility();
+      }
+
+      function setWaveAcceleration(value) {
+        document.getElementById("wave_acceleration_value").innerHTML = value;
+        sendCommand({ command: "wave_acceleration", value: parseFloat(value) });
+      }
+
+      function updateAccelerationVisibility() {
+        var isBidirectional =
+          document.getElementById("wave_bidirectional").checked;
+        document.getElementById("acceleration_group").style.display =
+          isBidirectional ? "none" : "block";
+      }
+
+      function updateSegmentCount(value) {
+        document.getElementById("segment_count_value").innerHTML = value;
+        sendCommand({
+          command: "static_segment_count",
+          value: parseInt(value),
+        });
+        updateSegmentOffsetMax();
+      }
+
+      function updateSegmentOffset(value) {
+        document.getElementById("segment_offset_value").innerHTML = value;
+        sendCommand({
+          command: "static_segment_offset",
+          value: parseInt(value),
+        });
+      }
+
+      function updateSegmentOffsetMax() {
+        var segCount = parseInt(document.getElementById("segment_count").value);
+        var ledCount = parseInt(document.getElementById("segment_count").max);
+        var maxOffset = ledCount - segCount;
+        if (maxOffset < 0) maxOffset = 0;
+        document.getElementById("segment_offset").max = maxOffset;
+        var currentOffset = parseInt(
+          document.getElementById("segment_offset").value,
+        );
+        if (currentOffset > maxOffset) {
+          document.getElementById("segment_offset").value = maxOffset;
+          document.getElementById("segment_offset_value").innerHTML = maxOffset;
+          sendCommand({ command: "static_segment_offset", value: maxOffset });
+        }
+      }
+
+      function updateLedCountForSegment(count) {
+        document.getElementById("segment_count").max = count;
+        updateSegmentOffsetMax();
+      }
+
       window.onload = function () {
         connectWebSocket();
+        updateAccelerationVisibility();
       };
     </script>
   </body>

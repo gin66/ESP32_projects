@@ -11,6 +11,10 @@ enum Command {
   CmdSendJpg2Bot,
   CmdWaitSendJpg2Bot,
 #endif
+#ifdef WITH_WS2814_LIGHTBAND
+  CmdLedSet,
+  CmdLedEffect,
+#endif
 };
 
 extern volatile enum Command tpl_command;

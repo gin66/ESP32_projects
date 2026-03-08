@@ -125,6 +125,16 @@ void TaskCommandCore1(void* pvParameters) {
         }
         tpl_command = CmdIdle;
         break;
+#ifdef WITH_WS2814_LIGHTBAND
+      case CmdLedSet:
+        tpl_command = CmdIdle;
+        if (func != NULL) func(CmdLedSet);
+        break;
+      case CmdLedEffect:
+        tpl_command = CmdIdle;
+        if (func != NULL) func(CmdLedEffect);
+        break;
+#endif
       default:
         if (func != NULL) {
           func(tpl_command);

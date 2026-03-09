@@ -12,7 +12,6 @@
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <base64.h>
-#include <mem.h>
 
 #include "esp32-hal-psram.h"
 #include "esp_log.h"

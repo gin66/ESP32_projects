@@ -12,7 +12,6 @@
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <base64.h>
-#include <mem.h>
 
 #include "driver/adc.h"
 #include "driver/dac.h"

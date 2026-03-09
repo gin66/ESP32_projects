@@ -34,7 +34,59 @@ links:
 	rm .gitignore2
 
 build: links
-	for i in [0-9]*;do (echo "Process $$i";cd $$i;rm -fR .pio;pio run);done
+	@echo "========================================"
+	@echo "Building all ESP32 projects"
+	@echo "========================================"
+	@rm -f /tmp/build_results.txt
+	@for i in [0-9]*; do \
+		echo -n "Building $$i... "; \
+		if (cd $$i && rm -fR .pio && pio run > /tmp/build.log 2>&1); then \
+			echo "✓ PASS"; \
+			echo "$$i: PASS" >> /tmp/build_results.txt; \
+		else \
+			echo "✗ FAIL"; \
+			echo "$$i: FAIL" >> /tmp/build_results.txt; \
+			cat /tmp/build.log; \
+		fi; \
+	done
+	@echo "========================================"
+	@echo "Build Summary"
+	@echo "========================================"
+	@if [ -f /tmp/build_results.txt ]; then \
+		echo "Passed: $$(grep -c ': PASS' /tmp/build_results.txt || echo 0)"; \
+		echo "Failed: $$(grep -c ': FAIL' /tmp/build_results.txt || echo 0)"; \
+		echo ""; \
+		if grep -q ': FAIL' /tmp/build_results.txt; then \
+			echo "Failed projects:"; \
+			grep ': FAIL' /tmp/build_results.txt | sed 's/: FAIL//'; \
+		fi; \
+	fi
+	@echo "========================================"
+
+# Build single project (usage: make build-00_starter)
+build-%:
+	@echo "Building $*..."
+	@cd $* && rm -rf .pio && pio run
+
+# Clean all build artifacts
+clean:
+	@echo "Cleaning build artifacts..."
+	@for i in [0-9]*; do \
+		rm -rf $$i/.pio; \
+	done
+	@rm -rf prj_template/.pio
+	@echo "Done."
+
+# Static analysis on template (usage: make analyze)
+analyze:
+	cppcheck --enable=warning,performance --inline-suppr --language=c++ --std=c++17 \
+		--suppress=unknownMacro \
+		--include=prj_template/include/tpl_system.h \
+		prj_template/src/*.cpp prj_template/include/*.h 2>&1 | grep -v "^Checking\|^$$"
+
+# Run native unit tests (usage: make test)
+test:
+	cd prj_template && pio test -e native
 
 node_modules/prettier/package.json:
 	npm install --save-dev --save-exact prettier

@@ -12,7 +12,6 @@
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <base64.h>
-#include <mem.h>
 
 #include "esp32-hal-psram.h"
 #include "esp_log.h"
@@ -209,8 +208,10 @@ void setup() {
   server.on("/image", HTTP_GET, []() {
     bool send_error = true;
     sensor_t* sensor = esp_camera_sensor_get();
-    sensor->set_pixformat(sensor, PIXFORMAT_JPEG);
-    sensor->set_framesize(sensor, FRAMESIZE_UXGA);
+    if (sensor != NULL) {
+      sensor->set_pixformat(sensor, PIXFORMAT_JPEG);
+      sensor->set_framesize(sensor, FRAMESIZE_UXGA);
+    }
     camera_fb_t* fb = esp_camera_fb_get();
     if (!fb) {
       Serial.println("Camera capture failed");

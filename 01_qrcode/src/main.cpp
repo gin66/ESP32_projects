@@ -10,7 +10,6 @@
 #include <WiFiClient.h>
 #include <base64.h>
 #include <hwcrypto/sha.h>
-#include <mem.h>
 #include <time.h>
 
 #include "../../private_bot.h"
@@ -257,8 +256,10 @@ void setup() {
   {
     // ipad/iphone have flipped qr-codes, so analyze those first
     sensor_t* sensor = esp_camera_sensor_get();
-    sensor->set_hmirror(sensor, 0);
-    sensor->set_vflip(sensor, 1);
+    if (sensor != NULL) {
+      sensor->set_hmirror(sensor, 0);
+      sensor->set_vflip(sensor, 1);
+    }
   }
 
 #ifdef BOTtoken

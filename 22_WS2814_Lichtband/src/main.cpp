@@ -1,47 +1,16 @@
 #include "template.h"
 #include <NeoPixelBus.h>
-#include <math.h>
 #include <FS.h>
 #include <SPIFFS.h>
+#include <stdint.h>
+
+#include "led_effects.h"
 
 #define STRIP_LED_PIN 32
 #define STRIP_LED_COUNT 80
 #define WAVE_CONFIG_FNAME "/wave_cfg.bin"
-#define WAVE_CONFIG_VERSION 0x0101
 
 NeoPixelBus<NeoRgbwFeature, NeoEsp32Rmt0Ws2814Method> strip(STRIP_LED_COUNT, STRIP_LED_PIN);
-
-enum LedMode {
-  ModeOff,
-  ModeStatic,
-  ModeRainbow,
-  ModeRainbowWave,
-  ModeWhite
-};
-
-struct WaveConfig {
-  uint16_t version;
-  uint16_t waveWidth;
-  uint32_t waveSpeed;
-  bool bidirectional;
-  float acceleration;
-  uint16_t staticSegmentCount;
-  uint16_t staticSegmentOffset;
-  bool need_store;
-  
-  void init() {
-    version = WAVE_CONFIG_VERSION;
-    waveWidth = STRIP_LED_COUNT / 5;
-    waveSpeed = 2000;
-    bidirectional = true;
-    acceleration = 0.0f;
-    staticSegmentCount = STRIP_LED_COUNT;
-    staticSegmentOffset = 0;
-    need_store = false;
-  }
-  
-  WaveConfig() { init(); }
-};
 
 static volatile LedMode currentMode = ModeRainbowWave;
 static volatile uint8_t ledBrightness = 128;
@@ -54,53 +23,8 @@ static volatile uint32_t whiteSpeed = 8000;
 static volatile uint16_t ledCount = STRIP_LED_COUNT;
 
 static WaveConfig waveConfig;
+static LedState ledState;
 static unsigned long startTime = 0;
-static float waveVelocity = 1.0f;
-
-static inline uint8_t clamp16to8(int16_t value) {
-  if (value < 0) return 0;
-  if (value > 255) return 255;
-  return (uint8_t)value;
-}
-
-RgbwColor correctColor(uint8_t r, uint8_t g, uint8_t b, uint8_t w) {
-  return RgbwColor(w, r, g, b);
-}
-
-RgbwColor hsvToRgbw(float h, float s, float v, uint8_t brightness) {
-  float r, g, b;
-  
-  h = fmod(h, 1.0f);
-  if (h < 0.0f) h = 0.0f;
-  if (s < 0.0f) s = 0.0f;
-  if (s > 1.0f) s = 1.0f;
-  if (v < 0.0f) v = 0.0f;
-  if (v > 1.0f) v = 1.0f;
-  
-  int i = (int)(h * 6.0f);
-  float f = h * 6.0f - (float)i;
-  float p = v * (1.0f - s);
-  float q = v * (1.0f - f * s);
-  float t = v * (1.0f - (1.0f - f) * s);
-  
-  switch (i % 6) {
-    case 0: r = v; g = t; b = p; break;
-    case 1: r = q; g = v; b = p; break;
-    case 2: r = p; g = v; b = t; break;
-    case 3: r = p; g = q; b = v; break;
-    case 4: r = t; g = p; b = v; break;
-    case 5: r = v; g = p; b = q; break;
-    default: r = 0.0f; g = 0.0f; b = 0.0f; break;
-  }
-  
-  float bf = (float)brightness / 255.0f * v;
-  return correctColor(
-    (uint8_t)(r * bf * 255.0f),
-    (uint8_t)(g * bf * 255.0f),
-    (uint8_t)(b * bf * 255.0f),
-    0
-  );
-}
 
 const char* getModeString() {
   switch (currentMode) {
@@ -182,12 +106,10 @@ void processLedCommand(DynamicJsonDocument* json) {
     else if (cmd == "wave_bidirectional") {
       waveConfig.bidirectional = (*json)["value"];
       waveConfig.need_store = true;
-      waveVelocity = 1.0f;
     }
     else if (cmd == "wave_acceleration") {
       waveConfig.acceleration = (*json)["value"];
       waveConfig.need_store = true;
-      waveVelocity = 1.0f;
     }
     else if (cmd == "static_segment_count") {
       waveConfig.staticSegmentCount = (*json)["value"];
@@ -307,127 +229,27 @@ void loop() {
   unsigned long currentTime = millis();
   unsigned long elapsed = currentTime - startTime;
   
-  float bf = (float)ledBrightness / 255.0f;
   uint16_t count = (ledCount < STRIP_LED_COUNT) ? ledCount : STRIP_LED_COUNT;
   
   if (waveConfig.need_store) {
     saveWaveConfig();
   }
   
-  switch (currentMode) {
-    case ModeOff:
-      for (int i = 0; i < count; i++) {
-        strip.SetPixelColor(i, RgbwColor(0, 0, 0, 0));
-      }
-      break;
-      
-    case ModeStatic:
-      for (int i = 0; i < count; i++) {
-        strip.SetPixelColor(i, RgbwColor(0, 0, 0, 0));
-      }
-      {
-        uint16_t segCount = waveConfig.staticSegmentCount;
-        uint16_t segOffset = waveConfig.staticSegmentOffset;
-        if (segCount > count) segCount = count;
-        uint16_t maxOffset = count - segCount;
-        if (segOffset > maxOffset) segOffset = maxOffset;
-        
-        for (uint16_t i = 0; i < segCount; i++) {
-          uint16_t ledIdx = segOffset + i;
-          if (ledIdx < count) {
-            strip.SetPixelColor(ledIdx, correctColor(
-              (uint8_t)((float)staticR * bf),
-              (uint8_t)((float)staticG * bf),
-              (uint8_t)((float)staticB * bf),
-              (uint8_t)((float)staticW * bf)
-            ));
-          }
-        }
-      }
-      break;
-      
-    case ModeRainbow: {
-      float period = (float)rainbowSpeed;
-      float timeOffset = fmod((float)elapsed / period, 1.0f);
-      for (int i = 0; i < count; i++) {
-        float positionOffset = (float)i / (float)count;
-        float hue = fmod(timeOffset + positionOffset, 1.0f);
-        RgbwColor color = hsvToRgbw(hue, 1.0f, 1.0f, ledBrightness);
-        strip.SetPixelColor(i, color);
-      }
-      break;
-    }
-    
-    case ModeRainbowWave: {
-      static unsigned long lastWaveUpdate = 0;
-      static float wavePosition = 0.0f;
-      static int waveDirection = 1;
-      
-      float waveWidth = (float)waveConfig.waveWidth;
-      
-      if (waveConfig.bidirectional) {
-        int cycleDuration = waveConfig.waveSpeed * 2;
-        int cyclePos = elapsed % cycleDuration;
-        
-        if (cyclePos < (int)waveConfig.waveSpeed) {
-          wavePosition = (float)cyclePos / (float)waveConfig.waveSpeed;
-        } else {
-          wavePosition = 1.0f - (float)(cyclePos - waveConfig.waveSpeed) / (float)waveConfig.waveSpeed;
-        }
-      } else {
-        if (waveConfig.acceleration != 0.0f) {
-          unsigned long dt = currentTime - lastWaveUpdate;
-          if (dt > 20) {
-            waveVelocity += waveConfig.acceleration * (float)dt / 1000.0f;
-            if (waveVelocity < 0.1f) waveVelocity = 0.1f;
-            if (waveVelocity > 5.0f) waveVelocity = 5.0f;
-            
-            wavePosition += waveDirection * waveVelocity * (float)dt / (float)waveConfig.waveSpeed;
-            lastWaveUpdate = currentTime;
-          }
-          
-          if (wavePosition >= 1.0f) {
-            wavePosition = 0.0f;
-            waveVelocity = 1.0f;
-          }
-          if (wavePosition < 0.0f) {
-            wavePosition = 0.0f;
-          }
-        } else {
-          wavePosition = fmod((float)elapsed / (float)waveConfig.waveSpeed, 1.0f);
-        }
-      }
-      
-      float hueOffset = fmod((float)elapsed / (float)rainbowSpeed, 1.0f);
-      float centerPos = wavePosition * (float)(count - 1);
-      
-      for (int i = 0; i < count; i++) {
-        float dist = fabsf((float)i - centerPos);
-        float intensity = 1.0f - fmin(dist / waveWidth, 1.0f);
-        intensity = intensity * intensity;
-        
-        float hue = fmod(hueOffset + (float)i / (float)count, 1.0f);
-        RgbwColor color = hsvToRgbw(hue, 1.0f, intensity, ledBrightness);
-        strip.SetPixelColor(i, color);
-      }
-      break;
-    }
-    
-    case ModeWhite: {
-      float period = (float)whiteSpeed;
-      float phase = ((float)elapsed / period) * 2.0f * PI;
-      float sine = sin(phase);
-      float normalized = (sine + 1.0f) / 2.0f;
-      uint8_t w = (uint8_t)(normalized * (float)ledBrightness);
-      
-      for (int i = 0; i < count; i++) {
-        strip.SetPixelColor(i, correctColor(0, 0, 0, w));
-      }
-      break;
-    }
+  LedColor leds[STRIP_LED_COUNT];
+  
+  calculateAllLeds(
+    leds, count, elapsed,
+    currentMode, ledBrightness,
+    waveConfig, ledState,
+    staticR, staticG, staticB, staticW,
+    rainbowSpeed, whiteSpeed
+  );
+  
+  for (uint16_t i = 0; i < count; i++) {
+    strip.SetPixelColor(i, RgbwColor(leds[i].W, leds[i].R, leds[i].G, leds[i].B));
   }
   
-  for (int i = count; i < STRIP_LED_COUNT; i++) {
+  for (uint16_t i = count; i < STRIP_LED_COUNT; i++) {
     strip.SetPixelColor(i, RgbwColor(0, 0, 0, 0));
   }
   

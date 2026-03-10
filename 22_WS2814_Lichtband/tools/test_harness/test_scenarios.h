@@ -15,7 +15,23 @@ struct TestScenario {
     uint32_t whiteSpeed;
     unsigned long durationMs;
     unsigned long frameIntervalMs;
+    int16_t flickerThresholdOverride;  // -1 = use default, >0 = per-scenario
 };
+
+// Compute expected max per-frame delta for a moving wave effect.
+// The steepest part of the quadratic falloff produces the largest deltas.
+// For quadratic intensity: I = (1 - d/w)^2, the derivative peaks at d=0
+// with dI/dd = -2/w. Per frame the wave moves: ledCount * frameInterval / waveSpeed LEDs.
+// Max channel delta ≈ brightness * 2 * motion / waveWidth (with safety margin 1.5x).
+inline int16_t computeWaveThreshold(uint8_t brightness, uint16_t waveWidth,
+                                     uint32_t waveSpeed, uint16_t ledCount,
+                                     unsigned long frameIntervalMs, float accelFactor = 1.0f) {
+    float motion = (float)ledCount * frameIntervalMs / waveSpeed * accelFactor;
+    float maxDelta = (float)brightness * 2.0f * motion / waveWidth;
+    // 2.5x margin: wave intensity gradient + hue rotation both contribute
+    int16_t threshold = (int16_t)(maxDelta * 2.5f);
+    return threshold < 15 ? 15 : threshold;
+}
 
 inline TestScenario createScenario_Off(uint8_t brightness) {
     TestScenario s;
@@ -29,6 +45,7 @@ inline TestScenario createScenario_Off(uint8_t brightness) {
     s.whiteSpeed = 8000;
     s.durationMs = 500;
     s.frameIntervalMs = 20;
+    s.flickerThresholdOverride = -1;
     return s;
 }
 
@@ -47,6 +64,7 @@ inline TestScenario createScenario_Static_RGB(uint8_t brightness) {
     s.whiteSpeed = 8000;
     s.durationMs = 500;
     s.frameIntervalMs = 20;
+    s.flickerThresholdOverride = -1;
     return s;
 }
 
@@ -65,6 +83,7 @@ inline TestScenario createScenario_Static_W(uint8_t brightness) {
     s.whiteSpeed = 8000;
     s.durationMs = 500;
     s.frameIntervalMs = 20;
+    s.flickerThresholdOverride = -1;
     return s;
 }
 
@@ -83,6 +102,7 @@ inline TestScenario createScenario_Static_RGBW(uint8_t brightness) {
     s.whiteSpeed = 8000;
     s.durationMs = 500;
     s.frameIntervalMs = 20;
+    s.flickerThresholdOverride = -1;
     return s;
 }
 
@@ -98,6 +118,7 @@ inline TestScenario createScenario_Rainbow(uint8_t brightness) {
     s.whiteSpeed = 8000;
     s.durationMs = 3000;
     s.frameIntervalMs = 20;
+    s.flickerThresholdOverride = -1;
     return s;
 }
 
@@ -113,6 +134,7 @@ inline TestScenario createScenario_White(uint8_t brightness) {
     s.whiteSpeed = 8000;
     s.durationMs = 8000;
     s.frameIntervalMs = 20;
+    s.flickerThresholdOverride = -1;
     return s;
 }
 
@@ -131,6 +153,9 @@ inline TestScenario createScenario_RainbowWave_Bidirectional(uint8_t brightness)
     s.whiteSpeed = 8000;
     s.durationMs = 4000;
     s.frameIntervalMs = 20;
+    s.flickerThresholdOverride = computeWaveThreshold(
+        brightness, s.waveCfg.waveWidth, s.waveCfg.waveSpeed,
+        LED_DEFAULT_COUNT, s.frameIntervalMs);
     return s;
 }
 
@@ -150,6 +175,9 @@ inline TestScenario createScenario_RainbowWave_Unidirectional(uint8_t brightness
     s.whiteSpeed = 8000;
     s.durationMs = 4000;
     s.frameIntervalMs = 20;
+    s.flickerThresholdOverride = computeWaveThreshold(
+        brightness, s.waveCfg.waveWidth, s.waveCfg.waveSpeed,
+        LED_DEFAULT_COUNT, s.frameIntervalMs);
     return s;
 }
 
@@ -169,6 +197,11 @@ inline TestScenario createScenario_RainbowWave_Acceleration(uint8_t brightness) 
     s.whiteSpeed = 8000;
     s.durationMs = 4000;
     s.frameIntervalMs = 20;
+    // Acceleration can reach max velocity (5x=1280/256), use higher accel factor.
+    // Extra margin for velocity reset discontinuity at cycle wrap.
+    s.flickerThresholdOverride = computeWaveThreshold(
+        brightness, s.waveCfg.waveWidth, s.waveCfg.waveSpeed,
+        LED_DEFAULT_COUNT, s.frameIntervalMs, 5.5f);
     return s;
 }
 

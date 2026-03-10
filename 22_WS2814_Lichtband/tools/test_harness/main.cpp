@@ -36,15 +36,18 @@ void listScenarios() {
 }
 
 void runScenario(const TestScenario& scenario, uint16_t ledCount, 
-                 Analyzer& analyzer, bool showViz, VizMode vizMode,
-                 const char* csvFile) {
+                 Analyzer& analyzer, uint8_t defaultThreshold, bool showViz,
+                 VizMode vizMode, const char* csvFile) {
     printf("\n");
     printf("═══════════════════════════════════════════════════════════════════════════\n");
     printf("SCENARIO: %s\n", scenario.name.c_str());
     printf("═══════════════════════════════════════════════════════════════════════════\n");
     printf("  Description: %s\n", scenario.description.c_str());
-    printf("  LEDs: %d, Duration: %lu ms, Frame interval: %lu ms\n",
-           ledCount, scenario.durationMs, scenario.frameIntervalMs);
+    uint8_t threshold = (scenario.flickerThresholdOverride > 0) 
+        ? (uint8_t)scenario.flickerThresholdOverride : defaultThreshold;
+    printf("  LEDs: %d, Duration: %lu ms, Frame interval: %lu ms, Threshold: %d%s\n",
+           ledCount, scenario.durationMs, scenario.frameIntervalMs, threshold,
+           scenario.flickerThresholdOverride > 0 ? " (computed)" : "");
     
     FrameRecorder recorder(ledCount, scenario.durationMs / scenario.frameIntervalMs + 10);
     RgbwColor* leds = new RgbwColor[ledCount];
@@ -70,6 +73,7 @@ void runScenario(const TestScenario& scenario, uint16_t ledCount,
     
     printf("  Frames recorded: %d\n", recorder.getFrameCount());
     
+    analyzer.setFlickerThreshold(threshold);
     auto flickers = analyzer.detectFlicker(recorder);
     analyzer.printFlickerReport(flickers);
     
@@ -176,10 +180,10 @@ int main(int argc, char* argv[]) {
     auto scenarios = getAllScenarios();
     
     if (scenarioNum > 0 && scenarioNum <= (int)scenarios.size()) {
-        runScenario(scenarios[scenarioNum - 1], ledCount, analyzer, showViz, vizMode, csvFile);
+        runScenario(scenarios[scenarioNum - 1], ledCount, analyzer, flickerThreshold, showViz, vizMode, csvFile);
     } else {
         for (const auto& scenario : scenarios) {
-            runScenario(scenario, ledCount, analyzer, showViz, vizMode, csvFile);
+            runScenario(scenario, ledCount, analyzer, flickerThreshold, showViz, vizMode, csvFile);
         }
     }
     

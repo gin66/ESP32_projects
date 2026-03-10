@@ -127,17 +127,21 @@ LedColor calculateLedColor(
             uint16_t hueOffset = (elapsedMs % rainbowSpeed) * 65536 / rainbowSpeed;
             uint16_t baseHue = (hueOffset + wavePos16) % 65536;
             
-            uint16_t centerPos16 = (uint32_t)wavePos16 * ledCount / 65536;
-            int32_t centerPos = centerPos16;
+            // Use Q8 fixed-point for fractional center position to avoid
+            // integer snapping that causes visible flicker
+            uint32_t centerQ8 = (uint32_t)wavePos16 * ledCount * 256 / 65536;
+            int32_t ledQ8 = (int32_t)ledIndex * 256;
             
-            int32_t dist = (int32_t)ledIndex - centerPos;
-            if (dist > (int32_t)(ledCount / 2)) dist -= ledCount;
-            if (dist < -(int32_t)(ledCount / 2)) dist += ledCount;
-            dist = abs(dist);
+            int32_t distQ8 = ledQ8 - (int32_t)centerQ8;
+            int32_t halfQ8 = (int32_t)ledCount * 256 / 2;
+            if (distQ8 > halfQ8) distQ8 -= ledCount * 256;
+            if (distQ8 < -halfQ8) distQ8 += ledCount * 256;
+            if (distQ8 < 0) distQ8 = -distQ8;
             
             uint16_t intensity16 = 0;
-            if (dist < waveWidth) {
-                uint16_t t = (uint32_t)dist * 65536 / waveWidth;
+            int32_t waveWidthQ8 = (int32_t)waveWidth * 256;
+            if (distQ8 < waveWidthQ8) {
+                uint16_t t = (uint32_t)distQ8 * 65536 / waveWidthQ8;
                 uint16_t inv = 65535 - t;
                 intensity16 = (uint32_t)inv * inv / 65536;
             }

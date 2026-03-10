@@ -10,18 +10,25 @@
 #define MATRIX_HEIGHT 32
 #endif
 
+#ifndef MATRIX_PIXEL_COUNT
 #define MATRIX_PIXEL_COUNT (MATRIX_WIDTH * MATRIX_HEIGHT)
+#endif
 
 enum LedMode {
     ModeOff,
     ModeStatic,
     ModeRainbow,
-    ModeRainbowWave,
     ModeWhite,
-    ModeClock,
     ModeScanner,
-    ModeRawScanner,
-    ModeText
+    ModeRawScanner
+};
+
+enum BgStyle {
+    BgSolid,
+    BgTrapezoid,
+    BgRings,
+    BgWave,
+    BgRipple
 };
 
 struct MatrixConfig {
@@ -30,7 +37,7 @@ struct MatrixConfig {
     bool doubleBuffer;
     
     void init() {
-        version = 0x0100;
+        version = 0x0101;
         brightness = 128;
         doubleBuffer = true;
     }

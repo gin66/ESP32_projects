@@ -28,6 +28,11 @@
         border-radius: 5px;
         margin: 10px 0;
       }
+      .btn-group-vertical {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
     </style>
   </head>
   <body>
@@ -42,6 +47,7 @@
       <div class="status-box">
         <strong>Status:</strong> <span id="status">--</span><br />
         <strong>Mode:</strong> <span id="current_mode">--</span><br />
+        <strong>Background:</strong> <span id="current_bg_style">--</span><br />
         <strong>Brightness:</strong>
         <span id="current_brightness">--</span>%<br />
         <strong>Current:</strong> <span id="current">--</span> A
@@ -53,14 +59,6 @@
           <button
             type="button"
             class="btn btn-default mode-btn"
-            data-mode="wave"
-            onclick="setMode('wave')"
-          >
-            Rainbow Wave
-          </button>
-          <button
-            type="button"
-            class="btn btn-default mode-btn"
             data-mode="rainbow"
             onclick="setMode('rainbow')"
           >
@@ -69,18 +67,18 @@
           <button
             type="button"
             class="btn btn-default mode-btn"
-            data-mode="white"
-            onclick="setMode('white')"
+            data-mode="static"
+            onclick="setMode('static')"
           >
-            All White
+            Static Color
           </button>
           <button
             type="button"
             class="btn btn-default mode-btn"
-            data-mode="clock"
-            onclick="setMode('clock')"
+            data-mode="white"
+            onclick="setMode('white')"
           >
-            Clock
+            All White
           </button>
           <button
             type="button"
@@ -100,19 +98,82 @@
           </button>
           <button
             type="button"
-            class="btn btn-default mode-btn"
-            data-mode="static"
-            onclick="setMode('static')"
-          >
-            Static Color
-          </button>
-          <button
-            type="button"
             class="btn btn-danger mode-btn"
             data-mode="off"
             onclick="setMode('off')"
           >
             OFF
+          </button>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <h3>Show Clock Overlay</h3>
+        <label class="checkbox-inline">
+          <input
+            type="checkbox"
+            id="show_clock"
+            onchange="setShowClock(this.checked)"
+          />
+          Show Clock
+        </label>
+        <div style="margin-top: 10px">
+          <label>Clock Brightness:</label>
+          <input
+            type="range"
+            id="clock_brightness"
+            min="0"
+            max="100"
+            value="100"
+            oninput="setClockBrightness(this.value)"
+            style="width: 300px"
+          />
+          <span id="clock_brightness_value">100</span>%
+        </div>
+      </div>
+
+      <div class="control-group">
+        <h3>Background Style (Rainbow mode)</h3>
+        <div class="btn-group" role="group">
+          <button
+            type="button"
+            class="btn btn-default bg-btn"
+            data-bg="solid"
+            onclick="setBgStyle('solid')"
+          >
+            Solid
+          </button>
+          <button
+            type="button"
+            class="btn btn-default bg-btn"
+            data-bg="trapezoid"
+            onclick="setBgStyle('trapezoid')"
+          >
+            Trapezoid
+          </button>
+          <button
+            type="button"
+            class="btn btn-default bg-btn"
+            data-bg="rings"
+            onclick="setBgStyle('rings')"
+          >
+            Rings
+          </button>
+          <button
+            type="button"
+            class="btn btn-default bg-btn"
+            data-bg="wave"
+            onclick="setBgStyle('wave')"
+          >
+            Wave
+          </button>
+          <button
+            type="button"
+            class="btn btn-default bg-btn"
+            data-bg="ripple"
+            onclick="setBgStyle('ripple')"
+          >
+            Ripple
           </button>
         </div>
       </div>
@@ -129,6 +190,35 @@
           style="width: 300px"
         />
         <span id="brightness_value">100</span>%
+      </div>
+
+      <div class="control-group">
+        <h3>Background Animation</h3>
+        <label>Speed (ms per cycle):</label>
+        <input
+          type="range"
+          id="bg_speed"
+          min="500"
+          max="20000"
+          value="3000"
+          step="100"
+          oninput="setBgSpeed(this.value)"
+          style="width: 300px"
+        />
+        <span id="bg_speed_value">3000</span> ms<br />
+
+        <label>Wave Length:</label>
+        <input
+          type="range"
+          id="wave_length"
+          min="64"
+          max="1024"
+          value="256"
+          step="32"
+          oninput="setWaveLength(this.value)"
+          style="width: 300px"
+        />
+        <span id="wave_length_value">256</span>
       </div>
 
       <div class="control-group">
@@ -204,22 +294,6 @@
         </div>
       </div>
 
-      <div class="control-group">
-        <h3>Animation Speed</h3>
-        <label>Rainbow Period (ms):</label>
-        <input
-          type="range"
-          id="rainbow_speed"
-          min="500"
-          max="10000"
-          value="3000"
-          step="100"
-          oninput="setRainbowSpeed(this.value)"
-          style="width: 300px"
-        />
-        <span id="rainbow_speed_value">3000</span> ms
-      </div>
-
       <span
         id="debug"
         style="word-wrap: break-word; color: #999; font-size: 10px"
@@ -259,6 +333,11 @@
             document.getElementById("current_mode").innerHTML = data.mode;
             updateModeButtons(data.mode);
           }
+          if (data.bg_style) {
+            document.getElementById("current_bg_style").innerHTML =
+              data.bg_style;
+            updateBgButtons(data.bg_style);
+          }
           if (data.brightness) {
             document.getElementById("current_brightness").innerHTML =
               data.brightness;
@@ -266,10 +345,23 @@
             document.getElementById("brightness_value").innerHTML =
               data.brightness;
           }
-          if (data.rainbow_speed) {
-            document.getElementById("rainbow_speed").value = data.rainbow_speed;
-            document.getElementById("rainbow_speed_value").innerHTML =
-              data.rainbow_speed;
+          if (data.bg_speed) {
+            document.getElementById("bg_speed").value = data.bg_speed;
+            document.getElementById("bg_speed_value").innerHTML = data.bg_speed;
+          }
+          if (data.wave_length) {
+            document.getElementById("wave_length").value = data.wave_length;
+            document.getElementById("wave_length_value").innerHTML =
+              data.wave_length;
+          }
+          if (data.show_clock !== undefined) {
+            document.getElementById("show_clock").checked = data.show_clock;
+          }
+          if (data.clock_brightness !== undefined) {
+            document.getElementById("clock_brightness").value =
+              data.clock_brightness;
+            document.getElementById("clock_brightness_value").innerHTML =
+              data.clock_brightness;
           }
           if (data.current !== undefined) {
             document.getElementById("current").innerHTML =
@@ -313,9 +405,42 @@
           mode === "static" ? "block" : "none";
       }
 
+      function updateBgButtons(style) {
+        var btns = document.querySelectorAll(".bg-btn");
+        for (var i = 0; i < btns.length; i++) {
+          var isActive = btns[i].getAttribute("data-bg") === style;
+          btns[i].className =
+            "btn bg-btn " + (isActive ? "btn-primary" : "btn-default");
+        }
+      }
+
+      function setBgStyle(style) {
+        sendCommand({ command: "bg_style", value: style });
+        updateBgButtons(style);
+      }
+
       function setBrightness(value) {
         document.getElementById("brightness_value").innerHTML = value;
         sendCommand({ command: "brightness", value: parseInt(value) });
+      }
+
+      function setShowClock(value) {
+        sendCommand({ command: "show_clock", value: value });
+      }
+
+      function setClockBrightness(value) {
+        document.getElementById("clock_brightness_value").innerHTML = value;
+        sendCommand({ command: "clock_brightness", value: parseInt(value) });
+      }
+
+      function setBgSpeed(value) {
+        document.getElementById("bg_speed_value").innerHTML = value;
+        sendCommand({ command: "bg_speed", value: parseInt(value) });
+      }
+
+      function setWaveLength(value) {
+        document.getElementById("wave_length_value").innerHTML = value;
+        sendCommand({ command: "wave_length", value: parseInt(value) });
       }
 
       function setCustomColor(hex) {
@@ -362,11 +487,6 @@
         var b = parseInt(document.getElementById("blue").value);
 
         sendCommand({ command: "color", r: r, g: g, b: b });
-      }
-
-      function setRainbowSpeed(value) {
-        document.getElementById("rainbow_speed_value").innerHTML = value;
-        sendCommand({ command: "rainbow_speed", value: parseInt(value) });
       }
 
       function setMaxCurrent(value) {

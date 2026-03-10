@@ -81,6 +81,39 @@ void tpl_webserver_setup() {
     tpl_server.sendHeader("Connection", "close");
     tpl_server.send(200, "text/html", tpl_config.stack_info);
   });
+  tpl_server.on("/spiffs/list", HTTP_GET, []() {
+    tpl_server.sendHeader("Connection", "close");
+    String result = "{\"files\":[";
+    File root = SPIFFS.open("/");
+    File file = root.openNextFile();
+    bool first = true;
+    while (file) {
+      if (!first) result += ",";
+      result += "{\"name\":\"" + String(file.name()) + "\",\"size\":" + String(file.size()) + "}";
+      first = false;
+      file = root.openNextFile();
+    }
+    result += "],\"total\":" + String(SPIFFS.totalBytes()) + ",\"used\":" + String(SPIFFS.usedBytes()) + "}";
+    tpl_server.send(200, "application/json", result);
+  });
+  tpl_server.on("/spiffs/read", HTTP_GET, []() {
+    if (!tpl_server.hasArg("file")) {
+      tpl_server.sendHeader("Connection", "close");
+      tpl_server.send(400, "text/plain", "Missing 'file' parameter");
+      return;
+    }
+    String filename = tpl_server.arg("file");
+    if (!SPIFFS.exists(filename)) {
+      tpl_server.sendHeader("Connection", "close");
+      tpl_server.send(404, "text/plain", "File not found: " + filename);
+      return;
+    }
+    File f = SPIFFS.open(filename, "r");
+    String content = f.readString();
+    f.close();
+    tpl_server.sendHeader("Connection", "close");
+    tpl_server.send(200, "text/html", content);
+  });
   tpl_server.on("/cpu", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
     char buf[48];

@@ -5,8 +5,6 @@
 #include <stdint.h>
 #include <esp_task_wdt.h>
 
-#include "led_effects.h"
-
 #define WDT_TIMEOUT_S 10
 
 #define PANELS 3
@@ -15,22 +13,20 @@
 #define MATRIX_HEIGHT (8*PANELS)
 #define MATRIX_PIXEL_COUNT (MATRIX_WIDTH * MATRIX_HEIGHT)
 
-// 100% Brightness red  =255 for 32x8 LEDs: 3.37A
-// 100% Brightness blue =255 for 32x8 LEDs: 3.34A
-// 100% Brightness green=255 for 32x8 LEDs: 3.19A
-// all off with 32x8:   322mA
-// all off with 32x24:  580mA
-// 10% Brightness, red/blue/green=255, 32x24 => 3.4A
-
+#include "led_effects.h"
 
 NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt0Ws2812xMethod> matrix(MATRIX_PIXEL_COUNT, MATRIX_LED_PIN);
 
-static volatile LedMode currentMode = ModeClock;
+static volatile LedMode currentMode = ModeRainbow;
 static volatile uint8_t ledBrightness = 5;
 static volatile uint8_t staticR = 255;
 static volatile uint8_t staticG = 255;
 static volatile uint8_t staticB = 255;
-static volatile uint32_t rainbowSpeed = 3000;
+static volatile BgStyle bgStyle = BgRings;
+static volatile uint32_t bgSpeed = 3000;
+static volatile uint16_t waveLength = 256;
+static volatile bool showClock = true;
+static volatile uint8_t clockBrightness = 100;
 static volatile unsigned long scannerStartTime = 0;
 static volatile float maxCurrent = 1.0;
 static volatile float currentA = 0.0;
@@ -57,13 +53,31 @@ const char* getModeString() {
     case ModeOff: return "off";
     case ModeStatic: return "static";
     case ModeRainbow: return "rainbow";
-    case ModeRainbowWave: return "wave";
     case ModeWhite: return "white";
-    case ModeClock: return "clock";
     case ModeScanner: return "scanner";
     case ModeRawScanner: return "rawscanner";
     default: return "unknown";
   }
+}
+
+const char* getBgStyleString() {
+  switch (bgStyle) {
+    case BgSolid: return "solid";
+    case BgTrapezoid: return "trapezoid";
+    case BgRings: return "rings";
+    case BgWave: return "wave";
+    case BgRipple: return "ripple";
+    default: return "unknown";
+  }
+}
+
+BgStyle parseBgStyle(const String& s) {
+  if (s == "solid") return BgSolid;
+  if (s == "trapezoid") return BgTrapezoid;
+  if (s == "rings") return BgRings;
+  if (s == "wave") return BgWave;
+  if (s == "ripple") return BgRipple;
+  return BgRings;
 }
 
 void processLedCommand(DynamicJsonDocument* json) {
@@ -74,10 +88,8 @@ void processLedCommand(DynamicJsonDocument* json) {
       String mode = (*json)["value"].as<String>();
       if (mode == "off") currentMode = ModeOff;
       else if (mode == "rainbow") currentMode = ModeRainbow;
-      else if (mode == "wave") currentMode = ModeRainbowWave;
       else if (mode == "white") currentMode = ModeWhite;
       else if (mode == "static") currentMode = ModeStatic;
-      else if (mode == "clock") currentMode = ModeClock;
       else if (mode == "scanner") { currentMode = ModeScanner; scannerStartTime = millis(); }
       else if (mode == "rawscanner") { currentMode = ModeRawScanner; scannerStartTime = millis(); }
     }
@@ -91,8 +103,21 @@ void processLedCommand(DynamicJsonDocument* json) {
       staticB = (*json)["b"];
       currentMode = ModeStatic;
     }
-    else if (cmd == "rainbow_speed") {
-      rainbowSpeed = (*json)["value"];
+    else if (cmd == "bg_style") {
+      String style = (*json)["value"].as<String>();
+      bgStyle = parseBgStyle(style);
+    }
+    else if (cmd == "bg_speed") {
+      bgSpeed = (*json)["value"];
+    }
+    else if (cmd == "wave_length") {
+      waveLength = (*json)["value"];
+    }
+    else if (cmd == "clock_brightness") {
+      clockBrightness = (*json)["value"];
+    }
+    else if (cmd == "show_clock") {
+      showClock = (*json)["value"];
     }
     else if (cmd == "max_current") {
       maxCurrent = (*json)["value"];
@@ -112,7 +137,11 @@ void publishLedStatus(DynamicJsonDocument* json) {
   (*json)["uptime"] = uptime;
   (*json)["mode"] = getModeString();
   (*json)["brightness"] = (int)((ledBrightness * 100) / 255);
-  (*json)["rainbow_speed"] = rainbowSpeed;
+  (*json)["bg_style"] = getBgStyleString();
+  (*json)["bg_speed"] = bgSpeed;
+  (*json)["wave_length"] = waveLength;
+  (*json)["show_clock"] = showClock;
+  (*json)["clock_brightness"] = clockBrightness;
   (*json)["matrix_width"] = MATRIX_WIDTH;
   (*json)["matrix_height"] = MATRIX_HEIGHT;
   (*json)["current"] = round(currentA * 100) / 100;
@@ -148,24 +177,10 @@ void addLedEndpoints() {
     tpl_server.send(200, "text/html", "OK");
   });
   
-  tpl_server.on("/led/wave", HTTP_GET, []() {
-    tpl_server.sendHeader("Connection", "close");
-    if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
-    currentMode = ModeRainbowWave;
-    tpl_server.send(200, "text/html", "OK");
-  });
-  
   tpl_server.on("/led/white", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
     if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
     currentMode = ModeWhite;
-    tpl_server.send(200, "text/html", "OK");
-  });
-  
-  tpl_server.on("/led/clock", HTTP_GET, []() {
-    tpl_server.sendHeader("Connection", "close");
-    if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
-    currentMode = ModeClock;
     tpl_server.send(200, "text/html", "OK");
   });
   
@@ -187,18 +202,17 @@ void addLedEndpoints() {
   
   tpl_server.on("/led/status", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
-    char buf[128];
+    char buf[300];
     snprintf(buf, sizeof(buf), 
-             "{\"mode\":\"%s\",\"brightness\":%d,\"r\":%d,\"g\":%d,\"b\":%d}",
-             getModeString(), ledBrightness, staticR, staticG, staticB);
+             "{\"mode\":\"%s\",\"brightness\":%d,\"r\":%d,\"g\":%d,\"b\":%d,\"bg_style\":\"%s\",\"bg_speed\":%lu,\"wave_length\":%d,\"show_clock\":%s,\"clock_brightness\":%d}",
+             getModeString(), ledBrightness, staticR, staticG, staticB, getBgStyleString(), bgSpeed, waveLength, showClock ? "true" : "false", clockBrightness);
     tpl_server.send(200, "application/json", buf);
   });
 }
 
 void setup() {
-  esp_task_wdt_init(WDT_TIMEOUT_S, true);
-  esp_task_wdt_add(NULL);
   tpl_system_setup(0);
+  
   Serial.begin(115200);
   
   startTime = millis();
@@ -225,10 +239,20 @@ void setup() {
   digitalWrite(tpl_ledPin, LOW);
   
   Serial.printf("LED Matrix %dx%d initialized\n", MATRIX_WIDTH, MATRIX_HEIGHT);
+  
+  esp_task_wdt_init(WDT_TIMEOUT_S, true);
+  esp_task_wdt_add(NULL);
 }
 
 uint32_t last_LED = 0;
 bool ledState = false;
+
+void turnOffLeds() {
+  for (uint16_t i = 0; i < MATRIX_PIXEL_COUNT; i++) {
+    matrix.SetPixelColor(i, RgbColor(0, 0, 0));
+  }
+  matrix.Show();
+}
 
 static uint8_t calculateCurrentScale() {
   uint8_t numPanels = PANELS;
@@ -244,13 +268,6 @@ static uint8_t calculateCurrentScale() {
   uint32_t currentLedCurrentUa = estimatedUa - baseCurrentUa;
   
   return (uint8_t)((maxLedCurrentUa * 255) / currentLedCurrentUa);
-}
-
-void turnOffLeds() {
-  for (uint16_t i = 0; i < MATRIX_PIXEL_COUNT; i++) {
-    matrix.SetPixelColor(i, RgbColor(0, 0, 0));
-  }
-  matrix.Show();
 }
 
 void loop() {
@@ -304,8 +321,13 @@ void loop() {
       currentMode,
       ledBrightness,
       staticR, staticG, staticB,
-      rainbowSpeed
+      (BgStyle)bgStyle,
+      bgSpeed,
+      waveLength
     );
+    if (showClock && currentMode != ModeOff) {
+      drawClockOverlay(pixelBuffer, MATRIX_WIDTH, MATRIX_HEIGHT, clockBrightness);
+    }
     scale = calculateCurrentScale();
     currentA = estimateCurrent(pixelBuffer, MATRIX_PIXEL_COUNT, numPanels, scale) / 1000000.0f;
     writePixelBufferToMatrix(scale);

@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>LED Matrix Controller</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <link
+      rel="stylesheet"
+      href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css"
+    />
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+
+    <style>
+      .color-picker {
+        width: 100px;
+        height: 50px;
+      }
+      .control-group {
+        margin: 20px 0;
+        padding: 15px;
+        background: #f5f5f5;
+        border-radius: 5px;
+      }
+      .status-box {
+        background: #e7f3ff;
+        padding: 10px;
+        border-radius: 5px;
+        margin: 10px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>LED Matrix Controller</h1>
+      <p>
+        ESP32: <span id="hostname">esp32_23</span> | Matrix:
+        <span id="matrix_size">32x32</span> | Uptime:
+        <span id="uptime">--</span>
+      </p>
+
+      <div class="status-box">
+        <strong>Status:</strong> <span id="status">--</span><br />
+        <strong>Mode:</strong> <span id="current_mode">--</span><br />
+        <strong>Brightness:</strong> <span id="current_brightness">--</span>%
+      </div>
+
+      <div class="control-group">
+        <h3>LED Mode</h3>
+        <div class="btn-group" role="group">
+          <button
+            type="button"
+            class="btn btn-primary"
+            onclick="setMode('wave')"
+          >
+            Rainbow Wave
+          </button>
+          <button
+            type="button"
+            class="btn btn-default"
+            onclick="setMode('rainbow')"
+          >
+            Rainbow
+          </button>
+          <button
+            type="button"
+            class="btn btn-default"
+            onclick="setMode('white')"
+          >
+            All White
+          </button>
+          <button
+            type="button"
+            class="btn btn-default"
+            onclick="setMode('clock')"
+          >
+            Clock
+          </button>
+          <button
+            type="button"
+            class="btn btn-default"
+            onclick="setMode('scanner')"
+          >
+            Scanner
+          </button>
+          <button
+            type="button"
+            class="btn btn-default"
+            onclick="setMode('static')"
+          >
+            Static Color
+          </button>
+          <button type="button" class="btn btn-danger" onclick="setMode('off')">
+            OFF
+          </button>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <h3>Brightness</h3>
+        <input
+          type="range"
+          id="brightness"
+          min="0"
+          max="100"
+          value="100"
+          oninput="setBrightness(this.value)"
+          style="width: 300px"
+        />
+        <span id="brightness_value">100</span>%
+      </div>
+
+      <div class="control-group" id="static_color_group" style="display: none">
+        <h3>Static Color</h3>
+        <div style="margin-bottom: 15px">
+          <label>Color Picker:</label><br />
+          <input
+            type="color"
+            id="color_picker"
+            class="color-picker"
+            value="#ff0000"
+            onchange="setCustomColor(this.value)"
+          />
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 10px">
+          <div>
+            <label style="color: red; font-weight: bold"
+              >Red (R): <span id="red_value">255</span></label
+            ><br />
+            <input
+              type="range"
+              id="red"
+              min="0"
+              max="255"
+              value="255"
+              oninput="updateColorFromSliders()"
+              style="width: 100%"
+            />
+          </div>
+          <div>
+            <label style="color: green; font-weight: bold"
+              >Green (G): <span id="green_value">0</span></label
+            ><br />
+            <input
+              type="range"
+              id="green"
+              min="0"
+              max="255"
+              value="0"
+              oninput="updateColorFromSliders()"
+              style="width: 100%"
+            />
+          </div>
+          <div>
+            <label style="color: blue; font-weight: bold"
+              >Blue (B): <span id="blue_value">0</span></label
+            ><br />
+            <input
+              type="range"
+              id="blue"
+              min="0"
+              max="255"
+              value="0"
+              oninput="updateColorFromSliders()"
+              style="width: 100%"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <h3>Animation Speed</h3>
+        <label>Rainbow Period (ms):</label>
+        <input
+          type="range"
+          id="rainbow_speed"
+          min="500"
+          max="10000"
+          value="3000"
+          step="100"
+          oninput="setRainbowSpeed(this.value)"
+          style="width: 300px"
+        />
+        <span id="rainbow_speed_value">3000</span> ms
+      </div>
+
+      <span
+        id="debug"
+        style="word-wrap: break-word; color: #999; font-size: 10px"
+      ></span>
+    </div>
+
+    <script>
+      var ws;
+      var reconnectInterval;
+
+      function connectWebSocket() {
+        ws = new WebSocket("ws://" + window.location.hostname + ":81/");
+
+        ws.onopen = function () {
+          document.getElementById("status").innerHTML = "Connected";
+          document.getElementById("status").style.color = "green";
+          clearInterval(reconnectInterval);
+        };
+
+        ws.onclose = function () {
+          document.getElementById("status").innerHTML =
+            "Disconnected - Reconnecting...";
+          document.getElementById("status").style.color = "red";
+          reconnectInterval = setTimeout(connectWebSocket, 3000);
+        };
+
+        ws.onmessage = function (evt) {
+          var data = JSON.parse(evt.data);
+
+          if (data.uptime)
+            document.getElementById("uptime").innerHTML = data.uptime;
+          if (data.matrix_width && data.matrix_height) {
+            document.getElementById("matrix_size").innerHTML =
+              data.matrix_width + "x" + data.matrix_height;
+          }
+          if (data.mode) {
+            document.getElementById("current_mode").innerHTML = data.mode;
+            updateModeButtons(data.mode);
+          }
+          if (data.brightness) {
+            document.getElementById("current_brightness").innerHTML =
+              data.brightness;
+            document.getElementById("brightness").value = data.brightness;
+            document.getElementById("brightness_value").innerHTML =
+              data.brightness;
+          }
+          if (data.rainbow_speed) {
+            document.getElementById("rainbow_speed").value = data.rainbow_speed;
+            document.getElementById("rainbow_speed_value").innerHTML =
+              data.rainbow_speed;
+          }
+
+          document.getElementById("debug").innerHTML = JSON.stringify(data);
+        };
+
+        ws.onerror = function (error) {
+          console.log("WebSocket Error: " + error);
+        };
+      }
+
+      function sendCommand(cmd) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify(cmd));
+        }
+      }
+
+      function setMode(mode) {
+        sendCommand({ command: "mode", value: mode });
+        updateModeButtons(mode);
+      }
+
+      function updateModeButtons(mode) {
+        if (mode === "static") {
+          document.getElementById("static_color_group").style.display = "block";
+        } else {
+          document.getElementById("static_color_group").style.display = "none";
+        }
+      }
+
+      function setBrightness(value) {
+        document.getElementById("brightness_value").innerHTML = value;
+        sendCommand({ command: "brightness", value: parseInt(value) });
+      }
+
+      function setCustomColor(hex) {
+        var r = parseInt(hex.substr(1, 2), 16);
+        var g = parseInt(hex.substr(3, 2), 16);
+        var b = parseInt(hex.substr(5, 2), 16);
+
+        document.getElementById("red").value = r;
+        document.getElementById("green").value = g;
+        document.getElementById("blue").value = b;
+
+        updateSliderValues();
+        sendColorCommand();
+      }
+
+      function updateColorFromSliders() {
+        var r = document.getElementById("red").value;
+        var g = document.getElementById("green").value;
+        var b = document.getElementById("blue").value;
+
+        var hex =
+          "#" +
+          ("0" + parseInt(r).toString(16)).slice(-2) +
+          ("0" + parseInt(g).toString(16)).slice(-2) +
+          ("0" + parseInt(b).toString(16)).slice(-2);
+
+        document.getElementById("color_picker").value = hex;
+        updateSliderValues();
+        sendColorCommand();
+      }
+
+      function updateSliderValues() {
+        document.getElementById("red_value").innerHTML =
+          document.getElementById("red").value;
+        document.getElementById("green_value").innerHTML =
+          document.getElementById("green").value;
+        document.getElementById("blue_value").innerHTML =
+          document.getElementById("blue").value;
+      }
+
+      function sendColorCommand() {
+        var r = parseInt(document.getElementById("red").value);
+        var g = parseInt(document.getElementById("green").value);
+        var b = parseInt(document.getElementById("blue").value);
+
+        sendCommand({ command: "color", r: r, g: g, b: b });
+      }
+
+      function setRainbowSpeed(value) {
+        document.getElementById("rainbow_speed_value").innerHTML = value;
+        sendCommand({ command: "rainbow_speed", value: parseInt(value) });
+      }
+
+      window.onload = function () {
+        connectWebSocket();
+      };
+    </script>
+  </body>
+</html>

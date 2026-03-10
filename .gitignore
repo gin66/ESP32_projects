@@ -804,3 +804,7 @@ node_modules/.bin/prettier
 22_WS2814_Lichtband/tools/test_harness/analyzer.o
 22_WS2814_Lichtband/src/led_effects.o
 22_WS2814_Lichtband/tools/test_harness/test_harness
+23_LED_matrix/tests/test_sine
+23_LED_matrix/tests/test_wave_effect
+23_LED_matrix/tests/test_peak
+23_LED_matrix/tests/test_wave_plot

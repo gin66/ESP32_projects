@@ -20,6 +20,14 @@ static inline uint16_t getSine(uint16_t angle) {
     return sineTable45[(360 - angle) / 2];
 }
 
+static inline int32_t getSignedSine(uint16_t angle) {
+    angle = angle % 360;
+    if (angle < 90) return (int32_t)sineTable45[angle / 2];
+    if (angle < 180) return (int32_t)sineTable45[(180 - angle) / 2];
+    if (angle < 270) return -(int32_t)sineTable45[(angle - 180) / 2];
+    return -(int32_t)sineTable45[(360 - angle) / 2];
+}
+
 struct Ripple {
     int16_t x;
     int16_t y;
@@ -171,10 +179,13 @@ static void drawBackground(
                 }
                 
                 case BgWave: {
-                    uint32_t scaledX = (uint32_t)x * waveLength * 65536UL / 256 / width;
+                    uint32_t scaledX = (uint32_t)x * waveLength * 256UL / width;
                     uint16_t waveAngle = (uint16_t)((elapsedMs % bgSpeed) * 360 / bgSpeed);
-                    uint16_t waveSine = getSine(waveAngle);
-                    uint16_t waveOffset = (uint16_t)((uint32_t)waveSine * 8192 / 32768);
+                    int16_t waveSine = getSignedSine(waveAngle);
+                    // Scale from [-32768, 32768] to [0, 8192] range (same as original amplitude)
+                    // (waveSine + 32768) converts [-32768, 32768] to [0, 65536]
+                    // Then * 8192 / 65536 scales to [0, 8192]
+                    uint16_t waveOffset = (uint16_t)(((int32_t)waveSine + 32768) * 8192 / 65536);
                     uint16_t hue = (uint16_t)((timeHue + scaledX + waveOffset) % 65536);
                     color = hsvToRgb(hue, 255, 255, brightness);
                     break;
@@ -253,8 +264,6 @@ static void updateRipples(unsigned long currentTime, uint16_t width, uint16_t he
 }
 
 void drawClockOverlay(LedColor* pixels, uint16_t width, uint16_t height, uint8_t clockBrightness) {
-    if (clockBrightness == 0) return;
-    
     struct tm timeinfo;
     if (getLocalTime(&timeinfo)) {
         char timeStr[6];

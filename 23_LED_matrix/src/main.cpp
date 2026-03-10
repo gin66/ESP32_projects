@@ -18,7 +18,7 @@
 NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt0Ws2812xMethod> matrix(MATRIX_PIXEL_COUNT, MATRIX_LED_PIN);
 
 static volatile LedMode currentMode = ModeRainbow;
-static volatile uint8_t ledBrightness = 5;
+static volatile uint8_t ledBrightness = 100;
 static volatile uint8_t staticR = 255;
 static volatile uint8_t staticG = 255;
 static volatile uint8_t staticB = 255;
@@ -26,7 +26,7 @@ static volatile BgStyle bgStyle = BgRings;
 static volatile uint32_t bgSpeed = 3000;
 static volatile uint16_t waveLength = 256;
 static volatile bool showClock = true;
-static volatile uint8_t clockBrightness = 2;
+static volatile uint8_t clockBrightness = 100;
 static volatile unsigned long scannerStartTime = 0;
 static volatile float maxCurrent = 1.0;
 static volatile float currentA = 0.0;
@@ -123,7 +123,7 @@ void processLedCommand(DynamicJsonDocument* json) {
 }
 
 void publishLedStatus(DynamicJsonDocument* json) {
-  unsigned long elapsed = millis() - startTime;
+  unsigned long elapsed = millis();
   unsigned long seconds = elapsed / 1000;
   unsigned long minutes = seconds / 60;
   unsigned long hours = minutes / 60;
@@ -204,8 +204,6 @@ void setup() {
   
   Serial.begin(115200);
   
-  startTime = millis();
-  
   matrix.Begin();
   for (uint16_t i = 0; i < MATRIX_PIXEL_COUNT; i++) {
     uint16_t x = i % MATRIX_WIDTH;
@@ -217,7 +215,7 @@ void setup() {
   }
   writePixelBufferToMatrix(255);
   
-  tpl_wifi_setup(true, true, (gpio_num_t)255);
+  tpl_wifi_setup(true, true, (gpio_num_t)tpl_ledPin);
   addLedEndpoints();
   tpl_webserver_setup();
   tpl_websocket_setup(publishLedStatus, processLedCommand);
@@ -269,7 +267,7 @@ void loop() {
   }
   
   unsigned long currentTime = millis();
-  unsigned long elapsed = currentTime - startTime;
+  unsigned long elapsed = currentTime;
   
   if ((uint32_t)(currentTime - last_LED) > 500) {
      last_LED = currentTime;
@@ -281,20 +279,24 @@ void loop() {
   uint8_t scale = 255;
 
   unsigned long effectTime = (currentMode == ModeScanner) ? (currentTime - scannerStartTime) : elapsed;
+  // Scale brightness from 0-100 to 0-255 for LED functions
+  uint8_t scaledLedBrightness = (uint16_t)ledBrightness * 255 / 100;
+  uint8_t scaledClockBrightness = (uint16_t)clockBrightness * 255 / 100;
+  
   calculateAllPixels(
     pixelBuffer,
     MATRIX_WIDTH,
     MATRIX_HEIGHT,
     effectTime,
     currentMode,
-    ledBrightness,
+    scaledLedBrightness,
     staticR, staticG, staticB,
     (BgStyle)bgStyle,
     bgSpeed,
     waveLength
   );
   if (showClock && currentMode != ModeOff) {
-    drawClockOverlay(pixelBuffer, MATRIX_WIDTH, MATRIX_HEIGHT, clockBrightness);
+    drawClockOverlay(pixelBuffer, MATRIX_WIDTH, MATRIX_HEIGHT, scaledClockBrightness);
   }
   scale = calculateCurrentScale();
   currentA = estimateCurrent(pixelBuffer, MATRIX_PIXEL_COUNT, numPanels, scale) / 1000000.0f;

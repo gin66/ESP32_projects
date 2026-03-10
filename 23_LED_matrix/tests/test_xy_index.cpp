@@ -26,7 +26,7 @@ void test_estimate_current_all_off_1_panel(void) {
     for (int i = 0; i < 256; i++) {
         pixels[i] = LedColor(0, 0, 0);
     }
-    uint32_t current = estimateCurrent(pixels, 256, 1);
+    uint32_t current = estimateCurrent(pixels, 256, 1, 255);
     if (current < 317000 || current > 327000) {
         printf("FAIL: expected ~322000uA, got %uuA\n", current);
         _unity_test_failed = 1;
@@ -40,7 +40,7 @@ void test_estimate_current_all_red_1_panel(void) {
     for (int i = 0; i < 256; i++) {
         pixels[i] = LedColor(255, 0, 0);
     }
-    uint32_t current = estimateCurrent(pixels, 256, 1);
+    uint32_t current = estimateCurrent(pixels, 256, 1, 255);
     if (current < 3320000 || current > 3420000) {
         printf("FAIL: expected ~3370000uA, got %uuA\n", current);
         _unity_test_failed = 1;
@@ -54,7 +54,7 @@ void test_estimate_current_all_green_1_panel(void) {
     for (int i = 0; i < 256; i++) {
         pixels[i] = LedColor(0, 255, 0);
     }
-    uint32_t current = estimateCurrent(pixels, 256, 1);
+    uint32_t current = estimateCurrent(pixels, 256, 1, 255);
     if (current < 3140000 || current > 3240000) {
         printf("FAIL: expected ~3190000uA, got %uuA\n", current);
         _unity_test_failed = 1;
@@ -68,7 +68,7 @@ void test_estimate_current_all_blue_1_panel(void) {
     for (int i = 0; i < 256; i++) {
         pixels[i] = LedColor(0, 0, 255);
     }
-    uint32_t current = estimateCurrent(pixels, 256, 1);
+    uint32_t current = estimateCurrent(pixels, 256, 1, 255);
     if (current < 3290000 || current > 3390000) {
         printf("FAIL: expected ~3340000uA, got %uuA\n", current);
         _unity_test_failed = 1;
@@ -82,7 +82,7 @@ void test_estimate_current_all_off_3_panels(void) {
     for (int i = 0; i < 768; i++) {
         pixels[i] = LedColor(0, 0, 0);
     }
-    uint32_t current = estimateCurrent(pixels, 768, 3);
+    uint32_t current = estimateCurrent(pixels, 768, 3, 255);
     if (current < 570000 || current > 590000) {
         printf("FAIL: expected ~580000uA, got %uuA\n", current);
         _unity_test_failed = 1;
@@ -96,7 +96,7 @@ void test_estimate_current_10percent_white_3_panels(void) {
     for (int i = 0; i < 768; i++) {
         pixels[i] = LedColor(25, 25, 25);  // ~10% of 255
     }
-    uint32_t current = estimateCurrent(pixels, 768, 3);
+    uint32_t current = estimateCurrent(pixels, 768, 3, 255);
     if (current < 3200000 || current > 3600000) {
         printf("FAIL: expected ~3400000uA, got %uuA\n", current);
         _unity_test_failed = 1;

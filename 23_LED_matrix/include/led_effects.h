@@ -16,3 +16,5 @@ void calculateAllPixels(
     uint8_t staticR, uint8_t staticG, uint8_t staticB,
     uint32_t rainbowSpeed
 );
+
+uint32_t estimateCurrent(LedColor* pixels, uint16_t pixelCount, uint8_t numPanels, uint8_t scale);

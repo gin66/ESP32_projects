@@ -42,20 +42,78 @@
       <div class="status-box">
         <strong>Status:</strong> <span id="status">--</span><br />
         <strong>Mode:</strong> <span id="current_mode">--</span><br />
-        <strong>Brightness:</strong> <span id="current_brightness">--</span>%
+        <strong>Brightness:</strong>
+        <span id="current_brightness">--</span>%<br />
+        <strong>Current:</strong> <span id="current">--</span> A
       </div>
 
       <div class="control-group">
         <h3>LED Mode</h3>
         <div class="btn-group" role="group">
-          <button type="button" class="btn btn-default mode-btn" data-mode="wave" onclick="setMode('wave')">Rainbow Wave</button>
-          <button type="button" class="btn btn-default mode-btn" data-mode="rainbow" onclick="setMode('rainbow')">Rainbow</button>
-          <button type="button" class="btn btn-default mode-btn" data-mode="white" onclick="setMode('white')">All White</button>
-          <button type="button" class="btn btn-default mode-btn" data-mode="clock" onclick="setMode('clock')">Clock</button>
-          <button type="button" class="btn btn-default mode-btn" data-mode="scanner" onclick="setMode('scanner')">Scanner</button>
-          <button type="button" class="btn btn-default mode-btn" data-mode="rawscanner" onclick="setMode('rawscanner')">Raw Scanner</button>
-          <button type="button" class="btn btn-default mode-btn" data-mode="static" onclick="setMode('static')">Static Color</button>
-          <button type="button" class="btn btn-danger mode-btn" data-mode="off" onclick="setMode('off')">OFF</button>
+          <button
+            type="button"
+            class="btn btn-default mode-btn"
+            data-mode="wave"
+            onclick="setMode('wave')"
+          >
+            Rainbow Wave
+          </button>
+          <button
+            type="button"
+            class="btn btn-default mode-btn"
+            data-mode="rainbow"
+            onclick="setMode('rainbow')"
+          >
+            Rainbow
+          </button>
+          <button
+            type="button"
+            class="btn btn-default mode-btn"
+            data-mode="white"
+            onclick="setMode('white')"
+          >
+            All White
+          </button>
+          <button
+            type="button"
+            class="btn btn-default mode-btn"
+            data-mode="clock"
+            onclick="setMode('clock')"
+          >
+            Clock
+          </button>
+          <button
+            type="button"
+            class="btn btn-default mode-btn"
+            data-mode="scanner"
+            onclick="setMode('scanner')"
+          >
+            Scanner
+          </button>
+          <button
+            type="button"
+            class="btn btn-default mode-btn"
+            data-mode="rawscanner"
+            onclick="setMode('rawscanner')"
+          >
+            Raw Scanner
+          </button>
+          <button
+            type="button"
+            class="btn btn-default mode-btn"
+            data-mode="static"
+            onclick="setMode('static')"
+          >
+            Static Color
+          </button>
+          <button
+            type="button"
+            class="btn btn-danger mode-btn"
+            data-mode="off"
+            onclick="setMode('off')"
+          >
+            OFF
+          </button>
         </div>
       </div>
 
@@ -71,6 +129,21 @@
           style="width: 300px"
         />
         <span id="brightness_value">100</span>%
+      </div>
+
+      <div class="control-group">
+        <h3>Max Current</h3>
+        <input
+          type="range"
+          id="max_current"
+          min="0"
+          max="40"
+          value="10"
+          step="0.5"
+          oninput="setMaxCurrent(this.value)"
+          style="width: 300px"
+        />
+        <span id="max_current_value">10.0</span> A
       </div>
 
       <div class="control-group" id="static_color_group" style="display: none">
@@ -198,6 +271,15 @@
             document.getElementById("rainbow_speed_value").innerHTML =
               data.rainbow_speed;
           }
+          if (data.current !== undefined) {
+            document.getElementById("current").innerHTML =
+              data.current.toFixed(2);
+          }
+          if (data.max_current !== undefined) {
+            document.getElementById("max_current").value = data.max_current;
+            document.getElementById("max_current_value").innerHTML =
+              data.max_current.toFixed(1);
+          }
 
           document.getElementById("debug").innerHTML = JSON.stringify(data);
         };
@@ -223,9 +305,12 @@
         for (var i = 0; i < btns.length; i++) {
           var isOff = btns[i].getAttribute("data-mode") === "off";
           var isActive = btns[i].getAttribute("data-mode") === mode;
-          btns[i].className = "btn mode-btn " + (isActive ? "btn-primary" : (isOff ? "btn-danger" : "btn-default"));
+          btns[i].className =
+            "btn mode-btn " +
+            (isActive ? "btn-primary" : isOff ? "btn-danger" : "btn-default");
         }
-        document.getElementById("static_color_group").style.display = (mode === "static") ? "block" : "none";
+        document.getElementById("static_color_group").style.display =
+          mode === "static" ? "block" : "none";
       }
 
       function setBrightness(value) {
@@ -282,6 +367,12 @@
       function setRainbowSpeed(value) {
         document.getElementById("rainbow_speed_value").innerHTML = value;
         sendCommand({ command: "rainbow_speed", value: parseInt(value) });
+      }
+
+      function setMaxCurrent(value) {
+        document.getElementById("max_current_value").innerHTML =
+          parseFloat(value).toFixed(1);
+        sendCommand({ command: "max_current", value: parseFloat(value) });
       }
 
       window.onload = function () {

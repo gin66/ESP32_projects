@@ -150,3 +150,30 @@ void calculateAllPixels(
         }
     }
 }
+
+// Based on measurements:
+// - 100% Brightness red=255 for 32x8 LEDs: 3.37A
+// - 100% Brightness blue=255 for 32x8 LEDs: 3.34A  
+// - 100% Brightness green=255 for 32x8 LEDs: 3.19A
+// - all off with 32x8: 322mA
+// - all off with 32x24: 580mA
+// - 10% Brightness, white, 32x24 => 3.4A
+// Returns current in uA (1 unit = 1uA)
+uint32_t estimateCurrent(LedColor* pixels, uint16_t pixelCount, uint8_t numPanels, uint8_t scale) {
+    uint32_t baseCurrent = 322000 + (numPanels - 1) * 129000;
+    
+    const uint32_t currentPerRed = 11900;
+    const uint32_t currentPerGreen = 11200;
+    const uint32_t currentPerBlue = 11800;
+    
+    uint32_t sumR = 0, sumG = 0, sumB = 0;
+    for (uint16_t i = 0; i < pixelCount; i++) {
+        sumR += ((uint16_t)pixels[i].R)*scale/255;
+        sumG += ((uint16_t)pixels[i].G)*scale/255;
+        sumB += ((uint16_t)pixels[i].B)*scale/255;
+    }
+    
+    uint32_t ledCurrent = (sumR * currentPerRed + sumG * currentPerGreen + sumB * currentPerBlue) / 255;
+    
+    return baseCurrent + ledCurrent;
+}

@@ -31,4 +31,4 @@ with open("leds.cpp", "w") as fp:
         if y < 31:
             fp.write(",")
         fp.write("\n")
-    fp.write("}\n")
+    fp.write("};\n")

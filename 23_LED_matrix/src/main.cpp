@@ -6,10 +6,19 @@
 
 #include "led_effects.h"
 
+#define PANELS 3
 #define MATRIX_LED_PIN 16
 #define MATRIX_WIDTH 32
 #define MATRIX_HEIGHT 32
 #define MATRIX_PIXEL_COUNT (MATRIX_WIDTH * MATRIX_HEIGHT)
+
+// 100% Brightness red  =255 for 32x8 LEDs: 3.37A
+// 100% Brightness blue =255 for 32x8 LEDs: 3.34A
+// 100% Brightness green=255 for 32x8 LEDs: 3.19A
+// all off with 32x8:   322mA
+// all off with 32x24:  580mA
+// 10% Brightness, red/blue/green=255, 32x24 => 3.4A
+
 
 NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt0Ws2812xMethod> matrix(MATRIX_PIXEL_COUNT, MATRIX_LED_PIN);
 
@@ -20,16 +29,22 @@ static volatile uint8_t staticG = 255;
 static volatile uint8_t staticB = 255;
 static volatile uint32_t rainbowSpeed = 3000;
 static volatile unsigned long scannerStartTime = 0;
+static volatile float maxCurrent = 10.0;
+static volatile float currentA = 0.0;
 
 static LedColor pixelBuffer[MATRIX_PIXEL_COUNT];
 static unsigned long startTime = 0;
 
-void writePixelBufferToMatrix() {
+void writePixelBufferToMatrix(uint8_t scale) {
   for (uint16_t i = 0; i < MATRIX_PIXEL_COUNT; i++) {
     uint16_t x = i % MATRIX_WIDTH;
     uint16_t y = i / MATRIX_WIDTH;
     uint16_t target_i = xyToIndex(x, y, MATRIX_WIDTH, MATRIX_HEIGHT);
-    matrix.SetPixelColor(target_i, RgbColor(pixelBuffer[i].R, pixelBuffer[i].G, pixelBuffer[i].B));
+    matrix.SetPixelColor(target_i, RgbColor(
+      (uint16_t)pixelBuffer[i].R * scale / 255,
+      (uint16_t)pixelBuffer[i].G * scale / 255,
+      (uint16_t)pixelBuffer[i].B * scale / 255
+    ));
   }
   matrix.Show();
 }
@@ -76,6 +91,9 @@ void processLedCommand(DynamicJsonDocument* json) {
     else if (cmd == "rainbow_speed") {
       rainbowSpeed = (*json)["value"];
     }
+    else if (cmd == "max_current") {
+      maxCurrent = (*json)["value"];
+    }
   }
 }
 
@@ -94,6 +112,8 @@ void publishLedStatus(DynamicJsonDocument* json) {
   (*json)["rainbow_speed"] = rainbowSpeed;
   (*json)["matrix_width"] = MATRIX_WIDTH;
   (*json)["matrix_height"] = MATRIX_HEIGHT;
+  (*json)["current"] = round(currentA * 100) / 100;
+  (*json)["max_current"] = round(maxCurrent * 100) / 100;
 }
 
 void handleLedCommand(enum Command cmd) {
@@ -182,9 +202,12 @@ void setup() {
   for (uint16_t i = 0; i < MATRIX_PIXEL_COUNT; i++) {
     uint16_t x = i % MATRIX_WIDTH;
     uint16_t y = i / MATRIX_WIDTH;
-    pixelBuffer[i] = LedColor(x / 8, y / 8, ((x + y) / 8) % 8);
+    pixelBuffer[i] = LedColor(0,0,0);
+    if ((x < 8) && (y < 8)) {
+       pixelBuffer[i] = LedColor(x, y, 0);
+    }
   }
-  writePixelBufferToMatrix();
+  writePixelBufferToMatrix(255);
   
   tpl_wifi_setup(true, true, (gpio_num_t)255);
   addLedEndpoints();
@@ -202,6 +225,22 @@ void setup() {
 uint32_t last_LED = 0;
 bool ledState = false;
 
+static uint8_t calculateCurrentScale() {
+  uint8_t numPanels = PANELS;
+  uint32_t baseCurrentUa = 322000 + (numPanels - 1) * 129000;
+  uint32_t maxCurrentUa = (uint32_t)(maxCurrent * 1000000);
+  
+  if (maxCurrentUa <= baseCurrentUa) return 0;
+  
+  uint32_t estimatedUa = estimateCurrent(pixelBuffer, MATRIX_PIXEL_COUNT, numPanels, 255);
+  if (estimatedUa <= maxCurrentUa) return 255;
+  
+  uint32_t maxLedCurrentUa = maxCurrentUa - baseCurrentUa;
+  uint32_t currentLedCurrentUa = estimatedUa - baseCurrentUa;
+  
+  return (uint8_t)((maxLedCurrentUa * 255) / currentLedCurrentUa);
+}
+
 void loop() {
   unsigned long currentTime = millis();
   unsigned long elapsed = currentTime - startTime;
@@ -212,12 +251,27 @@ void loop() {
      digitalWrite(tpl_ledPin, ledState ? HIGH : LOW);
   }
 
+  uint8_t numPanels = MATRIX_HEIGHT / 8;
+  uint8_t scale = 255;
+
   if (currentMode == ModeRawScanner) {
     uint32_t msPerLed = 200;
     unsigned long scanElapsed = currentTime - scannerStartTime;
     uint16_t pos = (scanElapsed / msPerLed) % MATRIX_PIXEL_COUNT;
     for (uint16_t i = 0; i < MATRIX_PIXEL_COUNT; i++) {
-      matrix.SetPixelColor(i, (i == pos) ? RgbColor(ledBrightness, ledBrightness, ledBrightness) : RgbColor(0, 0, 0));
+      pixelBuffer[i] = (i == pos) ? LedColor(ledBrightness, ledBrightness, ledBrightness) : LedColor(0, 0, 0);
+    }
+    scale = calculateCurrentScale();
+    currentA = estimateCurrent(pixelBuffer, MATRIX_PIXEL_COUNT, numPanels, scale) / 1000000.0f;
+    for (uint16_t i = 0; i < MATRIX_PIXEL_COUNT; i++) {
+      uint16_t x = i % MATRIX_WIDTH;
+      uint16_t y = i / MATRIX_WIDTH;
+      uint16_t target_i = xyToIndex(x, y, MATRIX_WIDTH, MATRIX_HEIGHT);
+      matrix.SetPixelColor(target_i, RgbColor(
+        (uint16_t)pixelBuffer[i].R * scale / 255,
+        (uint16_t)pixelBuffer[i].G * scale / 255,
+        (uint16_t)pixelBuffer[i].B * scale / 255
+      ));
     }
     matrix.Show();
   } else {
@@ -232,7 +286,9 @@ void loop() {
       staticR, staticG, staticB,
       rainbowSpeed
     );
-    writePixelBufferToMatrix();
+    scale = calculateCurrentScale();
+    currentA = estimateCurrent(pixelBuffer, MATRIX_PIXEL_COUNT, numPanels, scale) / 1000000.0f;
+    writePixelBufferToMatrix(scale);
   }
   vTaskDelay(20 / portTICK_PERIOD_MS);
 }

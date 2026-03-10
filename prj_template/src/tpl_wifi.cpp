@@ -126,6 +126,8 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
         .onEnd([]() {
           Serial.println("\nEnd");
           tpl_config.ota_ongoing = false;
+          // delay to allow OTA response to be sent before reboot
+          delay(500);
         })
         .onProgress([](unsigned int progress, unsigned int total) {
           Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
@@ -146,6 +148,8 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
   } else {
     ArduinoOTA.onStart([]() { tpl_config.ota_ongoing = true; }).onEnd([]() {
       tpl_config.ota_ongoing = false;
+      // delay to allow OTA response to be sent before reboot
+      delay(500);
     });
   }
 

@@ -1,32 +1,10 @@
 #include "led_effects.h"
+#include "led_effects_core.h"
 #include <Arduino.h>
+#include <stdio.h>
 #include "../lib/font5x7/font5x7.h"
 
 #define MAX_RIPPLES 3
-
-static const uint16_t sineTable45[] = {
-    0, 1144, 2287, 3425, 4560, 5689, 6813, 7927, 9030, 10126,
-    11207, 12275, 13322, 14350, 15356, 16384, 17364, 18322, 19260, 20173,
-    21060, 21929, 22767, 23578, 24359, 25107, 25825, 26510, 27161, 27777,
-    28378, 28902, 29409, 29879, 30310, 30700, 31050, 31358, 31625, 31849,
-    32031, 32170, 32266, 32318, 32327, 32768
-};
-
-static inline uint16_t getSine(uint16_t angle) {
-    angle = angle % 360;
-    if (angle < 90) return sineTable45[angle / 2];
-    if (angle < 180) return sineTable45[(180 - angle) / 2];
-    if (angle < 270) return sineTable45[(angle - 180) / 2];
-    return sineTable45[(360 - angle) / 2];
-}
-
-static inline int32_t getSignedSine(uint16_t angle) {
-    angle = angle % 360;
-    if (angle < 90) return (int32_t)sineTable45[angle / 2];
-    if (angle < 180) return (int32_t)sineTable45[(180 - angle) / 2];
-    if (angle < 270) return -(int32_t)sineTable45[(angle - 180) / 2];
-    return -(int32_t)sineTable45[(360 - angle) / 2];
-}
 
 struct Ripple {
     int16_t x;
@@ -66,62 +44,6 @@ static void drawString(LedColor* pixels, uint16_t width, uint16_t height,
         ox += 6;
         str++;
     }
-}
-
-uint16_t xyToIndex(uint16_t x, uint16_t y, uint16_t width, uint16_t height) {
-    uint16_t panelHeight = 8;
-    uint16_t panelIndex = y / panelHeight;
-    uint16_t localY = y % panelHeight;
-    
-    uint16_t xi = x;
-    uint16_t yi = localY;
-    
-    bool rotated = (panelIndex % 2 == 0);
-    if (rotated) {
-        xi = width - 1 - xi;
-        yi = panelHeight - 1 - yi;
-    }
-    
-    if (xi % 2 == 1) {
-        yi = panelHeight - 1 - yi;
-    }
-    
-    uint16_t index = panelIndex * panelHeight * width;
-    index += xi * panelHeight;
-    index += yi;
-    
-    return index;
-}
-
-static uint8_t gamma8(uint8_t val) {
-    return val;
-}
-
-LedColor hsvToRgb(uint16_t hue, uint8_t sat, uint8_t val, uint8_t brightness) {
-    uint8_t r, g, b;
-    
-    uint8_t sector = (uint8_t)((uint32_t)hue * 6 / 65536);
-    uint16_t f = (uint32_t)hue * 6 - (uint32_t)sector * 65536;
-    
-    uint8_t p = (uint16_t)val * (255 - sat) / 255;
-    uint8_t q = (uint16_t)val * (255 - (uint32_t)f * sat / 65536) / 255;
-    uint8_t t = (uint16_t)val * (255 - (uint32_t)(65536 - f) * sat / 65536) / 255;
-    
-    switch (sector % 6) {
-        case 0: r = val; g = t; b = p; break;
-        case 1: r = q; g = val; b = p; break;
-        case 2: r = p; g = val; b = t; break;
-        case 3: r = p; g = q; b = val; break;
-        case 4: r = t; g = p; b = val; break;
-        default: r = val; g = p; b = q; break;
-    }
-    
-    uint8_t gam = gamma8(brightness);
-    return LedColor(
-        (uint16_t)r * gam / 255,
-        (uint16_t)g * gam / 255,
-        (uint16_t)b * gam / 255
-    );
 }
 
 static uint16_t distanceApprox(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2) {
@@ -182,9 +104,6 @@ static void drawBackground(
                     uint32_t scaledX = (uint32_t)x * waveLength * 256UL / width;
                     uint16_t waveAngle = (uint16_t)((elapsedMs % bgSpeed) * 360 / bgSpeed);
                     int16_t waveSine = getSignedSine(waveAngle);
-                    // Scale from [-32768, 32768] to [0, 8192] range (same as original amplitude)
-                    // (waveSine + 32768) converts [-32768, 32768] to [0, 65536]
-                    // Then * 8192 / 65536 scales to [0, 8192]
                     uint16_t waveOffset = (uint16_t)(((int32_t)waveSine + 32768) * 8192 / 65536);
                     uint16_t hue = (uint16_t)((timeHue + scaledX + waveOffset) % 65536);
                     color = hsvToRgb(hue, 255, 255, brightness);
@@ -312,7 +231,7 @@ void calculateAllPixels(
             
             case ModeWhite: {
                 uint16_t angle = (uint16_t)((elapsedMs % 8000) * 360 / 8000);
-                uint16_t sineVal = getSine(angle);
+                uint16_t sineVal = getAbsSine(angle);
                 uint8_t wave = (uint8_t)(sineVal * 255 / 32768);
                 uint16_t br = (uint16_t)wave * brightness / 255;
                 pixels[i] = LedColor(br, br, br);
@@ -338,23 +257,4 @@ void calculateAllPixels(
             updateRipples(elapsedMs, width, height, bgSpeed);
         }
     }
-}
-
-uint32_t estimateCurrent(LedColor* pixels, uint16_t pixelCount, uint8_t numPanels, uint8_t scale) {
-    uint32_t baseCurrent = 322000 + (numPanels - 1) * 129000;
-    
-    const uint32_t currentPerRed = 11900;
-    const uint32_t currentPerGreen = 11200;
-    const uint32_t currentPerBlue = 11800;
-    
-    uint32_t sumR = 0, sumG = 0, sumB = 0;
-    for (uint16_t i = 0; i < pixelCount; i++) {
-        sumR += ((uint16_t)pixels[i].R)*scale/255;
-        sumG += ((uint16_t)pixels[i].G)*scale/255;
-        sumB += ((uint16_t)pixels[i].B)*scale/255;
-    }
-    
-    uint32_t ledCurrent = (sumR * currentPerRed + sumG * currentPerGreen + sumB * currentPerBlue) / 255;
-    
-    return baseCurrent + ledCurrent;
 }

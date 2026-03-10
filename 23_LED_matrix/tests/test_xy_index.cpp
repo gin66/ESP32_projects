@@ -1,7 +1,7 @@
 #include "unity.h"
 #include "leds.h"
 #include <cmath>
-#include "../include/led_effects.h"
+#include "../include/led_effects_utils.h"
 
 #define WIDTH 32
 #define HEIGHT 32

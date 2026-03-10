@@ -6,23 +6,23 @@ SINE_TARGET = test_sine
 
 all: $(TARGET) $(SINE_TARGET)
 
-$(TARGET): test_xy_index.cpp ../src/led_effects.cpp leds.cpp unity.h leds.h
-	$(CC) $(CFLAGS) -o $(TARGET) test_xy_index.cpp ../src/led_effects.cpp leds.cpp
+$(TARGET): test_xy_index.cpp ../src/led_effects_utils.cpp leds.cpp unity.h leds.h
+	$(CC) $(CFLAGS) -o $(TARGET) test_xy_index.cpp ../src/led_effects_utils.cpp leds.cpp
 
-$(SINE_TARGET): test_sine.cpp unity.h
-	$(CC) $(CFLAGS) -o $(SINE_TARGET) test_sine.cpp
+$(SINE_TARGET): test_sine.cpp ../src/led_effects_utils.cpp unity.h
+	$(CC) $(CFLAGS) -o $(SINE_TARGET) test_sine.cpp ../src/led_effects_utils.cpp
 
-run: $(TARGET) $(SINE_TARGET)
+test: $(TARGET) $(SINE_TARGET)
 	@echo "Running xy index tests..."
 	@./$(TARGET)
 	@echo ""
 	@echo "Running sine calculation tests..."
 	@./$(SINE_TARGET)
 
-run-xy: $(TARGET)
+test-xy: $(TARGET)
 	./$(TARGET)
 
-run-sine: $(SINE_TARGET)
+test-sine: $(SINE_TARGET)
 	./$(SINE_TARGET)
 
 clean:

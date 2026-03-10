@@ -9,7 +9,7 @@
 #define PANELS 3
 #define MATRIX_LED_PIN 16
 #define MATRIX_WIDTH 32
-#define MATRIX_HEIGHT 32
+#define MATRIX_HEIGHT (8*PANELS)
 #define MATRIX_PIXEL_COUNT (MATRIX_WIDTH * MATRIX_HEIGHT)
 
 // 100% Brightness red  =255 for 32x8 LEDs: 3.37A

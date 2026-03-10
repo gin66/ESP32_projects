@@ -133,9 +133,11 @@ LedColor calculateLedColor(
             int32_t ledQ8 = (int32_t)ledIndex * 256;
             
             int32_t distQ8 = ledQ8 - (int32_t)centerQ8;
-            int32_t halfQ8 = (int32_t)ledCount * 256 / 2;
-            if (distQ8 > halfQ8) distQ8 -= ledCount * 256;
-            if (distQ8 < -halfQ8) distQ8 += ledCount * 256;
+            if (!waveCfg.bidirectional) {
+                int32_t halfQ8 = (int32_t)ledCount * 256 / 2;
+                if (distQ8 > halfQ8) distQ8 -= ledCount * 256;
+                if (distQ8 < -halfQ8) distQ8 += ledCount * 256;
+            }
             if (distQ8 < 0) distQ8 = -distQ8;
             
             uint16_t intensity16 = 0;

@@ -1,53 +1,29 @@
 #include "led_effects.h"
 #include <cmath>
 
-//
-// Display 32x8 - 1
-// 248                                        16 15 0
-// 249                                        17 14 1
-// 250                                        18 13 2
-// 251                                        19 12 3
-// 252                                        20 11 4
-// 253                                        21 10 5
-// 254                                        22  9 6
-// 255                                        23  8 7
-//
-// Display 32x8 - 2
-// 256
-// 257
-// 258
-// 259
-// 260  :
-// 261 266
-// 262 265
-// 263 264
-//
-//
-//
-//
-//
-
 uint16_t xyToIndex(uint16_t x, uint16_t y, uint16_t width, uint16_t height) {
     uint16_t panelHeight = 8;
     uint16_t panelIndex = y / panelHeight;
     uint16_t localY = y % panelHeight;
     
-    uint16_t col;
-    if (panelIndex % 2 == 0) {
-        col = width - 1 - x;
-    } else {
-        col = x;
+    uint16_t xi = x;
+    uint16_t yi = localY;
+    
+    bool rotated = (panelIndex % 2 == 0);
+    if (rotated) {
+        xi = width - 1 - xi;
+        yi = panelHeight - 1 - yi;
     }
     
-    uint16_t base = col * panelHeight;
-    uint16_t indexInPanel;
-    if (col % 2 == 0) {
-        indexInPanel = base + localY;
-    } else {
-        indexInPanel = base + (panelHeight - 1 - localY);
+    if (xi % 2 == 1) {
+        yi = panelHeight - 1 - yi;
     }
     
-    return panelIndex * panelHeight * width + indexInPanel;
+    uint16_t index = panelIndex * panelHeight * width;
+    index += xi * panelHeight;
+    index += yi;
+    
+    return index;
 }
 
 LedColor hsvToRgb(uint8_t h, uint8_t s, uint8_t v) {

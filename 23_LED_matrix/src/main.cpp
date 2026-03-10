@@ -19,6 +19,7 @@ static volatile uint8_t staticR = 255;
 static volatile uint8_t staticG = 255;
 static volatile uint8_t staticB = 255;
 static volatile uint32_t rainbowSpeed = 3000;
+static volatile unsigned long scannerStartTime = 0;
 
 static LedColor pixelBuffer[MATRIX_PIXEL_COUNT];
 static unsigned long startTime = 0;
@@ -59,8 +60,8 @@ void processLedCommand(DynamicJsonDocument* json) {
       else if (mode == "white") currentMode = ModeWhite;
       else if (mode == "static") currentMode = ModeStatic;
       else if (mode == "clock") currentMode = ModeClock;
-      else if (mode == "scanner") currentMode = ModeScanner;
-      else if (mode == "rawscanner") currentMode = ModeRawScanner;
+      else if (mode == "scanner") { currentMode = ModeScanner; scannerStartTime = millis(); }
+      else if (mode == "rawscanner") { currentMode = ModeRawScanner; scannerStartTime = millis(); }
     }
     else if (cmd == "brightness") {
       int val = (*json)["value"];
@@ -149,6 +150,7 @@ void addLedEndpoints() {
     tpl_server.sendHeader("Connection", "close");
     if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
     currentMode = ModeScanner;
+    scannerStartTime = millis();
     tpl_server.send(200, "text/html", "OK");
   });
   
@@ -156,6 +158,7 @@ void addLedEndpoints() {
     tpl_server.sendHeader("Connection", "close");
     if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
     currentMode = ModeRawScanner;
+    scannerStartTime = millis();
     tpl_server.send(200, "text/html", "OK");
   });
   
@@ -211,17 +214,19 @@ void loop() {
 
   if (currentMode == ModeRawScanner) {
     uint32_t msPerLed = 200;
-    uint16_t pos = (elapsed / msPerLed) % MATRIX_PIXEL_COUNT;
+    unsigned long scanElapsed = currentTime - scannerStartTime;
+    uint16_t pos = (scanElapsed / msPerLed) % MATRIX_PIXEL_COUNT;
     for (uint16_t i = 0; i < MATRIX_PIXEL_COUNT; i++) {
       matrix.SetPixelColor(i, (i == pos) ? RgbColor(ledBrightness, ledBrightness, ledBrightness) : RgbColor(0, 0, 0));
     }
     matrix.Show();
   } else {
+    unsigned long effectTime = (currentMode == ModeScanner) ? (currentTime - scannerStartTime) : elapsed;
     calculateAllPixels(
       pixelBuffer,
       MATRIX_WIDTH,
       MATRIX_HEIGHT,
-      elapsed,
+      effectTime,
       currentMode,
       ledBrightness,
       staticR, staticG, staticB,

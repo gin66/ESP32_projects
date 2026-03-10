@@ -48,51 +48,14 @@
       <div class="control-group">
         <h3>LED Mode</h3>
         <div class="btn-group" role="group">
-          <button
-            type="button"
-            class="btn btn-primary"
-            onclick="setMode('wave')"
-          >
-            Rainbow Wave
-          </button>
-          <button
-            type="button"
-            class="btn btn-default"
-            onclick="setMode('rainbow')"
-          >
-            Rainbow
-          </button>
-          <button
-            type="button"
-            class="btn btn-default"
-            onclick="setMode('white')"
-          >
-            All White
-          </button>
-          <button
-            type="button"
-            class="btn btn-default"
-            onclick="setMode('clock')"
-          >
-            Clock
-          </button>
-          <button
-            type="button"
-            class="btn btn-default"
-            onclick="setMode('scanner')"
-          >
-            Scanner
-          </button>
-          <button
-            type="button"
-            class="btn btn-default"
-            onclick="setMode('static')"
-          >
-            Static Color
-          </button>
-          <button type="button" class="btn btn-danger" onclick="setMode('off')">
-            OFF
-          </button>
+          <button type="button" class="btn btn-default mode-btn" data-mode="wave" onclick="setMode('wave')">Rainbow Wave</button>
+          <button type="button" class="btn btn-default mode-btn" data-mode="rainbow" onclick="setMode('rainbow')">Rainbow</button>
+          <button type="button" class="btn btn-default mode-btn" data-mode="white" onclick="setMode('white')">All White</button>
+          <button type="button" class="btn btn-default mode-btn" data-mode="clock" onclick="setMode('clock')">Clock</button>
+          <button type="button" class="btn btn-default mode-btn" data-mode="scanner" onclick="setMode('scanner')">Scanner</button>
+          <button type="button" class="btn btn-default mode-btn" data-mode="rawscanner" onclick="setMode('rawscanner')">Raw Scanner</button>
+          <button type="button" class="btn btn-default mode-btn" data-mode="static" onclick="setMode('static')">Static Color</button>
+          <button type="button" class="btn btn-danger mode-btn" data-mode="off" onclick="setMode('off')">OFF</button>
         </div>
       </div>
 
@@ -256,11 +219,13 @@
       }
 
       function updateModeButtons(mode) {
-        if (mode === "static") {
-          document.getElementById("static_color_group").style.display = "block";
-        } else {
-          document.getElementById("static_color_group").style.display = "none";
+        var btns = document.querySelectorAll(".mode-btn");
+        for (var i = 0; i < btns.length; i++) {
+          var isOff = btns[i].getAttribute("data-mode") === "off";
+          var isActive = btns[i].getAttribute("data-mode") === mode;
+          btns[i].className = "btn mode-btn " + (isActive ? "btn-primary" : (isOff ? "btn-danger" : "btn-default"));
         }
+        document.getElementById("static_color_group").style.display = (mode === "static") ? "block" : "none";
       }
 
       function setBrightness(value) {

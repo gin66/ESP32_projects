@@ -1,5 +1,38 @@
 #include "led_effects.h"
 #include <cmath>
+#include <Arduino.h>
+#include "../lib/font5x7/font5x7.h"
+
+static void drawChar(LedColor* pixels, uint16_t width, uint16_t height,
+                     char c, uint16_t ox, uint16_t oy,
+                     uint8_t r, uint8_t g, uint8_t b) {
+    uint8_t idx = (uint8_t)c;
+    if (idx > 95) return;
+    
+    for (uint8_t col = 0; col < 5; col++) {
+        uint8_t colData = pgm_read_byte(&font5x7[idx][col]);
+        for (uint8_t row = 0; row < 7; row++) {
+            if (colData & (1 << row)) {
+                uint16_t px = ox + col;
+                uint16_t py = oy + row;
+                if (px < width && py < height) {
+                    pixels[py * width + px] = LedColor(r, g, b);
+                }
+            }
+        }
+    }
+}
+
+static void drawString(LedColor* pixels, uint16_t width, uint16_t height,
+                       const char* str, uint16_t ox, uint16_t oy,
+                       uint8_t r, uint8_t g, uint8_t b) {
+    uint16_t x = ox;
+    while (*str) {
+        drawChar(pixels, width, height, *str, x, oy, r, g, b);
+        x += 6;
+        str++;
+    }
+}
 
 uint16_t xyToIndex(uint16_t x, uint16_t y, uint16_t width, uint16_t height) {
     uint16_t panelHeight = 8;
@@ -26,25 +59,30 @@ uint16_t xyToIndex(uint16_t x, uint16_t y, uint16_t width, uint16_t height) {
     return index;
 }
 
-LedColor hsvToRgb(uint8_t h, uint8_t s, uint8_t v) {
+LedColor hsvToRgb(uint16_t hue, uint8_t sat, uint8_t val, uint8_t brightness) {
     uint8_t r, g, b;
     
-    uint8_t sector = h / 43;
-    uint16_t f = (uint16_t)h * 6 - (uint16_t)sector * 256;
-    uint8_t p = (uint16_t)v * (255 - s) / 255;
-    uint8_t q = (uint16_t)v * (255 - (uint16_t)f * s / 256) / 255;
-    uint8_t t = (uint16_t)v * (255 - (uint16_t)(256 - f) * s / 256) / 255;
+    uint8_t sector = (uint8_t)((uint32_t)hue * 6 / 65536);
+    uint16_t f = (uint32_t)hue * 6 - (uint32_t)sector * 65536;
     
-    switch (sector) {
-        case 0: r = v; g = t; b = p; break;
-        case 1: r = q; g = v; b = p; break;
-        case 2: r = p; g = v; b = t; break;
-        case 3: r = p; g = q; b = v; break;
-        case 4: r = t; g = p; b = v; break;
-        default: r = v; g = p; b = q; break;
+    uint8_t p = (uint16_t)val * (255 - sat) / 255;
+    uint8_t q = (uint16_t)val * (255 - (uint32_t)f * sat / 65536) / 255;
+    uint8_t t = (uint16_t)val * (255 - (uint32_t)(65536 - f) * sat / 65536) / 255;
+    
+    switch (sector % 6) {
+        case 0: r = val; g = t; b = p; break;
+        case 1: r = q; g = val; b = p; break;
+        case 2: r = p; g = val; b = t; break;
+        case 3: r = p; g = q; b = val; break;
+        case 4: r = t; g = p; b = val; break;
+        default: r = val; g = p; b = q; break;
     }
     
-    return LedColor(r, g, b);
+    return LedColor(
+        (uint16_t)r * brightness / 255,
+        (uint16_t)g * brightness / 255,
+        (uint16_t)b * brightness / 255
+    );
 }
 
 void calculateAllPixels(
@@ -79,31 +117,19 @@ void calculateAllPixels(
             }
             
             case ModeRainbow: {
-                uint32_t timeOffset = (elapsedMs % rainbowSpeed) * 256 / rainbowSpeed;
-                uint16_t hue = (timeOffset + (uint32_t)x * 256 / width + (uint32_t)y * 256 / height) % 256;
-                LedColor c = hsvToRgb(hue, 255, 255);
-                uint16_t br = (uint16_t)brightness;
-                pixels[i] = LedColor(
-                    (uint16_t)c.R * br / 255,
-                    (uint16_t)c.G * br / 255,
-                    (uint16_t)c.B * br / 255
-                );
+                uint32_t timeOffset = (elapsedMs % rainbowSpeed) * 65536 / rainbowSpeed;
+                uint16_t hue = (timeOffset + (uint32_t)x * 65536 / width + (uint32_t)y * 65536 / height) % 65536;
+                pixels[i] = hsvToRgb(hue, 255, 255, brightness);
                 break;
             }
             
             case ModeRainbowWave: {
-                uint32_t wavePos = (elapsedMs % 5000) * 256 / 5000;
+                uint32_t wavePos = (elapsedMs % 5000) * 65536 / 5000;
                 uint16_t dist = abs((int)x - (int)(width / 2)) + abs((int)y - (int)(height / 2));
-                uint16_t waveDist = (dist + wavePos) % 256;
-                uint8_t intensity = (waveDist < 128) ? waveDist * 2 : (256 - waveDist) * 2;
-                uint8_t hue = (wavePos + dist) % 256;
-                LedColor c = hsvToRgb(hue, 255, intensity);
-                uint16_t br = (uint16_t)brightness;
-                pixels[i] = LedColor(
-                    (uint16_t)c.R * br / 255,
-                    (uint16_t)c.G * br / 255,
-                    (uint16_t)c.B * br / 255
-                );
+                uint16_t waveDist = (dist * 256 + wavePos) % 65536;
+                uint8_t intensity = (waveDist < 32768) ? waveDist * 2 / 256 : (65536 - waveDist) * 2 / 256;
+                uint16_t hue = (wavePos + dist * 256) % 65536;
+                pixels[i] = hsvToRgb(hue, 255, intensity, brightness);
                 break;
             }
             
@@ -116,24 +142,9 @@ void calculateAllPixels(
             }
             
             case ModeClock: {
-                uint16_t centerX = width / 2;
-                uint16_t centerY = height / 2;
-                int dx = (int)x - (int)centerX;
-                int dy = (int)y - (int)centerY;
-                float dist = sqrtf((float)dx * dx + (float)dy * dy);
-                float angle = atan2f((float)dy, (float)dx);
-                if (angle < 0) angle += 2.0f * 3.14159f;
-                
-                uint8_t angleByte = (uint8_t)(angle / (2.0f * 3.14159f) * 256.0f);
-                uint8_t distByte = (uint8_t)(dist * 2);
-                
-                LedColor c = hsvToRgb(angleByte, 200, distByte);
-                uint16_t br = (uint16_t)brightness;
-                pixels[i] = LedColor(
-                    (uint16_t)c.R * br / 255,
-                    (uint16_t)c.G * br / 255,
-                    (uint16_t)c.B * br / 255
-                );
+                uint32_t timeOffset = (elapsedMs % rainbowSpeed) * 65536 / rainbowSpeed;
+                uint16_t hue = (timeOffset + (uint32_t)x * 65536 / width + (uint32_t)y * 65536 / height) % 65536;
+                pixels[i] = hsvToRgb(hue, 255, 128, brightness);
                 break;
             }
             
@@ -147,6 +158,21 @@ void calculateAllPixels(
             
             default:
                 pixels[i] = LedColor(0, 0, 0);
+        }
+    }
+    
+    if (mode == ModeClock) {
+        struct tm timeinfo;
+        if (getLocalTime(&timeinfo)) {
+            char timeStr[6];
+            snprintf(timeStr, sizeof(timeStr), "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
+            
+            uint16_t strW = 5 * 6 - 1;
+            uint16_t ox = (width - strW) / 2;
+            uint16_t oy = (height - 7) / 2;
+            
+            uint16_t cw = brightness * 3 / 4;
+            drawString(pixels, width, height, timeStr, ox, oy, cw, cw, cw);
         }
     }
 }

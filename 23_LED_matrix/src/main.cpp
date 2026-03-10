@@ -22,14 +22,14 @@
 
 NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt0Ws2812xMethod> matrix(MATRIX_PIXEL_COUNT, MATRIX_LED_PIN);
 
-static volatile LedMode currentMode = ModeWhite;
+static volatile LedMode currentMode = ModeClock;
 static volatile uint8_t ledBrightness = 5;
 static volatile uint8_t staticR = 255;
 static volatile uint8_t staticG = 255;
 static volatile uint8_t staticB = 255;
 static volatile uint32_t rainbowSpeed = 3000;
 static volatile unsigned long scannerStartTime = 0;
-static volatile float maxCurrent = 10.0;
+static volatile float maxCurrent = 1.0;
 static volatile float currentA = 0.0;
 
 static LedColor pixelBuffer[MATRIX_PIXEL_COUNT];

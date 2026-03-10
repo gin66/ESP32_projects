@@ -26,7 +26,7 @@ static volatile BgStyle bgStyle = BgRings;
 static volatile uint32_t bgSpeed = 3000;
 static volatile uint16_t waveLength = 256;
 static volatile bool showClock = true;
-static volatile uint8_t clockBrightness = 100;
+static volatile uint8_t clockBrightness = 2;
 static volatile unsigned long scannerStartTime = 0;
 static volatile float maxCurrent = 1.0;
 static volatile float currentA = 0.0;
@@ -55,7 +55,6 @@ const char* getModeString() {
     case ModeRainbow: return "rainbow";
     case ModeWhite: return "white";
     case ModeScanner: return "scanner";
-    case ModeRawScanner: return "rawscanner";
     default: return "unknown";
   }
 }
@@ -91,11 +90,9 @@ void processLedCommand(DynamicJsonDocument* json) {
       else if (mode == "white") currentMode = ModeWhite;
       else if (mode == "static") currentMode = ModeStatic;
       else if (mode == "scanner") { currentMode = ModeScanner; scannerStartTime = millis(); }
-      else if (mode == "rawscanner") { currentMode = ModeRawScanner; scannerStartTime = millis(); }
     }
     else if (cmd == "brightness") {
-      int val = (*json)["value"];
-      ledBrightness = (uint8_t)((val * 255) / 100);
+      ledBrightness = (uint8_t)(*json)["value"];
     }
     else if (cmd == "color") {
       staticR = (*json)["r"];
@@ -136,7 +133,7 @@ void publishLedStatus(DynamicJsonDocument* json) {
   
   (*json)["uptime"] = uptime;
   (*json)["mode"] = getModeString();
-  (*json)["brightness"] = (int)((ledBrightness * 100) / 255);
+  (*json)["brightness"] = ledBrightness;
   (*json)["bg_style"] = getBgStyleString();
   (*json)["bg_speed"] = bgSpeed;
   (*json)["wave_length"] = waveLength;
@@ -188,14 +185,6 @@ void addLedEndpoints() {
     tpl_server.sendHeader("Connection", "close");
     if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
     currentMode = ModeScanner;
-    scannerStartTime = millis();
-    tpl_server.send(200, "text/html", "OK");
-  });
-  
-  tpl_server.on("/led/rawscanner", HTTP_GET, []() {
-    tpl_server.sendHeader("Connection", "close");
-    if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
-    currentMode = ModeRawScanner;
     scannerStartTime = millis();
     tpl_server.send(200, "text/html", "OK");
   });
@@ -291,46 +280,24 @@ void loop() {
   uint8_t numPanels = MATRIX_HEIGHT / 8;
   uint8_t scale = 255;
 
-  if (currentMode == ModeRawScanner) {
-    uint32_t msPerLed = 200;
-    unsigned long scanElapsed = currentTime - scannerStartTime;
-    uint16_t pos = (scanElapsed / msPerLed) % MATRIX_PIXEL_COUNT;
-    for (uint16_t i = 0; i < MATRIX_PIXEL_COUNT; i++) {
-      pixelBuffer[i] = (i == pos) ? LedColor(ledBrightness, ledBrightness, ledBrightness) : LedColor(0, 0, 0);
-    }
-    scale = calculateCurrentScale();
-    currentA = estimateCurrent(pixelBuffer, MATRIX_PIXEL_COUNT, numPanels, scale) / 1000000.0f;
-    for (uint16_t i = 0; i < MATRIX_PIXEL_COUNT; i++) {
-      uint16_t x = i % MATRIX_WIDTH;
-      uint16_t y = i / MATRIX_WIDTH;
-      uint16_t target_i = xyToIndex(x, y, MATRIX_WIDTH, MATRIX_HEIGHT);
-      matrix.SetPixelColor(target_i, RgbColor(
-        (uint16_t)pixelBuffer[i].R * scale / 255,
-        (uint16_t)pixelBuffer[i].G * scale / 255,
-        (uint16_t)pixelBuffer[i].B * scale / 255
-      ));
-    }
-    matrix.Show();
-  } else {
-    unsigned long effectTime = (currentMode == ModeScanner) ? (currentTime - scannerStartTime) : elapsed;
-    calculateAllPixels(
-      pixelBuffer,
-      MATRIX_WIDTH,
-      MATRIX_HEIGHT,
-      effectTime,
-      currentMode,
-      ledBrightness,
-      staticR, staticG, staticB,
-      (BgStyle)bgStyle,
-      bgSpeed,
-      waveLength
-    );
-    if (showClock && currentMode != ModeOff) {
-      drawClockOverlay(pixelBuffer, MATRIX_WIDTH, MATRIX_HEIGHT, clockBrightness);
-    }
-    scale = calculateCurrentScale();
-    currentA = estimateCurrent(pixelBuffer, MATRIX_PIXEL_COUNT, numPanels, scale) / 1000000.0f;
-    writePixelBufferToMatrix(scale);
+  unsigned long effectTime = (currentMode == ModeScanner) ? (currentTime - scannerStartTime) : elapsed;
+  calculateAllPixels(
+    pixelBuffer,
+    MATRIX_WIDTH,
+    MATRIX_HEIGHT,
+    effectTime,
+    currentMode,
+    ledBrightness,
+    staticR, staticG, staticB,
+    (BgStyle)bgStyle,
+    bgSpeed,
+    waveLength
+  );
+  if (showClock && currentMode != ModeOff) {
+    drawClockOverlay(pixelBuffer, MATRIX_WIDTH, MATRIX_HEIGHT, clockBrightness);
   }
+  scale = calculateCurrentScale();
+  currentA = estimateCurrent(pixelBuffer, MATRIX_PIXEL_COUNT, numPanels, scale) / 1000000.0f;
+  writePixelBufferToMatrix(scale);
   vTaskDelay(20 / portTICK_PERIOD_MS);
 }

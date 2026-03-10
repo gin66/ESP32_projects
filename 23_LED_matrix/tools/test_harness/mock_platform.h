@@ -5,9 +5,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
-#include "../../include/led_config.h"
+#include <ctime>
 
-using RgbwColor = LedColor;
+#define PROGMEM
 
 extern unsigned long mock_millis;
 
@@ -21,4 +21,18 @@ inline void setMillis(unsigned long ms) {
 
 inline void advanceMillis(unsigned long delta) {
     mock_millis += delta;
+}
+
+inline bool getLocalTime(struct tm* timeinfo) {
+    time_t now = mock_millis / 1000;
+    struct tm* t = gmtime(&now);
+    if (t) {
+        *timeinfo = *t;
+        return true;
+    }
+    return false;
+}
+
+inline uint8_t pgm_read_byte(const uint8_t* addr) {
+    return *addr;
 }

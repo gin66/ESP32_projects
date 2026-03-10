@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../include/led_config.h"
+#include "mock_platform.h"
 #include <vector>
 #include <cstdint>
 

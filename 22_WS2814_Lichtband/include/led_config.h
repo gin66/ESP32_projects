@@ -49,7 +49,7 @@ struct LedColor {
 
 struct LedState {
     unsigned long lastWaveUpdate;
-    uint16_t wavePosition;
+    uint32_t wavePosition;
     int16_t waveVelocityQ8;
     
     LedState() : lastWaveUpdate(0), wavePosition(0), waveVelocityQ8(256) {}

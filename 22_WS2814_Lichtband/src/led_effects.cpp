@@ -2,18 +2,19 @@
 #include <cstdlib>
 
 static const uint16_t sineTable45[] = {
-    0, 1144, 2287, 3430, 4572, 5712, 6850, 7987, 9121, 10252,
-    11380, 12505, 13626, 14742, 15855, 16962, 18064, 19161, 20252, 21336,
-    22415, 23486, 24550, 25607, 26656, 27697, 28729, 29753, 30767, 31772,
-    32768, 32768
+    0, 1144, 2287, 3426, 4561, 5690, 6812, 7927, 9031, 10126,
+    11210, 12279, 13330, 14366, 15384, 16384, 17365, 18323, 19260, 20173,
+    21062, 21926, 22762, 23571, 24351, 25100, 25820, 26507, 27163, 27786,
+    28375, 28931, 29452, 29939, 30389, 30792, 31162, 31496, 31794, 32054,
+    32275, 32454, 32593, 32693, 32748
 };
 
 static inline uint16_t getSine(uint16_t angle) {
     angle = angle % 360;
     if (angle < 90) return sineTable45[angle / 2];
-    if (angle < 180) return sineTable45[90 - ((angle - 90) / 2) - 1];
-    if (angle < 270) return 32768 - sineTable45[(angle - 180) / 2];
-    return 32768 - sineTable45[90 - ((angle - 270) / 2) - 1];
+    if (angle < 180) return sineTable45[(179 - angle) / 2];
+    if (angle < 270) return sineTable45[(angle - 180) / 2];
+    return sineTable45[(359 - angle) / 2];
 }
 
 static inline uint16_t getSineNormalized(uint16_t angle) {
@@ -103,7 +104,7 @@ LedColor calculateLedColor(
             } else {
                 if (waveCfg.acceleration != 0) {
                     uint32_t dt = elapsedMs - state.lastWaveUpdate;
-                    if (dt > 20) {
+                    if (dt >= 1) {
                         int16_t accelQ8 = (int16_t)(waveCfg.acceleration * 256);
                         state.waveVelocityQ8 += (accelQ8 * dt) / 1000;
                         if (state.waveVelocityQ8 < 26) state.waveVelocityQ8 = 26;
@@ -114,7 +115,7 @@ LedColor calculateLedColor(
                     }
                     
                     if (state.wavePosition >= 65536) {
-                        state.wavePosition = 0;
+                        state.wavePosition -= 65536;
                         state.waveVelocityQ8 = 256;
                     }
                     wavePos16 = state.wavePosition;
@@ -125,9 +126,15 @@ LedColor calculateLedColor(
             
             uint16_t hueOffset = (elapsedMs % rainbowSpeed) * 65536 / rainbowSpeed;
             uint16_t baseHue = (hueOffset + wavePos16) % 65536;
-            uint16_t centerPos = (uint32_t)wavePos16 * (ledCount - 1) / 65536;
             
-            uint16_t dist = abs((int)ledIndex - (int)centerPos);
+            uint16_t centerPos16 = (uint32_t)wavePos16 * ledCount / 65536;
+            int32_t centerPos = centerPos16;
+            
+            int32_t dist = (int32_t)ledIndex - centerPos;
+            if (dist > (int32_t)(ledCount / 2)) dist -= ledCount;
+            if (dist < -(int32_t)(ledCount / 2)) dist += ledCount;
+            dist = abs(dist);
+            
             uint16_t intensity16 = 0;
             if (dist < waveWidth) {
                 uint16_t t = (uint32_t)dist * 65536 / waveWidth;

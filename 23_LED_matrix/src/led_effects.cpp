@@ -1,9 +1,24 @@
 #include "led_effects.h"
-#include <cmath>
 #include <Arduino.h>
 #include "../lib/font5x7/font5x7.h"
 
-#define MAX_RIPPLES 8
+#define MAX_RIPPLES 3
+
+static const uint16_t sineTable45[] = {
+    0, 1144, 2287, 3425, 4560, 5689, 6813, 7927, 9030, 10126,
+    11207, 12275, 13322, 14350, 15356, 16384, 17364, 18322, 19260, 20173,
+    21060, 21929, 22767, 23578, 24359, 25107, 25825, 26510, 27161, 27777,
+    28378, 28902, 29409, 29879, 30310, 30700, 31050, 31358, 31625, 31849,
+    32031, 32170, 32266, 32318, 32327, 32768
+};
+
+static inline uint16_t getSine(uint16_t angle) {
+    angle = angle % 360;
+    if (angle < 90) return sineTable45[angle / 2];
+    if (angle < 180) return sineTable45[(180 - angle) / 2];
+    if (angle < 270) return sineTable45[(angle - 180) / 2];
+    return sineTable45[(360 - angle) / 2];
+}
 
 struct Ripple {
     int16_t x;
@@ -38,10 +53,9 @@ static void drawChar(LedColor* pixels, uint16_t width, uint16_t height,
 static void drawString(LedColor* pixels, uint16_t width, uint16_t height,
                        const char* str, uint16_t ox, uint16_t oy,
                        uint8_t r, uint8_t g, uint8_t b) {
-    uint16_t x = ox;
     while (*str) {
-        drawChar(pixels, width, height, *str, x, oy, r, g, b);
-        x += 6;
+        drawChar(pixels, width, height, *str, ox, oy, r, g, b);
+        ox += 6;
         str++;
     }
 }
@@ -71,6 +85,10 @@ uint16_t xyToIndex(uint16_t x, uint16_t y, uint16_t width, uint16_t height) {
     return index;
 }
 
+static uint8_t gamma8(uint8_t val) {
+    return val;
+}
+
 LedColor hsvToRgb(uint16_t hue, uint8_t sat, uint8_t val, uint8_t brightness) {
     uint8_t r, g, b;
     
@@ -90,11 +108,20 @@ LedColor hsvToRgb(uint16_t hue, uint8_t sat, uint8_t val, uint8_t brightness) {
         default: r = val; g = p; b = q; break;
     }
     
+    uint8_t gam = gamma8(brightness);
     return LedColor(
-        (uint16_t)r * brightness / 255,
-        (uint16_t)g * brightness / 255,
-        (uint16_t)b * brightness / 255
+        (uint16_t)r * gam / 255,
+        (uint16_t)g * gam / 255,
+        (uint16_t)b * gam / 255
     );
+}
+
+static uint16_t distanceApprox(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2) {
+    int32_t dx = (int32_t)x1 - (int32_t)x2;
+    int32_t dy = (int32_t)y1 - (int32_t)y2;
+    if (dx < 0) dx = -dx;
+    if (dy < 0) dy = -dy;
+    return (uint16_t)((dx > dy) ? (dx + dy / 2) : (dy + dx / 2));
 }
 
 static void drawBackground(
@@ -108,104 +135,105 @@ static void drawBackground(
     uint8_t brightness
 ) {
     uint16_t totalPixels = width * height;
-    uint16_t centerX = width / 2;
-    uint16_t centerY = height / 2;
+    int16_t centerX = width / 2;
+    int16_t centerY = height / 2;
     
-    uint32_t timeOffset = 0;
+    uint16_t timeHue = 0;
     if (bgSpeed > 0) {
-        timeOffset = (elapsedMs % bgSpeed) * 65536 / bgSpeed;
+        timeHue = (uint16_t)((elapsedMs % bgSpeed) * 65536UL / bgSpeed);
     }
     
-    for (uint16_t i = 0; i < totalPixels; i++) {
-        uint16_t x = i % width;
-        uint16_t y = i / width;
-        
-        LedColor color;
-        
-        switch (style) {
-            case BgSolid: {
-                color = hsvToRgb(timeOffset, 255, 255, brightness);
-                break;
-            }
+    LedColor* p = pixels;
+    
+    for (uint16_t y = 0; y < height; y++) {
+        for (uint16_t x = 0; x < width; x++) {
+            LedColor color;
             
-            case BgTrapezoid: {
-                uint16_t pos = ((x + y) * 65536 / waveLength + timeOffset) % 65536;
-                uint16_t hue = pos;
-                uint8_t intensity = 255;
-                if (pos < 32768) {
-                    intensity = (pos * 2) >> 8;
-                } else {
-                    intensity = ((65536 - pos) * 2) >> 8;
-                }
-                color = hsvToRgb(hue, 255, intensity, brightness);
-                break;
-            }
-            
-            case BgRings: {
-                float dx = (int)x - (int)centerX;
-                float dy = (int)y - (int)centerY;
-                uint16_t dist = (uint16_t)(sqrt(dx * dx + dy * dy) * waveLength / 16);
-                uint16_t hue = (timeOffset + dist) % 65536;
-                color = hsvToRgb(hue, 255, 255, brightness);
-                break;
-            }
-            
-            case BgWave: {
-                float dx = (int)x - (int)centerX;
-                float dy = (int)y - (int)centerY;
-                uint16_t dist = (uint16_t)(sqrt(dx * dx + dy * dy) * waveLength / 16);
-                uint16_t wavePos = (elapsedMs % bgSpeed) * 65536 / bgSpeed;
-                uint16_t waveDist = (dist * 256 + wavePos) % 65536;
-                uint8_t intensity = (waveDist < 32768) ? (waveDist * 2 / 256) : ((65536 - waveDist) * 2 / 256);
-                uint16_t hue = (wavePos + dist * 256) % 65536;
-                color = hsvToRgb(hue, 255, intensity, brightness);
-                break;
-            }
-            
-            case BgRipple: {
-                uint8_t totalIntensity = 0;
-                uint16_t totalHue = timeOffset;
+            switch (style) {
+                case BgSolid:
+                    color = hsvToRgb(timeHue, 255, 255, brightness);
+                    break;
                 
-                for (uint8_t r = 0; r < MAX_RIPPLES; r++) {
-                    if (!ripples[r].active) continue;
-                    
-                    uint32_t rippleAge = elapsedMs - ripples[r].startTime;
-                    if (rippleAge > 3000) {
-                        ripples[r].active = false;
-                        continue;
-                    }
-                    
-                    float dx = (int)x - ripples[r].x;
-                    float dy = (int)y - ripples[r].y;
-                    uint16_t dist = (uint16_t)sqrt(dx * dx + dy * dy);
-                    
-                    uint16_t ringPos = rippleAge * waveLength / 1000;
-                    int16_t ringDist = abs((int)dist - (int)ringPos);
-                    
-                    if (ringDist < 3) {
-                        uint8_t fade = 255 - (rippleAge * 255 / 3000);
-                        uint8_t ringIntensity = fade * (3 - ringDist) / 3;
-                        totalIntensity = (totalIntensity > (255 - ringIntensity)) ? 255 : totalIntensity + ringIntensity;
-                    }
+                case BgTrapezoid: {
+                    uint32_t pos = (uint32_t)(x + y) * 65536UL * waveLength / 256 / (width + height);
+                    uint16_t hue = (uint16_t)((pos + timeHue) % 65536);
+                    color = hsvToRgb(hue, 255, 255, brightness);
+                    break;
                 }
                 
-                color = hsvToRgb(totalHue, 255, totalIntensity > 32 ? totalIntensity : 32, brightness);
-                break;
+                case BgRings: {
+                    uint16_t maxDist = (width > height ? width : height) / 2;
+                    uint16_t dist = distanceApprox(x, y, centerX, centerY);
+                    uint32_t scaledDist = (uint32_t)dist * waveLength * 65536UL / 256 / (maxDist > 0 ? maxDist : 1);
+                    uint16_t hue = (uint16_t)((timeHue + scaledDist) % 65536);
+                    color = hsvToRgb(hue, 255, 255, brightness);
+                    break;
+                }
+                
+                case BgWave: {
+                    uint32_t scaledX = (uint32_t)x * waveLength * 65536UL / 256 / width;
+                    uint16_t waveAngle = (uint16_t)((elapsedMs % bgSpeed) * 360 / bgSpeed);
+                    uint16_t waveSine = getSine(waveAngle);
+                    uint16_t waveOffset = (uint16_t)((uint32_t)waveSine * 8192 / 32768);
+                    uint16_t hue = (uint16_t)((timeHue + scaledX + waveOffset) % 65536);
+                    color = hsvToRgb(hue, 255, 255, brightness);
+                    break;
+                }
+                
+                case BgRipple: {
+                    uint32_t rippleDuration = 6000;
+                    uint8_t bestIntensity = 0;
+                    uint16_t bestHue = timeHue;
+                    
+                    for (uint8_t r = 0; r < MAX_RIPPLES; r++) {
+                        if (!ripples[r].active) continue;
+                        
+                        uint32_t rippleAge = elapsedMs - ripples[r].startTime;
+                        if (rippleAge > rippleDuration) {
+                            ripples[r].active = false;
+                            continue;
+                        }
+                        
+                        uint16_t dist = distanceApprox(x, y, ripples[r].x, ripples[r].y);
+                        
+                        uint16_t ringPos = (uint16_t)(rippleAge * waveLength / 4096);
+                        int16_t distFromRing = (int16_t)dist - (int16_t)ringPos;
+                        if (distFromRing < 0) distFromRing = -distFromRing;
+                        
+                        uint16_t waveletPhase = (dist * 32) & 0xFF;
+                        uint8_t wavelet = (waveletPhase < 128) ? (waveletPhase * 2) : ((256 - waveletPhase) * 2);
+                        
+                        if (distFromRing < 8) {
+                            uint8_t ageFade = (uint8_t)(255 - (rippleAge * 255 / rippleDuration));
+                            uint8_t distFade = (uint8_t)(255 - distFromRing * 32);
+                            uint8_t intensity = (uint8_t)((ageFade * distFade * wavelet) / 65025);
+                            
+                            if (intensity > bestIntensity) {
+                                bestIntensity = intensity;
+                                bestHue = (timeHue + dist * 8) & 0xFFFF;
+                            }
+                        }
+                    }
+                    
+                    uint8_t finalIntensity = bestIntensity > 16 ? bestIntensity : 16;
+                    color = hsvToRgb(bestHue, 255, finalIntensity, brightness);
+                    break;
+                }
+                
+                default:
+                    color = LedColor(0, 0, 0);
             }
             
-            default:
-                color = LedColor(0, 0, 0);
+            *p++ = color;
         }
-        
-        pixels[i] = color;
     }
 }
 
-void addRipple(uint16_t x, uint16_t y, unsigned long currentTime) {
+static void addRipple(uint16_t x, uint16_t y, unsigned long currentTime) {
     for (uint8_t i = 0; i < MAX_RIPPLES; i++) {
         if (!ripples[i].active) {
-            ripples[i].x = x;
-            ripples[i].y = y;
+            ripples[i].x = (int16_t)x;
+            ripples[i].y = (int16_t)y;
             ripples[i].startTime = currentTime;
             ripples[i].active = true;
             break;
@@ -213,11 +241,13 @@ void addRipple(uint16_t x, uint16_t y, unsigned long currentTime) {
     }
 }
 
-void updateRipples(unsigned long currentTime, uint16_t width, uint16_t height) {
-    if (currentTime - lastRippleTime > 800) {
+static void updateRipples(unsigned long currentTime, uint16_t width, uint16_t height, uint32_t speed) {
+    uint32_t spawnInterval = speed > 0 ? speed : 3000;
+    if (spawnInterval < 500) spawnInterval = 500;
+    if (lastRippleTime == 0 || currentTime - lastRippleTime > spawnInterval) {
         lastRippleTime = currentTime;
-        uint16_t rx = random(width);
-        uint16_t ry = random(height);
+        uint16_t rx = (uint16_t)(rand() % width);
+        uint16_t ry = (uint16_t)(rand() % height);
         addRipple(rx, ry, currentTime);
     }
 }
@@ -234,8 +264,7 @@ void drawClockOverlay(LedColor* pixels, uint16_t width, uint16_t height, uint8_t
         uint16_t ox = (width - strW) / 2;
         uint16_t oy = (height - 7) / 2;
         
-        uint8_t cb = (uint16_t)clockBrightness * 255 / 100;
-        drawString(pixels, width, height, timeStr, ox, oy, cb, cb, cb);
+        drawString(pixels, width, height, timeStr, ox, oy, clockBrightness, clockBrightness, clockBrightness);
     }
 }
 
@@ -270,12 +299,12 @@ void calculateAllPixels(
             }
             
             case ModeRainbow:
-                drawBackground(pixels, width, height, elapsedMs, bgStyle, bgSpeed, waveLength, brightness);
                 break;
             
             case ModeWhite: {
-                uint16_t angle = (elapsedMs % 8000) * 360 / 8000;
-                uint8_t wave = (uint8_t)((sin((float)angle * 0.017453f) + 1.0f) * 127.5f);
+                uint16_t angle = (uint16_t)((elapsedMs % 8000) * 360 / 8000);
+                uint16_t sineVal = getSine(angle);
+                uint8_t wave = (uint8_t)(sineVal * 255 / 32768);
                 uint16_t br = (uint16_t)wave * brightness / 255;
                 pixels[i] = LedColor(br, br, br);
                 break;
@@ -284,13 +313,8 @@ void calculateAllPixels(
             case ModeScanner: {
                 uint32_t msPerLed = 200;
                 uint16_t totalLeds = width * height;
-                uint16_t logicalPos = (elapsedMs / msPerLed) % totalLeds;
+                uint16_t logicalPos = (uint16_t)((elapsedMs / msPerLed) % totalLeds);
                 pixels[i] = (i == logicalPos) ? LedColor(brightness, brightness, brightness) : LedColor(0, 0, 0);
-                break;
-            }
-            
-            case ModeRawScanner: {
-                pixels[i] = LedColor(0, 0, 0);
                 break;
             }
             
@@ -299,8 +323,11 @@ void calculateAllPixels(
         }
     }
     
-    if (mode == ModeRainbow && bgStyle == BgRipple) {
-        updateRipples(elapsedMs, width, height);
+    if (mode == ModeRainbow) {
+        drawBackground(pixels, width, height, elapsedMs, bgStyle, bgSpeed, waveLength, brightness);
+        if (bgStyle == BgRipple) {
+            updateRipples(elapsedMs, width, height, bgSpeed);
+        }
     }
 }
 

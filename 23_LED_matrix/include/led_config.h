@@ -19,8 +19,7 @@ enum LedMode {
     ModeStatic,
     ModeRainbow,
     ModeWhite,
-    ModeScanner,
-    ModeRawScanner
+    ModeScanner
 };
 
 enum BgStyle {

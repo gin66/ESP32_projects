@@ -3,8 +3,11 @@
 #include <FS.h>
 #include <SPIFFS.h>
 #include <stdint.h>
+#include <esp_task_wdt.h>
 
 #include "led_effects.h"
+
+#define WDT_TIMEOUT_S 10
 
 #define PANELS 3
 #define MATRIX_LED_PIN 16
@@ -193,6 +196,8 @@ void addLedEndpoints() {
 }
 
 void setup() {
+  esp_task_wdt_init(WDT_TIMEOUT_S, true);
+  esp_task_wdt_add(NULL);
   tpl_system_setup(0);
   Serial.begin(115200);
   
@@ -241,7 +246,22 @@ static uint8_t calculateCurrentScale() {
   return (uint8_t)((maxLedCurrentUa * 255) / currentLedCurrentUa);
 }
 
+void turnOffLeds() {
+  for (uint16_t i = 0; i < MATRIX_PIXEL_COUNT; i++) {
+    matrix.SetPixelColor(i, RgbColor(0, 0, 0));
+  }
+  matrix.Show();
+}
+
 void loop() {
+  esp_task_wdt_reset();
+  
+  if (tpl_config.ota_ongoing) {
+    turnOffLeds();
+    vTaskDelay(100 / portTICK_PERIOD_MS);
+    return;
+  }
+  
   unsigned long currentTime = millis();
   unsigned long elapsed = currentTime - startTime;
   

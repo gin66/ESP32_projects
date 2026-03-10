@@ -55,6 +55,15 @@ const char* getModeString() {
     case ModeRainbow: return "rainbow";
     case ModeWhite: return "white";
     case ModeScanner: return "scanner";
+    case ModeFire: return "fire";
+    case ModeWater: return "water";
+    case ModePlasma: return "plasma";
+    case ModeStarfield: return "starfield";
+    case ModeLavalamp: return "lavalamp";
+    case ModeAutomata: return "automata";
+    case ModeSnowfall: return "snowfall";
+    case ModeWheel: return "wheel";
+    case ModeMorphingClock: return "morphingClock";
     default: return "unknown";
   }
 }
@@ -90,6 +99,15 @@ void processLedCommand(DynamicJsonDocument* json) {
       else if (mode == "white") currentMode = ModeWhite;
       else if (mode == "static") currentMode = ModeStatic;
       else if (mode == "scanner") { currentMode = ModeScanner; scannerStartTime = millis(); }
+      else if (mode == "fire") currentMode = ModeFire;
+      else if (mode == "water") currentMode = ModeWater;
+      else if (mode == "plasma") currentMode = ModePlasma;
+      else if (mode == "starfield") currentMode = ModeStarfield;
+      else if (mode == "lavalamp") currentMode = ModeLavalamp;
+      else if (mode == "automata") currentMode = ModeAutomata;
+      else if (mode == "snowfall") currentMode = ModeSnowfall;
+      else if (mode == "wheel") currentMode = ModeWheel;
+      else if (mode == "morphingClock") currentMode = ModeMorphingClock;
     }
     else if (cmd == "brightness") {
       ledBrightness = (uint8_t)(*json)["value"];
@@ -186,6 +204,69 @@ void addLedEndpoints() {
     if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
     currentMode = ModeScanner;
     scannerStartTime = millis();
+    tpl_server.send(200, "text/html", "OK");
+  });
+  
+  tpl_server.on("/led/fire", HTTP_GET, []() {
+    tpl_server.sendHeader("Connection", "close");
+    if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
+    currentMode = ModeFire;
+    tpl_server.send(200, "text/html", "OK");
+  });
+  
+  tpl_server.on("/led/water", HTTP_GET, []() {
+    tpl_server.sendHeader("Connection", "close");
+    if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
+    currentMode = ModeWater;
+    tpl_server.send(200, "text/html", "OK");
+  });
+  
+  tpl_server.on("/led/plasma", HTTP_GET, []() {
+    tpl_server.sendHeader("Connection", "close");
+    if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
+    currentMode = ModePlasma;
+    tpl_server.send(200, "text/html", "OK");
+  });
+  
+  tpl_server.on("/led/starfield", HTTP_GET, []() {
+    tpl_server.sendHeader("Connection", "close");
+    if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
+    currentMode = ModeStarfield;
+    tpl_server.send(200, "text/html", "OK");
+  });
+  
+  tpl_server.on("/led/lavalamp", HTTP_GET, []() {
+    tpl_server.sendHeader("Connection", "close");
+    if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
+    currentMode = ModeLavalamp;
+    tpl_server.send(200, "text/html", "OK");
+  });
+  
+  tpl_server.on("/led/automata", HTTP_GET, []() {
+    tpl_server.sendHeader("Connection", "close");
+    if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
+    currentMode = ModeAutomata;
+    tpl_server.send(200, "text/html", "OK");
+  });
+  
+  tpl_server.on("/led/snowfall", HTTP_GET, []() {
+    tpl_server.sendHeader("Connection", "close");
+    if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
+    currentMode = ModeSnowfall;
+    tpl_server.send(200, "text/html", "OK");
+  });
+  
+  tpl_server.on("/led/wheel", HTTP_GET, []() {
+    tpl_server.sendHeader("Connection", "close");
+    if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
+    currentMode = ModeWheel;
+    tpl_server.send(200, "text/html", "OK");
+  });
+  
+  tpl_server.on("/led/morphingClock", HTTP_GET, []() {
+    tpl_server.sendHeader("Connection", "close");
+    if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
+    currentMode = ModeMorphingClock;
     tpl_server.send(200, "text/html", "OK");
   });
   

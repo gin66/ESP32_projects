@@ -1,8 +1,17 @@
 #include "led_effects.h"
-#include "led_effects_core.h"
 #include <Arduino.h>
 #include <stdio.h>
 #include "../lib/font5x7/font5x7.h"
+
+extern void calculateFire(LedColor* pixels, uint16_t width, uint16_t height, unsigned long elapsedMs);
+extern void calculateWater(LedColor* pixels, uint16_t width, uint16_t height, unsigned long elapsedMs);
+extern void calculatePlasma(LedColor* pixels, uint16_t width, uint16_t height, unsigned long elapsedMs);
+extern void calculateStarfield(LedColor* pixels, uint16_t width, uint16_t height, unsigned long elapsedMs);
+extern void calculateLavalamp(LedColor* pixels, uint16_t width, uint16_t height, unsigned long elapsedMs);
+extern void calculateAutomata(LedColor* pixels, uint16_t width, uint16_t height, unsigned long elapsedMs);
+extern void calculateSnowfall(LedColor* pixels, uint16_t width, uint16_t height, unsigned long elapsedMs);
+extern void calculateWheel(LedColor* pixels, uint16_t width, uint16_t height, unsigned long elapsedMs);
+extern void calculateMorphingClock(LedColor* pixels, uint16_t width, uint16_t height, unsigned long elapsedMs);
 
 #define MAX_RIPPLES 3
 
@@ -209,6 +218,38 @@ void calculateAllPixels(
     uint16_t waveLength
 ) {
     uint16_t totalPixels = width * height;
+    
+    switch (mode) {
+        case ModeFire:
+            calculateFire(pixels, width, height, elapsedMs);
+            return;
+        case ModeWater:
+            calculateWater(pixels, width, height, elapsedMs);
+            return;
+        case ModePlasma:
+            calculatePlasma(pixels, width, height, elapsedMs);
+            return;
+        case ModeStarfield:
+            calculateStarfield(pixels, width, height, elapsedMs);
+            return;
+        case ModeLavalamp:
+            calculateLavalamp(pixels, width, height, elapsedMs);
+            return;
+        case ModeAutomata:
+            calculateAutomata(pixels, width, height, elapsedMs);
+            return;
+        case ModeSnowfall:
+            calculateSnowfall(pixels, width, height, elapsedMs);
+            return;
+        case ModeWheel:
+            calculateWheel(pixels, width, height, elapsedMs);
+            return;
+        case ModeMorphingClock:
+            calculateMorphingClock(pixels, width, height, elapsedMs);
+            return;
+        default:
+            break;
+    }
     
     for (uint16_t i = 0; i < totalPixels; i++) {
         switch (mode) {

@@ -84,18 +84,18 @@ LedColor hsvToRgb(uint16_t hue, uint8_t sat, uint8_t val, uint8_t brightness) {
 uint32_t estimateCurrent(LedColor* pixels, uint16_t pixelCount, uint8_t numPanels, uint8_t scale) {
     uint32_t baseCurrent = 322000 + (numPanels - 1) * 129000;
     
-    const uint32_t currentPerRed = 11900;
-    const uint32_t currentPerGreen = 11200;
-    const uint32_t currentPerBlue = 11800;
+    const uint16_t currentPerRedDiv255 = 11900 / 255;
+    const uint16_t currentPerGreenDiv255 = 11200 / 255;
+    const uint16_t currentPerBlueDiv255 = 11800 / 255;
     
     uint32_t sumR = 0, sumG = 0, sumB = 0;
     for (uint16_t i = 0; i < pixelCount; i++) {
-        sumR += ((uint16_t)pixels[i].R)*scale/255;
-        sumG += ((uint16_t)pixels[i].G)*scale/255;
-        sumB += ((uint16_t)pixels[i].B)*scale/255;
+        sumR += ((uint16_t)pixels[i].R) * scale / 255;
+        sumG += ((uint16_t)pixels[i].G) * scale / 255;
+        sumB += ((uint16_t)pixels[i].B) * scale / 255;
     }
     
-    uint32_t ledCurrent = (sumR * currentPerRed + sumG * currentPerGreen + sumB * currentPerBlue) / 255;
+    uint32_t ledCurrent = sumR * currentPerRedDiv255 + sumG * currentPerGreenDiv255 + sumB * currentPerBlueDiv255;
     
     return baseCurrent + ledCurrent;
 }

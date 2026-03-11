@@ -1,24 +1,44 @@
 #include "led_effects.h"
 #include <stdlib.h>
+#include <math.h>
 
-#define BLOB_COUNT 5
+#define BLOB_COUNT 6
+#define BOTTOM_ROWS 2
 
-static int16_t blobX[BLOB_COUNT];
-static int16_t blobY[BLOB_COUNT];
-static int16_t blobVX[BLOB_COUNT];
-static int16_t blobVY[BLOB_COUNT];
+struct Blob {
+    float x;
+    float y;
+    float vy;
+    float radius;
+    uint8_t hue;
+    bool active;
+    float wobblePhase;
+    float wobbleSpeed;
+};
+
+static Blob blobs[BLOB_COUNT];
 static bool blobInit = false;
+static unsigned long lastSpawn = 0;
+static unsigned long lastUpdate = 0;
 
 void initBlobs(uint16_t width, uint16_t height) {
     for (int i = 0; i < BLOB_COUNT; i++) {
-        blobX[i] = rand() % width;
-        blobY[i] = rand() % height;
-        blobVX[i] = (rand() % 5) - 2;
-        blobVY[i] = (rand() % 5) - 2;
-        if (blobVX[i] == 0) blobVX[i] = 1;
-        if (blobVY[i] == 0) blobVY[i] = 1;
+        blobs[i].active = false;
     }
     blobInit = true;
+    lastSpawn = 0;
+    lastUpdate = 0;
+}
+
+void spawnBlob(uint16_t width, uint16_t height, int index) {
+    blobs[index].x = 3 + (rand() % (width - 6));
+    blobs[index].y = height - BOTTOM_ROWS - 1;
+    blobs[index].vy = 0.05 + (rand() % 50) / 1000.0;
+    blobs[index].radius = 2.0 + (rand() % 20) / 10.0;
+    blobs[index].hue = 20 + (rand() % 30);
+    blobs[index].active = true;
+    blobs[index].wobblePhase = (rand() % 628) / 100.0;
+    blobs[index].wobbleSpeed = 0.01 + (rand() % 20) / 1000.0;
 }
 
 void calculateLavalamp(
@@ -31,47 +51,83 @@ void calculateLavalamp(
         initBlobs(width, height);
     }
 
-    for (uint16_t y = 0; y < height; y++) {
-        for (uint16_t x = 0; x < width; x++) {
+    float dt = (elapsedMs - lastUpdate) / 100.0;
+    if (dt > 3.0) dt = 3.0;
+    lastUpdate = elapsedMs;
 
-            int32_t field = 0;
-
-            for (int i = 0; i < BLOB_COUNT; i++) {
-                int16_t dx = x - blobX[i];
-                int16_t dy = y - blobY[i];
-                int32_t dist2 = dx * dx + dy * dy;
-                if (dist2 < 1) dist2 = 1;
-                
-                field += (800 / dist2);
-            }
-
-            if (field > 120) {
-                uint8_t intensity = (field > 255) ? 255 : (uint8_t)field;
-                uint8_t r = intensity;
-                uint8_t g = (intensity * 200) >> 8;
-                uint8_t b = (intensity * 50) >> 8;
-                pixels[y * width + x] = LedColor(r, g, b);
-            } else if (field > 40) {
-                uint8_t intensity = (field * 2);
-                if (intensity > 60) intensity = 60;
-                pixels[y * width + x] = LedColor(intensity, intensity >> 1, 0);
-            } else {
-                pixels[y * width + x] = LedColor(2, 1, 0);
+    if (elapsedMs - lastSpawn > 2000 + (rand() % 3000)) {
+        for (int i = 0; i < BLOB_COUNT; i++) {
+            if (!blobs[i].active) {
+                spawnBlob(width, height, i);
+                lastSpawn = elapsedMs;
+                break;
             }
         }
     }
 
-    for (int i = 0; i < BLOB_COUNT; i++) {
-        blobX[i] += blobVX[i];
-        blobY[i] += blobVY[i];
-
-        if (blobX[i] <= 2 || blobX[i] >= width - 3) {
-            blobVX[i] = -blobVX[i];
-            blobX[i] += blobVX[i];
+    for (uint16_t y = 0; y < height; y++) {
+        for (uint16_t x = 0; x < width; x++) {
+            pixels[y * width + x] = LedColor(8, 2, 0);
         }
-        if (blobY[i] <= 2 || blobY[i] >= height - 3) {
-            blobVY[i] = -blobVY[i];
-            blobY[i] += blobVY[i];
+    }
+
+    for (uint16_t y = height - BOTTOM_ROWS; y < height; y++) {
+        for (uint16_t x = 0; x < width; x++) {
+            uint8_t intensity = 200 + (rand() % 55);
+            pixels[y * width + x] = LedColor(intensity, (intensity * 180) >> 8, 0);
+        }
+    }
+
+    for (int i = 0; i < BLOB_COUNT; i++) {
+        Blob& b = blobs[i];
+        if (!b.active) continue;
+
+        b.wobblePhase += b.wobbleSpeed * dt;
+        float wobble = sin(b.wobblePhase) * 0.3;
+        b.x += wobble * dt * 0.5;
+
+        if (b.x < 2) b.x = 2;
+        if (b.x > width - 3) b.x = width - 3;
+
+        b.y -= b.vy * dt;
+
+        if (b.y < 3) {
+            b.vy = -b.vy * 0.3;
+            b.y = 3;
+        }
+
+        if (b.y >= height - BOTTOM_ROWS - 1) {
+            b.active = false;
+        }
+    }
+
+    for (int i = 0; i < BLOB_COUNT; i++) {
+        Blob& b = blobs[i];
+        if (!b.active) continue;
+
+        for (uint16_t y = 0; y < height - BOTTOM_ROWS; y++) {
+            for (uint16_t x = 0; x < width; x++) {
+                float dx = x - b.x;
+                float dy = y - b.y;
+                float dist2 = dx * dx + dy * dy;
+                float radius2 = b.radius * b.radius;
+
+                if (dist2 < radius2 * 4) {
+                    float dist = sqrt(dist2);
+                    float glow = 1.0 - (dist / (b.radius * 2));
+                    if (glow < 0) glow = 0;
+
+                    uint8_t intensity = (uint8_t)(glow * 255);
+                    uint8_t r = intensity;
+                    uint8_t g = (intensity * 180) >> 8;
+                    uint8_t b_color = (intensity * 30) >> 8;
+
+                    LedColor& p = pixels[y * width + x];
+                    if (intensity > p.R) {
+                        p = LedColor(r, g, b_color);
+                    }
+                }
+            }
         }
     }
 }

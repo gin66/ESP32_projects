@@ -17,7 +17,7 @@
 
 NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt0Ws2812xMethod> matrix(MATRIX_PIXEL_COUNT, MATRIX_LED_PIN);
 
-static volatile LedMode currentMode = ModeRainbow;
+static volatile LedMode currentMode = ModeMorphingClock;
 static volatile uint8_t ledBrightness = 100;
 static volatile uint8_t staticR = 255;
 static volatile uint8_t staticG = 255;
@@ -25,7 +25,7 @@ static volatile uint8_t staticB = 255;
 static volatile BgStyle bgStyle = BgRings;
 static volatile uint32_t bgSpeed = 3000;
 static volatile uint16_t waveLength = 256;
-static volatile bool showClock = true;
+static volatile bool showClock = false;
 static volatile uint8_t clockBrightness = 100;
 static volatile unsigned long scannerStartTime = 0;
 static volatile float maxCurrent = 1.0;
@@ -380,6 +380,7 @@ void loop() {
     drawClockOverlay(pixelBuffer, MATRIX_WIDTH, MATRIX_HEIGHT, scaledClockBrightness);
   }
   scale = calculateCurrentScale();
+  scale = (uint16_t)scale * ledBrightness / 255;
   currentA = estimateCurrent(pixelBuffer, MATRIX_PIXEL_COUNT, numPanels, scale) / 1000000.0f;
   writePixelBufferToMatrix(scale);
   vTaskDelay(20 / portTICK_PERIOD_MS);

@@ -124,30 +124,38 @@ void drawMorphDigit(LedColor* pixels, uint16_t width, uint8_t digitIndex, uint8_
 }
 
 void drawProgressBar(LedColor* pixels, uint16_t width, unsigned long elapsedMs, struct tm* timeinfo) {
-    uint8_t sec = timeinfo->tm_sec;
+    static unsigned long ms_at_tick = 0;
+    static int last_sec = -1;
+    if (timeinfo->tm_sec != last_sec) {
+        last_sec = timeinfo->tm_sec;
+        ms_at_tick = millis();
+    }
     
-    int16_t peakPos;
-    int16_t maxPos = width - 6;
-    if (sec < 30) {
-        peakPos = (sec * maxPos) / 30;
+    int16_t maxPos100 = (width - 1) * 100;
+    int16_t clockMs = millis() - ms_at_tick;
+    int32_t cycleMs = (timeinfo->tm_sec * 1000) + clockMs;
+    int16_t peakPos100;
+    if (cycleMs < 30000) {
+        peakPos100 = (cycleMs * maxPos100) / 30000;
     } else {
-        peakPos = ((60 - sec) * maxPos) / 30;
+        peakPos100 = ((60000 - cycleMs) * maxPos100) / 30000;
     }
 
-    uint16_t pulseAngle = (elapsedMs % 1000) * 360 / 1000;
-    uint8_t pulse = (uint16_t)getAbsSine(pulseAngle) * 90 / 32768 + 26;
+    uint16_t pulseAngle = (int32_t)(clockMs) * 180 / 1000;
 
-    uint8_t baseHue = (elapsedMs >> 2) & 0xFF;
+    uint8_t hue = (elapsedMs >> 5) & 0xFF;
 
-    for (int i = 0; i < 5; i++) {
-        int x = peakPos + i;
-        if (x >= 0 && x < width) {
-            uint8_t shape = (uint16_t)getAbsSine(i * 90) >> 7;
-            uint8_t hue = baseHue + x * 8;
-            uint8_t brightness = (shape * pulse) >> 8;
-            LedColor c = hsvToRgb2(hue, 255, brightness);
-            pixels[23 * width + x] = c;
+    // brightness is pulsating
+    uint8_t brightness = getAbsSine(pulseAngle) / 140 + 21; // range 21...255
+    for (int x = 0; x < width; x++) {
+        int16_t dist100 = abs(x * 100 - peakPos100);
+        if (dist100 > 300) {
+            // pulse is -3..+3 LEDs, but here we are outside
+            continue;
         }
+        uint8_t amp = getAbsSine((300-dist100) / 4) / 128; // map dist to 75° to 0°
+        LedColor c = hsvToRgb2(hue, 255, (uint16_t)amp * brightness / 255);
+        pixels[23 * width + x] = c;
     }
 }
 

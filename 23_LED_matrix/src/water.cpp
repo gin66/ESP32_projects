@@ -6,13 +6,13 @@ void calculateWater(
     uint16_t height,
     unsigned long elapsedMs)
 {
-    uint16_t t = elapsedMs * 15;
+    uint16_t t = elapsedMs / 10;
 
     for (uint16_t y = 0; y < height; y++) {
         for (uint16_t x = 0; x < width; x++) {
 
-            uint16_t a1 = (x * 180 + t);
-            uint16_t a2 = (y * 220 - t * 2);
+            uint16_t a1 = x * 20 + t;
+            uint16_t a2 = y * 25 - t * 3 / 2;
 
             int16_t v = (getSignedSine(a1) + getSignedSine(a2)) / 2;
 

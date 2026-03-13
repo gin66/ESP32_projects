@@ -1,3 +1,6 @@
+#include <Arduino.h>
+#include <driver/gpio.h>
+
 /**
  * @file tpl_wifi.h
  * @brief WiFi and OTA update module for ESP32 template
@@ -9,9 +12,11 @@
  * - ArduinoOTA for over-the-air firmware updates
  * - NTP time synchronization
  *
- * Network credentials are defined in wifi_secrets.cpp (symlinked from .private/)
+ * Network credentials are defined in wifi_secrets.cpp (symlinked from
+ * .private/)
  *
- * @note OTA authentication is disabled by default. Enable in code for production.
+ * @note OTA authentication is disabled by default. Enable in code for
+ * production.
  */
 
 /**
@@ -26,3 +31,7 @@
  */
 void tpl_wifi_setup(bool verbose, bool waitOTA = true,
                     gpio_num_t ledPin = (gpio_num_t)255);
+
+typedef void (*tpl_wifi_reconnect_callback_t)(void);
+
+void tpl_wifi_register_reconnect(tpl_wifi_reconnect_callback_t callback);

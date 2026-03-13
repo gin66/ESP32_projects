@@ -5,6 +5,7 @@
 
 #include "tpl_command.h"
 #include "tpl_system.h"
+#include "tpl_wifi.h"
 #include "version.h"
 #ifdef IS_ESP32CAM
 #include "tpl_esp_camera.h"
@@ -89,11 +90,13 @@ void tpl_webserver_setup() {
     bool first = true;
     while (file) {
       if (!first) result += ",";
-      result += "{\"name\":\"" + String(file.name()) + "\",\"size\":" + String(file.size()) + "}";
+      result += "{\"name\":\"" + String(file.name()) +
+                "\",\"size\":" + String(file.size()) + "}";
       first = false;
       file = root.openNextFile();
     }
-    result += "],\"total\":" + String(SPIFFS.totalBytes()) + ",\"used\":" + String(SPIFFS.usedBytes()) + "}";
+    result += "],\"total\":" + String(SPIFFS.totalBytes()) +
+              ",\"used\":" + String(SPIFFS.usedBytes()) + "}";
     tpl_server.send(200, "application/json", result);
   });
   tpl_server.on("/spiffs/read", HTTP_GET, []() {
@@ -184,6 +187,11 @@ void tpl_webserver_setup() {
   tpl_server.serveStatic("/serverIndex", SPIFFS, "/serverindex.html",
                          "max-age=31536000");
   tpl_server.begin();
+
+  tpl_wifi_register_reconnect([]() {
+    Serial.println("WebServer: reinitializing");
+    tpl_server.begin();
+  });
 
   xTaskCreatePinnedToCore(TaskWebServerCore0, "WebServer", 4096, NULL, 1,
                           &tpl_tasks.task_webserver, CORE_1);

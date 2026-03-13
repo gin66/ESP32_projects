@@ -1,3 +1,5 @@
+#include "tpl_wifi.h"
+
 #include <ArduinoOTA.h>
 #include <ESPmDNS.h>
 #include <WiFi.h>
@@ -6,10 +8,23 @@
 #include "tpl_system.h"
 #include "wifi_secrets.h"
 
+#define MAX_WIFI_RECONNECT_CALLBACKS 8
+
 RTC_DATA_ATTR int last_connected_network = -1;
 bool automode = false;
 
 WiFiMulti wifiMulti;
+
+static tpl_wifi_reconnect_callback_t
+    wifi_reconnect_callbacks[MAX_WIFI_RECONNECT_CALLBACKS];
+static int wifi_reconnect_callback_count = 0;
+static bool callback_fired = false;
+
+void tpl_wifi_register_reconnect(tpl_wifi_reconnect_callback_t callback) {
+  if (wifi_reconnect_callback_count < MAX_WIFI_RECONNECT_CALLBACKS) {
+    wifi_reconnect_callbacks[wifi_reconnect_callback_count++] = callback;
+  }
+}
 
 static void connect() {
   if (!automode) {
@@ -40,14 +55,25 @@ void TaskWifiManager(void* pvParameters) {
     if (!tpl_config.wifi_manager_shutdown_request) {
       wl_status_t status = WiFi.status();
       IPAddress ip = WiFi.localIP();
-      bool has_valid_ip = (ip[0] != 0 || ip[1] != 0 || ip[2] != 0 || ip[3] != 0);
+      bool has_valid_ip =
+          (ip[0] != 0 || ip[1] != 0 || ip[2] != 0 || ip[3] != 0);
       bool connected = (status == WL_CONNECTED) && has_valid_ip;
 
       if (connected) {
         last_ok_ms = millis();
         if (tpl_config.wifi_recovery_tier != 0) {
-          Serial.printf("WiFi: recovered, tier=%d->0\n", tpl_config.wifi_recovery_tier);
+          Serial.printf("WiFi: recovered, tier=%d->0\n",
+                        tpl_config.wifi_recovery_tier);
           tpl_config.wifi_recovery_tier = 0;
+          callback_fired = false;
+        }
+        if (!callback_fired) {
+          callback_fired = true;
+          for (int i = 0; i < wifi_reconnect_callback_count; i++) {
+            if (wifi_reconnect_callbacks[i]) {
+              wifi_reconnect_callbacks[i]();
+            }
+          }
         }
         ArduinoOTA.handle();
       } else {
@@ -60,15 +86,18 @@ void TaskWifiManager(void* pvParameters) {
         }
 
         if (secs_disconnected > 120 && tpl_config.wifi_recovery_tier < 2) {
-          Serial.printf("WiFi: Tier 2 - stack reset (disconnected %lus)\n", secs_disconnected);
+          Serial.printf("WiFi: Tier 2 - stack reset (disconnected %lus)\n",
+                        secs_disconnected);
           WATCH(21);
           tpl_config.wifi_recovery_tier = 2;
           WiFi.mode(WIFI_OFF);
           vTaskDelay(1000 / portTICK_PERIOD_MS);
           WiFi.mode(WIFI_STA);
           connect();
-        } else if (secs_disconnected > 30 && tpl_config.wifi_recovery_tier < 1) {
-          Serial.printf("WiFi: Tier 1 - reconnect (disconnected %lus)\n", secs_disconnected);
+        } else if (secs_disconnected > 30 &&
+                   tpl_config.wifi_recovery_tier < 1) {
+          Serial.printf("WiFi: Tier 1 - reconnect (disconnected %lus)\n",
+                        secs_disconnected);
           WATCH(11);
           tpl_config.wifi_recovery_tier = 1;
           WiFi.reconnect();

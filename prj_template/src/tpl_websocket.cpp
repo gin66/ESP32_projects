@@ -2,6 +2,7 @@
 
 #include "tpl_command.h"
 #include "tpl_system.h"
+#include "tpl_wifi.h"
 #include "version.h"
 #ifdef IS_ESP32CAM
 #include "tpl_esp_camera.h"
@@ -103,6 +104,11 @@ void TaskWebSocketCore0(void* pvParameters) {
   Serial.println("WebSocket Task started");
   webSocket.begin();
   webSocket.onEvent(webSocketEvent);
+
+  tpl_wifi_register_reconnect([]() {
+    Serial.println("WebSocket: reinitializing");
+    webSocket.begin();
+  });
 
   for (;;) {
     uint32_t now = millis();

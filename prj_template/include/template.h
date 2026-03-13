@@ -15,6 +15,7 @@
  * - tpl_telegram: Telegram bot (requires BOTtoken)
  * - tpl_esp_camera: Camera support (requires IS_ESP32CAM)
  * - tpl_broadcast: UDP broadcast messaging
+ * - tpl_matter: Matter protocol support (requires USE_TPL_MATTER)
  *
  * Typical usage:
  * @code
@@ -40,6 +41,7 @@
 #include "tpl_broadcast.h"
 #include "tpl_command.h"
 #include "tpl_esp_camera.h"
+#include "tpl_matter.h"
 #include "tpl_net_watchdog.h"
 #include "tpl_system.h"
 #include "tpl_telegram.h"

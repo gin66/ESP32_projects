@@ -33,23 +33,49 @@ static void connect() {
 }
 
 void TaskWifiManager(void* pvParameters) {
-  const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
+  const TickType_t xDelay = 100 / portTICK_PERIOD_MS;
+  uint32_t last_ok_ms = millis();
+
   for (;;) {
     if (!tpl_config.wifi_manager_shutdown_request) {
+      wl_status_t status = WiFi.status();
       IPAddress ip = WiFi.localIP();
-      bool has_valid_ip =
-          (ip[0] != 0 || ip[1] != 0 || ip[2] != 0 || ip[3] != 0);
-      if (WiFi.status() != WL_CONNECTED || !has_valid_ip) {
-        if (!has_valid_ip && WiFi.status() == WL_CONNECTED) {
-          Serial.println("IP is 0.0.0.0: force disconnect and reconnect");
-          WiFi.disconnect(/*wifioff=*/true);
-          vTaskDelay(100 / portTICK_PERIOD_MS);
-        } else {
-          Serial.println("not connected: reconnect");
+      bool has_valid_ip = (ip[0] != 0 || ip[1] != 0 || ip[2] != 0 || ip[3] != 0);
+      bool connected = (status == WL_CONNECTED) && has_valid_ip;
+
+      if (connected) {
+        last_ok_ms = millis();
+        if (tpl_config.wifi_recovery_tier != 0) {
+          Serial.printf("WiFi: recovered, tier=%d->0\n", tpl_config.wifi_recovery_tier);
+          tpl_config.wifi_recovery_tier = 0;
         }
-        connect();
-      } else {
         ArduinoOTA.handle();
+      } else {
+        uint32_t secs_disconnected = (millis() - last_ok_ms) / 1000;
+
+        if (!has_valid_ip && status == WL_CONNECTED) {
+          Serial.println("WiFi: IP is 0.0.0.0, force disconnect");
+          WiFi.disconnect(true);
+          vTaskDelay(100 / portTICK_PERIOD_MS);
+        }
+
+        if (secs_disconnected > 120 && tpl_config.wifi_recovery_tier < 2) {
+          Serial.printf("WiFi: Tier 2 - stack reset (disconnected %lus)\n", secs_disconnected);
+          WATCH(21);
+          tpl_config.wifi_recovery_tier = 2;
+          WiFi.mode(WIFI_OFF);
+          vTaskDelay(1000 / portTICK_PERIOD_MS);
+          WiFi.mode(WIFI_STA);
+          connect();
+        } else if (secs_disconnected > 30 && tpl_config.wifi_recovery_tier < 1) {
+          Serial.printf("WiFi: Tier 1 - reconnect (disconnected %lus)\n", secs_disconnected);
+          WATCH(11);
+          tpl_config.wifi_recovery_tier = 1;
+          WiFi.reconnect();
+        } else if (tpl_config.wifi_recovery_tier == 0) {
+          Serial.println("WiFi: not connected, reconnect");
+          connect();
+        }
       }
     } else {
       tpl_config.wifi_manager_shutdown = true;

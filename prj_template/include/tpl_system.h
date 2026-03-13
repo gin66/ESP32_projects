@@ -67,6 +67,8 @@ extern struct tpl_config_s {
   size_t curr_jpg_len;
   uint32_t last_seen_watchpoint;
   uint32_t watchpoint;
+  volatile uint8_t wifi_recovery_tier;
+  volatile uint32_t net_last_ok_ms;
 } tpl_config;
 
 #ifdef HAS_STEPPERS

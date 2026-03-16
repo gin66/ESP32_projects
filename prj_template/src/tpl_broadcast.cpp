@@ -32,8 +32,12 @@ bool tpl_broadcast_receive(void* buffer, size_t buffer_size,
                            size_t* received_size) {
   int packetSize = udp.parsePacket();
   unsigned long now = millis();
-  if (packetSize > 0 && packetSize <= buffer_size) {
+  if (packetSize > buffer_size) {
+    udp.flush();
+  }
+  else if (packetSize > 0) {
     size_t bytes_read = udp.read((uint8_t*)buffer, packetSize);
+    udp.flush();
 
     if (received_size != NULL) {
       *received_size = bytes_read;

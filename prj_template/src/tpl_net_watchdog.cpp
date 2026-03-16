@@ -143,8 +143,8 @@ void TaskWatchdog(void* pvParameters) {
         Serial.printf("NetWatch: NTP failed (cnt=%d), fail=%d\n", ntp_consecutive_fails, tpl_fail);
       }
 
-      if (tpl_fail >= 300 && tpl_config.wifi_recovery_tier >= 2) {
-        Serial.println("NetWatch: 5min timeout with tier=2, restarting");
+      if (tpl_fail >= 300) {
+        Serial.println("NetWatch: 5min timeout, restarting");
         delay(100);
         ESP.restart();
       }

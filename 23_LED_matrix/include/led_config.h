@@ -2,17 +2,16 @@
 
 #include <stdint.h>
 
-#ifndef MATRIX_WIDTH
+#define PANELS 4
+
+// Panel rotation pattern:
+// PANEL_ROTATION_ODD: panels 2/4 rotated, 1/3 not (panelIndex % 2 == 1)
+// default: panels 1/3 rotated, 2/4 not (panelIndex % 2 == 0)
+#define PANEL_ROTATION_ODD
+#define MATRIX_LED_PIN 16
 #define MATRIX_WIDTH 32
-#endif
-
-#ifndef MATRIX_HEIGHT
-#define MATRIX_HEIGHT 32
-#endif
-
-#ifndef MATRIX_PIXEL_COUNT
+#define MATRIX_HEIGHT (8 * PANELS)
 #define MATRIX_PIXEL_COUNT (MATRIX_WIDTH * MATRIX_HEIGHT)
-#endif
 
 enum LedMode {
     ModeOff,

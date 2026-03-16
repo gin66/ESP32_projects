@@ -7,12 +7,6 @@
 
 #define WDT_TIMEOUT_S 10
 
-#define PANELS 3
-#define MATRIX_LED_PIN 16
-#define MATRIX_WIDTH 32
-#define MATRIX_HEIGHT (8*PANELS)
-#define MATRIX_PIXEL_COUNT (MATRIX_WIDTH * MATRIX_HEIGHT)
-
 #include "led_effects.h"
 
 NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt0Ws2812xMethod> matrix(MATRIX_PIXEL_COUNT, MATRIX_LED_PIN);

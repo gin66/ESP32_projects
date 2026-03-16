@@ -33,7 +33,11 @@ uint16_t xyToIndex(uint16_t x, uint16_t y, uint16_t width, uint16_t height) {
     uint16_t xi = x;
     uint16_t yi = localY;
     
+#ifdef PANEL_ROTATION_ODD
+    bool rotated = (panelIndex % 2 == 1);
+#else
     bool rotated = (panelIndex % 2 == 0);
+#endif
     if (rotated) {
         xi = width - 1 - xi;
         yi = panelHeight - 1 - yi;

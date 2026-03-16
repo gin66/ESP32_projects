@@ -32,6 +32,6 @@
 void tpl_wifi_setup(bool verbose, bool waitOTA = true,
                     gpio_num_t ledPin = (gpio_num_t)255);
 
-typedef void (*tpl_wifi_reconnect_callback_t)(void);
+typedef void (*tpl_wifi_reconnect_callback_t)(unsigned long current_ms);
 
 void tpl_wifi_register_reconnect(tpl_wifi_reconnect_callback_t callback);

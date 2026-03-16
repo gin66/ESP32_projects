@@ -71,7 +71,7 @@ void TaskWifiManager(void* pvParameters) {
           callback_fired = true;
           for (int i = 0; i < wifi_reconnect_callback_count; i++) {
             if (wifi_reconnect_callbacks[i]) {
-              wifi_reconnect_callbacks[i]();
+              wifi_reconnect_callbacks[i](last_ok_ms);
             }
           }
         }

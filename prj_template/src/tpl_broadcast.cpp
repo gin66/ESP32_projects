@@ -9,8 +9,10 @@
 WiFiUDP udp;
 static const char* broadcast = NULL;
 static uint16_t port;
+static unsigned long last_receive_ms = 0;
+static unsigned long last_reinit_ms = 0;
 
-static void tpl_broadcast_reinit(void);
+static void tpl_broadcast_reinit(unsigned long current_ms);
 
 void tpl_broadcast_setup(uint16_t udpPort, const char* broadcastAddress) {
   broadcast = broadcastAddress;
@@ -29,6 +31,7 @@ void tpl_broadcast(uint8_t* packet, uint8_t length) {
 bool tpl_broadcast_receive(void* buffer, size_t buffer_size,
                            size_t* received_size) {
   int packetSize = udp.parsePacket();
+  unsigned long now = millis();
   if (packetSize > 0 && packetSize <= buffer_size) {
     size_t bytes_read = udp.read((uint8_t*)buffer, packetSize);
 
@@ -36,15 +39,26 @@ bool tpl_broadcast_receive(void* buffer, size_t buffer_size,
       *received_size = bytes_read;
     }
 
-    return bytes_read > 0;
+    if (bytes_read > 0) {
+      last_receive_ms = now;
+      return true;
+    }
   }
+
+  // Self-healing: reinit UDP socket if no packet received for 60s
+  // Protects against silent UDP socket death on ESP32 (lwIP issue)
+  if ((now - last_reinit_ms > 60000) && (now - last_receive_ms > 60000)) {
+    tpl_broadcast_reinit(now);
+  }
+
   return false;
 }
 
-void tpl_broadcast_reinit(void) {
+void tpl_broadcast_reinit(unsigned long current_ms) {
   if (port > 0) {
     Serial.printf("Broadcast: reinitializing UDP on port %d\n", port);
     udp.stop();
     udp.begin(port);
+    last_reinit_ms = current_ms;
   }
 }

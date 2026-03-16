@@ -188,7 +188,7 @@ void tpl_webserver_setup() {
                          "max-age=31536000");
   tpl_server.begin();
 
-  tpl_wifi_register_reconnect([]() {
+  tpl_wifi_register_reconnect([](unsigned long current_ms) {
     Serial.println("WebServer: reinitializing");
     tpl_server.begin();
   });

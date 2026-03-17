@@ -114,6 +114,8 @@ void TaskWifiManager(void* pvParameters) {
 }
 
 void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
+  WiFi.setSleep(false);  // Disable WiFi power saving to reduce latency
+
   bool need_connect = true;
   if (last_connected_network != -1) {
     if (verbose) {
@@ -135,7 +137,6 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
       Serial.println(WiFi.localIP());
     }
 
-    WiFi.setSleep(false);  // Disable WiFi power saving to reduce latency
     connect();
   }
   if (verbose) {

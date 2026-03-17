@@ -14,7 +14,7 @@
 // #include <esp_wifi.h>
 // #include <mem.h>
 
-#include "../../private_bot.h"
+#include "../../../.private/private_bot.h"
 // #include "driver/gpio.h"
 // #include "driver/rtc_io.h"
 // #include "esp32-hal-psram.h"

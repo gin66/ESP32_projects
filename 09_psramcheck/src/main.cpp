@@ -10,8 +10,8 @@
 #include <WiFi.h>
 #include <WiFiClient.h>
 
-#include "../../private_bot.h"
-#include "../../private_sha.h"
+#include "../../../.private/private_bot.h"
+#include "../../../.private/private_sha.h"
 #include "esp32-hal-psram.h"
 
 using namespace std;

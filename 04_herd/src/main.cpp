@@ -1,37 +1,27 @@
-#include "esp_camera.h"
 #include "string.h"
-// #include "soc/soc.h"
-// #include "soc/rtc_cntl_reg.h"
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <ArduinoOTA.h>
-#include <ESP32Ping.h>
-#include <WebServer.h>
-#include <WebSocketsServer.h>
-#include <WiFi.h>
-#include <WiFiClient.h>
-#include <base64.h>
 
 #include "driver/adc.h"
 #include "driver/dac.h"
 #include "esp32-hal-psram.h"
 #include "esp_log.h"
-#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "template.h"
 
-using namespace std;
+static const char* TAG = "HERD";
 
-#define DAC_PIN 25 /* DAC_CHANNEL_1 */
+#define DAC_PIN 25
 #define CHANNEL_LEFT ADC1_CHANNEL_4
 #define CHANNEL_MIDDLE ADC1_CHANNEL_7
 #define CHANNEL_RIGHT ADC1_CHANNEL_5
 
-#define PIN_LEFT 32  // without pullup
+#define PIN_LEFT 32
 #define PIN_MIDDLE 35
-#define PIN_RIGHT 33  // without pullup
+#define PIN_RIGHT 33
 
 struct val_s {
   int16_t val_last;
@@ -50,229 +40,97 @@ struct channel_s {
   bool is_rising;
 } channel[3];
 
-WebServer server(80);
-extern const uint8_t index_html_start[] asm("_binary_src_index_html_start");
-extern const uint8_t server_index_html_start[] asm(
-    "_binary_src_serverindex_html_start");
+enum HerdCommand {
+  HerdIdle,
+} command = HerdIdle;
 
-bool qrMode = true;
+void publish_herd_ws(DynamicJsonDocument* json) {
+  (*json)["ch_left"] = channel[0].curr.val_last;
+  (*json)["ch_middle"] = channel[1].curr.val_last;
+  (*json)["ch_right"] = channel[2].curr.val_last;
+  (*json)["avg_left"] = channel[0].curr.val_avg;
+  (*json)["avg_middle"] = channel[1].curr.val_avg;
+  (*json)["avg_right"] = channel[2].curr.val_avg;
+  (*json)["min_left"] = channel[0].curr.val_min;
+  (*json)["min_middle"] = channel[1].curr.val_min;
+  (*json)["min_right"] = channel[2].curr.val_min;
+  (*json)["max_left"] = channel[0].curr.val_max;
+  (*json)["max_middle"] = channel[1].curr.val_max;
+  (*json)["max_right"] = channel[2].curr.val_max;
+  (*json)["ch_left_0"] = channel[0].val[0].val_last;
+  (*json)["ch_middle_0"] = channel[1].val[0].val_last;
+  (*json)["ch_right_0"] = channel[2].val[0].val_last;
+  (*json)["avg_left_0"] = channel[0].val[0].val_avg;
+  (*json)["avg_middle_0"] = channel[1].val[0].val_avg;
+  (*json)["avg_right_0"] = channel[2].val[0].val_avg;
+  (*json)["min_left_0"] = channel[0].val[0].val_min;
+  (*json)["min_middle_0"] = channel[1].val[0].val_min;
+  (*json)["min_right_0"] = channel[2].val[0].val_min;
+  (*json)["max_left_0"] = channel[0].val[0].val_max;
+  (*json)["max_middle_0"] = channel[1].val[0].val_max;
+  (*json)["max_right_0"] = channel[2].val[0].val_max;
+  (*json)["ch_left_1"] = channel[0].val[1].val_last;
+  (*json)["ch_middle_1"] = channel[1].val[1].val_last;
+  (*json)["ch_right_1"] = channel[2].val[1].val_last;
+  (*json)["avg_left_1"] = channel[0].val[1].val_avg;
+  (*json)["avg_middle_1"] = channel[1].val[1].val_avg;
+  (*json)["avg_right_1"] = channel[2].val[1].val_avg;
+  (*json)["min_left_1"] = channel[0].val[1].val_min;
+  (*json)["min_middle_1"] = channel[1].val[1].val_min;
+  (*json)["min_right_1"] = channel[2].val[1].val_min;
+  (*json)["max_left_1"] = channel[0].val[1].val_max;
+  (*json)["max_middle_1"] = channel[1].val[1].val_max;
+  (*json)["max_right_1"] = channel[2].val[1].val_max;
+  (*json)["mean_left_0"] = channel[0].val[0].val_mean;
+  (*json)["mean_middle_0"] = channel[1].val[0].val_mean;
+  (*json)["mean_right_0"] = channel[2].val[0].val_mean;
+  (*json)["mean_left_1"] = channel[0].val[1].val_mean;
+  (*json)["mean_middle_1"] = channel[1].val[1].val_mean;
+  (*json)["mean_right_1"] = channel[2].val[1].val_mean;
 
-enum Command {
-  IDLE,
-} command = IDLE;
-
-WebSocketsServer webSocket = WebSocketsServer(81);
-
-void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
-                    size_t length) {
-  switch (type) {
-    case WStype_DISCONNECTED:
-      Serial.print("websocket disconnected: ");
-      Serial.println(num);
-      break;
-    case WStype_CONNECTED:
-      Serial.print("websocket connected: ");
-      Serial.println(num);
-      break;
-    case WStype_TEXT: {
-      Serial.print("received from websocket: ");
-      Serial.println((char*)payload);
-      DynamicJsonDocument json(4096);
-      deserializeJson(json, (char*)payload);
-      if (json.containsKey("garage")) {
-      }
-    } break;
-    case WStype_BIN:
-    case WStype_ERROR:
-    case WStype_FRAGMENT:
-    case WStype_FRAGMENT_FIN:
-    case WStype_FRAGMENT_TEXT_START:
-    case WStype_FRAGMENT_BIN_START:
-    case WStype_PING:
-    case WStype_PONG:
-      break;
-  }
-}
-void TaskWebSocket(void* pvParameters) {
-  const TickType_t xDelay = 1 + 10 / portTICK_PERIOD_MS;
-  uint32_t send_status_ms = 0;
-
-  Serial.println("WebSocket Task started");
-  webSocket.begin();
-  webSocket.onEvent(webSocketEvent);
-
-  for (;;) {
-    uint32_t now = millis();
-    webSocket.loop();
-
-    if (now > send_status_ms) {
-      send_status_ms = now + 100;
-      String data = "........................................";
-      for (int i = 0; i < 40; i++) {
-        // char ch = 48 + digitalRead(i);
-        // data.setCharAt(i, ch);
-      }
-      DynamicJsonDocument myObject(4096);
-      myObject["millis"] = millis();
-      myObject["mem_free"] = (long)ESP.getFreeHeap();
-      myObject["stack_free"] = (long)uxTaskGetStackHighWaterMark(NULL);
-      // myObject["time"] = formattedTime;
-      // myObject["b64"] = base64::encode((uint8_t*)data_buf, data_idx);
-      myObject["ch_left"] = channel[0].curr.val_last;
-      myObject["ch_middle"] = channel[1].curr.val_last;
-      myObject["ch_right"] = channel[2].curr.val_last;
-      myObject["avg_left"] = channel[0].curr.val_avg;
-      myObject["avg_middle"] = channel[1].curr.val_avg;
-      myObject["avg_right"] = channel[2].curr.val_avg;
-      myObject["min_left"] = channel[0].curr.val_min;
-      myObject["min_middle"] = channel[1].curr.val_min;
-      myObject["min_right"] = channel[2].curr.val_min;
-      myObject["max_left"] = channel[0].curr.val_max;
-      myObject["max_middle"] = channel[1].curr.val_max;
-      myObject["max_right"] = channel[2].curr.val_max;
-      myObject["ch_left_0"] = channel[0].val[0].val_last;
-      myObject["ch_middle_0"] = channel[1].val[0].val_last;
-      myObject["ch_right_0"] = channel[2].val[0].val_last;
-      myObject["avg_left_0"] = channel[0].val[0].val_avg;
-      myObject["avg_middle_0"] = channel[1].val[0].val_avg;
-      myObject["avg_right_0"] = channel[2].val[0].val_avg;
-      myObject["min_left_0"] = channel[0].val[0].val_min;
-      myObject["min_middle_0"] = channel[1].val[0].val_min;
-      myObject["min_right_0"] = channel[2].val[0].val_min;
-      myObject["max_left_0"] = channel[0].val[0].val_max;
-      myObject["max_middle_0"] = channel[1].val[0].val_max;
-      myObject["max_right_0"] = channel[2].val[0].val_max;
-      myObject["ch_left_1"] = channel[0].val[1].val_last;
-      myObject["ch_middle_1"] = channel[1].val[1].val_last;
-      myObject["ch_right_1"] = channel[2].val[1].val_last;
-      myObject["avg_left_1"] = channel[0].val[1].val_avg;
-      myObject["avg_middle_1"] = channel[1].val[1].val_avg;
-      myObject["avg_right_1"] = channel[2].val[1].val_avg;
-      myObject["min_left_1"] = channel[0].val[1].val_min;
-      myObject["min_middle_1"] = channel[1].val[1].val_min;
-      myObject["min_right_1"] = channel[2].val[1].val_min;
-      myObject["max_left_1"] = channel[0].val[1].val_max;
-      myObject["max_middle_1"] = channel[1].val[1].val_max;
-      myObject["max_right_1"] = channel[2].val[1].val_max;
-
-      myObject["mean_left_0"] = channel[0].val[0].val_mean;
-      myObject["mean_middle_0"] = channel[1].val[0].val_mean;
-      myObject["mean_right_0"] = channel[2].val[0].val_mean;
-      myObject["mean_left_1"] = channel[0].val[1].val_mean;
-      myObject["mean_middle_1"] = channel[1].val[1].val_mean;
-      myObject["mean_right_1"] = channel[2].val[1].val_mean;
-
-      // compute the required size
-      const size_t CAPACITY = JSON_ARRAY_SIZE(20) * 2 + JSON_ARRAY_SIZE(2);
-      //
-      // allocate the memory for the document
-      StaticJsonDocument<CAPACITY> ls_summed;
-      StaticJsonDocument<CAPACITY> ms_summed;
-      StaticJsonDocument<CAPACITY> rs_summed;
-      StaticJsonDocument<CAPACITY> sumcnt;
-      for (int j = 0; j < 2; j++) {
-        for (int k = 0; k < 20; k++) {
-          ls_summed[j][k] = (long)channel[0].val[j].summed[k];
-          ms_summed[j][k] = (long)channel[1].val[j].summed[k];
-          rs_summed[j][k] = (long)channel[2].val[j].summed[k];
-          sumcnt[j][k] =
-              (long)channel[0].val[j].sumcnt[k];  // any channel is ok
-        }
-      }
-      myObject["left_summed_0"] = ls_summed[0];
-      myObject["left_summed_1"] = ls_summed[1];
-      myObject["middle_summed_0"] = ms_summed[0];
-      myObject["middle_summed_1"] = ms_summed[1];
-      myObject["right_summed_0"] = rs_summed[0];
-      myObject["right_summed_1"] = rs_summed[1];
-      myObject["sumcnt_0"] = sumcnt[0];
-      myObject["sumcnt_1"] = sumcnt[1];
-      // myObject["button_digital"] = digitalRead(BUTTON_PIN);
-      myObject["digital"] = data;
-      // myObject["sample_rate"] = I2S_SAMPLE_RATE;
-      myObject["wifi_dBm"] = WiFi.RSSI();
-      myObject["SSID"] = WiFi.SSID();
-
-#define BUFLEN 4096
-      char buffer[BUFLEN];
-      /* size_t bx = */ serializeJson(myObject, &buffer, BUFLEN);
-      String as_json = String(buffer);
-      webSocket.broadcastTXT(as_json);
+  const size_t CAPACITY = JSON_ARRAY_SIZE(20) * 2 + JSON_ARRAY_SIZE(2);
+  StaticJsonDocument<CAPACITY> ls_summed;
+  StaticJsonDocument<CAPACITY> ms_summed;
+  StaticJsonDocument<CAPACITY> rs_summed;
+  StaticJsonDocument<CAPACITY> sumcnt;
+  for (int j = 0; j < 2; j++) {
+    for (int k = 0; k < 20; k++) {
+      ls_summed[j][k] = (long)channel[0].val[j].summed[k];
+      ms_summed[j][k] = (long)channel[1].val[j].summed[k];
+      rs_summed[j][k] = (long)channel[2].val[j].summed[k];
+      sumcnt[j][k] = (long)channel[0].val[j].sumcnt[k];
     }
-    vTaskDelay(xDelay);
   }
+  (*json)["left_summed_0"] = ls_summed[0];
+  (*json)["left_summed_1"] = ls_summed[1];
+  (*json)["middle_summed_0"] = ms_summed[0];
+  (*json)["middle_summed_1"] = ms_summed[1];
+  (*json)["right_summed_0"] = rs_summed[0];
+  (*json)["right_summed_1"] = rs_summed[1];
+  (*json)["sumcnt_0"] = sumcnt[0];
+  (*json)["sumcnt_1"] = sumcnt[1];
 }
 
-//---------------------------------------------------
 void setup() {
+  tpl_system_setup(0);
+
   Serial.begin(115200);
   Serial.setDebugOutput(true);
 
   esp_log_level_set("*", ESP_LOG_NONE);
   ESP_LOGE(TAG, "Free heap: %u", xPortGetFreeHeapSize());
 
-  my_wifi_setup(false);
-
-  server.onNotFound([]() { server.send(404); });
-  /*handling uploading firmware file */
-  server.on("/", HTTP_GET, []() {
-    server.sendHeader("Connection", "close");
-    server.send_P(200, "text/html", (const char*)index_html_start);
-  });
-  server.on("/serverIndex", HTTP_GET, []() {
-    server.sendHeader("Connection", "close");
-    server.send_P(200, "text/html", (const char*)server_index_html_start);
-  });
-  /*handling uploading firmware file */
-  server.on(
-      "/update", HTTP_POST,
-      []() {
-        server.sendHeader("Connection", "close");
-        server.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
-        ESP.restart();
-      },
-      []() {
-        HTTPUpload& upload = server.upload();
-        if (upload.status == UPLOAD_FILE_START) {
-          Serial.printf("Update: %s\n", upload.filename.c_str());
-          if (!Update.begin(
-                  UPDATE_SIZE_UNKNOWN)) {  // start with max available size
-            Update.printError(Serial);
-          }
-        } else if (upload.status == UPLOAD_FILE_WRITE) {
-          /* flashing firmware to ESP*/
-          if (Update.write(upload.buf, upload.currentSize) !=
-              upload.currentSize) {
-            Update.printError(Serial);
-          }
-        } else if (upload.status == UPLOAD_FILE_END) {
-          if (Update.end(
-                  true)) {  // true to set the size to the current progress
-            Serial.printf("Update Success: %u\nRebooting...\n",
-                          upload.totalSize);
-          } else {
-            Update.printError(Serial);
-          }
-        }
-      });
-  server.begin();
+  tpl_wifi_setup(true, false, (gpio_num_t)tpl_ledPin);
+  tpl_webserver_setup();
+  tpl_websocket_setup(publish_herd_ws, NULL);
+  tpl_net_watchdog_setup();
+  tpl_command_setup(NULL);
 
   ESP_LOGE(TAG, "Free heap after setup: %u", xPortGetFreeHeapSize());
   ESP_LOGE(TAG, "Total heap: %u", ESP.getHeapSize());
   ESP_LOGE(TAG, "Free heap: %u", ESP.getFreeHeap());
   ESP_LOGE(TAG, "Total PSRAM: %u", ESP.getPsramSize());
   ESP_LOGE(TAG, "Free PSRAM: %u", ESP.getFreePsram());
-
-  BaseType_t rc;
-
-  rc = xTaskCreatePinnedToCore(TaskWebSocket, "WebSocket", 81920, (void*)1, 1,
-                               NULL, 0);
-  if (rc != pdPASS) {
-    Serial.print("cannot start websocket task=");
-    Serial.println(rc);
-  }
-
-  startNetWatchDog();
 
   pinMode(PIN_LEFT, OUTPUT);
   pinMode(PIN_MIDDLE, OUTPUT);
@@ -291,7 +149,7 @@ void setup() {
   adc1_config_channel_atten(CHANNEL_MIDDLE, ADC_ATTEN_DB_0);
   adc1_config_channel_atten(CHANNEL_RIGHT, ADC_ATTEN_DB_0);
   dac_output_enable(DAC_CHANNEL_1);
-#define VOUT 500 /* mV */
+#define VOUT 500
   dac_output_voltage(DAC_CHANNEL_1, VOUT * 256 / 3300);
 
   channel[0].channel = CHANNEL_LEFT;
@@ -308,20 +166,15 @@ void setup() {
       ch->val[j] = ch->curr;
     }
   }
+
+  Serial.println("Setup done.");
 }
 
-#define VOUT_0 550 /* mV */
-#define VOUT_1 450 /* mV */
+#define VOUT_0 550
+#define VOUT_1 450
 uint8_t curr_voltage = 255;
 
 void loop() {
-  my_wifi_loop(false);
-  //  uint32_t period = 1000;
-  //  if (fail >= 50) {
-  //    period = 300;
-  //  }
-  server.handleClient();
-
   uint8_t new_voltage;
   uint32_t now = millis();
   if (now & 32768) {
@@ -360,7 +213,7 @@ void loop() {
     }
   }
 
-  uint8_t index = now % 20;  // 20 ms for 50 Hz
+  uint8_t index = now % 20;
   for (int i = 0; i < 3; i++) {
     struct channel_s* ch = &channel[i];
     int32_t curr_val = adc1_get_raw(ch->channel);
@@ -383,8 +236,11 @@ void loop() {
   }
 
   switch (command) {
-    case IDLE:
+    case HerdIdle:
       break;
   }
-  command = IDLE;
+  command = HerdIdle;
+
+  const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
+  vTaskDelay(xDelay);
 }

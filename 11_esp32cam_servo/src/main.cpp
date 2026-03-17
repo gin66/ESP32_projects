@@ -32,6 +32,7 @@ void print_info() {
 }
 
 uint16_t duty = 0;
+int servo_channel = 0;
 
 void servo_update(DynamicJsonDocument* json) {
   if (json->containsKey("servo")) {
@@ -60,8 +61,9 @@ void setup() {
     Serial.println("PSRAM found and loaded");
   }
 
-  ledcSetup(0, 50, 16);
-  ledcAttachPin(12, 0);
+  servo_channel = 0;
+  ledcSetup(servo_channel, 50, 16);
+  ledcAttachPin(12, servo_channel);
 
   Serial.println("Done.");
 }
@@ -73,6 +75,6 @@ void loop() {
   // 1-2 ms with 20ms => duty = 1*65536/20..2*65536/20 = 3276.8 .. 6553.6
   //
   // 500..~2700ms = 1638..8850
-  ledcWrite(0, duty / 9 + 1638);
+  ledcWrite(servo_channel, duty / 9 + 1638);
   duty += 20;
 }

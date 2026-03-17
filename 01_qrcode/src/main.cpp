@@ -9,7 +9,7 @@
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <base64.h>
-#include <hwcrypto/sha.h>
+#include <mbedtls/sha1.h>
 #include <time.h>
 
 #include "../../../.private/private_bot.h"
@@ -284,7 +284,7 @@ bool check_unlock(bool prev_minute) {
   uint8_t sha1HashBin[20] = {0};
   // "19.12.20, 21:44 "
   String data = String(strftime_buf) + SHA_SEED;
-  esp_sha(SHA1, (unsigned char*)data.c_str(), data.length(), &sha1HashBin[0]);
+  mbedtls_sha1((unsigned char*)data.c_str(), data.length(), &sha1HashBin[0]);
 
   char result[10];
   sprintf(result, "%02x%02x", sha1HashBin[0], sha1HashBin[1]);

@@ -6,7 +6,6 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <ArduinoOTA.h>
-#include <ESP32Ping.h>
 #include <WebServer.h>
 #include <WiFi.h>
 #include <WiFiClient.h>

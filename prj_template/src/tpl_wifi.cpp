@@ -3,6 +3,7 @@
 #include <ArduinoOTA.h>
 #include <ESPmDNS.h>
 #include <WiFi.h>
+#include <inttypes.h>
 #include <WiFiMulti.h>
 
 #include "tpl_system.h"
@@ -86,7 +87,7 @@ void TaskWifiManager(void* pvParameters) {
         }
 
         if (secs_disconnected > 120 && tpl_config.wifi_recovery_tier < 2) {
-          Serial.printf("WiFi: Tier 2 - stack reset (disconnected %lus)\n",
+          Serial.printf("WiFi: Tier 2 - stack reset (disconnected %" PRIu32 "s)\n",
                         secs_disconnected);
           WATCH(21);
           tpl_config.wifi_recovery_tier = 2;
@@ -96,7 +97,7 @@ void TaskWifiManager(void* pvParameters) {
           connect();
         } else if (secs_disconnected > 30 &&
                    tpl_config.wifi_recovery_tier < 1) {
-          Serial.printf("WiFi: Tier 1 - reconnect (disconnected %lus)\n",
+          Serial.printf("WiFi: Tier 1 - reconnect (disconnected %" PRIu32 "s)\n",
                         secs_disconnected);
           WATCH(11);
           tpl_config.wifi_recovery_tier = 1;

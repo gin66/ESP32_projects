@@ -1,3 +1,4 @@
+#include <Arduino.h>
 #include "base64.h"
 #include "template.h"
 

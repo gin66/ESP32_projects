@@ -1,6 +1,7 @@
 #include "tpl_webserver.h"
 
 #include <ArduinoOTA.h>
+#include <inttypes.h>
 #include <WebServer.h>
 
 #include "tpl_command.h"
@@ -120,7 +121,7 @@ void tpl_webserver_setup() {
   tpl_server.on("/cpu", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
     char buf[48];
-    snprintf(buf, sizeof(buf), "CPU0: %lu%% CPU1: %lu%%", cpu_load_core0,
+    snprintf(buf, sizeof(buf), "CPU0: %" PRIu32 "%% CPU1: %" PRIu32 "%%", cpu_load_core0,
              cpu_load_core1);
     tpl_server.send(200, "text/html", buf);
   });

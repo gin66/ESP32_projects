@@ -137,7 +137,7 @@ uint8_t CH340::serialInit(uint32_t baud) {
     factor >>= 3;
     divisor--;
   }
-  if (factor > 0xfff0) return USB_ERROR_UNSUPPORTED_FEATURE;
+  if (factor > 0xfff0) return USB_ERROR_INVALID_ARGUMENT;
 
   // wVal encodes the prescaler; wIdx is the LCR (8N1)
   uint16_t wVal = ((uint16_t)(0x10000UL - factor) & 0xFF00) | divisor;

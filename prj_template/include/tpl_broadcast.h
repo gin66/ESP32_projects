@@ -22,3 +22,6 @@ void tpl_broadcast_setup(uint16_t udpPort = STROMZAEHLER_PORT,
 void tpl_broadcast(uint8_t* packet, uint8_t length);
 bool tpl_broadcast_receive(void* buffer, size_t buffer_size,
                            size_t* received_size = NULL);
+void tpl_broadcast_force_reinit();
+int tpl_broadcast_get_reinit_count();
+uint16_t tpl_broadcast_get_port();

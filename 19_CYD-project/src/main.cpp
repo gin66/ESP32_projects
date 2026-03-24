@@ -115,6 +115,7 @@ TFT_eSPI tft = TFT_eSPI();
 // Broadcast receiver variables and functions
 stromzaehler_packet_s g_stromzaehler_data;
 unsigned long g_last_broadcast_time = 0;
+static uint32_t g_invalid_packet_count = 0;
 
 // Function to update power display labels
 static void update_power_labels(void) {
@@ -161,21 +162,27 @@ void check_broadcast() {
 
   if (tpl_broadcast_receive(&packet, sizeof(packet), &received_size)) {
     if (received_size == sizeof(stromzaehler_packet_s)) {
-      g_last_broadcast_time = millis();
-      memcpy(&g_stromzaehler_data, &packet, sizeof(stromzaehler_packet_s));
+      bool valid = !isnan(packet.current_W) && !isinf(packet.current_W) &&
+                   !isnan(packet.consumption_Wh) && !isinf(packet.consumption_Wh) &&
+                   !isnan(packet.production_Wh) && !isinf(packet.production_Wh) &&
+                   packet.current_W > -100000.0f && packet.current_W < 100000.0f &&
+                   packet.consumption_Wh >= 0.0f && packet.production_Wh >= 0.0f;
 
-      // Output to Serial
-      Serial.printf(
-          "[Broadcast] Time: %02d:%02d:%02d, Current: %.1fW, Consumption: "
-          "%.1fWh, Production: %.1fWh\n",
-          packet.tm_hour, packet.tm_min, packet.tm_sec, packet.current_W,
-          packet.consumption_Wh, packet.production_Wh);
+      if (!valid) {
+        g_invalid_packet_count++;
+        char dbg[16];
+        snprintf(dbg, sizeof(dbg), "INV:%lu", g_invalid_packet_count);
+        if (objects.debug != NULL) {
+          lv_label_set_text(objects.debug, dbg);
+        }
+      } else {
+        g_last_broadcast_time = millis();
+        memcpy(&g_stromzaehler_data, &packet, sizeof(stromzaehler_packet_s));
 
-      // Update power chart with current power value
-      power_chart_add_value(packet.current_W);
+        power_chart_add_value(packet.current_W);
+        update_power_labels();
+      }
 
-      // Update power display labels
-      update_power_labels();
     } else {
       Serial.printf("[Broadcast] Received %zu bytes, expected %zu\n",
                     received_size, sizeof(stromzaehler_packet_s));
@@ -330,17 +337,6 @@ void backlight_update() {
     }
     ledcWrite(7, g_backlight_current);
   }
-
-  // Debug output
-  if (objects.debug != NULL) {
-    static uint8_t last_debug_value = 0;
-    if (g_backlight_current != last_debug_value) {
-      last_debug_value = g_backlight_current;
-      char buf[32];
-      snprintf(buf, sizeof(buf), "BL: %d", g_backlight_current);
-      lv_label_set_text(objects.debug, buf);
-    }
-  }
 }
 
 // lvgl initialization for esp32 board
@@ -403,6 +399,35 @@ void setup() {
   tpl_webserver_setup();
   tpl_websocket_setup(NULL, NULL);
   tpl_broadcast_setup();
+
+  tpl_server.on("/broadcast", HTTP_GET, []() {
+    unsigned long now = millis();
+    String json = "{";
+    json += "\"last_broadcast_ago_sec\":" + String((now - g_last_broadcast_time) / 1000) + ",";
+    json += "\"last_broadcast_time\":" + String(g_last_broadcast_time) + ",";
+    json += "\"current_W\":" + String(g_stromzaehler_data.current_W, 1) + ",";
+    json += "\"consumption_Wh\":" + String(g_stromzaehler_data.consumption_Wh, 1) + ",";
+    json += "\"production_Wh\":" + String(g_stromzaehler_data.production_Wh, 1) + ",";
+    json += "\"time\":\"" + String(g_stromzaehler_data.tm_hour) + ":" +
+            String(g_stromzaehler_data.tm_min) + ":" + String(g_stromzaehler_data.tm_sec) + "\",";
+    json += "\"heap_free\":" + String(ESP.getFreeHeap()) + ",";
+    json += "\"uptime_sec\":" + String(now / 1000) + ",";
+    json += "\"reinit_count\":" + String(tpl_broadcast_get_reinit_count()) + ",";
+    json += "\"wifi_rssi\":" + String(WiFi.RSSI()) + ",";
+    json += "\"wifi_status\":" + String(WiFi.status()) + ",";
+    json += "\"udp_port\":" + String(tpl_broadcast_get_port()) + ",";
+    json += "\"invalid_packets\":" + String(g_invalid_packet_count);
+    json += "}";
+    tpl_server.sendHeader("Access-Control-Allow-Origin", "*");
+    tpl_server.send(200, "application/json", json);
+  });
+
+  tpl_server.on("/broadcast/reinit", HTTP_GET, []() {
+    tpl_broadcast_force_reinit();
+    tpl_server.sendHeader("Access-Control-Allow-Origin", "*");
+    tpl_server.send(200, "application/json", "{\"ok\":true}");
+  });
+
   tpl_command_setup(NULL);
 
   // Start LVGL

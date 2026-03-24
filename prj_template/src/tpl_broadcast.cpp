@@ -11,6 +11,7 @@ static const char* broadcast = NULL;
 static uint16_t port;
 static unsigned long last_receive_ms = 0;
 static unsigned long last_reinit_ms = 0;
+static int reinit_count = 0;
 
 static void tpl_broadcast_reinit(unsigned long current_ms);
 
@@ -20,6 +21,21 @@ void tpl_broadcast_setup(uint16_t udpPort, const char* broadcastAddress) {
   udp.begin(port);
   tpl_wifi_register_reconnect(tpl_broadcast_reinit);
 }
+
+void tpl_broadcast_force_reinit() {
+  reinit_count++;
+  Serial.printf("Broadcast: force reinit #%d (full WiFi reconnect)\n", reinit_count);
+  udp.stop();
+  WiFi.disconnect(false, true);
+  delay(100);
+  WiFi.begin();
+  delay(500);
+  udp.begin(port);
+  last_reinit_ms = millis();
+}
+
+int tpl_broadcast_get_reinit_count() { return reinit_count; }
+uint16_t tpl_broadcast_get_port() { return port; }
 void tpl_broadcast(uint8_t* packet, uint8_t length) {
   if (broadcast != NULL) {
     udp.beginPacket(broadcast, port);
@@ -59,9 +75,9 @@ bool tpl_broadcast_receive(void* buffer, size_t buffer_size,
 
   if (got_packet) return true;
 
-  // Self-healing: reinit UDP socket if no packet received for 60s
+  // Self-healing: reinit UDP socket if no packet received for 10s
   // Protects against silent UDP socket death on ESP32 (lwIP issue)
-  if ((now - last_reinit_ms > 60000) && (now - last_receive_ms > 60000)) {
+  if ((now - last_reinit_ms > 10000) && (now - last_receive_ms > 10000)) {
     tpl_broadcast_reinit(now);
   }
 

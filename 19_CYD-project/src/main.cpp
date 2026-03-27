@@ -170,8 +170,9 @@ void check_broadcast() {
 
       if (!valid) {
         g_invalid_packet_count++;
-        char dbg[16];
-        snprintf(dbg, sizeof(dbg), "INV:%lu", g_invalid_packet_count);
+        char dbg[24];
+        snprintf(dbg, sizeof(dbg), "INV:%lu R:%d",
+                 g_invalid_packet_count, tpl_broadcast_get_reinit_count());
         if (objects.debug != NULL) {
           lv_label_set_text(objects.debug, dbg);
         }
@@ -402,24 +403,30 @@ void setup() {
 
   tpl_server.on("/broadcast", HTTP_GET, []() {
     unsigned long now = millis();
-    String json = "{";
-    json += "\"last_broadcast_ago_sec\":" + String((now - g_last_broadcast_time) / 1000) + ",";
-    json += "\"last_broadcast_time\":" + String(g_last_broadcast_time) + ",";
-    json += "\"current_W\":" + String(g_stromzaehler_data.current_W, 1) + ",";
-    json += "\"consumption_Wh\":" + String(g_stromzaehler_data.consumption_Wh, 1) + ",";
-    json += "\"production_Wh\":" + String(g_stromzaehler_data.production_Wh, 1) + ",";
-    json += "\"time\":\"" + String(g_stromzaehler_data.tm_hour) + ":" +
-            String(g_stromzaehler_data.tm_min) + ":" + String(g_stromzaehler_data.tm_sec) + "\",";
-    json += "\"heap_free\":" + String(ESP.getFreeHeap()) + ",";
-    json += "\"uptime_sec\":" + String(now / 1000) + ",";
-    json += "\"reinit_count\":" + String(tpl_broadcast_get_reinit_count()) + ",";
-    json += "\"wifi_rssi\":" + String(WiFi.RSSI()) + ",";
-    json += "\"wifi_status\":" + String(WiFi.status()) + ",";
-    json += "\"udp_port\":" + String(tpl_broadcast_get_port()) + ",";
-    json += "\"invalid_packets\":" + String(g_invalid_packet_count);
-    json += "}";
+    char buf[320];
+    snprintf(buf, sizeof(buf),
+             "{\"last_broadcast_ago_sec\":%lu,"
+             "\"last_broadcast_time\":%lu,"
+             "\"current_W\":%.1f,"
+             "\"consumption_Wh\":%.1f,"
+             "\"production_Wh\":%.1f,"
+             "\"time\":\"%d:%d:%d\","
+             "\"heap_free\":%u,"
+             "\"uptime_sec\":%lu,"
+             "\"reinit_count\":%d,"
+             "\"wifi_rssi\":%d,"
+             "\"wifi_status\":%d,"
+             "\"udp_port\":%u,"
+             "\"invalid_packets\":%lu}",
+             (now - g_last_broadcast_time) / 1000, g_last_broadcast_time,
+             g_stromzaehler_data.current_W, g_stromzaehler_data.consumption_Wh,
+             g_stromzaehler_data.production_Wh, g_stromzaehler_data.tm_hour,
+             g_stromzaehler_data.tm_min, g_stromzaehler_data.tm_sec,
+             ESP.getFreeHeap(), now / 1000, tpl_broadcast_get_reinit_count(),
+             WiFi.RSSI(), WiFi.status(), tpl_broadcast_get_port(),
+             g_invalid_packet_count);
     tpl_server.sendHeader("Access-Control-Allow-Origin", "*");
-    tpl_server.send(200, "application/json", json);
+    tpl_server.send(200, "application/json", buf);
   });
 
   tpl_server.on("/broadcast/reinit", HTTP_GET, []() {

@@ -12,6 +12,8 @@ static uint16_t port;
 static unsigned long last_receive_ms = 0;
 static unsigned long last_reinit_ms = 0;
 static int reinit_count = 0;
+static int consecutive_failed_reinits = 0;
+#define MAX_SIMPLE_REINITS 3
 
 static void tpl_broadcast_reinit(unsigned long current_ms);
 
@@ -73,12 +75,25 @@ bool tpl_broadcast_receive(void* buffer, size_t buffer_size,
     }
   }
 
-  if (got_packet) return true;
+  if (got_packet) {
+    consecutive_failed_reinits = 0;
+    return true;
+  }
 
   // Self-healing: reinit UDP socket if no packet received for 10s
   // Protects against silent UDP socket death on ESP32 (lwIP issue)
   if ((now - last_reinit_ms > 10000) && (now - last_receive_ms > 10000)) {
-    tpl_broadcast_reinit(now);
+    if (consecutive_failed_reinits >= MAX_SIMPLE_REINITS) {
+      Serial.printf(
+          "Broadcast: %d simple reinits failed, escalating to full WiFi "
+          "reconnect\n",
+          consecutive_failed_reinits);
+      tpl_broadcast_force_reinit();
+      consecutive_failed_reinits = 0;
+    } else {
+      tpl_broadcast_reinit(now);
+      consecutive_failed_reinits++;
+    }
   }
 
   return false;

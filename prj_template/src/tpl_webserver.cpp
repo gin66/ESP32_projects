@@ -191,6 +191,7 @@ void tpl_webserver_setup() {
 
   tpl_wifi_register_reconnect([](unsigned long current_ms) {
     Serial.println("WebServer: reinitializing");
+    tpl_server.stop();
     tpl_server.begin();
   });
 

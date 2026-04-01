@@ -107,6 +107,7 @@ void TaskWebSocketCore0(void* pvParameters) {
 
   tpl_wifi_register_reconnect([](unsigned long current_ms) {
     Serial.println("WebSocket: reinitializing");
+    webSocket.close();
     webSocket.begin();
   });
 

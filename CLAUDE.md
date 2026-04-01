@@ -1,17 +1,20 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to AI coding agents when working with code in this repository.
 
 ## Build System
 
-All projects use **PlatformIO** with the Arduino framework for ESP32.
+All projects use **PlatformIO** with the Arduino framework for ESP32. Every project has two environments: `esp32ota` (OTA upload, default) and `esp32usb` (USB serial upload). You **must always specify the environment** with `-e`.
 
 ```bash
-# Build a specific project (OTA upload, default)
-cd XX_project && pio run
+# Build only (OTA env)
+cd XX_project && pio run -e esp32ota
 
-# Build and upload via OTA (default env)
-cd XX_project && pio run --target upload
+# Build only (USB env)
+cd XX_project && pio run -e esp32usb
+
+# Build and upload via OTA
+cd XX_project && pio run -e esp32ota --target upload
 
 # Build and upload via USB
 cd XX_project && pio run -e esp32usb --target upload
@@ -19,8 +22,11 @@ cd XX_project && pio run -e esp32usb --target upload
 # Monitor serial output
 cd XX_project && pio device monitor
 
-# Upload filesystem (SPIFFS)
-cd XX_project && pio run --target uploadfs
+# Upload filesystem (SPIFFS) via OTA
+cd XX_project && pio run -e esp32ota --target uploadfs
+
+# Upload filesystem (SPIFFS) via USB
+cd XX_project && pio run -e esp32usb --target uploadfs
 ```
 
 ## Code Formatting
@@ -46,6 +52,7 @@ This creates symlinks in every `XX_project/{include,src,data,tools}/` pointing t
 The core of the codebase. Every project (`00_starter` through `20_power_supply_controller`) symlinks to this directory rather than duplicating code.
 
 **Template modules** (each has a `.h` in `include/` and `.cpp` in `src/`):
+
 - `tpl_system` — FreeRTOS task management, deep sleep, boot count, RTC data, `WATCH()` macro for watchpoints
 - `tpl_wifi` — WiFi connection + OTA firmware updates
 - `tpl_webserver` — HTTP server
@@ -57,6 +64,7 @@ The core of the codebase. Every project (`00_starter` through `20_power_supply_c
 - `tpl_broadcast` — UDP broadcast messaging
 
 **Global state structures** (defined in `tpl_system.h`):
+
 - `tpl_tasks` — FreeRTOS task handles for all template tasks
 - `tpl_config` — Runtime configuration flags (deep sleep allowed, OTA ongoing, WiFi state, Telegram state, stack info, etc.)
 - `tpl_spiffs_config` / `TplSpiffsConfig` — SPIFFS-persisted config (version-checked, saved to `/config.ini`)
@@ -65,6 +73,7 @@ The core of the codebase. Every project (`00_starter` through `20_power_supply_c
 ### Secrets (`../.private/`)
 
 Located outside the repo at `.private/` (one level up). Symlinked into each project's `src/`:
+
 - `private_wifi_secrets.cpp` → `wifi_secrets.cpp`
 - `private_bot.h` — Telegram bot tokens (`BOTtoken`, etc.)
 - `private_sha.h` — Authentication secrets
@@ -92,11 +101,13 @@ void loop() {
 
 ### `platformio.ini` Structure
 
-All projects define a `[common]` section with shared settings and two environments:
+All projects define a `[common]` section with shared settings and two environments. There is no project-specific config file — all configuration options are set using `platformio.ini` build flags.
+
 - `esp32ota` — OTA upload via mDNS (`${common.hostname}.local:3232`), default
 - `esp32usb` — USB serial upload (port hardcoded per project)
 
 Key build flags used across projects:
+
 - `-DHOSTNAME=\"esp32_XX\"` — Device hostname
 - `-DNET_WATCHDOG=\"192.168.1.1\"` — IP to ping for network health
 - `-DCORE_DEBUG_LEVEL=5` (or `1`) — ESP-IDF log verbosity
@@ -105,7 +116,9 @@ Key build flags used across projects:
 
 ### Project-Specific Notes
 
-- **15_power_log_eink**: E-ink display (GxEPD), SML smart meter protocol (libsml), CAN bus. Board: `LILYGO_V2_3`.
-- **19_CYD-project**: LVGL 9.x UI with EEZ-Studio generated code, TFT_eSPI (ILI9341), XPT2046 touchscreen. All TFT pins defined as build flags. Backlight via LEDC PWM (pin 21), not TFT_eSPI.
-- **06_wasserzaehler**: ESP32-CAM water meter image recognition.
+- **15_power_log_eink**: E-ink display (GxEPD), SML smart meter protocol (libsml), CAN bus. Board: `LILYGO_V2_3`. Uses `tpl_broadcast`.
+- **19_CYD-project**: LVGL 9.x UI with EEZ-Studio generated code, TFT_eSPI (ILI9341), XPT2046 touchscreen. All TFT pins defined as build flags. Backlight via LEDC PWM (pin 21), not TFT_eSPI. Uses `tpl_sdcard` module.
+- **06_wasserzaehler**: ESP32-CAM water meter image recognition. Uses `tpl_telegram`.
 - **20_power_supply_controller**: Newest project, still being set up.
+- **21_matter**: Example Matter device.
+- **22/23**: Controllable LEDs.

@@ -16,6 +16,7 @@
  * - tpl_esp_camera: Camera support (requires IS_ESP32CAM)
  * - tpl_broadcast: UDP broadcast messaging
  * - tpl_matter: Matter protocol support (requires USE_TPL_MATTER)
+ * - tpl_sd: SD card support (requires USE_TPL_SD)
  *
  * Typical usage:
  * @code
@@ -43,6 +44,7 @@
 #include "tpl_esp_camera.h"
 #include "tpl_matter.h"
 #include "tpl_net_watchdog.h"
+#include "tpl_sd.h"
 #include "tpl_system.h"
 #include "tpl_telegram.h"
 #include "tpl_webserver.h"

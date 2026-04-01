@@ -18,6 +18,7 @@
 */
 
 #include <Arduino.h>
+#include <SPI.h>
 
 #define SW_NAME_REV "19_CYD-project v1.0"
 
@@ -435,6 +436,9 @@ void setup() {
     tpl_server.send(200, "application/json", "{\"ok\":true}");
   });
 
+  tpl_sd_setup();
+  tpl_sd_register_endpoints();
+
   tpl_command_setup(NULL);
 
   // Start LVGL
@@ -452,6 +456,11 @@ void setup() {
   // Integrate EEZ Studio GUI
   ui_init();
   Serial.println("[Main] UI initialized");
+
+  // Write SD card status to debug label on display
+  if (objects.debug != NULL) {
+    lv_label_set_text(objects.debug, tpl_sd_status);
+  }
 
   // Initialize power chart system (must be after UI is initialized)
   Serial.println("[Main] Initializing power chart system...");

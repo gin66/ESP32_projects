@@ -178,6 +178,7 @@ void check_broadcast() {
           lv_label_set_text(objects.debug, dbg);
         }
       } else {
+        tpl_broadcast_report_valid();
         g_last_broadcast_time = millis();
         memcpy(&g_stromzaehler_data, &packet, sizeof(stromzaehler_packet_s));
 

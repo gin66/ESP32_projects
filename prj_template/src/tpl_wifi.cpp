@@ -5,6 +5,7 @@
 #include <WiFi.h>
 #include <inttypes.h>
 #include <WiFiMulti.h>
+#include <esp_task_wdt.h>
 
 #include "tpl_system.h"
 #include "wifi_secrets.h"
@@ -53,6 +54,8 @@ void TaskWifiManager(void* pvParameters) {
   uint32_t last_ok_ms = millis();
 
   for (;;) {
+    esp_task_wdt_reset();
+
     if (!tpl_config.wifi_manager_shutdown_request) {
       wl_status_t status = WiFi.status();
       IPAddress ip = WiFi.localIP();
@@ -232,6 +235,7 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
 
   xTaskCreatePinnedToCore(TaskWifiManager, "WiFi_Manager", 2688, NULL, 0,
                           &tpl_tasks.task_wifi_manager, CORE_0);
+  esp_task_wdt_add(tpl_tasks.task_wifi_manager);
 
   if (waitOTA) {
     // Wait OTA

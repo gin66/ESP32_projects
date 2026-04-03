@@ -15,11 +15,18 @@
 #include <SPIFFS.h>
 
 WebServer tpl_server(80);
+static volatile bool s_reinit_requested = false;
 
 void TaskWebServerCore0(void* pvParameters) {
   const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
 
   for (;;) {
+    if (s_reinit_requested) {
+      s_reinit_requested = false;
+      Serial.println("WebServer: reinitializing");
+      tpl_server.stop();
+      tpl_server.begin();
+    }
     tpl_server.handleClient();
     vTaskDelay(xDelay);
   }
@@ -190,9 +197,7 @@ void tpl_webserver_setup() {
   tpl_server.begin();
 
   tpl_wifi_register_reconnect([](unsigned long current_ms) {
-    Serial.println("WebServer: reinitializing");
-    tpl_server.stop();
-    tpl_server.begin();
+    s_reinit_requested = true;
   });
 
   xTaskCreatePinnedToCore(TaskWebServerCore0, "WebServer", 4096, NULL, 1,

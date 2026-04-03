@@ -10,6 +10,7 @@
 
 WebSocketsServer webSocket = WebSocketsServer(81);
 void (*tpl_process_func)(DynamicJsonDocument* json) = NULL;
+static volatile bool s_reinit_requested = false;
 
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
                     size_t length) {
@@ -106,12 +107,17 @@ void TaskWebSocketCore0(void* pvParameters) {
   webSocket.onEvent(webSocketEvent);
 
   tpl_wifi_register_reconnect([](unsigned long current_ms) {
-    Serial.println("WebSocket: reinitializing");
-    webSocket.close();
-    webSocket.begin();
+    s_reinit_requested = true;
   });
 
   for (;;) {
+    if (s_reinit_requested) {
+      s_reinit_requested = false;
+      Serial.println("WebSocket: reinitializing");
+      webSocket.close();
+      webSocket.begin();
+    }
+
     uint32_t now = millis();
     webSocket.loop();
 

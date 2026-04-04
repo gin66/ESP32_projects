@@ -107,8 +107,9 @@ void TaskWifiManager(void* pvParameters) {
             }
           }
         }
+        // ArduinoOTA.handle() is blocking — it receives and flashes firmware
+        // chunks internally, so the WDT must be fed in onProgress callback
         ArduinoOTA.handle();
-        esp_task_wdt_reset();
       } else {
         weak_rssi_since_ms = 0;
         uint32_t secs_disconnected = (millis() - last_ok_ms) / 1000;
@@ -224,6 +225,7 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
           delay(500);
         })
         .onProgress([](unsigned int progress, unsigned int total) {
+          esp_task_wdt_reset();
           Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
         })
         .onError([](ota_error_t error) {
@@ -242,8 +244,9 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
   } else {
     ArduinoOTA.onStart([]() { tpl_config.ota_ongoing = true; }).onEnd([]() {
       tpl_config.ota_ongoing = false;
-      // delay to allow OTA response to be sent before reboot
       delay(500);
+    }).onProgress([](unsigned int, unsigned int) {
+      esp_task_wdt_reset();
     });
   }
 

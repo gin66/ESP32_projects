@@ -156,8 +156,8 @@ void tpl_webserver_setup() {
              "\"gateway\":\"%s\","
              "\"dns\":\"%s\","
              "\"mac\":\"%s\","
-             "\"tx_power\":%.0f,"
-             "\"sleep_enabled\":%s}",
+              "\"tx_power\":%d,"
+              "\"sleep_mode\":%d}",
              WiFi.status(),
              WiFi.SSID().c_str(),
              bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5],
@@ -168,8 +168,8 @@ void tpl_webserver_setup() {
              WiFi.gatewayIP().toString().c_str(),
              WiFi.dnsIP().toString().c_str(),
              WiFi.macAddress().c_str(),
-             WiFi.getTxPower(),
-             WiFi.getSleep() ? "true" : "false");
+              (int)WiFi.getTxPower(),
+              (int)WiFi.getSleep());
     tpl_server.send(200, "application/json", buf);
   });
   /*handling uploading firmware file */

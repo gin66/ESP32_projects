@@ -13,12 +13,6 @@
 #ifndef MAX_WIFI_RECONNECT_CALLBACKS
 #define MAX_WIFI_RECONNECT_CALLBACKS 8
 #endif
-#ifndef RSSI_RECONNECT_THRESHOLD
-#define RSSI_RECONNECT_THRESHOLD -75
-#endif
-#ifndef RSSI_RECONNECT_SUSTAINED_SEC
-#define RSSI_RECONNECT_SUSTAINED_SEC 120
-#endif
 
 RTC_DATA_ATTR int last_connected_network = -1;
 bool automode = false;
@@ -57,7 +51,8 @@ static void connect() {
   }
 }
 
-static int rssi_roam_reconnect_count = 0;
+RTC_DATA_ATTR int rssi_roam_reconnect_count = 0;
+int tpl_wifi_get_rssi_roam_count() { return rssi_roam_reconnect_count; }
 
 void TaskWifiManager(void* pvParameters) {
   const TickType_t xDelay = 100 / portTICK_PERIOD_MS;
@@ -78,7 +73,7 @@ void TaskWifiManager(void* pvParameters) {
         last_ok_ms = millis();
 
         int rssi = WiFi.RSSI();
-        if (rssi < RSSI_RECONNECT_THRESHOLD) {
+        if (rssi < RSSI_RECONNECT_THRESHOLD && !tpl_config.ota_ongoing) {
           if (weak_rssi_since_ms == 0) weak_rssi_since_ms = millis();
           if ((millis() - weak_rssi_since_ms) / 1000 >= RSSI_RECONNECT_SUSTAINED_SEC) {
             uint8_t* bssid = WiFi.BSSID();
@@ -86,8 +81,10 @@ void TaskWifiManager(void* pvParameters) {
                           rssi, (millis() - weak_rssi_since_ms) / 1000,
                           bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5],
                           WiFi.channel(), rssi_roam_reconnect_count + 1);
+            esp_task_wdt_reset();
             WiFi.disconnect(true);
             vTaskDelay(100 / portTICK_PERIOD_MS);
+            esp_task_wdt_reset();
             connect();
             rssi_roam_reconnect_count++;
             weak_rssi_since_ms = 0;
@@ -111,6 +108,7 @@ void TaskWifiManager(void* pvParameters) {
           }
         }
         ArduinoOTA.handle();
+        esp_task_wdt_reset();
       } else {
         weak_rssi_since_ms = 0;
         uint32_t secs_disconnected = (millis() - last_ok_ms) / 1000;
@@ -127,8 +125,10 @@ void TaskWifiManager(void* pvParameters) {
           WATCH(21);
           tpl_config.wifi_recovery_tier = 2;
           WiFi.mode(WIFI_OFF);
+          esp_task_wdt_reset();
           vTaskDelay(1000 / portTICK_PERIOD_MS);
           WiFi.mode(WIFI_STA);
+          esp_task_wdt_reset();
           connect();
         } else if (secs_disconnected > 30 &&
                    tpl_config.wifi_recovery_tier < 1) {
@@ -136,9 +136,11 @@ void TaskWifiManager(void* pvParameters) {
                         secs_disconnected);
           WATCH(11);
           tpl_config.wifi_recovery_tier = 1;
+          esp_task_wdt_reset();
           WiFi.reconnect();
         } else if (tpl_config.wifi_recovery_tier == 0) {
           Serial.println("WiFi: not connected, reconnect");
+          esp_task_wdt_reset();
           connect();
         }
       }

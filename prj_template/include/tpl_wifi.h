@@ -32,6 +32,14 @@
 void tpl_wifi_setup(bool verbose, bool waitOTA = true,
                     gpio_num_t ledPin = (gpio_num_t)255);
 
+#ifndef RSSI_RECONNECT_THRESHOLD
+#define RSSI_RECONNECT_THRESHOLD -75
+#endif
+#ifndef RSSI_RECONNECT_SUSTAINED_SEC
+#define RSSI_RECONNECT_SUSTAINED_SEC 120
+#endif
+
 typedef void (*tpl_wifi_reconnect_callback_t)(unsigned long current_ms);
 
 void tpl_wifi_register_reconnect(tpl_wifi_reconnect_callback_t callback);
+int tpl_wifi_get_rssi_roam_count();

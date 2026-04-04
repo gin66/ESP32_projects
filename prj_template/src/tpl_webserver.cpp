@@ -157,7 +157,10 @@ void tpl_webserver_setup() {
              "\"dns\":\"%s\","
              "\"mac\":\"%s\","
               "\"tx_power\":%d,"
-              "\"sleep_mode\":%d}",
+              "\"sleep_mode\":%d,"
+              "\"rssi_roam_count\":%d,"
+              "\"rssi_threshold\":%d,"
+              "\"rssi_sustained_sec\":%d}",
              WiFi.status(),
              WiFi.SSID().c_str(),
              bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5],
@@ -167,9 +170,12 @@ void tpl_webserver_setup() {
              WiFi.subnetMask().toString().c_str(),
              WiFi.gatewayIP().toString().c_str(),
              WiFi.dnsIP().toString().c_str(),
-             WiFi.macAddress().c_str(),
+              WiFi.macAddress().c_str(),
               (int)WiFi.getTxPower(),
-              (int)WiFi.getSleep());
+              (int)WiFi.getSleep(),
+              tpl_wifi_get_rssi_roam_count(),
+              RSSI_RECONNECT_THRESHOLD,
+              RSSI_RECONNECT_SUSTAINED_SEC);
     tpl_server.send(200, "application/json", buf);
   });
   /*handling uploading firmware file */

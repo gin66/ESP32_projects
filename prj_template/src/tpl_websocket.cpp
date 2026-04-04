@@ -85,7 +85,9 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
   }
 }
 
+#ifndef WS_BUFLEN
 #define WS_BUFLEN 4096
+#endif
 char ws_buffer[WS_BUFLEN];
 static DynamicJsonDocument* ws_json = NULL;
 

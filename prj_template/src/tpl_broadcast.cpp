@@ -17,7 +17,9 @@ static int consecutive_failed_reinits = 0;
 static bool last_packet_valid = false;
 static uint32_t total_parsed = 0;
 static uint32_t total_drained = 0;
+#ifndef MAX_SIMPLE_REINITS
 #define MAX_SIMPLE_REINITS 3
+#endif
 
 static void tpl_broadcast_reinit(unsigned long current_ms);
 

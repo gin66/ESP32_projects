@@ -5,7 +5,9 @@
 
 // broadcast
 #define STROMZAEHLER_PORT 56374
+#ifndef MAX_PACKET_SIZE
 #define MAX_PACKET_SIZE 256
+#endif
 
 struct stromzaehler_packet_s {
   uint8_t tm_sec;

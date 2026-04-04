@@ -10,9 +10,15 @@
 #include "tpl_system.h"
 #include "wifi_secrets.h"
 
+#ifndef MAX_WIFI_RECONNECT_CALLBACKS
 #define MAX_WIFI_RECONNECT_CALLBACKS 8
+#endif
+#ifndef RSSI_RECONNECT_THRESHOLD
 #define RSSI_RECONNECT_THRESHOLD -75
+#endif
+#ifndef RSSI_RECONNECT_SUSTAINED_SEC
 #define RSSI_RECONNECT_SUSTAINED_SEC 120
+#endif
 
 RTC_DATA_ATTR int last_connected_network = -1;
 bool automode = false;

@@ -11,6 +11,8 @@
 #include "wifi_secrets.h"
 
 #define MAX_WIFI_RECONNECT_CALLBACKS 8
+#define RSSI_RECONNECT_THRESHOLD -75
+#define RSSI_RECONNECT_SUSTAINED_SEC 120
 
 RTC_DATA_ATTR int last_connected_network = -1;
 bool automode = false;
@@ -49,9 +51,12 @@ static void connect() {
   }
 }
 
+static int rssi_roam_reconnect_count = 0;
+
 void TaskWifiManager(void* pvParameters) {
   const TickType_t xDelay = 100 / portTICK_PERIOD_MS;
   uint32_t last_ok_ms = millis();
+  uint32_t weak_rssi_since_ms = 0;
 
   for (;;) {
     esp_task_wdt_reset();
@@ -65,6 +70,26 @@ void TaskWifiManager(void* pvParameters) {
 
       if (connected) {
         last_ok_ms = millis();
+
+        int rssi = WiFi.RSSI();
+        if (rssi < RSSI_RECONNECT_THRESHOLD) {
+          if (weak_rssi_since_ms == 0) weak_rssi_since_ms = millis();
+          if ((millis() - weak_rssi_since_ms) / 1000 >= RSSI_RECONNECT_SUSTAINED_SEC) {
+            uint8_t* bssid = WiFi.BSSID();
+            Serial.printf("WiFi: weak signal %d dBm for %" PRIu32 "s (BSSID %02X:%02X:%02X:%02X:%02X:%02X ch%d), reconnecting (#%d)\n",
+                          rssi, (millis() - weak_rssi_since_ms) / 1000,
+                          bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5],
+                          WiFi.channel(), rssi_roam_reconnect_count + 1);
+            WiFi.disconnect(true);
+            vTaskDelay(100 / portTICK_PERIOD_MS);
+            connect();
+            rssi_roam_reconnect_count++;
+            weak_rssi_since_ms = 0;
+          }
+        } else {
+          weak_rssi_since_ms = 0;
+        }
+
         if (tpl_config.wifi_recovery_tier != 0) {
           Serial.printf("WiFi: recovered, tier=%d->0\n",
                         tpl_config.wifi_recovery_tier);
@@ -81,6 +106,7 @@ void TaskWifiManager(void* pvParameters) {
         }
         ArduinoOTA.handle();
       } else {
+        weak_rssi_since_ms = 0;
         uint32_t secs_disconnected = (millis() - last_ok_ms) / 1000;
 
         if (!has_valid_ip && status == WL_CONNECTED) {

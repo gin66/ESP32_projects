@@ -25,4 +25,6 @@ bool tpl_broadcast_receive(void* buffer, size_t buffer_size,
 void tpl_broadcast_report_valid();
 void tpl_broadcast_force_reinit();
 int tpl_broadcast_get_reinit_count();
+uint32_t tpl_broadcast_get_total_parsed();
+uint32_t tpl_broadcast_get_total_drained();
 uint16_t tpl_broadcast_get_port();

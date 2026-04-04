@@ -117,6 +117,9 @@ TFT_eSPI tft = TFT_eSPI();
 stromzaehler_packet_s g_stromzaehler_data;
 unsigned long g_last_broadcast_time = 0;
 static uint32_t g_invalid_packet_count = 0;
+static uint8_t g_last_invalid_packet[64];
+static size_t g_last_invalid_packet_size = 0;
+static uint32_t g_last_invalid_packet_count_at_capture = 0;
 
 // Function to update power display labels
 static void update_power_labels(void) {
@@ -171,6 +174,11 @@ void check_broadcast() {
 
       if (!valid) {
         g_invalid_packet_count++;
+        size_t copy_sz = received_size < sizeof(g_last_invalid_packet)
+                             ? received_size : sizeof(g_last_invalid_packet);
+        memcpy(g_last_invalid_packet, &packet, copy_sz);
+        g_last_invalid_packet_size = received_size;
+        g_last_invalid_packet_count_at_capture = g_invalid_packet_count;
         char dbg[24];
         snprintf(dbg, sizeof(dbg), "INV:%lu R:%d",
                  g_invalid_packet_count, tpl_broadcast_get_reinit_count());
@@ -187,6 +195,11 @@ void check_broadcast() {
       }
 
     } else {
+      size_t copy_sz = received_size < sizeof(g_last_invalid_packet)
+                           ? received_size : sizeof(g_last_invalid_packet);
+      memcpy(g_last_invalid_packet, &packet, copy_sz);
+      g_last_invalid_packet_size = received_size;
+      g_last_invalid_packet_count_at_capture = g_invalid_packet_count;
       Serial.printf("[Broadcast] Received %zu bytes, expected %zu\n",
                     received_size, sizeof(stromzaehler_packet_s));
     }
@@ -405,7 +418,7 @@ void setup() {
 
   tpl_server.on("/broadcast", HTTP_GET, []() {
     unsigned long now = millis();
-    char buf[320];
+    char buf[400];
     snprintf(buf, sizeof(buf),
              "{\"last_broadcast_ago_sec\":%lu,"
              "\"last_broadcast_time\":%lu,"
@@ -419,14 +432,17 @@ void setup() {
              "\"wifi_rssi\":%d,"
              "\"wifi_status\":%d,"
              "\"udp_port\":%u,"
-             "\"invalid_packets\":%lu}",
+             "\"invalid_packets\":%lu,"
+             "\"total_parsed\":%lu,"
+             "\"total_drained\":%lu}",
              (now - g_last_broadcast_time) / 1000, g_last_broadcast_time,
              g_stromzaehler_data.current_W, g_stromzaehler_data.consumption_Wh,
              g_stromzaehler_data.production_Wh, g_stromzaehler_data.tm_hour,
              g_stromzaehler_data.tm_min, g_stromzaehler_data.tm_sec,
              ESP.getFreeHeap(), now / 1000, tpl_broadcast_get_reinit_count(),
              WiFi.RSSI(), WiFi.status(), tpl_broadcast_get_port(),
-             g_invalid_packet_count);
+             g_invalid_packet_count, tpl_broadcast_get_total_parsed(),
+             tpl_broadcast_get_total_drained());
     tpl_server.sendHeader("Access-Control-Allow-Origin", "*");
     tpl_server.send(200, "application/json", buf);
   });
@@ -435,6 +451,36 @@ void setup() {
     tpl_broadcast_force_reinit();
     tpl_server.sendHeader("Access-Control-Allow-Origin", "*");
     tpl_server.send(200, "application/json", "{\"ok\":true}");
+  });
+
+  tpl_server.on("/broadcast/last_invalid", HTTP_GET, []() {
+    tpl_server.sendHeader("Access-Control-Allow-Origin", "*");
+    if (g_last_invalid_packet_size == 0) {
+      tpl_server.send(200, "application/json",
+                      "{\"status\":\"none\",\"message\":\"no invalid packet captured yet\"}");
+      return;
+    }
+    char hex_buf[sizeof(g_last_invalid_packet) * 3 + 1];
+    size_t hex_len = 0;
+    size_t dump_sz = g_last_invalid_packet_size < sizeof(g_last_invalid_packet)
+                         ? g_last_invalid_packet_size : sizeof(g_last_invalid_packet);
+    for (size_t i = 0; i < dump_sz; i++) {
+      hex_len += snprintf(hex_buf + hex_len, sizeof(hex_buf) - hex_len,
+                          "%02X ", g_last_invalid_packet[i]);
+    }
+    if (hex_len > 0 && hex_buf[hex_len - 1] == ' ') hex_buf[--hex_len] = '\0';
+    char resp[512];
+    snprintf(resp, sizeof(resp),
+             "{\"status\":\"ok\","
+             "\"invalid_packet_num\":%lu,"
+             "\"received_size\":%zu,"
+             "\"expected_size\":%zu,"
+             "\"hex\":\"%s\"}",
+             g_last_invalid_packet_count_at_capture,
+             g_last_invalid_packet_size,
+             sizeof(stromzaehler_packet_s),
+             hex_buf);
+    tpl_server.send(200, "application/json", resp);
   });
 
   tpl_sd_setup();

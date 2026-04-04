@@ -141,6 +141,37 @@ void tpl_webserver_setup() {
              GIT_HASH, GIT_BRANCH, BUILD_TIME, VERSION_STRING);
     tpl_server.send(200, "application/json", buf);
   });
+  tpl_server.on("/wifi", HTTP_GET, []() {
+    tpl_server.sendHeader("Access-Control-Allow-Origin", "*");
+    uint8_t* bssid = WiFi.BSSID();
+    char buf[512];
+    snprintf(buf, sizeof(buf),
+             "{\"status\":%d,"
+             "\"ssid\":\"%s\","
+             "\"bssid\":\"%02X:%02X:%02X:%02X:%02X:%02X\","
+             "\"channel\":%d,"
+             "\"rssi\":%d,"
+             "\"ip\":\"%s\","
+             "\"subnet\":\"%s\","
+             "\"gateway\":\"%s\","
+             "\"dns\":\"%s\","
+             "\"mac\":\"%s\","
+             "\"tx_power\":%.0f,"
+             "\"sleep_enabled\":%s}",
+             WiFi.status(),
+             WiFi.SSID().c_str(),
+             bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5],
+             WiFi.channel(),
+             WiFi.RSSI(),
+             WiFi.localIP().toString().c_str(),
+             WiFi.subnetMask().toString().c_str(),
+             WiFi.gatewayIP().toString().c_str(),
+             WiFi.dnsIP().toString().c_str(),
+             WiFi.macAddress().c_str(),
+             WiFi.getTxPower(),
+             WiFi.getSleep() ? "true" : "false");
+    tpl_server.send(200, "application/json", buf);
+  });
   /*handling uploading firmware file */
   tpl_server.on(
       "/update", HTTP_POST,

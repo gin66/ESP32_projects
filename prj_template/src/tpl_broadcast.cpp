@@ -15,6 +15,8 @@ static unsigned long last_valid_ms = 0;
 static int reinit_count = 0;
 static int consecutive_failed_reinits = 0;
 static bool last_packet_valid = false;
+static uint32_t total_parsed = 0;
+static uint32_t total_drained = 0;
 #define MAX_SIMPLE_REINITS 3
 
 static void tpl_broadcast_reinit(unsigned long current_ms);
@@ -45,6 +47,8 @@ void tpl_broadcast_report_valid() {
 }
 
 int tpl_broadcast_get_reinit_count() { return reinit_count; }
+uint32_t tpl_broadcast_get_total_parsed() { return total_parsed; }
+uint32_t tpl_broadcast_get_total_drained() { return total_drained; }
 uint16_t tpl_broadcast_get_port() { return port; }
 void tpl_broadcast(uint8_t* packet, uint8_t length) {
   if (broadcast != NULL) {
@@ -66,6 +70,8 @@ bool tpl_broadcast_receive(void* buffer, size_t buffer_size,
     int packetSize = udp.parsePacket();
     if (packetSize <= 0) break;
 
+    total_parsed++;
+
     if (packetSize > buffer_size) {
       udp.flush();
       continue;
@@ -78,6 +84,7 @@ bool tpl_broadcast_receive(void* buffer, size_t buffer_size,
       if (received_size != NULL) {
         *received_size = bytes_read;
       }
+      if (got_packet) total_drained++;
       got_packet = true;
       last_receive_ms = now;
     }

@@ -17,6 +17,9 @@ static int consecutive_failed_reinits = 0;
 static bool last_packet_valid = false;
 static uint32_t total_parsed = 0;
 static uint32_t total_drained = 0;
+static uint8_t last_raw_packet[64];
+static size_t last_raw_packet_size = 0;
+static bool last_raw_valid = false;
 #ifndef MAX_SIMPLE_REINITS
 #define MAX_SIMPLE_REINITS 3
 #endif
@@ -46,11 +49,20 @@ void tpl_broadcast_force_reinit() {
 
 void tpl_broadcast_report_valid() {
   last_packet_valid = true;
+  last_raw_valid = true;
 }
 
 int tpl_broadcast_get_reinit_count() { return reinit_count; }
 uint32_t tpl_broadcast_get_total_parsed() { return total_parsed; }
 uint32_t tpl_broadcast_get_total_drained() { return total_drained; }
+
+size_t tpl_broadcast_get_last_raw(uint8_t* dst, size_t dst_size, bool* was_valid) {
+  size_t sz = last_raw_packet_size < dst_size ? last_raw_packet_size : dst_size;
+  memcpy(dst, last_raw_packet, sz);
+  if (was_valid) *was_valid = last_raw_valid;
+  return last_raw_packet_size;
+}
+
 uint16_t tpl_broadcast_get_port() { return port; }
 void tpl_broadcast(uint8_t* packet, uint8_t length) {
   if (broadcast != NULL) {
@@ -83,6 +95,11 @@ bool tpl_broadcast_receive(void* buffer, size_t buffer_size,
     udp.flush();
 
     if (bytes_read > 0) {
+      if (bytes_read <= sizeof(last_raw_packet)) {
+        memcpy(last_raw_packet, buffer, bytes_read);
+        last_raw_packet_size = bytes_read;
+      }
+      last_raw_valid = false;
       if (received_size != NULL) {
         *received_size = bytes_read;
       }

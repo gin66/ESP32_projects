@@ -29,4 +29,5 @@ void tpl_broadcast_force_reinit();
 int tpl_broadcast_get_reinit_count();
 uint32_t tpl_broadcast_get_total_parsed();
 uint32_t tpl_broadcast_get_total_drained();
+size_t tpl_broadcast_get_last_raw(uint8_t* dst, size_t dst_size, bool* was_valid);
 uint16_t tpl_broadcast_get_port();

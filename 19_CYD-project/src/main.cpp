@@ -414,6 +414,7 @@ void setup() {
   tpl_wifi_setup(true, true, (gpio_num_t)255);
   tpl_webserver_setup();
   tpl_websocket_setup(NULL, NULL);
+  tpl_debug_log_setup();
   tpl_broadcast_setup();
 
   tpl_server.on("/broadcast", HTTP_GET, []() {
@@ -469,22 +470,42 @@ void setup() {
                           "%02X ", g_last_invalid_packet[i]);
     }
     if (hex_len > 0 && hex_buf[hex_len - 1] == ' ') hex_buf[--hex_len] = '\0';
-    char resp[512];
+
+    uint8_t raw_buf[64];
+    bool raw_valid;
+    size_t raw_sz = tpl_broadcast_get_last_raw(raw_buf, sizeof(raw_buf), &raw_valid);
+    char raw_hex[sizeof(raw_buf) * 3 + 1];
+    size_t raw_hex_len = 0;
+    size_t raw_dump = raw_sz < sizeof(raw_buf) ? raw_sz : sizeof(raw_buf);
+    for (size_t i = 0; i < raw_dump; i++) {
+      raw_hex_len += snprintf(raw_hex + raw_hex_len, sizeof(raw_hex) - raw_hex_len,
+                              "%02X ", raw_buf[i]);
+    }
+    if (raw_hex_len > 0 && raw_hex[raw_hex_len - 1] == ' ') raw_hex[--raw_hex_len] = '\0';
+
+    char resp[768];
     snprintf(resp, sizeof(resp),
              "{\"status\":\"ok\","
              "\"invalid_packet_num\":%lu,"
              "\"received_size\":%zu,"
              "\"expected_size\":%zu,"
-             "\"hex\":\"%s\"}",
+             "\"hex\":\"%s\","
+             "\"raw_at_udp_read\":\"%s\","
+             "\"raw_size\":%zu,"
+             "\"raw_was_valid\":%s}",
              g_last_invalid_packet_count_at_capture,
              g_last_invalid_packet_size,
              sizeof(stromzaehler_packet_s),
-             hex_buf);
+             hex_buf,
+             raw_hex,
+             raw_sz,
+             raw_valid ? "true" : "false");
     tpl_server.send(200, "application/json", resp);
   });
 
   tpl_sd_setup();
   tpl_sd_register_endpoints();
+  tpl_debug_log_register_endpoints();
 
   tpl_command_setup(NULL);
 

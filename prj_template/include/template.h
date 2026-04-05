@@ -17,6 +17,7 @@
  * - tpl_broadcast: UDP broadcast messaging
  * - tpl_matter: Matter protocol support (requires USE_TPL_MATTER)
  * - tpl_sd: SD card support (requires USE_TPL_SD)
+ * - tpl_debug_log: Debug log ring buffer (requires USE_TPL_DEBUG_LOG)
  *
  * Typical usage:
  * @code
@@ -41,6 +42,7 @@
 
 #include "tpl_broadcast.h"
 #include "tpl_command.h"
+#include "tpl_debug_log.h"
 #include "tpl_esp_camera.h"
 #include "tpl_matter.h"
 #include "tpl_net_watchdog.h"

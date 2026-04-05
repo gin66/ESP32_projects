@@ -25,6 +25,16 @@ static volatile uint16_t ledCount = STRIP_LED_COUNT;
 static WaveConfig waveConfig;
 static LedState ledState;
 static unsigned long startTime = 0;
+
+enum StartupPhase {
+  PhaseRed,
+  PhaseBlue,
+  PhaseWhite,
+  PhaseNormal
+};
+static volatile StartupPhase startupPhase = PhaseRed;
+static TaskHandle_t ledTaskHandle = NULL;
+
 const char* getModeString() {
   switch (currentMode) {
     case ModeOff: return "off";
@@ -149,6 +159,71 @@ void handleLedCommand(enum Command cmd) {
 
 extern WebServer tpl_server;
 
+static void showComet(uint16_t pos, uint8_t r, uint8_t g, uint8_t b) {
+  strip.ClearTo(RgbwColor(0, 0, 0, 0));
+  uint8_t tail[] = {255, 180, 100, 40};
+  for (int t = 0; t < 4; t++) {
+    int16_t p = (int16_t)pos - t;
+    if (p >= 0 && p < STRIP_LED_COUNT) {
+      strip.SetPixelColor(p, RgbwColor(0,
+        (uint16_t)r * tail[t] / 255,
+        (uint16_t)g * tail[t] / 255,
+        (uint16_t)b * tail[t] / 255));
+    }
+  }
+  strip.Show();
+}
+
+void ledTask(void* arg) {
+  strip.Begin();
+  strip.ClearTo(RgbwColor(0, 0, 0, 0));
+  strip.Show();
+
+  uint16_t cometPos = 0;
+  unsigned long taskStart = millis();
+
+  while (true) {
+    if (startupPhase != PhaseNormal) {
+      uint8_t r = 0, g = 0, b = 0;
+      if (startupPhase == PhaseRed)   { r = 255; }
+      if (startupPhase == PhaseBlue)  { b = 255; }
+      if (startupPhase == PhaseWhite) { r = 255; g = 255; b = 255; }
+
+      showComet(cometPos, r, g, b);
+      cometPos++;
+      if (cometPos >= STRIP_LED_COUNT) cometPos = 0;
+
+      if (startupPhase == PhaseRed && WiFi.status() == WL_CONNECTED) {
+        startupPhase = PhaseBlue;
+        cometPos = 0;
+      }
+
+      vTaskDelay(20 / portTICK_PERIOD_MS);
+    } else {
+      unsigned long elapsed = millis() - taskStart;
+      uint16_t count = (ledCount < STRIP_LED_COUNT) ? ledCount : STRIP_LED_COUNT;
+
+      LedColor leds[STRIP_LED_COUNT];
+      calculateAllLeds(
+        leds, count, elapsed,
+        currentMode, ledBrightness,
+        waveConfig, ledState,
+        staticR, staticG, staticB, staticW,
+        rainbowSpeed, whiteSpeed
+      );
+
+      for (uint16_t i = 0; i < count; i++) {
+        strip.SetPixelColor(i, RgbwColor(leds[i].W, leds[i].R, leds[i].G, leds[i].B));
+      }
+      for (uint16_t i = count; i < STRIP_LED_COUNT; i++) {
+        strip.SetPixelColor(i, RgbwColor(0, 0, 0, 0));
+      }
+      strip.Show();
+      vTaskDelay(20 / portTICK_PERIOD_MS);
+    }
+  }
+}
+
 void addLedEndpoints() {
   tpl_server.on("/led/off", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
@@ -207,54 +282,30 @@ void addLedEndpoints() {
 void setup() {
   tpl_system_setup(0);
   Serial.begin(115200);
-  
-  strip.Begin();
-  for (uint16_t i = 0; i < STRIP_LED_COUNT; i++) {
-    strip.SetPixelColor(i, RgbwColor(0, 0, 0, 0));
-  }
-  strip.Show();
+
+  xTaskCreatePinnedToCore(ledTask, "led", 4096, NULL, 2, &ledTaskHandle, CORE_1);
 
   startTime = millis();
-  
+
   tpl_wifi_setup(true, true, (gpio_num_t)255);
+
+  startupPhase = PhaseWhite;
+  delay(1000);
+  startupPhase = PhaseNormal;
+
   loadWaveConfig();
   addLedEndpoints();
   tpl_webserver_setup();
   tpl_websocket_setup(publishLedStatus, processLedCommand);
   tpl_net_watchdog_setup();
   tpl_command_setup(handleLedCommand);
-  
+
   Serial.println("WS2814 Lichtband initialized");
 }
 
 void loop() {
-  unsigned long currentTime = millis();
-  unsigned long elapsed = currentTime - startTime;
-  
-  uint16_t count = (ledCount < STRIP_LED_COUNT) ? ledCount : STRIP_LED_COUNT;
-  
   if (waveConfig.need_store) {
     saveWaveConfig();
   }
-  
-  LedColor leds[STRIP_LED_COUNT];
-  
-  calculateAllLeds(
-    leds, count, elapsed,
-    currentMode, ledBrightness,
-    waveConfig, ledState,
-    staticR, staticG, staticB, staticW,
-    rainbowSpeed, whiteSpeed
-  );
-  
-  for (uint16_t i = 0; i < count; i++) {
-    strip.SetPixelColor(i, RgbwColor(leds[i].W, leds[i].R, leds[i].G, leds[i].B));
-  }
-  
-  for (uint16_t i = count; i < STRIP_LED_COUNT; i++) {
-    strip.SetPixelColor(i, RgbwColor(0, 0, 0, 0));
-  }
-  
-  strip.Show();
-  vTaskDelay(20 / portTICK_PERIOD_MS);
+  vTaskDelay(100 / portTICK_PERIOD_MS);
 }

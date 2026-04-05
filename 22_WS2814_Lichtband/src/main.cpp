@@ -25,7 +25,6 @@ static volatile uint16_t ledCount = STRIP_LED_COUNT;
 static WaveConfig waveConfig;
 static LedState ledState;
 static unsigned long startTime = 0;
-
 const char* getModeString() {
   switch (currentMode) {
     case ModeOff: return "off";
@@ -209,6 +208,12 @@ void setup() {
   tpl_system_setup(0);
   Serial.begin(115200);
   
+  strip.Begin();
+  for (uint16_t i = 0; i < STRIP_LED_COUNT; i++) {
+    strip.SetPixelColor(i, RgbwColor(0, 0, 0, 0));
+  }
+  strip.Show();
+
   startTime = millis();
   
   tpl_wifi_setup(true, true, (gpio_num_t)255);
@@ -218,9 +223,6 @@ void setup() {
   tpl_websocket_setup(publishLedStatus, processLedCommand);
   tpl_net_watchdog_setup();
   tpl_command_setup(handleLedCommand);
-  
-  strip.Begin();
-  strip.Show();
   
   Serial.println("WS2814 Lichtband initialized");
 }

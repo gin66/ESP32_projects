@@ -120,6 +120,9 @@ static uint32_t g_invalid_packet_count = 0;
 static uint8_t g_last_invalid_packet[64];
 static size_t g_last_invalid_packet_size = 0;
 static uint32_t g_last_invalid_packet_count_at_capture = 0;
+static uint8_t g_last_invalid_raw[64];
+static size_t g_last_invalid_raw_size = 0;
+static bool g_last_invalid_raw_valid = false;
 
 // Function to update power display labels
 static void update_power_labels(void) {
@@ -179,6 +182,9 @@ void check_broadcast() {
         memcpy(g_last_invalid_packet, &packet, copy_sz);
         g_last_invalid_packet_size = received_size;
         g_last_invalid_packet_count_at_capture = g_invalid_packet_count;
+        tpl_broadcast_get_last_raw(g_last_invalid_raw, sizeof(g_last_invalid_raw),
+                                   &g_last_invalid_raw_valid);
+        g_last_invalid_raw_size = received_size;
         char dbg[24];
         snprintf(dbg, sizeof(dbg), "INV:%lu R:%d",
                  g_invalid_packet_count, tpl_broadcast_get_reinit_count());
@@ -200,6 +206,9 @@ void check_broadcast() {
       memcpy(g_last_invalid_packet, &packet, copy_sz);
       g_last_invalid_packet_size = received_size;
       g_last_invalid_packet_count_at_capture = g_invalid_packet_count;
+      tpl_broadcast_get_last_raw(g_last_invalid_raw, sizeof(g_last_invalid_raw),
+                                 &g_last_invalid_raw_valid);
+      g_last_invalid_raw_size = received_size;
       Serial.printf("[Broadcast] Received %zu bytes, expected %zu\n",
                     received_size, sizeof(stromzaehler_packet_s));
     }
@@ -471,15 +480,13 @@ void setup() {
     }
     if (hex_len > 0 && hex_buf[hex_len - 1] == ' ') hex_buf[--hex_len] = '\0';
 
-    uint8_t raw_buf[64];
-    bool raw_valid;
-    size_t raw_sz = tpl_broadcast_get_last_raw(raw_buf, sizeof(raw_buf), &raw_valid);
-    char raw_hex[sizeof(raw_buf) * 3 + 1];
+    char raw_hex[sizeof(g_last_invalid_raw) * 3 + 1];
     size_t raw_hex_len = 0;
-    size_t raw_dump = raw_sz < sizeof(raw_buf) ? raw_sz : sizeof(raw_buf);
+    size_t raw_dump = g_last_invalid_raw_size < sizeof(g_last_invalid_raw)
+                          ? g_last_invalid_raw_size : sizeof(g_last_invalid_raw);
     for (size_t i = 0; i < raw_dump; i++) {
       raw_hex_len += snprintf(raw_hex + raw_hex_len, sizeof(raw_hex) - raw_hex_len,
-                              "%02X ", raw_buf[i]);
+                              "%02X ", g_last_invalid_raw[i]);
     }
     if (raw_hex_len > 0 && raw_hex[raw_hex_len - 1] == ' ') raw_hex[--raw_hex_len] = '\0';
 
@@ -498,8 +505,56 @@ void setup() {
              sizeof(stromzaehler_packet_s),
              hex_buf,
              raw_hex,
-             raw_sz,
-             raw_valid ? "true" : "false");
+             g_last_invalid_raw_size,
+             g_last_invalid_raw_valid ? "true" : "false");
+    tpl_server.send(200, "application/json", resp);
+  });
+
+  tpl_server.on("/broadcast/debug", HTTP_GET, []() {
+    tpl_server.sendHeader("Access-Control-Allow-Origin", "*");
+
+    uint8_t history_count = 0;
+    struct RxEventDebug {
+      unsigned long timestamp;
+      int parse_size;
+      size_t bytes_read;
+      uint8_t first8[8];
+      bool truncated;
+      bool oversize;
+      bool drained;
+    } h[16];
+    tpl_broadcast_get_rx_history(h, sizeof(h), &history_count);
+
+    String resp;
+    resp.reserve(2048);
+    resp += "{\"parsed\":";
+    resp += tpl_broadcast_get_total_parsed();
+    resp += ",\"drained\":";
+    resp += tpl_broadcast_get_total_drained();
+    resp += ",\"truncated\":";
+    resp += tpl_broadcast_get_total_truncated();
+    resp += ",\"oversize\":";
+    resp += tpl_broadcast_get_total_oversize();
+    resp += ",\"reinit_count\":";
+    resp += tpl_broadcast_get_reinit_count();
+    resp += ",\"history\":[";
+
+    for (uint8_t i = 0; i < history_count; i++) {
+      if (i > 0) resp += ",";
+      char entry[256];
+      snprintf(entry, sizeof(entry),
+        "{\"t\":%lu,\"psz\":%d,\"br\":%zu,"
+        "\"h\":\"%02X %02X %02X %02X %02X %02X %02X %02X\","
+        "\"trunc\":%s,\"over\":%s,\"drain\":%s}",
+        h[i].timestamp, h[i].parse_size, h[i].bytes_read,
+        h[i].first8[0], h[i].first8[1], h[i].first8[2], h[i].first8[3],
+        h[i].first8[4], h[i].first8[5], h[i].first8[6], h[i].first8[7],
+        h[i].truncated ? "true" : "false",
+        h[i].oversize ? "true" : "false",
+        h[i].drained ? "true" : "false");
+      resp += entry;
+    }
+    resp += "]}";
     tpl_server.send(200, "application/json", resp);
   });
 

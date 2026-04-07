@@ -12,19 +12,31 @@
 
 NeoPixelBus<NeoRgbwFeature, NeoEsp32Rmt0Ws2814Method> strip(STRIP_LED_COUNT, STRIP_LED_PIN);
 
-static volatile LedMode currentMode = ModeRainbowWave;
-static volatile uint8_t ledBrightness = 128;
-static volatile uint8_t staticR = 255;
-static volatile uint8_t staticG = 0;
-static volatile uint8_t staticB = 0;
-static volatile uint8_t staticW = 0;
-static volatile uint32_t rainbowSpeed = 3000;
-static volatile uint32_t whiteSpeed = 8000;
-static volatile uint16_t ledCount = STRIP_LED_COUNT;
+static SemaphoreHandle_t configMutex = NULL;
+
+static LedMode currentMode = ModeRainbowWave;
+static uint8_t ledBrightness = 128;
+static uint8_t staticR = 255;
+static uint8_t staticG = 0;
+static uint8_t staticB = 0;
+static uint8_t staticW = 0;
+static uint32_t rainbowSpeed = 3000;
+static uint32_t whiteSpeed = 8000;
+static uint16_t ledCount = STRIP_LED_COUNT;
 
 static WaveConfig waveConfig;
 static LedState ledState;
 static unsigned long startTime = 0;
+
+struct LedSnapshot {
+  LedMode mode;
+  uint8_t brightness;
+  uint8_t r, g, b, w;
+  uint16_t count;
+  uint32_t rainbowSpd;
+  uint32_t whiteSpd;
+  WaveConfig waveCfg;
+};
 
 enum StartupPhase {
   PhaseRed,
@@ -35,8 +47,31 @@ enum StartupPhase {
 static volatile StartupPhase startupPhase = PhaseRed;
 static TaskHandle_t ledTaskHandle = NULL;
 
+static void takeConfig() { xSemaphoreTake(configMutex, portMAX_DELAY); }
+static void giveConfig() { xSemaphoreGive(configMutex); }
+
+static LedSnapshot snapshotConfig() {
+  LedSnapshot s;
+  xSemaphoreTake(configMutex, portMAX_DELAY);
+  s.mode = currentMode;
+  s.brightness = ledBrightness;
+  s.r = staticR;
+  s.g = staticG;
+  s.b = staticB;
+  s.w = staticW;
+  s.count = ledCount;
+  s.rainbowSpd = rainbowSpeed;
+  s.whiteSpd = whiteSpeed;
+  s.waveCfg = waveConfig;
+  xSemaphoreGive(configMutex);
+  return s;
+}
+
 const char* getModeString() {
-  switch (currentMode) {
+  takeConfig();
+  LedMode m = currentMode;
+  giveConfig();
+  switch (m) {
     case ModeOff: return "off";
     case ModeStatic: return "custom";
     case ModeRainbow: return "rainbow";
@@ -76,6 +111,7 @@ void processLedCommand(DynamicJsonDocument* json) {
   if (json->containsKey("command")) {
     String cmd = (*json)["command"].as<String>();
     
+    takeConfig();
     if (cmd == "mode") {
       String mode = (*json)["value"].as<String>();
       if (mode == "off") currentMode = ModeOff;
@@ -128,6 +164,7 @@ void processLedCommand(DynamicJsonDocument* json) {
       waveConfig.staticSegmentOffset = (*json)["value"];
       waveConfig.need_store = true;
     }
+    giveConfig();
   }
 }
 
@@ -139,19 +176,38 @@ void publishLedStatus(DynamicJsonDocument* json) {
   
   char uptime[32];
   snprintf(uptime, sizeof(uptime), "%02lu:%02lu:%02lu", hours, minutes % 60, seconds % 60);
+
+  takeConfig();
+  LedMode mode = currentMode;
+  uint8_t br = ledBrightness;
+  uint32_t rs = rainbowSpeed;
+  uint32_t ws = whiteSpeed;
+  uint16_t lc = ledCount;
+  WaveConfig wc = waveConfig;
+  giveConfig();
+
+  const char* modeStr = "unknown";
+  switch (mode) {
+    case ModeOff: modeStr = "off"; break;
+    case ModeStatic: modeStr = "custom"; break;
+    case ModeRainbow: modeStr = "rainbow"; break;
+    case ModeRainbowWave: modeStr = "wave"; break;
+    case ModeWhite: modeStr = "white"; break;
+    default: break;
+  }
   
   (*json)["uptime"] = uptime;
-  (*json)["mode"] = getModeString();
-  (*json)["brightness"] = (int)((ledBrightness * 100) / 255);
-  (*json)["rainbow_speed"] = rainbowSpeed;
-  (*json)["white_speed"] = whiteSpeed;
-  (*json)["led_count"] = ledCount;
-  (*json)["wave_width"] = waveConfig.waveWidth;
-  (*json)["wave_speed"] = waveConfig.waveSpeed;
-  (*json)["wave_bidirectional"] = waveConfig.bidirectional;
-  (*json)["wave_acceleration"] = waveConfig.acceleration;
-  (*json)["static_segment_count"] = waveConfig.staticSegmentCount;
-  (*json)["static_segment_offset"] = waveConfig.staticSegmentOffset;
+  (*json)["mode"] = modeStr;
+  (*json)["brightness"] = (int)((br * 100) / 255);
+  (*json)["rainbow_speed"] = rs;
+  (*json)["white_speed"] = ws;
+  (*json)["led_count"] = lc;
+  (*json)["wave_width"] = wc.waveWidth;
+  (*json)["wave_speed"] = wc.waveSpeed;
+  (*json)["wave_bidirectional"] = wc.bidirectional;
+  (*json)["wave_acceleration"] = wc.acceleration;
+  (*json)["static_segment_count"] = wc.staticSegmentCount;
+  (*json)["static_segment_offset"] = wc.staticSegmentOffset;
 }
 
 void handleLedCommand(enum Command cmd) {
@@ -201,15 +257,16 @@ void ledTask(void* arg) {
       vTaskDelay(20 / portTICK_PERIOD_MS);
     } else {
       unsigned long elapsed = millis() - taskStart;
-      uint16_t count = (ledCount < STRIP_LED_COUNT) ? ledCount : STRIP_LED_COUNT;
+      LedSnapshot snap = snapshotConfig();
+      uint16_t count = (snap.count < STRIP_LED_COUNT) ? snap.count : STRIP_LED_COUNT;
 
       LedColor leds[STRIP_LED_COUNT];
       calculateAllLeds(
         leds, count, elapsed,
-        currentMode, ledBrightness,
-        waveConfig, ledState,
-        staticR, staticG, staticB, staticW,
-        rainbowSpeed, whiteSpeed
+        snap.mode, snap.brightness,
+        snap.waveCfg, ledState,
+        snap.r, snap.g, snap.b, snap.w,
+        snap.rainbowSpd, snap.whiteSpd
       );
 
       for (uint16_t i = 0; i < count; i++) {
@@ -227,54 +284,81 @@ void ledTask(void* arg) {
 void addLedEndpoints() {
   tpl_server.on("/led/off", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
+    takeConfig();
     currentMode = ModeOff;
+    giveConfig();
     tpl_server.send(200, "text/html", "OK");
   });
   
   tpl_server.on("/led/static", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
+    takeConfig();
     if (tpl_server.hasArg("r")) staticR = tpl_server.arg("r").toInt();
     if (tpl_server.hasArg("g")) staticG = tpl_server.arg("g").toInt();
     if (tpl_server.hasArg("b")) staticB = tpl_server.arg("b").toInt();
     if (tpl_server.hasArg("w")) staticW = tpl_server.arg("w").toInt();
     if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
     currentMode = ModeStatic;
+    giveConfig();
     tpl_server.send(200, "text/html", "OK");
   });
   
   tpl_server.on("/led/rainbow", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
+    takeConfig();
     if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
     currentMode = ModeRainbow;
+    giveConfig();
     tpl_server.send(200, "text/html", "OK");
   });
   
   tpl_server.on("/led/wave", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
+    takeConfig();
     if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
     currentMode = ModeRainbowWave;
+    giveConfig();
     tpl_server.send(200, "text/html", "OK");
   });
   
   tpl_server.on("/led/white", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
+    takeConfig();
     if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
     currentMode = ModeWhite;
+    giveConfig();
     tpl_server.send(200, "text/html", "OK");
   });
   
   tpl_server.on("/led/brightness", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
+    takeConfig();
     if (tpl_server.hasArg("value")) ledBrightness = tpl_server.arg("value").toInt();
-    tpl_server.send(200, "text/html", String(ledBrightness));
+    uint8_t br = ledBrightness;
+    giveConfig();
+    tpl_server.send(200, "text/html", String(br));
   });
   
   tpl_server.on("/led/status", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
+    takeConfig();
+    LedMode m = currentMode;
+    uint8_t br = ledBrightness;
+    uint8_t r = staticR, g = staticG, b = staticB, w = staticW;
+    giveConfig();
+    const char* modeStr = "unknown";
+    switch (m) {
+      case ModeOff: modeStr = "off"; break;
+      case ModeStatic: modeStr = "custom"; break;
+      case ModeRainbow: modeStr = "rainbow"; break;
+      case ModeRainbowWave: modeStr = "wave"; break;
+      case ModeWhite: modeStr = "white"; break;
+      default: break;
+    }
     char buf[128];
     snprintf(buf, sizeof(buf), 
              "{\"mode\":\"%s\",\"brightness\":%d,\"r\":%d,\"g\":%d,\"b\":%d,\"w\":%d}",
-             getModeString(), ledBrightness, staticR, staticG, staticB, staticW);
+             modeStr, br, r, g, b, w);
     tpl_server.send(200, "application/json", buf);
   });
 }
@@ -282,6 +366,8 @@ void addLedEndpoints() {
 void setup() {
   tpl_system_setup(0);
   Serial.begin(115200);
+
+  configMutex = xSemaphoreCreateMutex();
 
   xTaskCreatePinnedToCore(ledTask, "led", 4096, NULL, 2, &ledTaskHandle, CORE_1);
 
@@ -293,7 +379,9 @@ void setup() {
   delay(1000);
   startupPhase = PhaseNormal;
 
+  takeConfig();
   loadWaveConfig();
+  giveConfig();
   addLedEndpoints();
   tpl_webserver_setup();
   tpl_websocket_setup(publishLedStatus, processLedCommand);
@@ -304,8 +392,10 @@ void setup() {
 }
 
 void loop() {
+  takeConfig();
   if (waveConfig.need_store) {
     saveWaveConfig();
   }
+  giveConfig();
   vTaskDelay(100 / portTICK_PERIOD_MS);
 }

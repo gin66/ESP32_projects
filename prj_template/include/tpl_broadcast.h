@@ -31,3 +31,6 @@ uint32_t tpl_broadcast_get_total_parsed();
 uint32_t tpl_broadcast_get_total_drained();
 size_t tpl_broadcast_get_last_raw(uint8_t* dst, size_t dst_size, bool* was_valid);
 uint16_t tpl_broadcast_get_port();
+uint32_t tpl_broadcast_get_total_truncated();
+uint32_t tpl_broadcast_get_total_oversize();
+size_t tpl_broadcast_get_rx_history(void* dst, size_t dst_size, uint8_t* out_count);

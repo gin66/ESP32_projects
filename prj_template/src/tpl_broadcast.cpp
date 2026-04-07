@@ -20,6 +20,39 @@ static uint32_t total_drained = 0;
 static uint8_t last_raw_packet[64];
 static size_t last_raw_packet_size = 0;
 static bool last_raw_valid = false;
+
+#define RX_HISTORY_SIZE 16
+struct RxEvent {
+  unsigned long timestamp;
+  int parse_size;
+  size_t bytes_read;
+  uint8_t first8[8];
+  bool truncated;
+  bool oversize;
+  bool drained;
+};
+static RxEvent rx_history[RX_HISTORY_SIZE];
+static uint8_t rx_history_head = 0;
+static uint8_t rx_history_count = 0;
+static uint32_t total_truncated = 0;
+static uint32_t total_oversize = 0;
+
+static void rx_history_add(int parse_size, size_t bytes_read, uint8_t* data,
+                           bool truncated, bool oversize, bool drained) {
+  RxEvent& e = rx_history[rx_history_head];
+  e.timestamp = millis();
+  e.parse_size = parse_size;
+  e.bytes_read = bytes_read;
+  e.truncated = truncated;
+  e.oversize = oversize;
+  e.drained = drained;
+  size_t copy_n = bytes_read < 8 ? bytes_read : 8;
+  memcpy(e.first8, data, copy_n);
+  if (copy_n < 8) memset(e.first8 + copy_n, 0, 8 - copy_n);
+  rx_history_head = (rx_history_head + 1) % RX_HISTORY_SIZE;
+  if (rx_history_count < RX_HISTORY_SIZE) rx_history_count++;
+}
+
 #ifndef MAX_SIMPLE_REINITS
 #define MAX_SIMPLE_REINITS 3
 #endif
@@ -55,6 +88,23 @@ void tpl_broadcast_report_valid() {
 int tpl_broadcast_get_reinit_count() { return reinit_count; }
 uint32_t tpl_broadcast_get_total_parsed() { return total_parsed; }
 uint32_t tpl_broadcast_get_total_drained() { return total_drained; }
+uint32_t tpl_broadcast_get_total_truncated() { return total_truncated; }
+uint32_t tpl_broadcast_get_total_oversize() { return total_oversize; }
+
+size_t tpl_broadcast_get_rx_history(void* dst, size_t dst_size, uint8_t* out_count) {
+  *out_count = rx_history_count;
+  if (rx_history_count == 0) return 0;
+  uint8_t start = (rx_history_head + RX_HISTORY_SIZE - rx_history_count) % RX_HISTORY_SIZE;
+  uint8_t* out = (uint8_t*)dst;
+  size_t written = 0;
+  for (uint8_t i = 0; i < rx_history_count; i++) {
+    size_t entry_sz = sizeof(RxEvent);
+    if (written + entry_sz > dst_size) break;
+    memcpy(out + written, &rx_history[(start + i) % RX_HISTORY_SIZE], entry_sz);
+    written += entry_sz;
+  }
+  return written;
+}
 
 size_t tpl_broadcast_get_last_raw(uint8_t* dst, size_t dst_size, bool* was_valid) {
   size_t sz = last_raw_packet_size < dst_size ? last_raw_packet_size : dst_size;
@@ -64,6 +114,7 @@ size_t tpl_broadcast_get_last_raw(uint8_t* dst, size_t dst_size, bool* was_valid
 }
 
 uint16_t tpl_broadcast_get_port() { return port; }
+
 void tpl_broadcast(uint8_t* packet, uint8_t length) {
   if (broadcast != NULL) {
     udp.beginPacket(broadcast, port);
@@ -77,16 +128,15 @@ bool tpl_broadcast_receive(void* buffer, size_t buffer_size,
   unsigned long now = millis();
   bool got_packet = false;
 
-  // Drain all pending UDP packets, keeping only the latest valid one.
-  // This prevents queue buildup when the main loop is slower than the
-  // sender rate (e.g. due to LVGL rendering blocking the loop).
   for (;;) {
     int packetSize = udp.parsePacket();
     if (packetSize <= 0) break;
 
     total_parsed++;
 
-    if (packetSize > buffer_size) {
+    if (packetSize > (int)buffer_size) {
+      total_oversize++;
+      rx_history_add(packetSize, 0, (uint8_t*)buffer, false, true, false);
       udp.flush();
       continue;
     }
@@ -95,6 +145,8 @@ bool tpl_broadcast_receive(void* buffer, size_t buffer_size,
     udp.flush();
 
     if (bytes_read > 0) {
+      bool truncated = (bytes_read != (size_t)packetSize);
+      if (truncated) total_truncated++;
       if (bytes_read <= sizeof(last_raw_packet)) {
         memcpy(last_raw_packet, buffer, bytes_read);
         last_raw_packet_size = bytes_read;
@@ -103,7 +155,9 @@ bool tpl_broadcast_receive(void* buffer, size_t buffer_size,
       if (received_size != NULL) {
         *received_size = bytes_read;
       }
-      if (got_packet) total_drained++;
+      bool was_drained = got_packet;
+      if (was_drained) total_drained++;
+      rx_history_add(packetSize, bytes_read, (uint8_t*)buffer, truncated, false, was_drained);
       got_packet = true;
       last_receive_ms = now;
     }
@@ -119,8 +173,6 @@ bool tpl_broadcast_receive(void* buffer, size_t buffer_size,
     last_packet_valid = false;
   }
 
-  // Self-healing: reinit UDP socket if no valid packet received for 10s
-  // Protects against silent UDP socket death on ESP32 (lwIP issue)
   if ((now - last_reinit_ms > 10000) &&
       (last_valid_ms == 0 || now - last_valid_ms > 10000)) {
     if (consecutive_failed_reinits >= MAX_SIMPLE_REINITS) {

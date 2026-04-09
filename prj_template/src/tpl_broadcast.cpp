@@ -64,7 +64,10 @@ void tpl_broadcast_setup(uint16_t udpPort, const char* broadcastAddress) {
   port = udpPort;
   last_valid_ms = millis();
   last_receive_ms = millis();
-  udp.begin(port);
+  bool ok = udp.begin(port);
+  Serial.printf("Broadcast: UDP %s on port %d (broadcast=%s)\n",
+                ok ? "started" : "FAILED", port,
+                broadcastAddress ? broadcastAddress : "NULL");
   tpl_wifi_register_reconnect(tpl_broadcast_reinit);
 }
 
@@ -72,9 +75,9 @@ void tpl_broadcast_force_reinit() {
   reinit_count++;
   Serial.printf("Broadcast: force reinit #%d (full WiFi reconnect)\n", reinit_count);
   udp.stop();
-  WiFi.disconnect(false, true);
+  WiFi.disconnect(false, false);
   delay(100);
-  WiFi.begin();
+  WiFi.reconnect();
   delay(500);
   udp.begin(port);
   last_reinit_ms = millis();

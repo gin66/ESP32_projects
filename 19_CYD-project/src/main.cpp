@@ -19,6 +19,7 @@
 
 #include <Arduino.h>
 #include <SPI.h>
+#include <esp_crc.h>
 
 #define SW_NAME_REV "19_CYD-project v1.0"
 
@@ -123,6 +124,11 @@ static uint32_t g_last_invalid_packet_count_at_capture = 0;
 static uint8_t g_last_invalid_raw[64];
 static size_t g_last_invalid_raw_size = 0;
 static bool g_last_invalid_raw_valid = false;
+static stromzaehler_packet_s g_last_valid_packet;
+static bool g_has_last_valid_packet = false;
+static stromzaehler_packet_s g_last_invalid_decoded;
+static char g_last_invalid_reason[24];
+static unsigned long g_last_invalid_millis = 0;
 
 // Function to update power display labels
 static void update_power_labels(void) {
@@ -169,13 +175,16 @@ void check_broadcast() {
 
   if (tpl_broadcast_receive(&packet, sizeof(packet), &received_size)) {
     if (received_size == sizeof(stromzaehler_packet_s)) {
-      bool valid = !isnan(packet.current_W) && !isinf(packet.current_W) &&
-                   !isnan(packet.consumption_Wh) && !isinf(packet.consumption_Wh) &&
-                   !isnan(packet.production_Wh) && !isinf(packet.production_Wh) &&
-                   packet.current_W > -100000.0f && packet.current_W < 100000.0f &&
-                   packet.consumption_Wh >= 0.0f && packet.production_Wh >= 0.0f;
+      uint32_t expected_crc = esp_crc32_le(0, (uint8_t const*)&packet,
+                                           sizeof(packet) - sizeof(packet.crc32));
+      bool crc_ok = (expected_crc == packet.crc32);
+      bool values_ok = !isnan(packet.current_W) && !isinf(packet.current_W) &&
+                    !isnan(packet.consumption_Wh) && !isinf(packet.consumption_Wh) &&
+                    !isnan(packet.production_Wh) && !isinf(packet.production_Wh) &&
+                    packet.current_W > -100000.0f && packet.current_W < 100000.0f &&
+                    packet.consumption_Wh >= 0.0f && packet.production_Wh >= 0.0f;
 
-      if (!valid) {
+      if (!crc_ok || !values_ok) {
         g_invalid_packet_count++;
         size_t copy_sz = received_size < sizeof(g_last_invalid_packet)
                              ? received_size : sizeof(g_last_invalid_packet);
@@ -185,6 +194,10 @@ void check_broadcast() {
         tpl_broadcast_get_last_raw(g_last_invalid_raw, sizeof(g_last_invalid_raw),
                                    &g_last_invalid_raw_valid);
         g_last_invalid_raw_size = received_size;
+        g_last_invalid_decoded = packet;
+        snprintf(g_last_invalid_reason, sizeof(g_last_invalid_reason),
+                 "%s", !crc_ok ? "crc_fail" : "bad_values");
+        g_last_invalid_millis = millis();
         char dbg[24];
         snprintf(dbg, sizeof(dbg), "INV:%lu R:%d",
                  g_invalid_packet_count, tpl_broadcast_get_reinit_count());
@@ -194,6 +207,8 @@ void check_broadcast() {
       } else {
         tpl_broadcast_report_valid();
         g_last_broadcast_time = millis();
+        g_last_valid_packet = packet;
+        g_has_last_valid_packet = true;
         memcpy(&g_stromzaehler_data, &packet, sizeof(stromzaehler_packet_s));
 
         power_chart_add_value(packet.current_W);
@@ -209,6 +224,9 @@ void check_broadcast() {
       tpl_broadcast_get_last_raw(g_last_invalid_raw, sizeof(g_last_invalid_raw),
                                  &g_last_invalid_raw_valid);
       g_last_invalid_raw_size = received_size;
+      g_last_invalid_decoded = packet;
+      snprintf(g_last_invalid_reason, sizeof(g_last_invalid_reason), "wrong_size");
+      g_last_invalid_millis = millis();
       Serial.printf("[Broadcast] Received %zu bytes, expected %zu\n",
                     received_size, sizeof(stromzaehler_packet_s));
     }
@@ -480,33 +498,45 @@ void setup() {
     }
     if (hex_len > 0 && hex_buf[hex_len - 1] == ' ') hex_buf[--hex_len] = '\0';
 
-    char raw_hex[sizeof(g_last_invalid_raw) * 3 + 1];
-    size_t raw_hex_len = 0;
-    size_t raw_dump = g_last_invalid_raw_size < sizeof(g_last_invalid_raw)
-                          ? g_last_invalid_raw_size : sizeof(g_last_invalid_raw);
-    for (size_t i = 0; i < raw_dump; i++) {
-      raw_hex_len += snprintf(raw_hex + raw_hex_len, sizeof(raw_hex) - raw_hex_len,
-                              "%02X ", g_last_invalid_raw[i]);
-    }
-    if (raw_hex_len > 0 && raw_hex[raw_hex_len - 1] == ' ') raw_hex[--raw_hex_len] = '\0';
+    char resp[1024];
+    int len = snprintf(resp, sizeof(resp),
+      "{\"status\":\"ok\","
+      "\"num\":%lu,"
+      "\"reason\":\"%s\","
+      "\"ago_sec\":%lu,"
+      "\"hex\":\"%s\","
+      "\"size\":%zu,"
+      "\"decoded\":{\"sec\":%d,\"min\":%d,\"hour\":%d,\"wday\":%d,"
+      "\"consumption\":%.2f,\"production\":%.2f,\"current\":%.2f},"
+      "\"prev_valid\":%s,",
+      g_last_invalid_packet_count_at_capture,
+      g_last_invalid_reason,
+      (millis() - g_last_invalid_millis) / 1000,
+      hex_buf,
+      g_last_invalid_packet_size,
+      g_last_invalid_decoded.tm_sec,
+      g_last_invalid_decoded.tm_min,
+      g_last_invalid_decoded.tm_hour,
+      g_last_invalid_decoded.tm_wday,
+      g_last_invalid_decoded.consumption_Wh,
+      g_last_invalid_decoded.production_Wh,
+      g_last_invalid_decoded.current_W,
+      g_has_last_valid_packet ? "true" : "false");
 
-    char resp[768];
-    snprintf(resp, sizeof(resp),
-             "{\"status\":\"ok\","
-             "\"invalid_packet_num\":%lu,"
-             "\"received_size\":%zu,"
-             "\"expected_size\":%zu,"
-             "\"hex\":\"%s\","
-             "\"raw_at_udp_read\":\"%s\","
-             "\"raw_size\":%zu,"
-             "\"raw_was_valid\":%s}",
-             g_last_invalid_packet_count_at_capture,
-             g_last_invalid_packet_size,
-             sizeof(stromzaehler_packet_s),
-             hex_buf,
-             raw_hex,
-             g_last_invalid_raw_size,
-             g_last_invalid_raw_valid ? "true" : "false");
+    if (g_has_last_valid_packet) {
+      len += snprintf(resp + len, sizeof(resp) - len,
+        "\"prev\":{\"sec\":%d,\"min\":%d,\"hour\":%d,\"wday\":%d,"
+        "\"consumption\":%.2f,\"production\":%.2f,\"current\":%.2f},",
+        g_last_valid_packet.tm_sec, g_last_valid_packet.tm_min,
+        g_last_valid_packet.tm_hour, g_last_valid_packet.tm_wday,
+        g_last_valid_packet.consumption_Wh, g_last_valid_packet.production_Wh,
+        g_last_valid_packet.current_W);
+    }
+
+    snprintf(resp + len, sizeof(resp) - len,
+      "\"parsed\":%lu,\"drained\":%lu,\"reinit_count\":%d}",
+      tpl_broadcast_get_total_parsed(), tpl_broadcast_get_total_drained(),
+      tpl_broadcast_get_reinit_count());
     tpl_server.send(200, "application/json", resp);
   });
 

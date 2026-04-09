@@ -4,6 +4,13 @@
 #include <stdint.h>
 
 // broadcast
+//
+// Known issue (ESP32): WiFi RX DMA and SPI Flash DMA share cache lines.
+// When a SPI display (e.g. TFT via HSPI) transfers data at the same moment
+// a UDP packet arrives, the CPU can read stale/garbage bytes from the DMA buffer.
+// Symptom: struct fields contain ASCII fragments from other memory regions.
+// Mitigation: -DCONFIG_SPIRAM_CACHE_WORKAROUND (adds memw cache sync barriers).
+// Future: add CRC to packet struct so corrupt payloads are silently rejected.
 #define STROMZAEHLER_PORT 56374
 #ifndef MAX_PACKET_SIZE
 #define MAX_PACKET_SIZE 256
@@ -17,6 +24,7 @@ struct stromzaehler_packet_s {
   float consumption_Wh;
   float production_Wh;
   float current_W;
+  uint32_t crc32;
 };
 
 void tpl_broadcast_setup(uint16_t udpPort = STROMZAEHLER_PORT,

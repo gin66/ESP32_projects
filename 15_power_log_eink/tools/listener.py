@@ -32,15 +32,5 @@ while True:
             f"{addr}: {tm_wday}:{tm_hour}:{tm_min}:{tm_sec} used={consume_Wh}Wh produced={produce_Wh}Wh actual={current_W}W crc={crc_ok}"
         )
         last_packet = data
-    elif len(data) == 16:
-        if data == last_packet:
-            continue
-        tm_sec, tm_min, tm_hour, tm_wday, consume_Wh, produce_Wh, current_W = (
-            struct.unpack("<4B3f", data)
-        )
-        print(
-            f"{addr}: {tm_wday}:{tm_hour}:{tm_min}:{tm_sec} used={consume_Wh}Wh produced={produce_Wh}Wh actual={current_W}W crc=NO_CRC(old_packet)"
-        )
-        last_packet = data
     else:
         print(f"Received packet from {addr}: {data}")

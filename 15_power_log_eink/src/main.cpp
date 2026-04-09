@@ -3,6 +3,7 @@
 
 #include "can_ids.h"
 #include "template.h"
+#include <esp_crc.h>
 // FreeFonts from Adafruit_GFX
 #include <Fonts/FreeMonoBold12pt7b.h>
 #include <Fonts/FreeMonoBold18pt7b.h>
@@ -685,6 +686,8 @@ void loop() {
     packet.tm_min = timeinfo.tm_min;
     packet.tm_hour = timeinfo.tm_hour;
     packet.tm_wday = timeinfo.tm_wday;
+    packet.crc32 = esp_crc32_le(0, (uint8_t const*)&packet,
+                                sizeof(packet) - sizeof(packet.crc32));
     uint32_t after = write_before;
     if (before == after) {
       // consistent read - no write in progress

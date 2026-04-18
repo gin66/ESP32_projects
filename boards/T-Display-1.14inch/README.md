@@ -4,7 +4,7 @@ ESP32-D0WD development board with integrated 1.14" ST7789V TFT LCD.
 
 ## GitHub
 
-- Repository: https://github.com/Xinyu-LilyGO/T-Display
+- Repository: https://github.com/Xinyuan-LilyGO/TTGO-T-Display
 - LILYGO official: https://www.lilygo.cc/products/t-display
 - CH9102 drivers (Mac/Windows): https://www.lilygo.cc (Document-Tool section)
 
@@ -70,6 +70,14 @@ ESP32-D0WD development board with integrated 1.14" ST7789V TFT LCD.
 | BUTTON1   | 35   |                       |
 | BUTTON2   | 0    | BOOT button           |
 | ADC Power | 14   | Battery voltage sense |
+
+## LEDs
+
+| LED | Color | GPIO | Notes                                                                                                                                                                               |
+| --- | ----- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PWR | Blue  | N/A  | Connected to battery charge controller. Flickers during charging (normal). Off when powered via battery connector only or when battery is fully charged. Not software-controllable. |
+
+No controllable LED on this board. GPIO 21 is I2C SDA, not an LED. `tpl_ledPin` is not defined.
 
 ## Arduino IDE Quick Start
 

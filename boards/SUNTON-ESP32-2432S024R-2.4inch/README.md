@@ -1,6 +1,6 @@
-# SUNTON ESP32-2432S028R (2.8" LCD TFT with Touch)
+# SUNTON ESP32-2432S024R (2.4" LCD TFT with Touch)
 
-ESP32-WROOM-32 development board with 2.8" TFT LCD, resistive touch, SD card slot, RGB LED, speaker, and light sensor. The classic "CYD" (Cheap Yellow Display).
+ESP32-WROOM-32 development board with 2.4" TFT LCD, resistive touch, SD card slot, RGB LED, speaker, and light sensor. Part of the SUNTON "CYD" family.
 
 ## Links
 
@@ -10,19 +10,19 @@ ESP32-WROOM-32 development board with 2.8" TFT LCD, resistive touch, SD card slo
 
 ## Photos
 
-![Back](back.png)
-
-![Back top view](back_top_view.jpg)
-
-![ESP32 chip detail](back_esp32_chip.jpg)
+![Front](front.png)
 
 ![Product with accessories](product_photo_with_accessories.jpg)
 
+## Dimensions
+
+![Dimensions](dimensions.jpg)
+
 ## Pinout / Schematics
 
-![LCM Schematic](pinout_lcm_schematic.jpg)
+![LCM Schematic](schematic_lcm.png)
 
-![MCU Schematic](pinout_mcu_schematic.jpg)
+![MCU Schematic](schematic_mcu.png)
 
 ## Specifications
 
@@ -33,7 +33,7 @@ ESP32-WROOM-32 development board with 2.8" TFT LCD, resistive touch, SD card slo
 | PSRAM          | None                                               |
 | Wireless       | Wi-Fi 802.11 b/g/n, Bluetooth 4.2 + BLE            |
 | USB            | Micro USB                                          |
-| Display        | 2.8" TFT LCD, 240 x 320, SPI                       |
+| Display        | 2.4" TFT LCD, 240 x 320, SPI                       |
 | Display Driver | ILI9341                                            |
 | Touch          | XPT2046 resistive (SPI)                            |
 | Audio          | FM8002A amplifier, speaker connector (JST 1.25 2p) |
@@ -46,11 +46,11 @@ ESP32-WROOM-32 development board with 2.8" TFT LCD, resistive touch, SD card slo
 
 ### Variants
 
-| Variant           | USB               | Touch                    | Display Driver |
-| ----------------- | ----------------- | ------------------------ | -------------- |
-| ESP32-2432S028R   | Micro USB         | XPT2046 (resistive, SPI) | ILI9341        |
-| ESP32-2432S028Rv2 | USB-C             | XPT2046 (resistive, SPI) | ILI9341        |
-| ESP32-2432S028Rv3 | USB-C + Micro USB | XPT2046 (resistive, SPI) | ST7789         |
+| Variant         | Touch                    | Notes                       |
+| --------------- | ------------------------ | --------------------------- |
+| ESP32-2432S024N | None                     | No touch                    |
+| ESP32-2432S024R | XPT2046 (resistive, SPI) |                             |
+| ESP32-2432S024C | CST820 (capacitive, I2C) | Upward compat. with CST816S |
 
 ## Pin Mapping — Display (ILI9341, SPI)
 
@@ -61,20 +61,20 @@ ESP32-WROOM-32 development board with 2.8" TFT LCD, resistive touch, SD card slo
 | SPI_SCLK      | 14   |
 | TFT_CS        | 15   |
 | TFT_DC        | 2    |
-| TFT_BACKLIGHT | 21   |
+| TFT_BACKLIGHT | 27   |
 | TFT_RST       | N/A  |
 
 ## Pin Mapping — Touch (XPT2046, SPI)
 
-| Function  | GPIO |
-| --------- | ---- |
-| SPI_MOSI  | 32   |
-| SPI_MISO  | 39   |
-| SPI_SCLK  | 25   |
-| TOUCH_CS  | 33   |
-| TOUCH_INT | 36   |
+| Function  | GPIO                     |
+| --------- | ------------------------ |
+| SPI_MOSI  | 13 (shared with display) |
+| SPI_MISO  | 12 (shared with display) |
+| SPI_SCLK  | 14 (shared with display) |
+| TOUCH_CS  | 33                       |
+| TOUCH_INT | 36                       |
 
-Note: Touch uses a **separate SPI bus** (SPI3_HOST) from the display.
+Note: Touch **shares the same SPI bus** (SPI2_HOST) with the display. Only CS differs.
 
 ## Pin Mapping — SD Card (SPI)
 
@@ -96,10 +96,18 @@ Note: Touch uses a **separate SPI bus** (SPI3_HOST) from the display.
 | CDS (light sensor) | 34   | Analog input |
 | BOOT button        | 0    |              |
 
+## Differences from 2.8" (ESP32-2432S028R)
+
+| Feature              | 2.4" (this board)          | 2.8"                 |
+| -------------------- | -------------------------- | -------------------- |
+| Display backlight    | GPIO 27                    | GPIO 21              |
+| Touch SPI bus        | Shared with display (SPI2) | Separate (SPI3)      |
+| Touch MOSI/MISO/SCLK | 13/12/14 (shared)          | 32/39/25 (dedicated) |
+
 ## PlatformIO
 
 ```ini
-[env:esp32-2432S028r]
+[env:esp32-2432S024r]
 platform = espressif32
 board = esp32dev
 framework = arduino
@@ -114,8 +122,6 @@ For the smartdisplay LVGL driver, add the board definition repository as a git s
 ## Notes
 
 - The RGB LED is active LOW — set GPIO LOW to turn on, HIGH to turn off.
-- The touch SPI bus (GPIO 32/39/25/33) is separate from the display SPI bus (GPIO 13/12/14/15).
-- The SD card uses yet another SPI bus (GPIO 23/19/18/5).
-- For audio via I2S, use GPIO26 as DAC2 (left channel only). GPIO25 is connected to GT911 touch on some boards.
-- The v3 variant uses an ST7789 display driver instead of ILI9341 (check markings on the box).
+- Display and touch share the same SPI bus — only the CS pin differs.
+- The SD card uses a separate SPI bus (GPIO 23/19/18/5).
 - The additional flash chip (W25Q32JV) is not always mounted on the board.

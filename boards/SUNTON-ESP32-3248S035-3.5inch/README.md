@@ -20,11 +20,15 @@ Available in two variants:
 
 ![Back](back.png)
 
-## Schematics
+![Product with accessories](product_photo_with_accessories.jpg)
 
-![LCM Schematic](schematic_lcm.jpg)
+![Screen on](product_screen_on.jpg)
 
-![MCU Schematic](schematic_mcu.jpg)
+## Pinout / Schematics
+
+![LCM Schematic](pinout_lcm_schematic.jpg)
+
+![MCU Schematic](pinout_mcu_schematic.jpg)
 
 ## Specifications
 

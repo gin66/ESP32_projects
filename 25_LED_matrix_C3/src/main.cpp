@@ -11,7 +11,7 @@
 
 NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt0Ws2812xMethod> matrix(MATRIX_PIXEL_COUNT, MATRIX_LED_PIN);
 
-static volatile LedMode currentMode = ModeRainbow;
+static volatile LedMode currentMode = ModeEye;
 static volatile uint8_t ledBrightness = 100;
 static volatile uint8_t staticR = 255;
 static volatile uint8_t staticG = 255;
@@ -19,19 +19,14 @@ static volatile uint8_t staticB = 255;
 static volatile BgStyle bgStyle = BgRings;
 static volatile uint32_t bgSpeed = 3000;
 static volatile uint16_t waveLength = 256;
-static volatile unsigned long scannerStartTime = 0;
 static volatile float maxCurrent = 1.0;
 static volatile float currentA = 0.0;
 
 static LedColor pixelBuffer[MATRIX_PIXEL_COUNT];
-static unsigned long startTime = 0;
 
 void writePixelBufferToMatrix(uint8_t scale) {
   for (uint16_t i = 0; i < MATRIX_PIXEL_COUNT; i++) {
-    uint16_t x = i % MATRIX_WIDTH;
-    uint16_t y = i / MATRIX_WIDTH;
-    uint16_t target_i = xyToIndex(x, y, MATRIX_WIDTH, MATRIX_HEIGHT);
-    matrix.SetPixelColor(target_i, RgbColor(
+    matrix.SetPixelColor(i, RgbColor(
       (uint16_t)pixelBuffer[i].R * scale / 255,
       (uint16_t)pixelBuffer[i].G * scale / 255,
       (uint16_t)pixelBuffer[i].B * scale / 255
@@ -45,16 +40,7 @@ const char* getModeString() {
     case ModeOff: return "off";
     case ModeStatic: return "static";
     case ModeRainbow: return "rainbow";
-    case ModeWhite: return "white";
-    case ModeScanner: return "scanner";
-    case ModeFire: return "fire";
-    case ModeWater: return "water";
-    case ModePlasma: return "plasma";
-    case ModeStarfield: return "starfield";
-    case ModeLavalamp: return "lavalamp";
-    case ModeAutomata: return "automata";
-    case ModeSnowfall: return "snowfall";
-    case ModeWheel: return "wheel";
+    case ModeEye: return "eye";
     default: return "unknown";
   }
 }
@@ -87,17 +73,8 @@ void processLedCommand(DynamicJsonDocument* json) {
       String mode = (*json)["value"].as<String>();
       if (mode == "off") currentMode = ModeOff;
       else if (mode == "rainbow") currentMode = ModeRainbow;
-      else if (mode == "white") currentMode = ModeWhite;
       else if (mode == "static") currentMode = ModeStatic;
-      else if (mode == "scanner") { currentMode = ModeScanner; scannerStartTime = millis(); }
-      else if (mode == "fire") currentMode = ModeFire;
-      else if (mode == "water") currentMode = ModeWater;
-      else if (mode == "plasma") currentMode = ModePlasma;
-      else if (mode == "starfield") currentMode = ModeStarfield;
-      else if (mode == "lavalamp") currentMode = ModeLavalamp;
-      else if (mode == "automata") currentMode = ModeAutomata;
-      else if (mode == "snowfall") currentMode = ModeSnowfall;
-      else if (mode == "wheel") currentMode = ModeWheel;
+      else if (mode == "eye") currentMode = ModeEye;
     }
     else if (cmd == "brightness") {
       ledBrightness = (uint8_t)(*json)["value"];
@@ -174,74 +151,10 @@ void addLedEndpoints() {
     tpl_server.send(200, "text/html", "OK");
   });
   
-  tpl_server.on("/led/white", HTTP_GET, []() {
+  tpl_server.on("/led/eye", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
     if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
-    currentMode = ModeWhite;
-    tpl_server.send(200, "text/html", "OK");
-  });
-  
-  tpl_server.on("/led/scanner", HTTP_GET, []() {
-    tpl_server.sendHeader("Connection", "close");
-    if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
-    currentMode = ModeScanner;
-    scannerStartTime = millis();
-    tpl_server.send(200, "text/html", "OK");
-  });
-  
-  tpl_server.on("/led/fire", HTTP_GET, []() {
-    tpl_server.sendHeader("Connection", "close");
-    if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
-    currentMode = ModeFire;
-    tpl_server.send(200, "text/html", "OK");
-  });
-  
-  tpl_server.on("/led/water", HTTP_GET, []() {
-    tpl_server.sendHeader("Connection", "close");
-    if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
-    currentMode = ModeWater;
-    tpl_server.send(200, "text/html", "OK");
-  });
-  
-  tpl_server.on("/led/plasma", HTTP_GET, []() {
-    tpl_server.sendHeader("Connection", "close");
-    if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
-    currentMode = ModePlasma;
-    tpl_server.send(200, "text/html", "OK");
-  });
-  
-  tpl_server.on("/led/starfield", HTTP_GET, []() {
-    tpl_server.sendHeader("Connection", "close");
-    if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
-    currentMode = ModeStarfield;
-    tpl_server.send(200, "text/html", "OK");
-  });
-  
-  tpl_server.on("/led/lavalamp", HTTP_GET, []() {
-    tpl_server.sendHeader("Connection", "close");
-    if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
-    currentMode = ModeLavalamp;
-    tpl_server.send(200, "text/html", "OK");
-  });
-  
-  tpl_server.on("/led/automata", HTTP_GET, []() {
-    tpl_server.sendHeader("Connection", "close");
-    if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
-    currentMode = ModeAutomata;
-    tpl_server.send(200, "text/html", "OK");
-  });
-  
-  tpl_server.on("/led/snowfall", HTTP_GET, []() {
-    tpl_server.sendHeader("Connection", "close");
-    if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
-    currentMode = ModeSnowfall;
-    tpl_server.send(200, "text/html", "OK");
-  });
-  
-  tpl_server.on("/led/wheel", HTTP_GET, []() {
-    tpl_server.sendHeader("Connection", "close");
-    if (tpl_server.hasArg("brightness")) ledBrightness = tpl_server.arg("brightness").toInt();
-    currentMode = ModeWheel;
+    currentMode = ModeEye;
     tpl_server.send(200, "text/html", "OK");
   });
   
@@ -262,12 +175,7 @@ void setup() {
   
   matrix.Begin();
   for (uint16_t i = 0; i < MATRIX_PIXEL_COUNT; i++) {
-    uint16_t x = i % MATRIX_WIDTH;
-    uint16_t y = i / MATRIX_WIDTH;
-    pixelBuffer[i] = LedColor(0,0,0);
-    if ((x < 8) && (y < 8)) {
-       pixelBuffer[i] = LedColor(x, y, 0);
-    }
+    pixelBuffer[i] = LedColor(0, 0, 0);
   }
   writePixelBufferToMatrix(255);
   
@@ -323,7 +231,6 @@ void loop() {
   }
   
   unsigned long currentTime = millis();
-  unsigned long elapsed = currentTime;
   
   if ((uint32_t)(currentTime - last_LED) > 500) {
      last_LED = currentTime;
@@ -333,15 +240,13 @@ void loop() {
 
   uint8_t numPanels = MATRIX_HEIGHT / 8;
   uint8_t scale = 255;
-
-  unsigned long effectTime = (currentMode == ModeScanner) ? (currentTime - scannerStartTime) : elapsed;
   uint8_t scaledLedBrightness = (uint16_t)ledBrightness * 255 / 100;
   
   calculateAllPixels(
     pixelBuffer,
     MATRIX_WIDTH,
     MATRIX_HEIGHT,
-    effectTime,
+    currentTime,
     currentMode,
     scaledLedBrightness,
     staticR, staticG, staticB,

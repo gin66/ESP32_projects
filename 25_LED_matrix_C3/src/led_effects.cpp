@@ -1,16 +1,7 @@
 #include "led_effects.h"
 #include <Arduino.h>
-#include <stdio.h>
-#include "../lib/font5x7/font5x7.h"
 
-extern void calculateFire(LedColor* pixels, uint16_t width, uint16_t height, unsigned long elapsedMs);
-extern void calculateWater(LedColor* pixels, uint16_t width, uint16_t height, unsigned long elapsedMs);
-extern void calculatePlasma(LedColor* pixels, uint16_t width, uint16_t height, unsigned long elapsedMs);
-extern void calculateStarfield(LedColor* pixels, uint16_t width, uint16_t height, unsigned long elapsedMs);
-extern void calculateLavalamp(LedColor* pixels, uint16_t width, uint16_t height, unsigned long elapsedMs);
-extern void calculateAutomata(LedColor* pixels, uint16_t width, uint16_t height, unsigned long elapsedMs);
-extern void calculateSnowfall(LedColor* pixels, uint16_t width, uint16_t height, unsigned long elapsedMs);
-extern void calculateWheel(LedColor* pixels, uint16_t width, uint16_t height, unsigned long elapsedMs);
+extern void calculateEye(LedColor* pixels, uint16_t width, uint16_t height, unsigned long elapsedMs);
 
 #define MAX_RIPPLES 3
 
@@ -23,36 +14,6 @@ struct Ripple {
 
 static Ripple ripples[MAX_RIPPLES];
 static uint32_t lastRippleTime = 0;
-
-static void drawChar(LedColor* pixels, uint16_t width, uint16_t height,
-                     char c, uint16_t ox, uint16_t oy,
-                     uint8_t r, uint8_t g, uint8_t b) {
-    uint8_t idx = (uint8_t)c;
-    if (idx > 95) return;
-    
-    for (uint8_t col = 0; col < 5; col++) {
-        uint8_t colData = pgm_read_byte(&font5x7[idx][col]);
-        for (uint8_t row = 0; row < 7; row++) {
-            if (colData & (1 << row)) {
-                uint16_t px = ox + col;
-                uint16_t py = oy + row;
-                if (px < width && py < height) {
-                    pixels[py * width + px] = LedColor(r, g, b);
-                }
-            }
-        }
-    }
-}
-
-static void drawString(LedColor* pixels, uint16_t width, uint16_t height,
-                       const char* str, uint16_t ox, uint16_t oy,
-                       uint8_t r, uint8_t g, uint8_t b) {
-    while (*str) {
-        drawChar(pixels, width, height, *str, ox, oy, r, g, b);
-        ox += 6;
-        str++;
-    }
-}
 
 static uint16_t distanceApprox(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2) {
     int32_t dx = (int32_t)x1 - (int32_t)x2;
@@ -204,33 +165,9 @@ void calculateAllPixels(
 ) {
     uint16_t totalPixels = width * height;
     
-    switch (mode) {
-        case ModeFire:
-            calculateFire(pixels, width, height, elapsedMs);
-            return;
-        case ModeWater:
-            calculateWater(pixels, width, height, elapsedMs);
-            return;
-        case ModePlasma:
-            calculatePlasma(pixels, width, height, elapsedMs);
-            return;
-        case ModeStarfield:
-            calculateStarfield(pixels, width, height, elapsedMs);
-            return;
-        case ModeLavalamp:
-            calculateLavalamp(pixels, width, height, elapsedMs);
-            return;
-        case ModeAutomata:
-            calculateAutomata(pixels, width, height, elapsedMs);
-            return;
-        case ModeSnowfall:
-            calculateSnowfall(pixels, width, height, elapsedMs);
-            return;
-        case ModeWheel:
-            calculateWheel(pixels, width, height, elapsedMs);
-            return;
-        default:
-            break;
+    if (mode == ModeEye) {
+        calculateEye(pixels, width, height, elapsedMs);
+        return;
     }
     
     for (uint16_t i = 0; i < totalPixels; i++) {
@@ -251,23 +188,6 @@ void calculateAllPixels(
             
             case ModeRainbow:
                 break;
-            
-            case ModeWhite: {
-                uint16_t angle = (uint16_t)((elapsedMs % 8000) * 360 / 8000);
-                uint16_t sineVal = getAbsSine(angle);
-                uint8_t wave = (uint8_t)(sineVal * 255 / 32768);
-                uint16_t br = (uint16_t)wave * brightness / 255;
-                pixels[i] = LedColor(br, br, br);
-                break;
-            }
-            
-            case ModeScanner: {
-                uint32_t msPerLed = 200;
-                uint16_t totalLeds = width * height;
-                uint16_t logicalPos = (uint16_t)((elapsedMs / msPerLed) % totalLeds);
-                pixels[i] = (i == logicalPos) ? LedColor(brightness, brightness, brightness) : LedColor(0, 0, 0);
-                break;
-            }
             
             default:
                 pixels[i] = LedColor(0, 0, 0);

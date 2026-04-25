@@ -17,16 +17,7 @@ enum LedMode {
     ModeOff,
     ModeStatic,
     ModeRainbow,
-    ModeWhite,
-    ModeScanner,
-    ModeFire,
-    ModeWater,
-    ModePlasma,
-    ModeStarfield,
-    ModeLavalamp,
-    ModeAutomata,
-    ModeSnowfall,
-    ModeWheel
+    ModeEye
 };
 
 enum BgStyle {

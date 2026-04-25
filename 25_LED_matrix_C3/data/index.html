@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>LED Matrix Controller</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <link
+      rel="stylesheet"
+      href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css"
+    />
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+
+    <style>
+      .color-picker {
+        width: 100px;
+        height: 50px;
+      }
+      .control-group {
+        margin: 20px 0;
+        padding: 15px;
+        background: #f5f5f5;
+        border-radius: 5px;
+      }
+      .status-box {
+        background: #e7f3ff;
+        padding: 10px;
+        border-radius: 5px;
+        margin: 10px 0;
+      }
+      .btn-group-vertical {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>LED Matrix Controller</h1>
+      <p>
+        ESP32: <span id="hostname">esp32_25</span> | Matrix:
+        <span id="matrix_size">8x8</span> | Uptime:
+        <span id="uptime">--</span>
+      </p>
+
+      <div class="status-box">
+        <strong>Status:</strong> <span id="status">--</span><br />
+        <strong>Mode:</strong> <span id="current_mode">--</span><br />
+        <strong>Background:</strong> <span id="current_bg_style">--</span><br />
+        <strong>Brightness:</strong>
+        <span id="current_brightness">--</span>%<br />
+        <strong>Current:</strong> <span id="current">--</span> A
+      </div>
+
+      <div class="control-group">
+        <h3>LED Mode</h3>
+        <div class="btn-group" role="group">
+          <button
+            type="button"
+            class="btn btn-default mode-btn"
+            data-mode="rainbow"
+            onclick="setMode('rainbow')"
+          >
+            Rainbow
+          </button>
+          <button
+            type="button"
+            class="btn btn-default mode-btn"
+            data-mode="static"
+            onclick="setMode('static')"
+          >
+            Static Color
+          </button>
+          <button
+            type="button"
+            class="btn btn-default mode-btn"
+            data-mode="white"
+            onclick="setMode('white')"
+          >
+            All White
+          </button>
+          <button
+            type="button"
+            class="btn btn-default mode-btn"
+            data-mode="scanner"
+            onclick="setMode('scanner')"
+          >
+            Scanner
+          </button>
+          <button
+            type="button"
+            class="btn btn-danger mode-btn"
+            data-mode="off"
+            onclick="setMode('off')"
+          >
+            OFF
+          </button>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <h3>Animations</h3>
+        <div class="btn-group" role="group">
+          <button
+            type="button"
+            class="btn btn-default mode-btn"
+            data-mode="fire"
+            onclick="setMode('fire')"
+          >
+            Fire
+          </button>
+          <button
+            type="button"
+            class="btn btn-default mode-btn"
+            data-mode="water"
+            onclick="setMode('water')"
+          >
+            Water
+          </button>
+          <button
+            type="button"
+            class="btn btn-default mode-btn"
+            data-mode="plasma"
+            onclick="setMode('plasma')"
+          >
+            Plasma
+          </button>
+          <button
+            type="button"
+            class="btn btn-default mode-btn"
+            data-mode="starfield"
+            onclick="setMode('starfield')"
+          >
+            Starfield
+          </button>
+          <button
+            type="button"
+            class="btn btn-default mode-btn"
+            data-mode="lavalamp"
+            onclick="setMode('lavalamp')"
+          >
+            Lavalamp
+          </button>
+          <button
+            type="button"
+            class="btn btn-default mode-btn"
+            data-mode="automata"
+            onclick="setMode('automata')"
+          >
+            Automata
+          </button>
+          <button
+            type="button"
+            class="btn btn-default mode-btn"
+            data-mode="snowfall"
+            onclick="setMode('snowfall')"
+          >
+            Snowfall
+          </button>
+          <button
+            type="button"
+            class="btn btn-default mode-btn"
+            data-mode="wheel"
+            onclick="setMode('wheel')"
+          >
+            Wheel
+          </button>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <h3>Background Style (Rainbow mode)</h3>
+        <div class="btn-group" role="group">
+          <button
+            type="button"
+            class="btn btn-default bg-btn"
+            data-bg="solid"
+            onclick="setBgStyle('solid')"
+          >
+            Solid
+          </button>
+          <button
+            type="button"
+            class="btn btn-default bg-btn"
+            data-bg="trapezoid"
+            onclick="setBgStyle('trapezoid')"
+          >
+            Trapezoid
+          </button>
+          <button
+            type="button"
+            class="btn btn-default bg-btn"
+            data-bg="rings"
+            onclick="setBgStyle('rings')"
+          >
+            Rings
+          </button>
+          <button
+            type="button"
+            class="btn btn-default bg-btn"
+            data-bg="wave"
+            onclick="setBgStyle('wave')"
+          >
+            Wave
+          </button>
+          <button
+            type="button"
+            class="btn btn-default bg-btn"
+            data-bg="ripple"
+            onclick="setBgStyle('ripple')"
+          >
+            Ripple
+          </button>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <h3>Brightness</h3>
+        <input
+          type="range"
+          id="brightness"
+          min="0"
+          max="100"
+          value="100"
+          oninput="setBrightness(this.value)"
+          style="width: 300px"
+        />
+        <span id="brightness_value">100</span>%
+      </div>
+
+      <div class="control-group">
+        <h3>Background Animation</h3>
+        <label>Speed (ms per cycle):</label>
+        <input
+          type="range"
+          id="bg_speed"
+          min="500"
+          max="20000"
+          value="3000"
+          step="100"
+          oninput="setBgSpeed(this.value)"
+          style="width: 300px"
+        />
+        <span id="bg_speed_value">3000</span> ms<br />
+
+        <label>Wave Length:</label>
+        <input
+          type="range"
+          id="wave_length"
+          min="64"
+          max="1024"
+          value="256"
+          step="32"
+          oninput="setWaveLength(this.value)"
+          style="width: 300px"
+        />
+        <span id="wave_length_value">256</span>
+      </div>
+
+      <div class="control-group">
+        <h3>Max Current</h3>
+        <input
+          type="range"
+          id="max_current"
+          min="0"
+          max="40"
+          value="10"
+          step="0.5"
+          oninput="setMaxCurrent(this.value)"
+          style="width: 300px"
+        />
+        <span id="max_current_value">10.0</span> A
+      </div>
+
+      <div class="control-group" id="static_color_group" style="display: none">
+        <h3>Static Color</h3>
+        <div style="margin-bottom: 15px">
+          <label>Color Picker:</label><br />
+          <input
+            type="color"
+            id="color_picker"
+            class="color-picker"
+            value="#ff0000"
+            onchange="setCustomColor(this.value)"
+          />
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 10px">
+          <div>
+            <label style="color: red; font-weight: bold"
+              >Red (R): <span id="red_value">255</span></label
+            ><br />
+            <input
+              type="range"
+              id="red"
+              min="0"
+              max="255"
+              value="255"
+              oninput="updateColorFromSliders()"
+              style="width: 100%"
+            />
+          </div>
+          <div>
+            <label style="color: green; font-weight: bold"
+              >Green (G): <span id="green_value">0</span></label
+            ><br />
+            <input
+              type="range"
+              id="green"
+              min="0"
+              max="255"
+              value="0"
+              oninput="updateColorFromSliders()"
+              style="width: 100%"
+            />
+          </div>
+          <div>
+            <label style="color: blue; font-weight: bold"
+              >Blue (B): <span id="blue_value">0</span></label
+            ><br />
+            <input
+              type="range"
+              id="blue"
+              min="0"
+              max="255"
+              value="0"
+              oninput="updateColorFromSliders()"
+              style="width: 100%"
+            />
+          </div>
+        </div>
+      </div>
+
+      <span
+        id="debug"
+        style="word-wrap: break-word; color: #999; font-size: 10px"
+      ></span>
+    </div>
+
+    <script>
+      var ws;
+      var reconnectInterval;
+
+      function connectWebSocket() {
+        ws = new WebSocket("ws://" + window.location.hostname + ":81/");
+
+        ws.onopen = function () {
+          document.getElementById("status").innerHTML = "Connected";
+          document.getElementById("status").style.color = "green";
+          clearInterval(reconnectInterval);
+        };
+
+        ws.onclose = function () {
+          document.getElementById("status").innerHTML =
+            "Disconnected - Reconnecting...";
+          document.getElementById("status").style.color = "red";
+          reconnectInterval = setTimeout(connectWebSocket, 3000);
+        };
+
+        ws.onmessage = function (evt) {
+          var data = JSON.parse(evt.data);
+
+          if (data.uptime)
+            document.getElementById("uptime").innerHTML = data.uptime;
+          if (data.matrix_width && data.matrix_height) {
+            document.getElementById("matrix_size").innerHTML =
+              data.matrix_width + "x" + data.matrix_height;
+          }
+          if (data.mode) {
+            document.getElementById("current_mode").innerHTML = data.mode;
+            updateModeButtons(data.mode);
+          }
+          if (data.bg_style) {
+            document.getElementById("current_bg_style").innerHTML =
+              data.bg_style;
+            updateBgButtons(data.bg_style);
+          }
+          if (data.brightness) {
+            document.getElementById("current_brightness").innerHTML =
+              data.brightness;
+            document.getElementById("brightness").value = data.brightness;
+            document.getElementById("brightness_value").innerHTML =
+              data.brightness;
+          }
+          if (data.bg_speed) {
+            document.getElementById("bg_speed").value = data.bg_speed;
+            document.getElementById("bg_speed_value").innerHTML = data.bg_speed;
+          }
+          if (data.wave_length) {
+            document.getElementById("wave_length").value = data.wave_length;
+            document.getElementById("wave_length_value").innerHTML =
+              data.wave_length;
+          }
+          if (data.current !== undefined) {
+            document.getElementById("current").innerHTML =
+              data.current.toFixed(2);
+          }
+          if (data.max_current !== undefined) {
+            document.getElementById("max_current").value = data.max_current;
+            document.getElementById("max_current_value").innerHTML =
+              data.max_current.toFixed(1);
+          }
+
+          document.getElementById("debug").innerHTML = JSON.stringify(data);
+        };
+
+        ws.onerror = function (error) {
+          console.log("WebSocket Error: " + error);
+        };
+      }
+
+      function sendCommand(cmd) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify(cmd));
+        }
+      }
+
+      function setMode(mode) {
+        sendCommand({ command: "mode", value: mode });
+        updateModeButtons(mode);
+      }
+
+      function updateModeButtons(mode) {
+        var btns = document.querySelectorAll(".mode-btn");
+        for (var i = 0; i < btns.length; i++) {
+          var isOff = btns[i].getAttribute("data-mode") === "off";
+          var isActive = btns[i].getAttribute("data-mode") === mode;
+          btns[i].className =
+            "btn mode-btn " +
+            (isActive ? "btn-primary" : isOff ? "btn-danger" : "btn-default");
+        }
+        document.getElementById("static_color_group").style.display =
+          mode === "static" ? "block" : "none";
+      }
+
+      function updateBgButtons(style) {
+        var btns = document.querySelectorAll(".bg-btn");
+        for (var i = 0; i < btns.length; i++) {
+          var isActive = btns[i].getAttribute("data-bg") === style;
+          btns[i].className =
+            "btn bg-btn " + (isActive ? "btn-primary" : "btn-default");
+        }
+      }
+
+      function setBgStyle(style) {
+        sendCommand({ command: "bg_style", value: style });
+        updateBgButtons(style);
+      }
+
+      function setBrightness(value) {
+        document.getElementById("brightness_value").innerHTML = value;
+        sendCommand({ command: "brightness", value: parseInt(value) });
+      }
+
+      function setBgSpeed(value) {
+        document.getElementById("bg_speed_value").innerHTML = value;
+        sendCommand({ command: "bg_speed", value: parseInt(value) });
+      }
+
+      function setWaveLength(value) {
+        document.getElementById("wave_length_value").innerHTML = value;
+        sendCommand({ command: "wave_length", value: parseInt(value) });
+      }
+
+      function setCustomColor(hex) {
+        var r = parseInt(hex.substr(1, 2), 16);
+        var g = parseInt(hex.substr(3, 2), 16);
+        var b = parseInt(hex.substr(5, 2), 16);
+
+        document.getElementById("red").value = r;
+        document.getElementById("green").value = g;
+        document.getElementById("blue").value = b;
+
+        updateSliderValues();
+        sendColorCommand();
+      }
+
+      function updateColorFromSliders() {
+        var r = document.getElementById("red").value;
+        var g = document.getElementById("green").value;
+        var b = document.getElementById("blue").value;
+
+        var hex =
+          "#" +
+          ("0" + parseInt(r).toString(16)).slice(-2) +
+          ("0" + parseInt(g).toString(16)).slice(-2) +
+          ("0" + parseInt(b).toString(16)).slice(-2);
+
+        document.getElementById("color_picker").value = hex;
+        updateSliderValues();
+        sendColorCommand();
+      }
+
+      function updateSliderValues() {
+        document.getElementById("red_value").innerHTML =
+          document.getElementById("red").value;
+        document.getElementById("green_value").innerHTML =
+          document.getElementById("green").value;
+        document.getElementById("blue_value").innerHTML =
+          document.getElementById("blue").value;
+      }
+
+      function sendColorCommand() {
+        var r = parseInt(document.getElementById("red").value);
+        var g = parseInt(document.getElementById("green").value);
+        var b = parseInt(document.getElementById("blue").value);
+
+        sendCommand({ command: "color", r: r, g: g, b: b });
+      }
+
+      function setMaxCurrent(value) {
+        document.getElementById("max_current_value").innerHTML =
+          parseFloat(value).toFixed(1);
+        sendCommand({ command: "max_current", value: parseFloat(value) });
+      }
+
+      window.onload = function () {
+        connectWebSocket();
+      };
+    </script>
+  </body>
+</html>

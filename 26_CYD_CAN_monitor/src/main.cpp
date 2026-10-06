@@ -53,15 +53,25 @@
 #endif
 
 // Display constants
-#define SCREEN_WIDTH 320
-#define SCREEN_HEIGHT 240
+#ifndef TFT_WIDTH
+#define TFT_WIDTH 240
+#endif
+#ifndef TFT_HEIGHT
+#define TFT_HEIGHT 320
+#endif
+#ifndef TFT_ROTATION
+#define TFT_ROTATION 3
+#endif
+// Panels are natively portrait; the UI is landscape (rotation 3),
+// so the active screen dimensions are the swapped TFT dimensions.
+#define SCREEN_WIDTH TFT_HEIGHT
+#define SCREEN_HEIGHT TFT_WIDTH
 
 // LVGL draw buffer
 #define DRAW_BUF_SIZE (SCREEN_WIDTH * SCREEN_HEIGHT / 10 * (LV_COLOR_DEPTH / 8))
 uint32_t draw_buf[DRAW_BUF_SIZE / 4];
 
-// TFT and touchscreen objects
-TFT_eSPI tft = TFT_eSPI();
+// Touchscreen object (the display's TFT_eSPI instance is owned by the LVGL driver)
 SPIClass touchscreenSPI = SPIClass(VSPI);
 #define XPT2046_IRQ 36
 #define XPT2046_MOSI 32
@@ -76,7 +86,12 @@ XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
 // Touch coordinates
 int touch_x, touch_y, touch_z;
 
-// Backlight control (CYD uses LEDC PWM on pin 21)
+// Backlight control (CYD uses LEDC PWM)
+#ifdef TFT_BL
+#define BACKLIGHT_PIN TFT_BL
+#else
+#define BACKLIGHT_PIN tpl_backlightPin
+#endif
 #define BACKLIGHT_DIM 51
 #define BACKLIGHT_FULL 255
 #define BACKLIGHT_TIMEOUT_MS 60000
@@ -285,8 +300,33 @@ static void update_can_display(void) {
 static void touchscreen_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
     if (touchscreen.tirqTouched() && touchscreen.touched()) {
         TS_Point p = touchscreen.getPoint();
-        touch_x = map(p.x, 200, 3700, 1, SCREEN_WIDTH);
-        touch_y = map(p.y, 240, 3800, 1, SCREEN_HEIGHT);
+
+        // Touch in the logical (rotated) screen orientation
+        int32_t lx = constrain(map(p.x, 200, 3700, 1, SCREEN_WIDTH), 0, SCREEN_WIDTH - 1);
+        int32_t ly = constrain(map(p.y, 240, 3800, 1, SCREEN_HEIGHT), 0, SCREEN_HEIGHT - 1);
+
+        // LVGL rotates indev points by the display rotation, so convert the
+        // logical coordinates back into the panel's native frame here; LVGL
+        // then rotates them forward again to the logical orientation.
+        switch (lv_display_get_rotation(lv_indev_get_display(indev))) {
+            case LV_DISPLAY_ROTATION_90:
+                touch_x = ly;
+                touch_y = TFT_HEIGHT - 1 - lx;
+                break;
+            case LV_DISPLAY_ROTATION_180:
+                touch_x = TFT_WIDTH - 1 - lx;
+                touch_y = TFT_HEIGHT - 1 - ly;
+                break;
+            case LV_DISPLAY_ROTATION_270:
+                touch_x = TFT_WIDTH - 1 - ly;
+                touch_y = lx;
+                break;
+            default:
+                touch_x = lx;
+                touch_y = ly;
+                break;
+        }
+
         touch_z = p.z;
         data->state = LV_INDEV_STATE_PRESSED;
         data->point.x = touch_x;
@@ -346,25 +386,31 @@ static void lv_init_display(void) {
     // Initialize touchscreen SPI and touchscreen
     touchscreenSPI.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
     touchscreen.begin(touchscreenSPI);
-    touchscreen.setRotation(3);
+    touchscreen.setRotation(TFT_ROTATION);
 
     // Initialize LVGL
     lv_init();
 
-    // Create LVGL display using TFT_eSPI
-    lv_tft_espi_create(SCREEN_WIDTH, SCREEN_HEIGHT, draw_buf, sizeof(draw_buf));
-    tft.setRotation(3);
+    // The driver owns its own TFT_eSPI instance and must be given the panel's
+    // native (portrait) resolution. Rotation is applied below via LVGL, which
+    // then swaps the logical resolution to landscape and drives the driver's
+    // setRotation().
+    lv_display_t* disp = lv_tft_espi_create(TFT_WIDTH, TFT_HEIGHT, draw_buf, sizeof(draw_buf));
+
+#if TFT_ROTATION == 1
+    lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_90);
+#elif TFT_ROTATION == 2
+    lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_180);
+#elif TFT_ROTATION == 3
+    lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_270);
+#else
+    lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_0);
+#endif
 
     // Create and register input device (touch)
     lv_indev_t* indev = lv_indev_create();
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(indev, touchscreen_read_cb);
-
-#ifdef TFT_INVERTED
-    tft.invertDisplay(true);
-#else
-    tft.invertDisplay(false);
-#endif
 }
 
 // ************* CAN Task (FreeRTOS) *************
@@ -510,7 +556,7 @@ void setup() {
 
     // Initialize backlight PWM (channel 7)
     ledcSetup(7, 5000, 8);
-    ledcAttachPin(tpl_backlightPin, 7);
+    ledcAttachPin(BACKLIGHT_PIN, 7);
     ledcWrite(7, BACKLIGHT_DIM);
 
     // Initialize EEZ Studio UI (creates all screen objects)

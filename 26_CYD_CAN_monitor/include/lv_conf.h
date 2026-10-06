@@ -1,0 +1,1 @@
+../../19_CYD-project/include/lv_conf.h

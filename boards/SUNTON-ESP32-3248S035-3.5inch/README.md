@@ -24,6 +24,10 @@ Available in two variants:
 
 ![Screen on](product_screen_on.jpg)
 
+![Top view (AliExpress)](top_view.png)
+
+![Bottom view (AliExpress)](bottom_view.png)
+
 ## Pinout / Schematics
 
 ![LCM Schematic](pinout_lcm_schematic.jpg)

@@ -152,7 +152,7 @@ static uint32_t g_can_error_cnt = 0;
 static uint8_t g_can_node_id = 0;
 
 bool g_show_interval = false;
-static bool g_bus_error_flag = false;
+static volatile bool g_bus_error_flag = false;
 
 // ************* CAN ID Table Functions *************
 
@@ -435,6 +435,11 @@ static void CANTask(void* parameter) {
         twai_status_info_t twaistatus;
         twai_get_status_info(&twaistatus);
 
+        // Clear flag when bus is no longer bus-off or recovering
+        if (twaistatus.state == TWAI_STATE_RUNNING) {
+            g_bus_error_flag = false;
+        }
+
         // Track errors
         if (alerts_triggered & TWAI_ALERT_ERR_PASS) {
             g_can_error_cnt++;
@@ -445,7 +450,6 @@ static void CANTask(void* parameter) {
             Serial.printf("[CAN] Bus error count: %d\n", twaistatus.bus_error_count);
         }
         if (alerts_triggered & TWAI_ALERT_BUS_RECOVERED) {
-            g_bus_error_flag = false;
             Serial.println("[CAN] Bus recovered");
         }
         if (alerts_triggered & TWAI_ALERT_RX_QUEUE_FULL) {
@@ -565,6 +569,13 @@ void setup() {
     ledcSetup(7, 5000, 8);
     ledcAttachPin(BACKLIGHT_PIN, 7);
     ledcWrite(7, BACKLIGHT_DIM);
+
+    // 3.5" board: explicitly turn off floating RGB LED pins (4/16/17)
+#if defined(ESP32_35_BOARD)
+    pinMode(4, OUTPUT);  digitalWrite(4, HIGH);   // RGB Red OFF
+    pinMode(16, OUTPUT); digitalWrite(16, HIGH);  // RGB Green OFF
+    pinMode(17, OUTPUT); digitalWrite(17, HIGH);  // RGB Blue OFF
+#endif
 
     // Initialize EEZ Studio UI (creates all screen objects)
     ui_init();

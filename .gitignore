@@ -8,7 +8,6 @@ package-lock.json
 06_wasserzaehler/test/*read*
 06_wasserzaehler/test/image*
 Cargo.lock
-*png
 serverindex.html
 target/
 [0-9][0-9]_*/include/tpl_*.h
@@ -33,3 +32,7 @@ sweep/
 23_LED_matrix/tests/test_wave_effect
 23_LED_matrix/tests/test_sine
 22_WS2814_Lichtband/tools/test_harness/test_harness
+06_wasserzaehler/test_rs/*.JPG
+06_wasserzaehler/test_rs/*.png
+06_wasserzaehler/dump_*
+06_wasserzaehler/test_rs/all.log

@@ -58,36 +58,45 @@ void create_screen_main() {
     lv_obj_set_clickable(objects.lblHeaderTime, true);
     lv_obj_add_event_cb(objects.lblHeaderTime, header_tap_cb, LV_EVENT_CLICKED, NULL);
 
-    int row_start_y = 60;
-    int row_height = 22;
+    /* Flat layout — no scrolling (resistive touch).  Both screens are 320px wide.
+     *  2.8" (240×320, 270° landscape): 9 rows
+     *  3.5" (320×480,   0° portrait):  23 rows — only vertical space differs
+     */
+    int row_height = 18;
+    int list_width = 314;
+    int col_data_x = 47;
+    int col_data_w = 155;
+    int col_time_x = 204;
+    int col_time_w = 112;
+
     for (int i = 0; i < MAX_CAN_IDS; i++) {
-        int y = row_start_y + i * row_height;
+        int y = 58 + i * row_height;
 
         lv_obj_t* bg = lv_obj_create(screen);
         lv_obj_set_pos(bg, 3, y);
-        lv_obj_set_size(bg, 314, row_height);
+        lv_obj_set_size(bg, list_width, row_height);
         lv_obj_set_style_bg_color(bg, lv_color_hex(i % 2 == 0 ? 0x111111 : 0x1A1A1A), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(bg, 255, LV_PART_MAIN);
         lv_obj_set_style_border_width(bg, 0, LV_PART_MAIN);
         lv_obj_set_style_pad_all(bg, 0, LV_PART_MAIN);
 
         objects.lblId[i] = lv_label_create(screen);
-        lv_obj_set_pos(objects.lblId[i], 5, y + 2);
-        lv_obj_set_size(objects.lblId[i], 40, 18);
+        lv_obj_set_pos(objects.lblId[i], 5, y + 1);
+        lv_obj_set_size(objects.lblId[i], 40, 16);
         lv_obj_set_style_text_color(objects.lblId[i], lv_color_hex(0xCCCCCC), LV_PART_MAIN);
-        lv_obj_set_style_text_font(objects.lblId[i], &lv_font_montserrat_16, LV_PART_MAIN);
+        lv_obj_set_style_text_font(objects.lblId[i], &lv_font_montserrat_14, LV_PART_MAIN);
         lv_label_set_text(objects.lblId[i], "---");
 
         objects.lblData[i] = lv_label_create(screen);
-        lv_obj_set_pos(objects.lblData[i], 47, y + 2);
-        lv_obj_set_size(objects.lblData[i], 155, 18);
+        lv_obj_set_pos(objects.lblData[i], col_data_x, y + 1);
+        lv_obj_set_size(objects.lblData[i], col_data_w, 16);
         lv_obj_set_style_text_color(objects.lblData[i], lv_color_hex(0xCCCCCC), LV_PART_MAIN);
         lv_obj_set_style_text_font(objects.lblData[i], &lv_font_montserrat_14, LV_PART_MAIN);
         lv_label_set_text(objects.lblData[i], "--");
 
         objects.lblTime[i] = lv_label_create(screen);
-        lv_obj_set_pos(objects.lblTime[i], 204, y + 2);
-        lv_obj_set_size(objects.lblTime[i], 112, 18);
+        lv_obj_set_pos(objects.lblTime[i], col_time_x, y + 1);
+        lv_obj_set_size(objects.lblTime[i], col_time_w, 16);
         lv_obj_set_style_text_color(objects.lblTime[i], lv_color_hex(0xCCCCCC), LV_PART_MAIN);
         lv_obj_set_style_text_font(objects.lblTime[i], &lv_font_montserrat_14, LV_PART_MAIN);
         lv_label_set_text(objects.lblTime[i], "--");

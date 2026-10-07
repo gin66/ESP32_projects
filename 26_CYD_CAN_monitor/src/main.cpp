@@ -64,8 +64,15 @@
 #endif
 // Panels are natively portrait; the UI is landscape (rotation 3),
 // so the active screen dimensions are the swapped TFT dimensions.
-#define SCREEN_WIDTH TFT_HEIGHT
-#define SCREEN_HEIGHT TFT_WIDTH
+#if TFT_ROTATION == 0 || TFT_ROTATION == 180
+  /* Portrait mode: width = TFT_WIDTH, height = TFT_HEIGHT */
+  #define SCREEN_WIDTH TFT_WIDTH
+  #define SCREEN_HEIGHT TFT_HEIGHT
+#else
+  /* Landscape mode (90°/270°): width = TFT_HEIGHT, height = TFT_WIDTH */
+  #define SCREEN_WIDTH TFT_HEIGHT
+  #define SCREEN_HEIGHT TFT_WIDTH
+#endif
 
 // LVGL draw buffer
 #define DRAW_BUF_SIZE (SCREEN_WIDTH * SCREEN_HEIGHT / 10 * (LV_COLOR_DEPTH / 8))

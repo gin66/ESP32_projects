@@ -7,7 +7,17 @@
 extern "C" {
 #endif
 
-#define MAX_CAN_IDS 8
+/* Row layout constants */
+#define ROW_HEIGHT 18
+#define HEADER_Y 58
+#define ROW_BUFFER 4  /* px safety margin at bottom */
+
+/* Logical height after LVGL rotation (portrait = TFT_HEIGHT, landscape = TFT_WIDTH).
+ * 2.8" (240×320, 270°): (240 - 58 - 4) / 18 = 9  rows
+ * 3.5" (320×480,   0°): (480 - 58 - 4) / 18 = 23 rows
+ */
+#define LOGICAL_HEIGHT (TFT_ROTATION == 0 || TFT_ROTATION == 180 ? TFT_HEIGHT : TFT_WIDTH)
+#define MAX_CAN_IDS ((LOGICAL_HEIGHT - HEADER_Y - ROW_BUFFER) / ROW_HEIGHT)
 
 typedef struct _objects_t {
     lv_obj_t* main;

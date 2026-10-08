@@ -112,13 +112,69 @@ Key build flags used across projects:
 - `-DNET_WATCHDOG=\"192.168.1.1\"` — IP to ping for network health
 - `-DCORE_DEBUG_LEVEL=5` (or `1`) — ESP-IDF log verbosity
 - `-DCONFIG_SPIRAM_CACHE_WORKAROUND` — Required for PSRAM stability
-- Board-type flags: `IS_ESP32CAM`, `IS_ESP32CYD`, `HAS_STEPPERS`
+- Board-type flags: `IS_ESP32CAM`, `IS_ESP32_CYD_28`, `IS_ESP32_CYD_35`, `HAS_STEPPERS`
+- `-DTFT_ROTATION=n` — Display rotation (0–3), project-specific
 
 ### Project-Specific Notes
 
 - **15_power_log_eink**: E-ink display (GxEPD), SML smart meter protocol (libsml), CAN bus. Board: `LILYGO_V2_3`. Uses `tpl_broadcast`.
-- **19_CYD-project**: LVGL 9.x UI with EEZ-Studio generated code, TFT_eSPI (ILI9341), XPT2046 touchscreen. All TFT pins defined as build flags. Backlight via LEDC PWM (pin 21), not TFT_eSPI. Uses `tpl_sdcard` module.
+- **19_CYD-project**: 2.8″ CYD (ILI9341) with LVGL 9.x UI, EEZ-Studio generated code, power monitoring. Uses `tpl_display` abstraction, `tpl_sd` module, `tpl_broadcast`.
+- **26_CYD_CAN_monitor**: Multi-board CAN bus monitor with LVGL UI. Supports both 2.8″ and 3.5″ CYD boards via `tpl_display` abstraction. Uses CAN bus (TWAI driver), protocol analyzer.
 - **06_wasserzaehler**: ESP32-CAM water meter image recognition. Uses `tpl_telegram`.
 - **20_power_supply_controller**: Newest project, still being set up.
 - **21_matter**: Example Matter device.
 - **22/23**: Controllable LEDs.
+
+### CYD Board Abstraction (`tpl_display`)
+
+The template provides a board abstraction layer for Cheap Yellow Displays (CYD)
+in `prj_template/include/tpl_display.h` and `prj_template/src/tpl_display.cpp`.
+It eliminates all hardcoded display/touch configuration from individual project
+`main.cpp` files.
+
+**Supported boards:**
+
+| Board | Define | Driver | Resolution | Touch SPI |
+|-------|--------|--------|------------|-----------|
+| 2.8″ (SUNTON 2432S028R) | `IS_ESP32_CYD_28` | ILI9341 | 240×320 | Private VSPI (pins 25/39/32) |
+| 3.5″ (SUNTON 3248S035R) | `IS_ESP32_CYD_35` | ST7796 | 320×480 | Shared display VSPI (pins 12/13/14) |
+
+**Usage:**
+
+1. Define `IS_ESP32_CYD_28` or `IS_ESP32_CYD_35` in `platformio.ini` build_flags.
+2. Include `template.h` (which includes `tpl_display.h`).
+3. Declare global: `TFT_eSPI tft = TFT_eSPI();`
+4. In `setup()`:
+   ```cpp
+   lv_display_t *disp = tpl_cyd_display_init(TFT_ROTATION);
+   tpl_cyd_touch_init(touchscreen, TFT_ROTATION);
+   tpl_cyd_backlight_init(7, BACKLIGHT_DIM);
+   tpl_cyd_rgb_init(true);  // turn off floating RGB pins
+   ```
+5. Touch callback (single function call):
+   ```cpp
+   static void touchscreen_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
+       bool pressed;
+       tpl_cyd_touch_read(touchscreen, data, &pressed,
+                          CYD_WIDTH, CYD_HEIGHT, TFT_ROTATION);
+       data->state = pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+   }
+   ```
+
+**Key functions:**
+
+| Function | Purpose |
+|----------|---------|
+| `tpl_cyd_display_init(rotation)` | Initializes TFT_eSPI + LVGL driver, returns `lv_display_t*` |
+| `tpl_cyd_touch_init(touchscreen, rotation)` | Initializes touch SPI (private or shared), sets rotation |
+| `tpl_cyd_touch_read(...)` | **Core**: full rotation pipeline (ADC → calibration → logical rotation) |
+| `tpl_cyd_backlight_init(channel, brightness)` | Sets up LEDC PWM for backlight |
+| `tpl_cyd_rgb_init(turn_off)` | Configures RGB LED pins (HIGH = off works for both boards) |
+| `tpl_cyd_light_sensor_read()` | Reads CDS photoresistor on 3.5″ boards (returns 0 on 2.8″) |
+
+**Adding a new CYD variant** requires editing only `tpl_display.h` (add a new
+`#elif defined(IS_ESP32_CYD_XX)` block with dimensions, driver, pins, and
+calibration ranges) plus adding one `-D` flag to `platformio.ini`. No
+`main.cpp` changes needed.
+
+Full documentation: `prj_template/docs/cyd_board_abstraction.md`.

@@ -50,21 +50,14 @@
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
 
-// Touchscreen pins
-#define XPT2046_IRQ 36   // T_IRQ
-#define XPT2046_MOSI 32  // T_DIN
-#define XPT2046_MISO 39  // T_OUT
-#define XPT2046_CLK 25   // T_CLK
-#define XPT2046_CS 33    // T_CS
+// CYD board abstraction — all display/touch config moved to tpl_display.h
+// See: prj_template/docs/cyd_board_abstraction.md
 
-SPIClass touchscreenSPI = SPIClass(VSPI);
-XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
+// LVGL draw buffer (resolution-dependent, from CYD dimensions)
+uint32_t draw_buf[CYD_DRAW_BUF_SIZE / 4];
 
-#define SCREEN_WIDTH 320
-#define SCREEN_HEIGHT 240
-
-// Touchscreen coordinates: (x, y) and pressure (z)
-int x, y, z;
+// Touchscreen — SPI bus initialized by tpl_cyd_touch_init()
+XPT2046_Touchscreen touchscreen(CYD_TOUCH_CS, CYD_TOUCH_IRQ);
 
 // Backlight control
 #define BACKLIGHT_DIM 51              // 20% brightness
@@ -78,10 +71,7 @@ uint8_t g_backlight_current = BACKLIGHT_DIM;
 uint8_t g_backlight_target = BACKLIGHT_DIM;
 uint8_t g_backlight_fade_start = BACKLIGHT_DIM;
 
-#define DRAW_BUF_SIZE (SCREEN_WIDTH * SCREEN_HEIGHT / 10 * (LV_COLOR_DEPTH / 8))
-uint32_t draw_buf[DRAW_BUF_SIZE / 4];
-
-// TFT display
+// TFT display (global, required by TFT_eSPI library)
 TFT_eSPI tft = TFT_eSPI();
 // ******************
 
@@ -323,23 +313,14 @@ static void init_power_chart_system() {
 }
 
 // Get the Touchscreen data
+// The abstraction handles the full rotation pipeline internally:
+// Touch ADC → XPT2046 rotation → calibration → logical rotation
 void touchscreen_read(lv_indev_t* indev, lv_indev_data_t* data) {
-  // Checks if Touchscreen was touched, and prints X, Y and Pressure (Z)
-  if (touchscreen.tirqTouched() && touchscreen.touched()) {
-    // Get Touchscreen points
-    TS_Point p = touchscreen.getPoint();
-    // Calibrate Touchscreen points with map function to the correct width and
-    // height
-    x = map(p.x, 200, 3700, 1, SCREEN_WIDTH);
-    y = map(p.y, 240, 3800, 1, SCREEN_HEIGHT);
-    z = p.z;
+  bool pressed;
+  tpl_cyd_touch_read(touchscreen, data, &pressed,
+                     CYD_WIDTH, CYD_HEIGHT, 3);  // rotation 3 = landscape
 
-    data->state = LV_INDEV_STATE_PRESSED;
-
-    // Set the coordinates
-    data->point.x = x;
-    data->point.y = y;
-
+  if (pressed) {
     // Trigger fade to full brightness on touch
     g_last_touch_time = millis();
     if (g_backlight_target != BACKLIGHT_FULL) {
@@ -382,39 +363,21 @@ void backlight_update() {
   }
 }
 
-// lvgl initialization for esp32 board
+// LVGL initialization using CYD board abstraction
 void lv_init_esp32(void) {
   // Register print function for debugging
   lv_log_register_print_cb(log_print);
 
-  // Start the SPI for the touchscreen and init the touchscreen
-  touchscreenSPI.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
-
-  touchscreen.begin(touchscreenSPI);
-  // Set the Touchscreen rotation in portrait mode
-  touchscreen.setRotation(3);  // 2:vertical / 3:horizontal
-
-  // Create a display object
-  lv_display_t* disp;
-  // Initialize the TFT display using the TFT_eSPI library
-  disp = lv_tft_espi_create(SCREEN_WIDTH, SCREEN_HEIGHT, draw_buf,
-                            sizeof(draw_buf));
-
-  // set rotation mode
-  tft.setRotation(3);  // 0 or 2 for  portrait / 1 or 3 for landscape
+  // Use the CYD abstraction — handles display init, touch init, and rotation
+  // pipeline internally (ADC → XPT2046 rotation → calibration → logical rotation)
+  lv_display_t* disp = tpl_cyd_display_init(3);  // rotation 3 = landscape
+  tpl_cyd_touch_init(touchscreen, 3);
 
   // Initialize an LVGL input device object (Touchscreen)
   lv_indev_t* indev = lv_indev_create();
   lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
   // Set the callback function to read Touchscreen input
   lv_indev_set_read_cb(indev, touchscreen_read);
-
-// you can define TFT_INVERTED as compiler param in platformio.ini
-#ifdef TFT_INVERTED
-  tft.invertDisplay(true);
-#else
-  tft.invertDisplay(false);
-#endif
 }
 
 void setup() {
@@ -427,14 +390,8 @@ void setup() {
   Serial.println(SW_NAME_REV);
   Serial.println(LVGL_Arduino);
 
-  pinMode(tpl_ledPin_R, OUTPUT);
-  pinMode(tpl_ledPin_G, OUTPUT);
-  pinMode(tpl_ledPin_B, OUTPUT);
-
-  // Turn off CYD RGB LED
-  digitalWrite(tpl_ledPin_B, HIGH);
-  digitalWrite(tpl_ledPin_G, HIGH);
-  digitalWrite(tpl_ledPin_R, HIGH);
+  // Initialize CYD RGB LED pins (HIGH = off on both boards)
+  tpl_cyd_rgb_init(true);
 
   // Initialize ESP32_projects template system
   tpl_system_setup(0);  // no deep sleep
@@ -600,11 +557,8 @@ void setup() {
   // Init TFT and Touch for esp32
   lv_init_esp32();
 
-  // Initialize backlight PWM after TFT init (channel 7 to avoid TFT_eSPI
-  // conflicts)
-  ledcSetup(7, 5000, 8);
-  ledcAttachPin(tpl_backlightPin, 7);
-  ledcWrite(7, BACKLIGHT_DIM);
+  // Initialize CYD backlight PWM (channel 7, dim brightness)
+  tpl_cyd_backlight_init(7, BACKLIGHT_DIM);
 
   // Integrate EEZ Studio GUI
   ui_init();

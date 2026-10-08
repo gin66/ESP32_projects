@@ -11,12 +11,22 @@
 #define tpl_flashPin 4
 #endif
 
-#ifdef IS_ESP32CYD
+#ifdef IS_ESP32_CYD_28
+// 2.8″ CYD (SUNTON 2432S028R — ILI9341)
 #define tpl_ledPin 4
 #define tpl_ledPin_R 4
 #define tpl_ledPin_G 16
 #define tpl_ledPin_B 17
 #define tpl_backlightPin 21
+#endif
+
+#ifdef IS_ESP32_CYD_35
+// 3.5″ CYD (SUNTON 3248S035R — ST7796)
+#define tpl_ledPin 4
+#define tpl_ledPin_R 4
+#define tpl_ledPin_G 16
+#define tpl_ledPin_B 17
+#define tpl_backlightPin 27  // 3.5″ uses GPIO 27 for backlight
 #endif
 
 extern struct tpl_task_s {

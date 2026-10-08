@@ -54,78 +54,24 @@
 #define CAN_RX_PIN 27
 #endif
 
-// Display constants
-#ifndef TFT_WIDTH
-#define TFT_WIDTH 240
-#endif
-#ifndef TFT_HEIGHT
-#define TFT_HEIGHT 320
-#endif
-#ifndef TFT_ROTATION
-#define TFT_ROTATION 3
-#endif
-// Panels are natively portrait; the UI is landscape (rotation 3),
-// so the active screen dimensions are the swapped TFT dimensions.
-#if TFT_ROTATION == 0 || TFT_ROTATION == 180
-/* Portrait mode: width = TFT_WIDTH, height = TFT_HEIGHT */
-#define SCREEN_WIDTH TFT_WIDTH
-#define SCREEN_HEIGHT TFT_HEIGHT
-#else
-  /* Landscape mode (90°/270°): width = TFT_HEIGHT, height = TFT_WIDTH */
-#define SCREEN_WIDTH TFT_HEIGHT
-#define SCREEN_HEIGHT TFT_WIDTH
-#endif
+// CYD board abstraction — all display/touch config moved to tpl_display.h
+// See: prj_template/docs/cyd_board_abstraction.md
 
-// LVGL draw buffer
-#define DRAW_BUF_SIZE (SCREEN_WIDTH * SCREEN_HEIGHT / 10 * (LV_COLOR_DEPTH / 8))
-uint32_t draw_buf[DRAW_BUF_SIZE / 4];
+// LVGL draw buffer (resolution-dependent, computed from CYD dimensions)
+uint32_t draw_buf[CYD_DRAW_BUF_SIZE / 4];
 
-// Touchscreen pins (CYD standard — both 2.8" and 3.5" use XPT2046)
-#define XPT2046_IRQ 36
-#define XPT2046_CS 33
-#if !defined(ESP32_35_BOARD)
-// 2.8" CYD (2432S028R): the touch has its own pin set, so it needs its own SPI
-// peripheral. On the 3.5" (Sunton 3248S035R) the XPT2046 is soldered onto the
-// display's SPI bus, so no pin defines are needed — the wiring already comes
-// from TFT_eSPI's begin(), and we reuse its SPIClass (getSPIinstance()).
-#define XPT2046_MOSI 32
-#define XPT2046_MISO 39
-#define XPT2046_CLK 25
-#endif
+// Touchscreen — constructed with board-specific pins from tpl_display.h
+// SPI bus is initialized by tpl_cyd_touch_init() for 2.8\" boards.
+XPT2046_Touchscreen touchscreen(CYD_TOUCH_CS, CYD_TOUCH_IRQ);
 
-XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
+// Global TFT_eSPI instance (required by TFT_eSPI library and tpl_display)
+TFT_eSPI tft = TFT_eSPI();
 
-#if !defined(ESP32_35_BOARD)
-// Only the 2.8" needs a private SPI instance; the 3.5" shares the display's.
-SPIClass touchscreenSPI = SPIClass(VSPI);
-#endif
-
-// Touchscreen pins (CYD standard)
-#ifndef TOUCH_X_MIN
-#define TOUCH_X_MIN 200
-#endif
-#ifndef TOUCH_X_MAX
-#define TOUCH_X_MAX 3700
-#endif
-#ifndef TOUCH_Y_MIN
-#define TOUCH_Y_MIN 240
-#endif
-#ifndef TOUCH_Y_MAX
-#define TOUCH_Y_MAX 3800
-#endif
 #ifndef DEBUG_TOUCH
 #define DEBUG_TOUCH 0  // Set to 1 to output touch events to Serial
 #endif
 
 // Touch coordinates
-int touch_x, touch_y, touch_z;
-
-// Backlight control (CYD uses LEDC PWM)
-#ifdef TFT_BL
-#define BACKLIGHT_PIN TFT_BL
-#else
-#define BACKLIGHT_PIN tpl_backlightPin
-#endif
 #define BACKLIGHT_DIM 51
 #define BACKLIGHT_FULL 255
 #define BACKLIGHT_TIMEOUT_MS 60000
@@ -575,18 +521,18 @@ static void touchscreen_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
   static unsigned long g_last_press_time = 0;
   static int32_t g_last_press_y = 0;
   static bool g_header_touched = false;
+  bool pressed;
   int32_t ly = 0;
 
-  if (touchscreen.tirqTouched() && touchscreen.touched()) {
-    // getPoint() is cheap here: it calls update(), which early-returns inside
-    // the library's MSEC_THRESHOLD (3ms) window that touched() just opened.
-    TS_Point p = touchscreen.getPoint();
+  // The abstraction handles the full rotation pipeline internally:
+  // Touch ADC → XPT2046 rotation → calibration → logical rotation
+  tpl_cyd_touch_read(touchscreen, data, &pressed,
+                     CYD_WIDTH, CYD_HEIGHT, TFT_ROTATION);
 
-    // Touch in the logical (rotated) screen orientation
-    int32_t lx = constrain(map(p.x, TOUCH_X_MIN, TOUCH_X_MAX, 1, SCREEN_WIDTH),
-                           0, SCREEN_WIDTH - 1);
-    ly = constrain(map(p.y, TOUCH_Y_MIN, TOUCH_Y_MAX, 1, SCREEN_HEIGHT), 0,
-                   SCREEN_HEIGHT - 1);
+  if (pressed) {
+    // Get the rotated coordinates from the abstraction
+    int32_t lx = data->point.x;
+    ly = data->point.y;
 
 #if DEBUG_TOUCH
     // Rate-limited: printing every poll blocks on the UART TX buffer once the
@@ -595,12 +541,11 @@ static void touchscreen_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
     static unsigned long g_touch_log_ms = 0;
     if (millis() - g_touch_log_ms >= 100) {
       g_touch_log_ms = millis();
-      Serial.printf("[TOUCH] Raw: x=%d y=%d z=%d lx=%d ly=%d (screen %dx%d)\n", p.x,
-                    p.y, p.z, lx, ly, SCREEN_WIDTH, SCREEN_HEIGHT);
+      TS_Point p = touchscreen.getPoint();
+      Serial.printf("[TOUCH] Raw: x=%d y=%d z=%d lx=%d ly=%d (screen %dx%d)\n",
+                    p.x, p.y, p.z, lx, ly, CYD_SCREEN_WIDTH, CYD_SCREEN_HEIGHT);
     }
 #endif
-
-
 
     // Track if we're touching the header area
     if (ly <= PROTO_TOGGLE_BOTTOM) {
@@ -610,31 +555,6 @@ static void touchscreen_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
     } else {
       g_header_touched = false;
     }
-
-    // LVGL rotation transform
-    switch (lv_display_get_rotation(lv_indev_get_display(indev))) {
-      case LV_DISPLAY_ROTATION_90:
-        touch_x = ly;
-        touch_y = TFT_HEIGHT - 1 - lx;
-        break;
-      case LV_DISPLAY_ROTATION_180:
-        touch_x = TFT_WIDTH - 1 - lx;
-        touch_y = TFT_HEIGHT - 1 - ly;
-        break;
-      case LV_DISPLAY_ROTATION_270:
-        touch_x = TFT_WIDTH - 1 - ly;
-        touch_y = lx;
-        break;
-      default:
-        touch_x = lx;
-        touch_y = ly;
-        break;
-    }
-
-    touch_z = p.z;
-    data->state = LV_INDEV_STATE_PRESSED;
-    data->point.x = touch_x;
-    data->point.y = touch_y;
 
     g_last_touch_time = millis();
     if (g_backlight_target != BACKLIGHT_FULL) {
@@ -705,36 +625,10 @@ static void lv_init_display(void) {
   // Initialize LVGL
   lv_init();
 
-  // The driver owns its own TFT_eSPI instance and must be given the panel's
-  // native (portrait) resolution. Rotation is applied below via LVGL, which
-  // then swaps the logical resolution to landscape and drives the driver's
-  // setRotation().
-  lv_display_t* disp =
-      lv_tft_espi_create(TFT_WIDTH, TFT_HEIGHT, draw_buf, sizeof(draw_buf));
-
-  // Touchscreen is initialized after the display because the 3.5" board shares
-  // TFT_eSPI's SPI peripheral — it is only routed once the driver has run init.
-#if defined(ESP32_35_BOARD)
-  // Reuse TFT_eSPI's SPIClass so the XPT2046 lands on the already-routed bus
-  // (SCLK=14, MISO=12, MOSI=13). begin() is a no-op here: the instance is up.
-  touchscreen.begin(TFT_eSPI::getSPIinstance());
-  Serial.println("[DISPLAY] 3.5\" CYD — XPT2046 touch on shared display SPI");
-#else
-  touchscreenSPI.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
-  touchscreen.begin(touchscreenSPI);
-  Serial.println("[DISPLAY] 2.8\" CYD — XPT2046 touch initialized");
-#endif
-  touchscreen.setRotation(TFT_ROTATION);
-
-#if TFT_ROTATION == 1
-  lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_90);
-#elif TFT_ROTATION == 2
-  lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_180);
-#elif TFT_ROTATION == 3
-  lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_270);
-#else
-  lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_0);
-#endif
+  // Use the CYD abstraction — handles display init, touch init, and rotation
+  // pipeline internally (ADC → XPT2046 rotation → calibration → logical rotation)
+  lv_display_t* disp = tpl_cyd_display_init(TFT_ROTATION);
+  tpl_cyd_touch_init(touchscreen, TFT_ROTATION);
 
   // Create and register input device (touch)
   lv_indev_t* indev = lv_indev_create();
@@ -904,20 +798,11 @@ void setup() {
   // Initialize LVGL display and touchscreen
   lv_init_display();
 
-  // Initialize backlight PWM (channel 7)
-  ledcSetup(7, 5000, 8);
-  ledcAttachPin(BACKLIGHT_PIN, 7);
-  ledcWrite(7, BACKLIGHT_DIM);
+  // Initialize CYD backlight PWM (channel 7, full brightness)
+  tpl_cyd_backlight_init(7, BACKLIGHT_FULL);
 
-  // 3.5" board: explicitly turn off floating RGB LED pins (4/16/17)
-#if defined(ESP32_35_BOARD)
-  pinMode(4, OUTPUT);
-  digitalWrite(4, HIGH);  // RGB Red OFF
-  pinMode(16, OUTPUT);
-  digitalWrite(16, HIGH);  // RGB Green OFF
-  pinMode(17, OUTPUT);
-  digitalWrite(17, HIGH);  // RGB Blue OFF
-#endif
+  // Initialize CYD RGB LED pins (HIGH = off on both boards)
+  tpl_cyd_rgb_init(true);
 
   // Initialize EEZ Studio UI (creates all screen objects)
   ui_init();

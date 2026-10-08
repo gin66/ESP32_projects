@@ -18,6 +18,7 @@
  * - tpl_matter: Matter protocol support (requires USE_TPL_MATTER)
  * - tpl_sd: SD card support (requires USE_TPL_SD)
  * - tpl_debug_log: Debug log ring buffer (requires USE_TPL_DEBUG_LOG)
+ * - tpl_display: CYD board abstraction (requires IS_ESP32_CYD_28 or IS_ESP32_CYD_35)
  *
  * Typical usage:
  * @code
@@ -46,6 +47,7 @@
 #include "tpl_esp_camera.h"
 #include "tpl_matter.h"
 #include "tpl_net_watchdog.h"
+#include "tpl_display.h"
 #include "tpl_sd.h"
 #include "tpl_system.h"
 #include "tpl_telegram.h"

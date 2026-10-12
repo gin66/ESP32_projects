@@ -1,7 +1,7 @@
 #include <Arduino.h>
 
-#include "../../../.private/private_bot.h"
-#include "../../../.private/private_sha.h"
+#include "../../.private/private_bot.h"
+#include "../../.private/private_sha.h"
 
 #define CORE_0 0
 #define CORE_1 1

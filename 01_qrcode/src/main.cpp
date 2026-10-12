@@ -12,8 +12,8 @@
 #include <mbedtls/sha1.h>
 #include <time.h>
 
-#include "../../../.private/private_bot.h"
-#include "../../../.private/private_sha.h"
+#include "../../.private/private_bot.h"
+#include "../../.private/private_sha.h"
 #include "esp32-hal-psram.h"
 #include "esp_log.h"
 #include "esp_timer.h"

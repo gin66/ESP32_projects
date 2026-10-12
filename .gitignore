@@ -36,3 +36,4 @@ sweep/
 06_wasserzaehler/test_rs/*.png
 06_wasserzaehler/dump_*
 06_wasserzaehler/test_rs/all.log
+.private

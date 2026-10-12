@@ -506,14 +506,27 @@
 
 #define LV_USE_CALENDAR   1
 #if LV_USE_CALENDAR
-    #define LV_CALENDAR_WEEK_STARTS_MONDAY 0
-    #if LV_CALENDAR_WEEK_STARTS_MONDAY
-        #define LV_CALENDAR_DEFAULT_DAY_NAMES {"Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"}
-    #else
-        #define LV_CALENDAR_DEFAULT_DAY_NAMES {"Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"}
-    #endif
+    #define LV_CALENDAR_WEEK_STARTS_MONDAY 1
+    #define LV_MONDAY_STR    "Mo"
+    #define LV_TUESDAY_STR   "Tu"
+    #define LV_WEDNESDAY_STR "We"
+    #define LV_THURSDAY_STR  "Th"
+    #define LV_FRIDAY_STR    "Fr"
+    #define LV_SATURDAY_STR  "Sa"
+    #define LV_SUNDAY_STR    "Su"
 
-    #define LV_CALENDAR_DEFAULT_MONTH_NAMES {"January", "February", "March",  "April", "May",  "June", "July", "August", "September", "October", "November", "December"}
+    #define LV_JANUARY_STR   "January"
+    #define LV_FEBRUARY_STR  "February"
+    #define LV_MARCH_STR    "March"
+    #define LV_APRIL_STR    "April"
+    #define LV_MAY_STR      "May"
+    #define LV_JUNE_STR     "June"
+    #define LV_JULY_STR     "July"
+    #define LV_AUGUST_STR   "August"
+    #define LV_SEPTEMBER_STR "September"
+    #define LV_OCTOBER_STR  "October"
+    #define LV_NOVEMBER_STR "November"
+    #define LV_DECEMBER_STR "December" 
     #define LV_USE_CALENDAR_HEADER_ARROW 1
     #define LV_USE_CALENDAR_HEADER_DROPDOWN 1
 #endif  /*LV_USE_CALENDAR*/

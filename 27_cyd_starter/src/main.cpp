@@ -23,9 +23,9 @@
  */
 
 #include <Arduino.h>
-#include <lvgl.h>
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
+#include <lvgl.h>
 
 // Include the CYD board abstraction header
 #include "tpl_display.h"
@@ -40,18 +40,18 @@ XPT2046_Touchscreen touchscreen(CYD_TOUCH_CS, CYD_TOUCH_IRQ);
 TFT_eSPI tft = TFT_eSPI();
 
 // LVGL display handle (returned by tpl_cyd_display_init)
-static lv_display_t *g_disp = NULL;
+static lv_display_t* g_disp = NULL;
 
 // Frame counter
 static uint32_t g_frame_count = 0;
-static lv_obj_t *g_lblInfo = NULL;
-static lv_obj_t *g_lblFrame = NULL;
+static lv_obj_t* g_lblInfo = NULL;
+static lv_obj_t* g_lblFrame = NULL;
 
 // Touch callback — the abstraction handles the full rotation pipeline
-static void touchscreen_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
+static void touchscreen_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
   bool pressed;
-  tpl_cyd_touch_read(touchscreen, data, &pressed,
-                     CYD_WIDTH, CYD_HEIGHT, TFT_ROTATION);
+  tpl_cyd_touch_read(touchscreen, data, &pressed, CYD_WIDTH, CYD_HEIGHT,
+                     TFT_ROTATION);
   data->state = pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
 }
 
@@ -63,11 +63,12 @@ void setup() {
   lv_init();
 
   // Initialize CYD display and touch (abstraction handles everything)
-  g_disp = tpl_cyd_display_init(TFT_ROTATION);
+  g_disp = tpl_cyd_display_init(TFT_ROTATION, draw_buf, sizeof(draw_buf));
+  lv_display_set_default(g_disp);  // Required: lv_indev_create() needs it
   tpl_cyd_touch_init(touchscreen, TFT_ROTATION);
 
   // Create and register input device (touch)
-  lv_indev_t *indev = lv_indev_create();
+  lv_indev_t* indev = lv_indev_create();
   lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
   lv_indev_set_read_cb(indev, touchscreen_read_cb);
 
@@ -83,19 +84,18 @@ void setup() {
 
   char info[80];
 #if defined(IS_ESP32_CYD_28)
-  snprintf(info, sizeof(info), "2.8\" CYD\n%dx%d\nILI9341",
-           CYD_SCREEN_WIDTH, CYD_SCREEN_HEIGHT);
+  snprintf(info, sizeof(info), "2.8\" CYD\n%dx%d\nILI9341", CYD_SCREEN_WIDTH,
+           CYD_SCREEN_HEIGHT);
 #elif defined(IS_ESP32_CYD_35)
-  snprintf(info, sizeof(info), "3.5\" CYD\n%dx%d\nST7796",
-           CYD_SCREEN_WIDTH, CYD_SCREEN_HEIGHT);
+  snprintf(info, sizeof(info), "3.5\" CYD\n%dx%d\nST7796", CYD_SCREEN_WIDTH,
+           CYD_SCREEN_HEIGHT);
 #else
   snprintf(info, sizeof(info), "Unknown CYD board");
 #endif
 
   g_lblInfo = lv_label_create(lv_screen_active());
   lv_label_set_text(g_lblInfo, info);
-  lv_obj_set_style_text_color(g_lblInfo, lv_color_hex(0x00FF00),
-                              LV_PART_MAIN);
+  lv_obj_set_style_text_color(g_lblInfo, lv_color_hex(0x00FF00), LV_PART_MAIN);
 
   lv_obj_align(g_lblInfo, LV_ALIGN_CENTER, 0, -20);
 

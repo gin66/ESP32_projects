@@ -10,31 +10,37 @@ extern "C" {
 /* Row layout constants */
 #define ROW_HEIGHT 18
 #define HEADER_Y 58
-#define ROW_BUFFER 4  /* px safety margin at bottom */
+#define ROW_BUFFER 4 /* px safety margin at bottom */
 
-/* Logical height after LVGL rotation (portrait = TFT_HEIGHT, landscape = TFT_WIDTH).
- * 2.8" (240×320, 270°): (240 - 58 - 4) / 18 = 9  rows
+/* Logical height after rotation (portrait = CYD_SCREEN_HEIGHT, landscape =
+ * CYD_SCREEN_WIDTH). 2.8" (240×320, 270°): (240 - 58 - 4) / 18 = 9 rows
  * 3.5" (320×480,   0°): (480 - 58 - 4) / 18 = 23 rows
  */
-#define LOGICAL_HEIGHT (TFT_ROTATION == 0 || TFT_ROTATION == 180 ? TFT_HEIGHT : TFT_WIDTH)
+#define LOGICAL_HEIGHT                                          \
+  (TFT_ROTATION == 0 || TFT_ROTATION == 180 ? CYD_SCREEN_HEIGHT \
+                                            : CYD_SCREEN_WIDTH)
 #define MAX_CAN_IDS ((LOGICAL_HEIGHT - HEADER_Y - ROW_BUFFER) / ROW_HEIGHT)
 
 typedef struct _objects_t {
-    lv_obj_t* main;
-    lv_obj_t* lblIP;
-    lv_obj_t* lblStats;
-    lv_obj_t* lblHeaderId;
-    lv_obj_t* lblHeaderData;
-    lv_obj_t* lblHeaderTime;
-    lv_obj_t* lblId[MAX_CAN_IDS];
-    lv_obj_t* lblData[MAX_CAN_IDS];
-    lv_obj_t* lblTime[MAX_CAN_IDS];
+  lv_obj_t* main;
+  lv_obj_t* lblIP;
+  lv_obj_t* lblStats;
+  lv_obj_t* lblClearBtn;
+  lv_obj_t* lblHeaderId;
+  lv_obj_t* lblHeaderData;
+  lv_obj_t* lblHeaderTime;
+  lv_obj_t* lblId[MAX_CAN_IDS];
+  lv_obj_t* lblData[MAX_CAN_IDS];
+  lv_obj_t* lblTime[MAX_CAN_IDS];
 } objects_t;
 
 extern objects_t objects;
 
+/* Visible to both C and C++ — screens.c calls this from C code. */
+extern void clear_all_counters(void);
+
 enum ScreensEnum {
-    SCREEN_ID_MAIN = 1,
+  SCREEN_ID_MAIN = 1,
 };
 
 void create_screen_main();

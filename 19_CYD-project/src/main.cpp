@@ -24,7 +24,7 @@
 #define SW_NAME_REV "19_CYD-project v1.0"
 
 //************* software serial pins used for debug (if serial0 is used for
-//communication) *************
+// communication) *************
 #define RXPIN 27
 #define TXPIN 22
 
@@ -165,32 +165,35 @@ void check_broadcast() {
 
   if (tpl_broadcast_receive(&packet, sizeof(packet), &received_size)) {
     if (received_size == sizeof(stromzaehler_packet_s)) {
-      uint32_t expected_crc = esp_crc32_le(0, (uint8_t const*)&packet,
-                                           sizeof(packet) - sizeof(packet.crc32));
+      uint32_t expected_crc = esp_crc32_le(
+          0, (uint8_t const*)&packet, sizeof(packet) - sizeof(packet.crc32));
       bool crc_ok = (expected_crc == packet.crc32);
-      bool values_ok = !isnan(packet.current_W) && !isinf(packet.current_W) &&
-                    !isnan(packet.consumption_Wh) && !isinf(packet.consumption_Wh) &&
-                    !isnan(packet.production_Wh) && !isinf(packet.production_Wh) &&
-                    packet.current_W > -100000.0f && packet.current_W < 100000.0f &&
-                    packet.consumption_Wh >= 0.0f && packet.production_Wh >= 0.0f;
+      bool values_ok =
+          !isnan(packet.current_W) && !isinf(packet.current_W) &&
+          !isnan(packet.consumption_Wh) && !isinf(packet.consumption_Wh) &&
+          !isnan(packet.production_Wh) && !isinf(packet.production_Wh) &&
+          packet.current_W > -100000.0f && packet.current_W < 100000.0f &&
+          packet.consumption_Wh >= 0.0f && packet.production_Wh >= 0.0f;
 
       if (!crc_ok || !values_ok) {
         g_invalid_packet_count++;
         size_t copy_sz = received_size < sizeof(g_last_invalid_packet)
-                             ? received_size : sizeof(g_last_invalid_packet);
+                             ? received_size
+                             : sizeof(g_last_invalid_packet);
         memcpy(g_last_invalid_packet, &packet, copy_sz);
         g_last_invalid_packet_size = received_size;
         g_last_invalid_packet_count_at_capture = g_invalid_packet_count;
-        tpl_broadcast_get_last_raw(g_last_invalid_raw, sizeof(g_last_invalid_raw),
+        tpl_broadcast_get_last_raw(g_last_invalid_raw,
+                                   sizeof(g_last_invalid_raw),
                                    &g_last_invalid_raw_valid);
         g_last_invalid_raw_size = received_size;
         g_last_invalid_decoded = packet;
-        snprintf(g_last_invalid_reason, sizeof(g_last_invalid_reason),
-                 "%s", !crc_ok ? "crc_fail" : "bad_values");
+        snprintf(g_last_invalid_reason, sizeof(g_last_invalid_reason), "%s",
+                 !crc_ok ? "crc_fail" : "bad_values");
         g_last_invalid_millis = millis();
         char dbg[24];
-        snprintf(dbg, sizeof(dbg), "INV:%lu R:%d",
-                 g_invalid_packet_count, tpl_broadcast_get_reinit_count());
+        snprintf(dbg, sizeof(dbg), "INV:%lu R:%d", g_invalid_packet_count,
+                 tpl_broadcast_get_reinit_count());
         if (objects.debug != NULL) {
           lv_label_set_text(objects.debug, dbg);
         }
@@ -207,7 +210,8 @@ void check_broadcast() {
 
     } else {
       size_t copy_sz = received_size < sizeof(g_last_invalid_packet)
-                           ? received_size : sizeof(g_last_invalid_packet);
+                           ? received_size
+                           : sizeof(g_last_invalid_packet);
       memcpy(g_last_invalid_packet, &packet, copy_sz);
       g_last_invalid_packet_size = received_size;
       g_last_invalid_packet_count_at_capture = g_invalid_packet_count;
@@ -215,7 +219,8 @@ void check_broadcast() {
                                  &g_last_invalid_raw_valid);
       g_last_invalid_raw_size = received_size;
       g_last_invalid_decoded = packet;
-      snprintf(g_last_invalid_reason, sizeof(g_last_invalid_reason), "wrong_size");
+      snprintf(g_last_invalid_reason, sizeof(g_last_invalid_reason),
+               "wrong_size");
       g_last_invalid_millis = millis();
       Serial.printf("[Broadcast] Received %zu bytes, expected %zu\n",
                     received_size, sizeof(stromzaehler_packet_s));
@@ -317,8 +322,8 @@ static void init_power_chart_system() {
 // Touch ADC → XPT2046 rotation → calibration → logical rotation
 void touchscreen_read(lv_indev_t* indev, lv_indev_data_t* data) {
   bool pressed;
-  tpl_cyd_touch_read(touchscreen, data, &pressed,
-                     CYD_WIDTH, CYD_HEIGHT, 3);  // rotation 3 = landscape
+  tpl_cyd_touch_read(touchscreen, data, &pressed, CYD_WIDTH, CYD_HEIGHT,
+                     3);  // rotation 3 = landscape
 
   if (pressed) {
     // Trigger fade to full brightness on touch
@@ -368,9 +373,10 @@ void lv_init_esp32(void) {
   // Register print function for debugging
   lv_log_register_print_cb(log_print);
 
-  // Use the CYD abstraction — handles display init, touch init, and rotation
-  // pipeline internally (ADC → XPT2046 rotation → calibration → logical rotation)
-  lv_display_t* disp = tpl_cyd_display_init(3);  // rotation 3 = landscape
+  // Must pass a valid draw buffer: lv_tft_espi_create() returns NULL if
+  // buf == NULL (LV_CHECK_ARG(buf != NULL, return NULL)).
+  lv_display_t* disp = tpl_cyd_display_init(3, draw_buf, sizeof(draw_buf));
+  lv_display_set_default(disp);  // Required: lv_indev_create() needs it
   tpl_cyd_touch_init(touchscreen, 3);
 
   // Initialize an LVGL input device object (Touchscreen)
@@ -442,58 +448,57 @@ void setup() {
     tpl_server.sendHeader("Access-Control-Allow-Origin", "*");
     if (g_last_invalid_packet_size == 0) {
       tpl_server.send(200, "application/json",
-                      "{\"status\":\"none\",\"message\":\"no invalid packet captured yet\"}");
+                      "{\"status\":\"none\",\"message\":\"no invalid packet "
+                      "captured yet\"}");
       return;
     }
     char hex_buf[sizeof(g_last_invalid_packet) * 3 + 1];
     size_t hex_len = 0;
     size_t dump_sz = g_last_invalid_packet_size < sizeof(g_last_invalid_packet)
-                         ? g_last_invalid_packet_size : sizeof(g_last_invalid_packet);
+                         ? g_last_invalid_packet_size
+                         : sizeof(g_last_invalid_packet);
     for (size_t i = 0; i < dump_sz; i++) {
-      hex_len += snprintf(hex_buf + hex_len, sizeof(hex_buf) - hex_len,
-                          "%02X ", g_last_invalid_packet[i]);
+      hex_len += snprintf(hex_buf + hex_len, sizeof(hex_buf) - hex_len, "%02X ",
+                          g_last_invalid_packet[i]);
     }
     if (hex_len > 0 && hex_buf[hex_len - 1] == ' ') hex_buf[--hex_len] = '\0';
 
     char resp[1024];
-    int len = snprintf(resp, sizeof(resp),
-      "{\"status\":\"ok\","
-      "\"num\":%lu,"
-      "\"reason\":\"%s\","
-      "\"ago_sec\":%lu,"
-      "\"hex\":\"%s\","
-      "\"size\":%zu,"
-      "\"decoded\":{\"sec\":%d,\"min\":%d,\"hour\":%d,\"wday\":%d,"
-      "\"consumption\":%.2f,\"production\":%.2f,\"current\":%.2f},"
-      "\"prev_valid\":%s,",
-      g_last_invalid_packet_count_at_capture,
-      g_last_invalid_reason,
-      (millis() - g_last_invalid_millis) / 1000,
-      hex_buf,
-      g_last_invalid_packet_size,
-      g_last_invalid_decoded.tm_sec,
-      g_last_invalid_decoded.tm_min,
-      g_last_invalid_decoded.tm_hour,
-      g_last_invalid_decoded.tm_wday,
-      g_last_invalid_decoded.consumption_Wh,
-      g_last_invalid_decoded.production_Wh,
-      g_last_invalid_decoded.current_W,
-      g_has_last_valid_packet ? "true" : "false");
+    int len = snprintf(
+        resp, sizeof(resp),
+        "{\"status\":\"ok\","
+        "\"num\":%lu,"
+        "\"reason\":\"%s\","
+        "\"ago_sec\":%lu,"
+        "\"hex\":\"%s\","
+        "\"size\":%zu,"
+        "\"decoded\":{\"sec\":%d,\"min\":%d,\"hour\":%d,\"wday\":%d,"
+        "\"consumption\":%.2f,\"production\":%.2f,\"current\":%.2f},"
+        "\"prev_valid\":%s,",
+        g_last_invalid_packet_count_at_capture, g_last_invalid_reason,
+        (millis() - g_last_invalid_millis) / 1000, hex_buf,
+        g_last_invalid_packet_size, g_last_invalid_decoded.tm_sec,
+        g_last_invalid_decoded.tm_min, g_last_invalid_decoded.tm_hour,
+        g_last_invalid_decoded.tm_wday, g_last_invalid_decoded.consumption_Wh,
+        g_last_invalid_decoded.production_Wh, g_last_invalid_decoded.current_W,
+        g_has_last_valid_packet ? "true" : "false");
 
     if (g_has_last_valid_packet) {
-      len += snprintf(resp + len, sizeof(resp) - len,
-        "\"prev\":{\"sec\":%d,\"min\":%d,\"hour\":%d,\"wday\":%d,"
-        "\"consumption\":%.2f,\"production\":%.2f,\"current\":%.2f},",
-        g_last_valid_packet.tm_sec, g_last_valid_packet.tm_min,
-        g_last_valid_packet.tm_hour, g_last_valid_packet.tm_wday,
-        g_last_valid_packet.consumption_Wh, g_last_valid_packet.production_Wh,
-        g_last_valid_packet.current_W);
+      len += snprintf(
+          resp + len, sizeof(resp) - len,
+          "\"prev\":{\"sec\":%d,\"min\":%d,\"hour\":%d,\"wday\":%d,"
+          "\"consumption\":%.2f,\"production\":%.2f,\"current\":%.2f},",
+          g_last_valid_packet.tm_sec, g_last_valid_packet.tm_min,
+          g_last_valid_packet.tm_hour, g_last_valid_packet.tm_wday,
+          g_last_valid_packet.consumption_Wh, g_last_valid_packet.production_Wh,
+          g_last_valid_packet.current_W);
     }
 
     snprintf(resp + len, sizeof(resp) - len,
-      "\"parsed\":%lu,\"drained\":%lu,\"reinit_count\":%d}",
-      tpl_broadcast_get_total_parsed(), tpl_broadcast_get_total_drained(),
-      tpl_broadcast_get_reinit_count());
+             "\"parsed\":%lu,\"drained\":%lu,\"reinit_count\":%d}",
+             tpl_broadcast_get_total_parsed(),
+             tpl_broadcast_get_total_drained(),
+             tpl_broadcast_get_reinit_count());
     tpl_server.send(200, "application/json", resp);
   });
 
@@ -530,15 +535,15 @@ void setup() {
       if (i > 0) resp += ",";
       char entry[256];
       snprintf(entry, sizeof(entry),
-        "{\"t\":%lu,\"psz\":%d,\"br\":%zu,"
-        "\"h\":\"%02X %02X %02X %02X %02X %02X %02X %02X\","
-        "\"trunc\":%s,\"over\":%s,\"drain\":%s}",
-        h[i].timestamp, h[i].parse_size, h[i].bytes_read,
-        h[i].first8[0], h[i].first8[1], h[i].first8[2], h[i].first8[3],
-        h[i].first8[4], h[i].first8[5], h[i].first8[6], h[i].first8[7],
-        h[i].truncated ? "true" : "false",
-        h[i].oversize ? "true" : "false",
-        h[i].drained ? "true" : "false");
+               "{\"t\":%lu,\"psz\":%d,\"br\":%zu,"
+               "\"h\":\"%02X %02X %02X %02X %02X %02X %02X %02X\","
+               "\"trunc\":%s,\"over\":%s,\"drain\":%s}",
+               h[i].timestamp, h[i].parse_size, h[i].bytes_read, h[i].first8[0],
+               h[i].first8[1], h[i].first8[2], h[i].first8[3], h[i].first8[4],
+               h[i].first8[5], h[i].first8[6], h[i].first8[7],
+               h[i].truncated ? "true" : "false",
+               h[i].oversize ? "true" : "false",
+               h[i].drained ? "true" : "false");
       resp += entry;
     }
     resp += "]}";

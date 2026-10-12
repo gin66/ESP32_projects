@@ -144,13 +144,24 @@ It eliminates all hardcoded display/touch configuration from individual project
 1. Define `IS_ESP32_CYD_28` or `IS_ESP32_CYD_35` in `platformio.ini` build_flags.
 2. Include `template.h` (which includes `tpl_display.h`).
 3. Declare global: `TFT_eSPI tft = TFT_eSPI();`
-4. In `setup()`:
+4. Declare a draw buffer: `uint32_t draw_buf[CYD_DRAW_BUF_SIZE / 4];`
+5. In `setup()`:
    ```cpp
-   lv_display_t *disp = tpl_cyd_display_init(TFT_ROTATION);
+   lv_display_t *disp = tpl_cyd_display_init(TFT_ROTATION, draw_buf,
+                                             sizeof(draw_buf));
+   lv_display_set_default(disp);  // Required in LVGL 9.x
    tpl_cyd_touch_init(touchscreen, TFT_ROTATION);
    tpl_cyd_backlight_init(7, BACKLIGHT_DIM);
    tpl_cyd_rgb_init(true);  // turn off floating RGB pins
    ```
+   **Important:** `lv_display_set_default(disp)` is required in LVGL 9.x.
+   Without it, `lv_indev_create()` and any EEZ Studio UI code (`ui_init()`) will
+   fail with "no display was created yet" errors because they look up the
+   default display internally.
+   The abstraction uses the global `tft` object (pins from
+   `user_setup_declared.h`) with a custom LVGL flush callback — it does NOT
+   use `lv_tft_espi_create()` (which creates its own unconfigured TFT_eSPI
+   and crashes).
 5. Touch callback (single function call):
    ```cpp
    static void touchscreen_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
@@ -165,7 +176,7 @@ It eliminates all hardcoded display/touch configuration from individual project
 
 | Function | Purpose |
 |----------|---------|
-| `tpl_cyd_display_init(rotation)` | Initializes TFT_eSPI + LVGL driver, returns `lv_display_t*` |
+| `tpl_cyd_display_init(rotation, buf, buf_size)` | Creates LVGL display with own TFT_eSPI instance; returns `lv_display_t*` (NULL if buf is NULL) |
 | `tpl_cyd_touch_init(touchscreen, rotation)` | Initializes touch SPI (private or shared), sets rotation |
 | `tpl_cyd_touch_read(...)` | **Core**: full rotation pipeline (ADC → calibration → logical rotation) |
 | `tpl_cyd_backlight_init(channel, brightness)` | Sets up LEDC PWM for backlight |

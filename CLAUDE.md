@@ -2,31 +2,35 @@
 
 This file provides guidance to AI coding agents when working with code in this repository.
 
+## Repository Architecture
+
+ESP32 projects are organized under `ESP32/` with a shared template system. All projects symlink to `ESP32/prj_template/` rather than duplicating code.
+
 ## Build System
 
 All projects use **PlatformIO** with the Arduino framework for ESP32. Every project has two environments: `esp32ota` (OTA upload, default) and `esp32usb` (USB serial upload). You **must always specify the environment** with `-e`.
 
 ```bash
 # Build only (OTA env)
-cd XX_project && pio run -e esp32ota
+cd ESP32/XX_project && pio run -e esp32ota
 
 # Build only (USB env)
-cd XX_project && pio run -e esp32usb
+cd ESP32/XX_project && pio run -e esp32usb
 
 # Build and upload via OTA
-cd XX_project && pio run -e esp32ota --target upload
+cd ESP32/XX_project && pio run -e esp32ota --target upload
 
 # Build and upload via USB
-cd XX_project && pio run -e esp32usb --target upload
+cd ESP32/XX_project && pio run -e esp32usb --target upload
 
 # Monitor serial output
-cd XX_project && pio device monitor
+cd ESP32/XX_project && pio device monitor
 
 # Upload filesystem (SPIFFS) via OTA
-cd XX_project && pio run -e esp32ota --target uploadfs
+cd ESP32/XX_project && pio run -e esp32ota --target uploadfs
 
 # Upload filesystem (SPIFFS) via USB
-cd XX_project && pio run -e esp32usb --target uploadfs
+cd ESP32/XX_project && pio run -e esp32usb --target uploadfs
 ```
 
 ## Code Formatting
@@ -37,19 +41,15 @@ make fmt   # runs clang-format (Google style) on all .h/.c/.cpp, prettier on HTM
 
 ## Template Link Management
 
-All projects symlink to shared template files. To regenerate all symlinks:
+To regenerate all symlinks:
 
 ```bash
 make links
 ```
 
-This creates symlinks in every `XX_project/{include,src,data,tools}/` pointing to `prj_template/`.
+This creates symlinks in every `ESP32/XX_project/{include,src,data,tools}/` pointing to `ESP32/prj_template/`.
 
-## Repository Architecture
-
-### Template System (`prj_template/`)
-
-The core of the codebase. Every project (`00_starter` through `20_power_supply_controller`) symlinks to this directory rather than duplicating code.
+## Template System (`ESP32/prj_template/`)
 
 **Template modules** (each has a `.h` in `include/` and `.cpp` in `src/`):
 
@@ -62,6 +62,7 @@ The core of the codebase. Every project (`00_starter` through `20_power_supply_c
 - `tpl_telegram` — Telegram bot integration
 - `tpl_esp_camera` / `tpl_app_camera` — ESP32-CAM camera capture
 - `tpl_broadcast` — UDP broadcast messaging
+- `tpl_display` — CYD board abstraction (2.8″ and 3.5″)
 
 **Global state structures** (defined in `tpl_system.h`):
 
@@ -70,7 +71,7 @@ The core of the codebase. Every project (`00_starter` through `20_power_supply_c
 - `tpl_spiffs_config` / `TplSpiffsConfig` — SPIFFS-persisted config (version-checked, saved to `/config.ini`)
 - `rtc_data` — RTC memory (survives deep sleep): boot count, watchpoint
 
-### Secrets (`../.private/`)
+### Secrets (`.private/`)
 
 Located outside the repo at `.private/` (one level up). Symlinked into each project's `src/`:
 
@@ -121,14 +122,16 @@ Key build flags used across projects:
 - **19_CYD-project**: 2.8″ CYD (ILI9341) with LVGL 9.x UI, EEZ-Studio generated code, power monitoring. Uses `tpl_display` abstraction, `tpl_sd` module, `tpl_broadcast`.
 - **26_CYD_CAN_monitor**: Multi-board CAN bus monitor with LVGL UI. Supports both 2.8″ and 3.5″ CYD boards via `tpl_display` abstraction. Uses CAN bus (TWAI driver), protocol analyzer.
 - **06_wasserzaehler**: ESP32-CAM water meter image recognition. Uses `tpl_telegram`.
-- **20_power_supply_controller**: Newest project, still being set up.
 - **21_matter**: Example Matter device.
-- **22/23**: Controllable LEDs.
+- **22/23**: Controllable LEDs (WS2814 strip / LED matrix).
+- **24_demo_tdisplay**: TTGO T-Display demo.
+- **25_LED_matrix_C3**: LED matrix on ESP32-C3.
+- **27_cyd_starter**: CYD starter project.
 
-### CYD Board Abstraction (`tpl_display`)
+## CYD Board Abstraction (`tpl_display`)
 
 The template provides a board abstraction layer for Cheap Yellow Displays (CYD)
-in `prj_template/include/tpl_display.h` and `prj_template/src/tpl_display.cpp`.
+in `ESP32/prj_template/include/tpl_display.h` and `ESP32/prj_template/src/tpl_display.cpp`.
 It eliminates all hardcoded display/touch configuration from individual project
 `main.cpp` files.
 
@@ -162,7 +165,7 @@ It eliminates all hardcoded display/touch configuration from individual project
    `user_setup_declared.h`) with a custom LVGL flush callback — it does NOT
    use `lv_tft_espi_create()` (which creates its own unconfigured TFT_eSPI
    and crashes).
-5. Touch callback (single function call):
+6. Touch callback (single function call):
    ```cpp
    static void touchscreen_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
        bool pressed;
@@ -188,4 +191,4 @@ It eliminates all hardcoded display/touch configuration from individual project
 calibration ranges) plus adding one `-D` flag to `platformio.ini`. No
 `main.cpp` changes needed.
 
-Full documentation: `prj_template/docs/cyd_board_abstraction.md`.
+Full documentation: `ESP32/prj_template/docs/cyd_board_abstraction.md`.

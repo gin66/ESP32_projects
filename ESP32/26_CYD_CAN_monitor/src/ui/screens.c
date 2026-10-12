@@ -38,10 +38,14 @@ void create_screen_main() {
 
   objects.lblStats = lv_label_create(screen);
   lv_obj_set_pos(objects.lblStats, 5, 20);
-  lv_obj_set_size(objects.lblStats, 260, 16);
+  /* Full width, and DOT (not WRAP): the analyzer status string is long, and
+   * with WRAP on a 16px-high label the second line was painted below the
+   * black plate and overlapped the header row. DOT truncates instead. */
+  lv_obj_set_size(objects.lblStats, 314, 16);
+  lv_label_set_long_mode(objects.lblStats, LV_LABEL_LONG_DOT);
   lv_obj_set_style_text_color(objects.lblStats, lv_color_hex(0x00FF00),
                               LV_PART_MAIN);
-  lv_obj_set_style_text_font(objects.lblStats, &lv_font_montserrat_14,
+  lv_obj_set_style_text_font(objects.lblStats, &lv_font_montserrat_12,
                              LV_PART_MAIN);
   /* Green status text needs a solid black plate behind it */
   lv_obj_set_style_bg_color(objects.lblStats, lv_color_hex(0x000000),

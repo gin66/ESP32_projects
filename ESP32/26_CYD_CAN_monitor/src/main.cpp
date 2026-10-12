@@ -41,6 +41,7 @@
 
 #include "ui/screens.h"
 #include "ui/ui.h"
+#include "protocol_detail.h"
 
 // ************* TFT display and touchscreen *************
 #include <TFT_eSPI.h>
@@ -104,21 +105,16 @@ typedef struct __attribute__((packed)) {
   uint8_t reserved[3];
 } can_time_message_t;
 
-// Table entry for a unique CAN ID
-typedef struct {
-  bool used;
-  uint32_t identifier;
-  bool is_extended;
-  uint8_t data_len;
-  uint8_t data[8];
-  uint8_t last_data[8];
-  unsigned long last_timestamp;
-  time_t last_time;
-  unsigned long interval_ms;
-  bool data_changed;
-} can_id_entry_t;
+// Table entry for a unique CAN ID (typedef in protocol_detail.h).
 
-static can_id_entry_t g_can_id_table[MAX_CAN_IDS];
+can_id_entry_t g_can_id_table[MAX_CAN_IDS];
+
+/* Exposed to protocol_detail.cpp for array bounds checking. */
+int g_max_can_ids = MAX_CAN_IDS;
+
+/* SML reassembly array — exposed to protocol_detail.cpp (non-static, matches header). */
+sml_reassembly_t g_sml[SML_MAX_MESSAGES];
+int g_sml_count = SML_MAX_MESSAGES;
 
 // Statistics
 static uint32_t g_can_rx_count = 0;
@@ -146,12 +142,27 @@ static uint16_t g_sml_received_length = 0;
 static uint8_t g_sml_buffer[258];  // SML message buffer
 static bool g_sml_active = false;
 
+/* SML reassembly array — defined in the header, non-static here. */
+static bool validate_sml_header(const uint8_t* buf, size_t buf_size) {
+    if (buf_size < 16) return false;
+    /* SML frames begin with 0x1B 0x1B 0x1B 0x1B 0x01 0x01 0x01 0x01
+     * repeated.  Check the first 8 bytes (one full repetition). */
+    static const uint8_t sml_header[8] = {0x1b, 0x1b, 0x1b, 0x1b,
+                                          0x01, 0x01, 0x01, 0x01};
+    return (memcmp(buf, sml_header, 8) == 0);
+}
+
 // Display mode
 enum proto_display_mode_t : uint8_t {
   PROTO_MODE_RAW = 0,
   PROTO_MODE_ANALYZER = 1
 };
 static proto_display_mode_t g_proto_display_mode = PROTO_MODE_RAW;
+
+/* Set from the LVGL input-read callback, applied from loop(). The read
+ * callback must only report input; mutating the widget tree from inside it is
+ * not safe and can corrupt LVGL's internal indev state. */
+static volatile bool g_columns_dirty = false;
 
 // WiFi-derived CAN node ID (last octet of IP)
 static uint8_t g_can_node_id = 0;
@@ -244,6 +255,10 @@ static void can_table_update(const twai_message_t* msg) {
         entry->last_timestamp = 0;
         entry->interval_ms = 0;
         entry->data_changed = false;
+        entry->frame_count = 0;
+        entry->changed_count = 0;
+        entry->interval_min_ms = 0;
+        entry->interval_max_ms = 0;
         memset(entry->last_data, 0, sizeof(entry->last_data));
         break;
       }
@@ -255,6 +270,15 @@ static void can_table_update(const twai_message_t* msg) {
   unsigned long now = millis();
   if (entry->last_timestamp != 0) {
     entry->interval_ms = now - entry->last_timestamp;
+    /* Track interval min/max (skip the first reading which is 0) */
+    if (entry->interval_ms > 0) {
+      if (entry->frame_count == 0 || entry->interval_ms < entry->interval_min_ms) {
+        entry->interval_min_ms = entry->interval_ms;
+      }
+      if (entry->frame_count == 0 || entry->interval_ms > entry->interval_max_ms) {
+        entry->interval_max_ms = entry->interval_ms;
+      }
+    }
   }
   entry->last_timestamp = now;
   entry->last_time = time(nullptr);
@@ -266,6 +290,12 @@ static void can_table_update(const twai_message_t* msg) {
   entry->data_len = msg->data_length_code;
   memcpy(entry->data, msg->data, msg->data_length_code);
   memcpy(entry->last_data, msg->data, msg->data_length_code);
+
+  /* Update statistics */
+  entry->frame_count++;
+  if (entry->data_changed) {
+    entry->changed_count++;
+  }
 
   g_can_rx_count++;
 }
@@ -347,7 +377,7 @@ static void decode_protocol(uint32_t id, const uint8_t* data, uint8_t len,
         haus_can_pwm_t p;
         haus_can_get_pwm(data, &p);
         snprintf(info->decoded, sizeof(info->decoded),
-                 "duty=%d‰ freq=%dHz %s",
+                 "duty=%d/1000 f=%dHz %s",
                  p.duty_permille, p.frequency_hz,
                  (p.flags & PWM_FLAG_ACTIVE) ? "ACTIVE" : "OFF");
       }
@@ -448,13 +478,35 @@ static void decode_protocol(uint32_t id, const uint8_t* data, uint8_t len,
           g_sml_received_length += len;
 
           uint16_t expected = msg_len + 2;
+
+          /* Mirror reassembly progress into g_sml[] (index 0 = 0x600 base,
+           * 1 = 0x700) so the detail screen can show it. Without this the
+           * array is exposed but never written and SML detail falls back to a
+           * raw hex dump. */
+          int slot = ((id & ~0xFF) == CAN_ID_STROMZAEHLER_INFO_ALT) ? 1 : 0;
+          if (current_offset == 0) {
+            g_sml[slot].frames_received = 0;
+            g_sml[slot].complete = false;
+          }
+          g_sml[slot].base_id = id & ~0xFF;
+          g_sml[slot].expected_length = expected;
+          g_sml[slot].received_length = g_sml_received_length;
+          g_sml[slot].frames_received++;
+          g_sml[slot].last_frame_time = time(nullptr);
+          g_sml[slot].active = true;
+
           if (g_sml_received_length >= expected) {
-            /* Complete message received */
+            /* Complete message received — validate before clearing. */
+            uint16_t saved_len = g_sml_received_length;
+            bool ok = (saved_len > 16 && validate_sml_header(g_sml_buffer, saved_len));
             g_sml_active = false;
             g_sml_received_length = 0;
+            g_sml[slot].active = false;
+            g_sml[slot].complete = ok;
+            g_sml[slot].received_length = saved_len;
 
             /* Check SML header */
-            if (g_sml_received_length > 16) {
+            if (ok) {
               snprintf(info->decoded, sizeof(info->decoded), "SML %d B OK",
                        msg_len);
               g_proto_sml_cnt++;
@@ -822,8 +874,9 @@ static void touchscreen_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
     }
 #endif
 
-    // Track if we're touching the header area
-    if (in_toggle_band(lx, ly)) {
+    // Track if we're touching the header area. While the protocol detail
+    // overlay is up, that band belongs to its Back button, so leave it alone.
+    if (!is_protocol_detail_visible() && in_toggle_band(lx, ly)) {
       if (g_last_press_time == 0) {
         g_last_press_time = millis();
         g_press_start = millis();
@@ -859,6 +912,9 @@ static void touchscreen_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
                                  : PROTO_MODE_RAW;
       Serial.printf("[CAN] Protocol analyzer %s\n",
                     g_proto_display_mode == PROTO_MODE_ANALYZER ? "ON" : "OFF");
+      /* Reposition columns for the new mode — deferred to loop(), see
+       * g_columns_dirty. */
+      g_columns_dirty = true;
       g_last_toggle_time = millis();
     }
     g_header_touched = false;
@@ -1171,6 +1227,12 @@ void setup() {
   // Initialize template system
   tpl_system_setup(0);  // no deep sleep
 
+  // Why did we (re)boot? Helps distinguish crashes from brown-out / WDT.
+  Serial.printf("[BOOT] boot#%lu reset=%s (0x%04X)\n",
+                (unsigned long)tpl_config.bootCount,
+                tpl_config.reset_reason_cpu0,
+                (unsigned)tpl_config.reset_reason);
+
   // WiFi with OTA
   tpl_wifi_setup(true, true, (gpio_num_t)255);
 
@@ -1209,6 +1271,10 @@ void setup() {
         Serial.printf(
             "[CAN] Protocol analyzer %s\n",
             g_proto_display_mode == PROTO_MODE_ANALYZER ? "ON" : "OFF");
+        /* This callback runs in TaskCommandCore1 (core 1), not the LVGL loop
+         * task. LVGL is single-threaded here (LV_USE_OS = LV_OS_NONE), so it
+         * must not touch widgets from this task — only raise the flag. */
+        g_columns_dirty = true;
         break;
       default:
         break;
@@ -1236,6 +1302,15 @@ void setup() {
   ui_init();
   ui_apply_legibility();
   Serial.println("[UI] EEZ Studio UI initialized");
+
+  /* Apply the column layout for the mode we actually boot into. The default
+   * mode is RAW, so the headers must read "Data" / "Last Seen" — earlier this
+   * was hard-coded to analyzer, which left RAW rows under Type/Decoded
+   * headers. */
+  ui_apply_columns(g_proto_display_mode == PROTO_MODE_ANALYZER);
+
+  /* Install row click handlers so tapping a row opens the detail screen. */
+  ui_install_row_clicks();
 
   /* Re-assert the panel's colour inversion now that everything is up. The
    * driver applies its rotation (which rewrites MADCTL) from within
@@ -1307,6 +1382,12 @@ void loop() {
 
   // EEZ Studio UI tick
   ui_tick();
+
+  // Apply a pending mode-toggle column change (raised from the input callback).
+  if (g_columns_dirty) {
+    g_columns_dirty = false;
+    ui_apply_columns(g_proto_display_mode == PROTO_MODE_ANALYZER);
+  }
 
   // Update CAN display every 500ms
   if (now - last_display_update > 500) {

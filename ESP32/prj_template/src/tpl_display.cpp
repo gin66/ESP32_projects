@@ -300,4 +300,5 @@ uint16_t tpl_cyd_light_sensor_read(void) {
   (void)0;  // No CDS on 2.8" boards
   return 0;
 #endif
+}  // tpl_cyd_light_sensor_read
 #endif  // IS_ESP32_CYD_28 || IS_ESP32_CYD_35

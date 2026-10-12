@@ -8,6 +8,11 @@
 
 #include "tpl_display.h"
 
+/* All implementation below uses CYD-specific types (TFT_eSPI,
+ * XPT2046_Touchscreen, lvgl). Guard so non-CYD projects that include
+ * template.h can still build without these libraries. */
+#if defined(IS_ESP32_CYD_28) || defined(IS_ESP32_CYD_35)
+
 // Internal state: tracks whether display has been initialized (needed for
 // 3.5" board SPI sharing enforcement).
 static bool g_cyd_display_initialized = false;
@@ -295,4 +300,4 @@ uint16_t tpl_cyd_light_sensor_read(void) {
   (void)0;  // No CDS on 2.8" boards
   return 0;
 #endif
-}
+#endif  // IS_ESP32_CYD_28 || IS_ESP32_CYD_35

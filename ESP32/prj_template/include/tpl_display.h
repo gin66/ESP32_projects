@@ -25,6 +25,12 @@
 #define TPL_DISPLAY_H
 
 #include <Arduino.h>
+
+/* CYD-specific headers, constants, and function declarations — only needed
+ * when a CYD board is actually selected.  Non-CYD projects that include
+ * template.h will never define IS_ESP32_CYD_28 or IS_ESP32_CYD_35, so these
+ * libraries stay optional and the header is effectively empty for them. */
+#if defined(IS_ESP32_CYD_28) || defined(IS_ESP32_CYD_35)
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
 #include <lvgl.h>
@@ -162,12 +168,7 @@
 // BOOT button (both boards)
 #define CYD_BOOT_PIN 0
 
-#else
-
-#error \
-    "CYD Board Abstraction: Define IS_ESP32_CYD_28 or IS_ESP32_CYD_35 in platformio.ini build_flags"
-
-#endif
+#endif  // IS_ESP32_CYD_35
 
 /* XPT2046 ADC rotation. 3 is the value the mapping in tpl_cyd_touch_read()
  * was verified with on the 2.8" board. */
@@ -197,7 +198,7 @@
   (CYD_SCREEN_WIDTH * CYD_SCREEN_HEIGHT / 10 * (LV_COLOR_DEPTH / 8))
 
 // ============================================================================
-// Function Declarations
+// Function Declarations — only when a CYD board is selected
 // ============================================================================
 
 /**
@@ -327,5 +328,7 @@ void tpl_cyd_rgb_init(bool turn_off_rgb);
  * @return ADC value (0–4095), or 0 if not on a 3.5" board
  */
 uint16_t tpl_cyd_light_sensor_read(void);
+
+#endif  // IS_ESP32_CYD_28 || IS_ESP32_CYD_35
 
 #endif  // TPL_DISPLAY_H

@@ -825,17 +825,25 @@ static void display_selftest(void) {
 
 #endif  // DISPLAY_DEBUG
 
+#if DISPLAY_DEBUG
 static void log_print_cb(lv_log_level_t level, const char* buf) {
   LV_UNUSED(level);
   // No Serial.flush() here — it blocks the loop for the full 115200-baud
   // transfer, which stalls lv_task_handler() and shows up as touch lag.
   Serial.println(buf);
 }
+#endif
 
 static void lv_init_display(void) {
   Serial.println("[MAIN] === lv_init_display START ===");
   delay(50);
+#if DISPLAY_DEBUG
+  /* Forwarding every LVGL message to Serial floods the log (warnings from the
+   * refresh path, style asserts, ...) and each line stalls lv_task_handler()
+   * while the UART drains. Only useful while debugging the display; without a
+   * registered callback LVGL emits nothing at all. */
   lv_log_register_print_cb(log_print_cb);
+#endif
   Serial.println("[MAIN] Step 1: lv_init()");
   delay(50);
   lv_init();

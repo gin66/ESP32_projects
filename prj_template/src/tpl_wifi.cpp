@@ -14,6 +14,12 @@
 #define MAX_WIFI_RECONNECT_CALLBACKS 8
 #endif
 
+/* How long setup() waits for NTP before giving up and continuing. Without an
+ * IP address it can never succeed, so this must be bounded. */
+#ifndef TPL_NTP_WAIT_MS
+#define TPL_NTP_WAIT_MS 10000UL
+#endif
+
 RTC_DATA_ATTR int last_connected_network = -1;
 bool automode = false;
 
@@ -252,27 +258,41 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
 
   ArduinoOTA.begin();
 
+  /* Start the manager task first: it is what reconnects, and the NTP wait
+   * below must not be able to starve it. */
+  xTaskCreatePinnedToCore(TaskWifiManager, "WiFi_Manager", 2688, NULL, 0,
+                          &tpl_tasks.task_wifi_manager, CORE_0);
+  esp_task_wdt_add(tpl_tasks.task_wifi_manager);
+
+  /* Wait for NTP, but only for a bounded time. Without an IP address SNTP can
+   * never succeed, and blocking here forever meant a board that missed its DHCP
+   * lease never reached setup() and never recovered — the manager task had not
+   * even been started yet. SNTP keeps running in the background, so once WiFi is
+   * up the clock is set without any further action. */
   Serial.print("Retrieving time: ");
   configTime(0, 0, "pool.ntp.org");  // get UTC time via NTP
+  const unsigned long ntp_deadline = millis() + TPL_NTP_WAIT_MS;
   time_t now = time(nullptr);
-  while (now < 24 * 3600) {
+  while (now < 24 * 3600 && static_cast<long>(millis() - ntp_deadline) < 0) {
     Serial.print(".");
     delay(100);
     now = time(nullptr);
   }
+  Serial.println();
 
-  setenv("TZ", "CET-1CEST,M3.5.0/2:00,M10.5.0/3:00", 1);
-  tzset();
-
-  char strftime_buf[64];
-  struct tm timeinfo;
-  localtime_r(&now, &timeinfo);
-  strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M ", &timeinfo);
-  Serial.println(strftime_buf);
-
-  xTaskCreatePinnedToCore(TaskWifiManager, "WiFi_Manager", 2688, NULL, 0,
-                          &tpl_tasks.task_wifi_manager, CORE_0);
-  esp_task_wdt_add(tpl_tasks.task_wifi_manager);
+  if (now < 24 * 3600) {
+    Serial.println(
+        "WARNING: no NTP time yet (no IP?); continuing without a valid clock. "
+        "It will sync as soon as WiFi is up.");
+  } else {
+    char strftime_buf[64];
+    struct tm timeinfo;
+    setenv("TZ", "CET-1CEST,M3.5.0/2:00,M10.5.0/3:00", 1);
+    tzset();
+    localtime_r(&now, &timeinfo);
+    strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M ", &timeinfo);
+    Serial.println(strftime_buf);
+  }
 
   if (waitOTA) {
     // Wait OTA

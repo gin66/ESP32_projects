@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include "can_sender.h"
+#include "haus_can.h"
 
 #include "mcp2515.h"
 #include "can.h"
@@ -277,37 +278,42 @@ static bool submit(uint16_t id, const uint8_t data[8])
 bool can_send_identity(uint8_t rank, const uint8_t rom[8])
 {
     if (rank >= NRF_MAX_SENSORS) return false;
-    return submit((uint16_t)(CAN_ID_ID_BASE + rank), rom);
+    uint8_t d[8] = { 0 };
+    haus_can_identity_t id;
+    memcpy(id.rom, rom, 8);
+    haus_can_set_identity(d, &id);
+    return submit((uint16_t)(CAN_ID_ID_BASE + rank), d);
 }
 
 bool can_send_temperatures(const int16_t temps[NRF_MAX_SENSORS])
 {
-    return submit(CAN_ID_DATA_BASE, (const uint8_t*)temps);
+    uint8_t d[8] = { 0 };
+    haus_can_temperature_t t;
+    memcpy(t.temperature, temps, sizeof(t.temperature));
+    haus_can_set_temperature(d, &t);
+    return submit(CAN_ID_DATA_BASE, d);
 }
 
 bool can_send_adc(uint16_t max_count, uint16_t min_count, uint16_t pp, uint8_t flags)
 {
     uint8_t d[8] = { 0 };
-    d[0] = (uint8_t)(max_count & 0xFF);
-    d[1] = (uint8_t)(max_count >> 8);
-    d[2] = (uint8_t)(min_count & 0xFF);
-    d[3] = (uint8_t)(min_count >> 8);
-    d[4] = (uint8_t)(pp & 0xFF);
-    d[5] = (uint8_t)(pp >> 8);
-    d[6] = flags;
-
+    haus_can_adc_t a;
+    a.max_count = max_count;
+    a.min_count = min_count;
+    a.pp_count  = pp;
+    a.flags     = flags;
+    haus_can_set_adc(d, &a);
     return submit(CAN_ID_ADC_REPORT, d);
 }
 
 bool can_send_pwm(uint16_t duty_permille, uint16_t hz, uint8_t flags)
 {
     uint8_t d[8] = { 0 };
-    d[0] = (uint8_t)(duty_permille & 0xFF);
-    d[1] = (uint8_t)(duty_permille >> 8);
-    d[2] = (uint8_t)(hz & 0xFF);
-    d[3] = (uint8_t)(hz >> 8);
-    d[4] = flags;
-
+    haus_can_pwm_t p;
+    p.duty_permille = duty_permille;
+    p.frequency_hz  = hz;
+    p.flags         = flags;
+    haus_can_set_pwm(d, &p);
     return submit(CAN_ID_PWM_REPORT, d);
 }
 
@@ -315,15 +321,14 @@ bool can_send_stats(uint16_t s, uint16_t r, uint16_t refused,
                     uint8_t eflg, uint8_t canstat, uint8_t present)
 {
     uint8_t d[8] = { 0 };
-    d[0] = (uint8_t)(s & 0xFF);
-    d[1] = (uint8_t)(s >> 8);
-    d[2] = (uint8_t)(r & 0xFF);
-    d[3] = (uint8_t)(r >> 8);
-    d[4] = (uint8_t)(refused & 0xFF);
-    d[5] = (uint8_t)(refused >> 8);
-    d[6] = eflg;
-    d[7] = (uint8_t)(canstat | (present ? 0x80 : 0x00));
-
+    haus_can_stats_t st;
+    st.sent      = s;
+    st.received  = r;
+    st.refused   = refused;
+    st.eflg      = eflg;
+    st.canstat   = canstat;
+    st.flags     = present ? STATS_FLAG_PRESENT : 0x00;
+    haus_can_set_stats(d, &st);
     return submit(CAN_ID_STATS_REPORT, d);
 }
 

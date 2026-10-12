@@ -289,7 +289,7 @@ void loop()
                 stat_recv = f.received;
                 stat_refused = f.refused;
                 stat_eflg = f.eflg;
-                stat_present = (f.present & STATS_FLAG_PRESENT) != 0;
+                stat_present = (f.present & NRF_STATS_FLAG_PRESENT) != 0;
                 stat_have = true;
 
                 Serial.print("  eflg=0x");
@@ -323,7 +323,7 @@ void loop()
                 Serial.println(icod);
                 // Reported last, because it subsumes everything above it: with no
                 // controller every counter is zero and no register bit is set.
-                if (!(f.present & STATS_FLAG_PRESENT)) {
+                if (!(f.present & NRF_STATS_FLAG_PRESENT)) {
                     Serial.println(F("[RX] can  ABSENT — transmitter has no MCP2515"));
                 }
             } else {

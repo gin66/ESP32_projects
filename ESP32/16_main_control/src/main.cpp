@@ -8,7 +8,7 @@
 #include <sml/sml_file.h>
 
 #include "../../../haus/private.h"
-#include "can_ids.h"
+#include "haus_can.h"
 #include "defines.h"
 #include "helper.h"
 #include "hmDefines.h"

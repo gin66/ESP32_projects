@@ -3,6 +3,7 @@
 #include <DallasTemperature.h>
 #include <RF24.h>
 #include "nrf_payload.h"
+#include "haus_can.h"
 #include "can_sender.h"
 #include "pwm_out.h"
 #include "adc_monitor.h"
@@ -355,7 +356,7 @@ static void send_can_stats()
     f.refused  = refused;
     f.eflg     = eflg;
     f.canstat  = 0;   // CANSTAT is not in the library's public API
-    f.present  = present ? STATS_FLAG_PRESENT : 0;
+    f.present  = present ? NRF_STATS_FLAG_PRESENT : 0;
     f.crc      = frame_crc16(&f, sizeof(f));
 
     // Written even when the controller is absent. With no MCP2515 the CAN frame

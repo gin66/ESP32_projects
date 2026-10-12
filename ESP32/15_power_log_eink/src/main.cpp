@@ -1,7 +1,7 @@
 #include <GxEPD.h>
 #include <GxGDEH0213B73/GxGDEH0213B73.h>  // 2.13" b/w newer panel
 
-#include "can_ids.h"
+#include "haus_can.h"
 #include "template.h"
 #include <esp_crc.h>
 // FreeFonts from Adafruit_GFX

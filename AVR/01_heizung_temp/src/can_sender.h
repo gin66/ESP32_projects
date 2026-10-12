@@ -19,6 +19,7 @@
 #define CAN_SENDER_H
 
 #include <Arduino.h>
+#include "haus_can.h"
 #include "nrf_payload.h"
 
 // Both translation units must see the same values: main.cpp gates the radio

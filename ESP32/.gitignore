@@ -24,6 +24,7 @@ target/
 [0-9][0-9]_*/tools/generate_version.py
 [0-9][0-9]_*/tools/generate_matter_pairing.py
 [0-9][0-9]_*/include/version.h
+[0-9][0-9]_*/include/haus_*.h
 .DS_Store
 sweep/
 23_LED_matrix/tools/test_harness/test_harness

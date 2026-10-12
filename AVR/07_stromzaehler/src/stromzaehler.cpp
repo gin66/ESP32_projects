@@ -1,5 +1,6 @@
 #include <mcp2515.h>
 #include <AltSoftSerial.h>
+#include "haus_can.h"
 
 MCP2515 mcp2515(10);  // using pin 10 for CAN CS
 #ifdef SENDER
@@ -33,7 +34,7 @@ uint16_t in_offset = 0;
 uint16_t send_ptr = 0;
 uint16_t send_len = 0;
 uint16_t can_id;
-uint16_t base_id = 0x600;
+uint16_t base_id = CAN_ID_STROMZAEHLER_INFO_BASIS;
 bool can_msg_prepared = false;
 
 void loop() {
@@ -45,7 +46,9 @@ void loop() {
     canMsg.can_dlc = 0;
     can_msg_prepared = true;
     last_millis = ms;
-    base_id ^= 0x100;
+    base_id = (base_id == CAN_ID_STROMZAEHLER_INFO_BASIS)
+                  ? CAN_ID_STROMZAEHLER_INFO_ALT
+                  : CAN_ID_STROMZAEHLER_INFO_BASIS;
   }
 
   if ((send_len > 0) && !can_msg_prepared) {
@@ -96,7 +99,9 @@ void loop() {
         in_offset = 0;
       }
       can_id = base_id;
-      base_id ^= 0x100;
+      base_id = (base_id == CAN_ID_STROMZAEHLER_INFO_BASIS)
+                    ? CAN_ID_STROMZAEHLER_INFO_ALT
+                    : CAN_ID_STROMZAEHLER_INFO_BASIS;
     }
   }
 }  // loop

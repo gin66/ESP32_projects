@@ -33,7 +33,7 @@
 #define SW_NAME_REV "26_CYD_CAN_monitor v1.2"
 
 // ************* ESP32_projects template includes *************
-#include "can_ids.h"
+#include "haus_can.h"
 #include "template.h"
 
 // ************* LVGL and EEZ Studio UI includes *************
@@ -133,6 +133,13 @@ static uint32_t g_proto_unknown_cnt = 0;
 static uint32_t g_proto_sml_lost_cnt = 0;
 static uint32_t g_proto_sml_empty_cnt = 0;
 
+// Heating (AVR/01_heizung_temp) protocol statistics
+static uint32_t g_proto_heizung_id_cnt = 0;
+static uint32_t g_proto_heizung_temp_cnt = 0;
+static uint32_t g_proto_heizung_pwm_cnt = 0;
+static uint32_t g_proto_heizung_adc_cnt = 0;
+static uint32_t g_proto_heizung_stats_cnt = 0;
+
 // Protocol analyzer state
 static uint16_t g_sml_base_id = 0;
 static uint16_t g_sml_received_length = 0;
@@ -205,6 +212,11 @@ extern "C" void clear_all_counters() {
   g_proto_unknown_cnt = 0;
   g_proto_sml_lost_cnt = 0;
   g_proto_sml_empty_cnt = 0;
+  g_proto_heizung_id_cnt = 0;
+  g_proto_heizung_temp_cnt = 0;
+  g_proto_heizung_pwm_cnt = 0;
+  g_proto_heizung_adc_cnt = 0;
+  g_proto_heizung_stats_cnt = 0;
   Serial.println("[CAN] All counters cleared");
 }
 
@@ -260,15 +272,8 @@ static void can_table_update(const twai_message_t* msg) {
 
 // ************* Protocol Analyzer *************
 
-enum can_protocol_t : uint8_t {
-  PROTO_UNKNOWN = 0,
-  PROTO_TIMESTAMP = 1,      // 0x555 - time broadcast from 15_power_log
-  PROTO_SML = 2,            // 0x600/0x700 - smart meter SML protocol
-  PROTO_TIME_BROADCAST = 3  // custom time broadcast (type=0x01)
-};
-
 typedef struct {
-  can_protocol_t protocol;
+  haus_protocol_t protocol;
   char label[32];
   char decoded[64];
 } can_protocol_info_t;
@@ -276,86 +281,203 @@ typedef struct {
 static void decode_protocol(uint32_t id, const uint8_t* data, uint8_t len,
                             can_protocol_info_t* info) {
   memset(info, 0, sizeof(*info));
-  info->protocol = PROTO_UNKNOWN;
+  info->protocol = HAUS_PROTO_NONE;
 
-  // Check for timestamp protocol (0x555)
-  if (id == CAN_ID_TIMESTAMP) {
-    info->protocol = PROTO_TIMESTAMP;
-    snprintf(info->label, sizeof(info->label), "TIMESTAMP");
-    if (len >= 4) {
-      snprintf(info->decoded, sizeof(info->decoded), "%02d:%02d:%02d (day %d)",
-               data[2], data[1], data[0], data[3]);
+  // Cast the CAN-ID directly to haus_protocol_t — the enum value IS the ID.
+  haus_protocol_t proto = (haus_protocol_t)(id & 0x7FF);
+
+  // Sensor identity frames occupy 0x180 .. 0x180+HAUS_CAN_MAX_SENSORS-1, one
+  // per sensor rank.  They are not a single enum value, so match the range.
+  uint8_t rank = haus_can_get_rank((uint16_t)(id & 0x7FF));
+  if (rank != (uint8_t)-1) {
+    info->protocol = HAUS_PROTO_HEIZUNG_ID;
+    snprintf(info->label, sizeof(info->label), "ID 0x180+%u", rank);
+    if (len >= 8) {
+      haus_can_identity_t id_data;
+      haus_can_get_identity(data, &id_data);
+      snprintf(info->decoded, sizeof(info->decoded), "%02X:%02X:%02X:%02X:%02X:%02X",
+               id_data.rom[1], id_data.rom[2], id_data.rom[3], id_data.rom[4],
+               id_data.rom[5], id_data.rom[6]);
     }
-    g_proto_timestamp_cnt++;
+    g_proto_heizung_id_cnt++;
     return;
   }
 
-  // Check for SML smart meter protocol (0x600/0x700)
-  if ((id & ~0x1FF) == CAN_ID_STROMZAEHLER_INFO_BASIS) {
-    info->protocol = PROTO_SML;
-    snprintf(info->label, sizeof(info->label), "SML");
+  /* For every enum-matched ID the value itself is the protocol tag. */
+  info->protocol = proto;
 
-    // Check for empty alive message
-    if (len == 0) {
-      snprintf(info->decoded, sizeof(info->decoded), "ALIVE");
-      g_proto_sml_empty_cnt++;
+  switch (proto) {
+
+    /* ── Temperature data (0x200) ───────────────────────────────────── */
+    case HAUS_PROTO_HEIZUNG_TEMP: {
+      info->label[0] = 'T';
+      info->label[1] = 'E';
+      info->label[2] = 'M';
+      info->label[3] = 'P';
+      info->label[4] = '\0';
+      if (len >= 8) {
+        haus_can_temperature_t t;
+        haus_can_get_temperature(data, &t);
+        char buf[64];
+        buf[0] = '\0';
+        for (int i = 0; i < HAUS_CAN_MAX_SENSORS; i++) {
+          int16_t val = t.temperature[i];
+          if (val == HAUS_CAN_TEMP_EMPTY) {
+            strncat(buf, "-- ", sizeof(buf) - strlen(buf) - 1);
+          } else {
+            char tmp[16];
+            snprintf(tmp, sizeof(tmp), "%.2f ", val / 100.0);
+            strncat(buf, tmp, sizeof(buf) - strlen(buf) - 1);
+          }
+        }
+        snprintf(info->decoded, sizeof(info->decoded), "%s", buf);
+      }
+      g_proto_heizung_temp_cnt++;
       return;
     }
 
-    // Check first two bytes for message length
-    if (len >= 2) {
-      uint16_t msg_len = data[1];
-      msg_len <<= 8;
-      msg_len += data[0];
-
-      uint16_t current_offset = id & 0xFF;
-
-      if (current_offset == 0) {
-        g_sml_received_length = 0;
-        g_sml_base_id = id & ~0xFF;
-        g_sml_active = true;
-        memset(g_sml_buffer, 0, sizeof(g_sml_buffer));
+    /* ── PWM report (0x280) & command (0x240) ───────────────────────── */
+    case HAUS_PROTO_HEIZUNG_PWM_RPT:
+    case HAUS_PROTO_HEIZUNG_PWM: {
+      info->label[0] = 'P';
+      info->label[1] = 'W';
+      info->label[2] = 'M';
+      info->label[3] = '\0';
+      if (len >= 5) {
+        haus_can_pwm_t p;
+        haus_can_get_pwm(data, &p);
+        snprintf(info->decoded, sizeof(info->decoded),
+                 "duty=%d‰ freq=%dHz %s",
+                 p.duty_permille, p.frequency_hz,
+                 (p.flags & PWM_FLAG_ACTIVE) ? "ACTIVE" : "OFF");
       }
-
-      // Copy data into buffer
-      uint16_t off = current_offset;
-      off <<= 3;
-      for (uint8_t i = 0; i < len; i++) {
-        if (off < sizeof(g_sml_buffer)) {
-          g_sml_buffer[off++] = data[i];
-        }
-      }
-      g_sml_received_length += len;
-
-      uint16_t expected = msg_len + 2;
-      if (g_sml_received_length >= expected) {
-        // Complete message received
-        g_sml_active = false;
-        g_sml_received_length = 0;
-
-        // Check SML header (0x1B 0x1B 0x1B 0x1B 0x01 0x01 0x01 0x01)
-        if (g_sml_received_length > 16) {
-          snprintf(info->decoded, sizeof(info->decoded), "SML %d B OK",
-                   msg_len);
-          g_proto_sml_cnt++;
-          return;
-        } else {
-          snprintf(info->decoded, sizeof(info->decoded), "SML %d B INCOMPLETE",
-                   msg_len);
-          g_proto_sml_lost_cnt++;
-          return;
-        }
-      }
-
-      snprintf(info->decoded, sizeof(info->decoded), "SML %u/%u B",
-               g_sml_received_length, expected);
+      g_proto_heizung_pwm_cnt++;
       return;
     }
+
+    /* ── ADC report (0x2C0) ─────────────────────────────────────────── */
+    case HAUS_PROTO_HEIZUNG_ADC: {
+      info->label[0] = 'A';
+      info->label[1] = 'D';
+      info->label[2] = 'C';
+      info->label[3] = '\0';
+      if (len >= 7) {
+        haus_can_adc_t a;
+        haus_can_get_adc(data, &a);
+        snprintf(info->decoded, sizeof(info->decoded),
+                 "max=%u min=%u pp=%u flags=0x%02X",
+                 a.max_count, a.min_count, a.pp_count, a.flags);
+      }
+      g_proto_heizung_adc_cnt++;
+      return;
+    }
+
+    /* ── Stats report (0x300) ───────────────────────────────────────── */
+    case HAUS_PROTO_HEIZUNG_STATS: {
+      info->label[0] = 'S';
+      info->label[1] = 'T';
+      info->label[2] = 'A';
+      info->label[3] = 'T';
+      info->label[4] = 'S';
+      info->label[5] = '\0';
+      if (len >= 8) {
+        haus_can_stats_t s;
+        haus_can_get_stats(data, &s);
+        snprintf(info->decoded, sizeof(info->decoded),
+                 "sent=%u recv=%u ref=%u eflg=0x%02X canstat=0x%02X",
+                 s.sent, s.received, s.refused, s.eflg, s.canstat);
+      }
+      g_proto_heizung_stats_cnt++;
+      return;
+    }
+
+    /* ── Timestamp (0x555) ──────────────────────────────────────────── */
+    case HAUS_PROTO_TIMESTAMP: {
+      info->label[0] = 'T';
+      info->label[1] = 'S';
+      info->label[2] = '\0';
+      if (len >= 4) {
+        haus_can_timestamp_t ts;
+        haus_can_get_timestamp(data, &ts);
+        snprintf(info->decoded, sizeof(info->decoded),
+                 "%02d:%02d:%02d (day %d)", ts.hours, ts.minutes, ts.seconds,
+                 ts.weekday);
+      }
+      g_proto_timestamp_cnt++;
+      return;
+    }
+
+    /* ── SML smart meter (0x600/0x700) ──────────────────────────────── */
+    default:
+      if ((id & ~0x1FF) == CAN_ID_STROMZAEHLER_INFO_BASIS) {
+        info->label[0] = 'S';
+        info->label[1] = 'M';
+        info->label[2] = 'L';
+        info->label[3] = '\0';
+
+        /* Check for empty alive message */
+        if (len == 0) {
+          snprintf(info->decoded, sizeof(info->decoded), "ALIVE");
+          g_proto_sml_empty_cnt++;
+          return;
+        }
+
+        /* Check first two bytes for message length */
+        if (len >= 2) {
+          uint16_t msg_len = data[1];
+          msg_len <<= 8;
+          msg_len += data[0];
+
+          uint16_t current_offset = id & 0xFF;
+
+          if (current_offset == 0) {
+            g_sml_received_length = 0;
+            g_sml_base_id = id & ~0xFF;
+            g_sml_active = true;
+            memset(g_sml_buffer, 0, sizeof(g_sml_buffer));
+          }
+
+          /* Copy data into buffer */
+          uint16_t off = current_offset;
+          off <<= 3;
+          for (uint8_t i = 0; i < len; i++) {
+            if (off < sizeof(g_sml_buffer)) {
+              g_sml_buffer[off++] = data[i];
+            }
+          }
+          g_sml_received_length += len;
+
+          uint16_t expected = msg_len + 2;
+          if (g_sml_received_length >= expected) {
+            /* Complete message received */
+            g_sml_active = false;
+            g_sml_received_length = 0;
+
+            /* Check SML header */
+            if (g_sml_received_length > 16) {
+              snprintf(info->decoded, sizeof(info->decoded), "SML %d B OK",
+                       msg_len);
+              g_proto_sml_cnt++;
+              return;
+            } else {
+              snprintf(info->decoded, sizeof(info->decoded),
+                       "SML %d B INCOMPLETE", msg_len);
+              g_proto_sml_lost_cnt++;
+              return;
+            }
+          }
+
+          snprintf(info->decoded, sizeof(info->decoded), "SML %u/%u B",
+                   g_sml_received_length, expected);
+          return;
+        }
+      }
+      break;
   }
 
-  // Check for time broadcast protocol (type = 0x01)
+  /* ── Time broadcast (custom, type = 0x01) ─────────────────────────── */
   if (len >= 5 && data[0] == CAN_MSG_TYPE_TIME) {
-    info->protocol = PROTO_TIME_BROADCAST;
+    info->protocol = (haus_protocol_t)0xFFFF;  /* non-haus marker */
     snprintf(info->label, sizeof(info->label), "TIME-BCAST");
     if (len >= 5) {
       snprintf(info->decoded, sizeof(info->decoded), "%02d:%02d:%02d (day %d)",
@@ -365,7 +487,7 @@ static void decode_protocol(uint32_t id, const uint8_t* data, uint8_t len,
     return;
   }
 
-  // Unknown protocol - show raw data
+  /* Unknown protocol — show raw data */
   snprintf(info->label, sizeof(info->label), "RAW");
   size_t offset = 0;
   for (uint8_t i = 0; i < len && offset < sizeof(info->decoded) - 4; i++) {
@@ -431,16 +553,22 @@ static void label_set_text_cached(lv_obj_t* label, const char* text,
 }
 
 static void update_can_display(void) {
-  char stats_buf[128];
+  char stats_buf[192];
   if (g_proto_display_mode == PROTO_MODE_ANALYZER) {
     snprintf(stats_buf, sizeof(stats_buf),
-             "Proto: TS:%lu SML:%lu TB:%lu Ukn:%lu", g_proto_timestamp_cnt,
-             g_proto_sml_cnt, g_proto_time_broadcast_cnt, g_proto_unknown_cnt);
+             "Proto: TS:%lu SML:%lu TB:%lu HID:%lu HTmp:%lu "
+             "HPWM:%lu HADC:%lu HSt:%lu Ukn:%lu",
+             g_proto_timestamp_cnt, g_proto_sml_cnt,
+             g_proto_time_broadcast_cnt,
+             g_proto_heizung_id_cnt, g_proto_heizung_temp_cnt,
+             g_proto_heizung_pwm_cnt, g_proto_heizung_adc_cnt,
+             g_proto_heizung_stats_cnt,
+             g_proto_unknown_cnt);
   } else {
     snprintf(stats_buf, sizeof(stats_buf), "RX: %lu | TX: %lu | Err: %lu",
              g_can_rx_count, g_can_tx_count, g_can_error_cnt);
   }
-  static char stats_cache[128];
+  static char stats_cache[192];
   label_set_text_cached(objects.lblStats, stats_buf, stats_cache,
                         sizeof(stats_cache));
   lv_obj_set_style_text_color(
@@ -507,25 +635,52 @@ static void update_can_display(void) {
 
         // Color code by protocol type
         switch (proto_info.protocol) {
-          case PROTO_TIMESTAMP:
+          case HAUS_PROTO_HEIZUNG_ID:
+            lv_obj_set_style_text_color(objects.lblData[i],
+                                        lv_color_hex(0xFFFF66), LV_PART_MAIN);
+            lv_obj_set_style_text_color(objects.lblTime[i],
+                                        lv_color_hex(0xFFFF66), LV_PART_MAIN);
+            break;
+          case HAUS_PROTO_HEIZUNG_TEMP:
+            lv_obj_set_style_text_color(objects.lblData[i],
+                                        lv_color_hex(0x66FF66), LV_PART_MAIN);
+            lv_obj_set_style_text_color(objects.lblTime[i],
+                                        lv_color_hex(0x66FF66), LV_PART_MAIN);
+            break;
+          case HAUS_PROTO_HEIZUNG_PWM_RPT:
+          case HAUS_PROTO_HEIZUNG_PWM:
+            lv_obj_set_style_text_color(objects.lblData[i],
+                                        lv_color_hex(0xFF99FF), LV_PART_MAIN);
+            lv_obj_set_style_text_color(objects.lblTime[i],
+                                        lv_color_hex(0xFF99FF), LV_PART_MAIN);
+            break;
+          case HAUS_PROTO_HEIZUNG_ADC:
+            lv_obj_set_style_text_color(objects.lblData[i],
+                                        lv_color_hex(0xFFCC66), LV_PART_MAIN);
+            lv_obj_set_style_text_color(objects.lblTime[i],
+                                        lv_color_hex(0xFFCC66), LV_PART_MAIN);
+            break;
+          case HAUS_PROTO_HEIZUNG_STATS:
+            lv_obj_set_style_text_color(objects.lblData[i],
+                                        lv_color_hex(0xCCCCCC), LV_PART_MAIN);
+            lv_obj_set_style_text_color(objects.lblTime[i],
+                                        lv_color_hex(0xCCCCCC), LV_PART_MAIN);
+            break;
+          case HAUS_PROTO_TIMESTAMP:
             lv_obj_set_style_text_color(objects.lblData[i],
                                         lv_color_hex(0x66E0FF), LV_PART_MAIN);
             lv_obj_set_style_text_color(objects.lblTime[i],
                                         lv_color_hex(0x66E0FF), LV_PART_MAIN);
             break;
-          case PROTO_SML:
+          case HAUS_PROTO_SML_ALT:
+          case HAUS_PROTO_SML:
             lv_obj_set_style_text_color(objects.lblData[i],
                                         lv_color_hex(0xFFC266), LV_PART_MAIN);
             lv_obj_set_style_text_color(objects.lblTime[i],
                                         lv_color_hex(0xFFC266), LV_PART_MAIN);
-            break;
-          case PROTO_TIME_BROADCAST:
-            lv_obj_set_style_text_color(objects.lblData[i],
-                                        lv_color_hex(0xB0FFB0), LV_PART_MAIN);
-            lv_obj_set_style_text_color(objects.lblTime[i],
-                                        lv_color_hex(0xB0FFB0), LV_PART_MAIN);
             break;
           default:
+            /* Non-haus protocols (e.g. TIME-BCAST) keep default color */
             lv_obj_set_style_text_color(objects.lblData[i], color,
                                         LV_PART_MAIN);
             lv_obj_set_style_text_color(objects.lblTime[i], color,

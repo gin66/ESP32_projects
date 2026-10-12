@@ -11,6 +11,7 @@ links:
 	for i in [0-9]*; do (cd $$i;echo $$i; ln -sf ../prj_template/min_spiffs.csv .);done
 	for i in [0-9]*/tools; do (cd $$i;echo $$i; ln -sf ../../prj_template/tools/* .);done
 	for i in [0-9]*/include; do (cd $$i;echo $$i; ln -sf ../../prj_template/include/* .);done
+	for i in [0-9]*/include; do (cd $$i;echo $$i; ln -sf ../../../include/* .);done
 	for i in [0-9]*/data; do (cd $$i;echo $$i; ln -sf ../../prj_template/data/*.html .);done
 	for i in [0-9]*/src; do (cd $$i;echo $$i; ln -sf ../../prj_template/src/*.cpp .);done
 	for i in [0-9]*/src; do (cd $$i;echo $$i; ln -sf ../../.private/private_wifi_secrets.cpp wifi_secrets.cpp);done

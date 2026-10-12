@@ -33,6 +33,7 @@
 
 #include <stdint.h>
 #include <Arduino.h>
+#include "haus_can.h"  // CAN IDs, flags and MCP2515 error bits live here now
 
 // ─── Protocol constants ──────────────────────────────────────────────────────
 static const uint16_t NRF_MAGIC_TEMP = 0xABCD;  // temperature frame
@@ -72,12 +73,10 @@ struct __attribute__((packed)) PwmFrame {
     uint16_t magic;                  // NRF_MAGIC_PWM
     uint16_t duty;                   // commanded duty in permille (0…1000)
     uint16_t hz;                     // PWM frequency in Hz
-    uint8_t  flags;                  // PWM_FLAG_ACTIVE while the counter runs
+    uint8_t  flags;                  // PWM_FLAG_ACTIVE (haus_can.h) while running
     uint8_t  reserved[4];
     uint16_t crc;                    // CRC-CCITT over all preceding fields
 };
-
-#define PWM_FLAG_ACTIVE 0x01         // 0 < duty < 100 %, edges are being generated
 
 // ─── Pipe 0: ADC window frame (13 bytes, packed) ─────────────────────────────
 // Peak-to-peak over one measurement window. All three values are raw ADC counts
@@ -90,19 +89,9 @@ struct __attribute__((packed)) AdcFrame {
     uint16_t min;        // smallest conversion seen in the window
     uint16_t pp;         // max - min, the peak-to-peak span
     uint16_t readings;   // readings folded in; saturates at 0xFFFF
-    uint8_t  flags;      // ADC_FLAG_* below
+    uint8_t  flags;      // ADC_FLAG_* (haus_can.h)
     uint16_t crc;        // CRC-CCITT over all preceding fields
 };
-
-// The converter ran on the internal 1.1 V bandgap (REFS1:0 = 11), not on AREF,
-// AVCC or anything else the consumer might assume. Set unconditionally by the
-// transmitter so a receiver knows which reference sets the scale factor.
-#define ADC_FLAG_INTERNAL_REF 0x01
-
-// At least one conversion in the window read full scale (1023). On an AC coil
-// input this is the signal for "the positive half-cycle ran past AREF", i.e.
-// the peak is clipped and ADmax is a floor rather than a measurement.
-#define ADC_FLAG_RAILED       0x02
 
 // ─── Pipe 0: CAN bus health frame (13 bytes, packed) ─────────────────────────
 // Publishes the CAN side of the system over the radio so it can be watched
@@ -116,10 +105,14 @@ struct __attribute__((packed)) StatsFrame {
     uint16_t refused;    // frames this board would not transmit (queue full, ...)
     uint8_t  eflg;       // MCP2515 EFLG, error flags as read
     uint8_t  canstat;    // MCP2515 CANSTAT, controller status as read
-    uint8_t  present;    // STATS_FLAG_* — is there a controller at all
+    uint8_t  present;    // NRF_STATS_FLAG_* — is there a controller at all
     uint16_t crc;        // CRC-CCITT over all preceding fields
 };
 
+// Radio-side presence bits for StatsFrame.present.  These are distinct from the
+// CAN-wire STATS_FLAG_* in haus_can.h, which share a byte with the MCP2515
+// CANSTAT register and therefore use different bit values.
+//
 // Whether an MCP2515 answered on the SPI bus and was initialised successfully.
 //
 // This is the bit that separates "the bus is broken" from "there is no bus". With
@@ -131,36 +124,14 @@ struct __attribute__((packed)) StatsFrame {
 //
 // Cleared when can_init() found no controller; set once initialisation succeeds,
 // and never cleared again.
-#define STATS_FLAG_PRESENT 0x01
+#define NRF_STATS_FLAG_PRESENT 0x01
 
 // The module is not ready: either never initialised, or a frame was attempted
 // before can_init() returned. Distinct from PRESENT being clear — one means "no
 // hardware", this means "not yet up".
-#define STATS_FLAG_NOT_READY 0x02
+#define NRF_STATS_FLAG_NOT_READY 0x02
 
-// EFLG bits for the MCP2515 (register 0x2D), named so a receiver does not have to
-// know the controller's register layout to say something useful about a fault.
-//
-// Do NOT reuse bit names from the classic AVR on-chip CAN (ATmega8/16/32): that
-// controller has EFAULT/ENRXERR/EBUFOVFL/ERXOVFL in bits 1..4, and the MCP2515 has
-// entirely different flags in those same positions. Decoding 0x55 with the AVR
-// names reports RX overflow and receive errors; the MCP2515 actually says
-// receive-buffer-0 overflow plus transmit error-passive and error-warning. The
-// distinction matters because TXEP/TXWAR are transmit-side only, and a board that
-// is transmitting at the wrong bit rate produces exactly those and no RX flag at
-// all.
-//
-// Read-to-clear: the transmitter samples this once per report window, so a fault
-// is reported in the window it occurred in and then clears.
-#define CAN_EFLAG_EWARN    0x01  // any error counter >= 96
-#define CAN_EFLAG_RXWAR    0x02  // receive error warning, REC 96–127
-#define CAN_EFLAG_TXWAR    0x04  // transmit error warning, TEC 96–127
-#define CAN_EFLAG_RXEP     0x08  // receive error passive, REC >= 128
-#define CAN_EFLAG_TXEP     0x10  // transmit error passive, TEC >= 128
-#define CAN_EFLAG_TXBO     0x20  // transmit bus-off — the node has left the bus
-#define CAN_EFLAG_RX0OVR   0x40  // receive buffer 0 overflow, frames lost
-#define CAN_EFLAG_RX1OVR   0x80  // receive buffer 1 overflow, frames lost
-
+// MCP2515 EFLG bits (CAN_EFLAG_*) are defined in haus_can.h.
 #define CAN_EFLAG_MASK  0xFF
 
 // CANSTAT bits, MCP2515 (register 0x0E).
@@ -196,16 +167,10 @@ static_assert(sizeof(StatsFrame)== NRF_FRAME_SIZE, "StatsFrame size drift");
 // Classic CAN carries at most 8 data bytes, which is exactly one DS18B20 ROM
 // and exactly four centidegree readings. No software CRC is added: the CAN
 // frame already has hardware CRC-16, bit stuffing and CRC-error detection.
-static const uint16_t CAN_ID_ID_BASE   = 0x180;  // + rank, DLC 8 = full ROM
-static const uint16_t CAN_ID_DATA_BASE = 0x200;  //        DLC 8 = 4 × int16_t
-
-// PWM: one identifier to command the duty, one to report it back. Both carry
-// the same 8-byte layout (duty, hz, flags, reserved) so a controller can use
-// either direction interchangeably.
-static const uint16_t CAN_ID_PWM_SET = 0x240;  // in  — applied verbatim
-static const uint16_t CAN_ID_PWM_REPORT = 0x280;  // out — current commanded duty
-static const uint16_t CAN_ID_ADC_REPORT = 0x2C0;  // out — ADC window, 1 Hz
-static const uint16_t CAN_ID_STATS_REPORT = 0x300;  // out — CAN bus health, 0.2 Hz
+//
+// The CAN identifiers (CAN_ID_ID_BASE, CAN_ID_DATA_BASE, CAN_ID_PWM_SET,
+// CAN_ID_PWM_REPORT, CAN_ID_ADC_REPORT, CAN_ID_STATS_REPORT) live in haus_can.h,
+// which is included at the top of this file.
 
 // ─── CRC-CCITT (0xFFFF init, poly 0x1021) ────────────────────────────────────
 static inline uint16_t nrf_crc16(const uint8_t* data, uint16_t len)

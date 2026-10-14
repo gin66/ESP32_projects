@@ -61,6 +61,12 @@ bool can_send_adc(uint16_t max_count, uint16_t min_count, uint16_t pp, uint8_t f
 bool can_send_stats(uint16_t sent, uint16_t received, uint16_t refused,
                     uint8_t eflg, uint8_t canstat, uint8_t present);
 
+// 0x2C8 — restore-point log status. Separate from the stats frame because it
+// changes on an 8 h cadence rather than a seconds one, and because it has to
+// carry the restore *source*: a deliberate "off" and a lost restore point both
+// produce duty = EPL_OFF_DUTY, and only the source tells them apart.
+bool can_send_ee(const haus_can_ee_t* e);
+
 // Whether a controller answered and came up. False means every send has been a
 // no-op and all the counters stay at zero — indistinguishable from a healthy idle
 // bus without this.

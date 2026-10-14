@@ -347,6 +347,77 @@ static inline void haus_can_get_stats(const uint8_t* buf, haus_can_stats_t* s) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+ *  0x2C8  —  EEPROM restore-point log status
+ *  AVR/01_heizung_temp
+ *
+ * The log is what makes the commanded duty survive a power cut, so its health is
+ *  as much a part of the node's state as the CAN bus's is. Reported separately
+ *  from 0x300 because the two change on completely different timescales: CAN
+ *  health moves every few seconds, the log moves every eight hours.
+ *
+ * DLC 8:
+ *   [0..1] restored_duty  what the output was set to at boot (uint16 LE)
+ *   [2]   flags           EE_FLAG_*, including where the restore came from
+ *   [3]   records         valid records in the ring, saturating at 255
+ *   [4]   oldest          first slot of the valid arc
+ *   [5]   newest          last slot of the valid arc
+ *   [6]   writes          appends since boot, saturating at 255
+ *   [7]   reserved
+ * ═══════════════════════════════════════════════════════════════════════════ */
+#define CAN_ID_EE_REPORT 0x2C8
+
+/* Bit 0 is the one that matters most: the ring could not be located, so the
+ * output came up on EPL_OFF_DUTY without anything being restored. That is a
+ * silent loss of the restore point, and it looks identical to a deliberate off
+ * if the duty alone is reported. */
+#define EE_FLAG_ANOMALY 0x01  /* ring unlocatable — restore fell back to OFF */
+#define EE_FLAG_EMPTY   0x02  /* no records at all (virgin or erased)       */
+#define EE_FLAG_WRAPPED 0x04  /* valid arc runs past slot 0                  */
+#define EE_FLAG_NOMARK  0x08  /* newest record was not a boot marker         */
+#define EE_FLAG_BADNEW  0x10  /* newest record failed its checksum           */
+
+/* Where the restored duty came from. In the top 3 bits of flags so it fits the
+ * DLC; 0 means "not recorded", which is a legitimate virgin-device answer. */
+#define EE_SRC_SHIFT   5
+#define EE_SRC_VIRGIN  0u
+#define EE_SRC_MARKER  1u
+#define EE_SRC_WINDOW  2u
+#define EE_SRC_ANOMALY 3u
+#define EE_SRC_INVALID 4u
+#define EE_SRC_MASK    0xE0u
+
+typedef struct __attribute__((packed)) {
+  uint16_t restored_duty;
+  uint8_t flags;
+  uint8_t records;
+  uint8_t oldest;
+  uint8_t newest;
+  uint8_t writes;
+  uint8_t reserved;
+} haus_can_ee_t;
+
+static inline void haus_can_set_ee(uint8_t* buf, const haus_can_ee_t* e) {
+  buf[0] = (uint8_t)(e->restored_duty & 0xFF);
+  buf[1] = (uint8_t)(e->restored_duty >> 8);
+  buf[2] = e->flags;
+  buf[3] = e->records;
+  buf[4] = e->oldest;
+  buf[5] = e->newest;
+  buf[6] = e->writes;
+  buf[7] = 0;
+}
+
+static inline void haus_can_get_ee(const uint8_t* buf, haus_can_ee_t* e) {
+  e->restored_duty = (uint16_t)buf[0] | ((uint16_t)buf[1] << 8);
+  e->flags = buf[2];
+  e->records = buf[3];
+  e->oldest = buf[4];
+  e->newest = buf[5];
+  e->writes = buf[6];
+  e->reserved = 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
  *  haus_protocol_t — enum backed by uint16_t, each value IS the CAN-ID.
  *
  *  No mapping function needed: the enum value IS the CAN-ID.
@@ -361,6 +432,7 @@ typedef enum : uint16_t {
   HAUS_PROTO_HEIZUNG_PWM = CAN_ID_PWM_SET,           /* 0x240 */
   HAUS_PROTO_HEIZUNG_PWM_RPT = CAN_ID_PWM_REPORT,    /* 0x280 */
   HAUS_PROTO_HEIZUNG_ADC = CAN_ID_ADC_REPORT,        /* 0x2C0 */
+  HAUS_PROTO_HEIZUNG_EE = CAN_ID_EE_REPORT,          /* 0x2C8 */
   HAUS_PROTO_HEIZUNG_STATS = CAN_ID_STATS_REPORT,    /* 0x300 */
   HAUS_PROTO_TIMESTAMP = CAN_ID_TIMESTAMP,           /* 0x555 */
   HAUS_PROTO_SML = CAN_ID_STROMZAEHLER_INFO_BASIS,   /* 0x600 */

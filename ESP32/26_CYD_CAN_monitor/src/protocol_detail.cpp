@@ -276,6 +276,29 @@ static void get_protocol_info(uint32_t id, const uint8_t* data, uint8_t len,
       return;
     }
 
+    case HAUS_PROTO_HEIZUNG_EE: {
+      snprintf(label, label_size, "EEPROM");
+      if (len >= 8) {
+        haus_can_ee_t e;
+        haus_can_get_ee(data, &e);
+        const char *src;
+        switch (e.flags & EE_SRC_MASK) {
+          case EE_SRC_VIRGIN  << EE_SRC_SHIFT: src = "virgin";    break;
+          case EE_SRC_MARKER  << EE_SRC_SHIFT: src = "marker";    break;
+          case EE_SRC_WINDOW  << EE_SRC_SHIFT: src = "window";    break;
+          case EE_SRC_ANOMALY << EE_SRC_SHIFT: src = "ANOMALY";   break;
+          case EE_SRC_INVALID << EE_SRC_SHIFT: src = "bad-newest";break;
+          default:                                 src = "?";       break;
+        }
+        snprintf(decoded, decoded_size,
+                 "restored=%u rec=%u arc=%u..%u w=%u %s%s%s",
+                 e.restored_duty, e.records, e.oldest, e.newest, e.writes, src,
+                 (e.flags & EE_FLAG_WRAPPED) ? " wrapped" : "",
+                 (e.flags & EE_FLAG_ANOMALY) ? " RESTORE-LOST" : "");
+      }
+      return;
+    }
+
     case HAUS_PROTO_HEIZUNG_STATS: {
       snprintf(label, label_size, "STATS");
       if (len >= 8) {

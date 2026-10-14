@@ -28,6 +28,8 @@ static void avr_wr(void* ctx, uint16_t addr, uint8_t value)
     EEPROM.update(addr, value);
 }
 
+#include "eeprom_avr.h"
+
 const epl_io_t* eeprom_log_avr_io(void)
 {
     static epl_io_t io;

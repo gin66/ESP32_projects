@@ -159,6 +159,22 @@ uint8_t epl_scan(const epl_io_t* io, epl_state_t* st);
  *                            and taking the minimum of the heating records. */
 uint16_t epl_restore(const epl_io_t* io, const epl_state_t* st);
 
+/* Why a restore returned what it did.
+ *
+ * This exists because "the output came up off" and "the ring was empty so
+ * there was nothing to restore" produce the same duty. Reporting only the duty
+ * would make the most informative failure — a blank or unlocatable EEPROM —
+ * indistinguishable from a deliberate off, which is exactly backwards. */
+#define EPL_SRC_VIRGIN    ((uint8_t)0u)  /* no records at all            */
+#define EPL_SRC_MARKER    ((uint8_t)1u)  /* newest was a boot marker     */
+#define EPL_SRC_WINDOW    ((uint8_t)2u)  /* walked the restore window    */
+#define EPL_SRC_ANOMALY   ((uint8_t)3u)  /* ring unlocatable, fell back to OFF */
+#define EPL_SRC_INVALID   ((uint8_t)4u)  /* newest record failed its checksum     */
+
+/* As epl_restore(), and writes the reason into *why. *duty may be null. */
+uint8_t epl_restore_ex(const epl_io_t* io, const epl_state_t* st,
+                       uint16_t* duty, uint8_t* why);
+
 /* Append one record. Enforces EPL_VALID_MAX by erasing the oldest slot first,
  * so the ring can never reach the ambiguous full state. Returns the slot
  * written, or 0xFFFF on fault. st is updated in place. */

@@ -497,6 +497,13 @@ bool can_send_stats(uint16_t s, uint16_t r, uint16_t refused,
     return submit(CAN_ID_STATS_REPORT, d);
 }
 
+bool can_send_ee(const haus_can_ee_t* e)
+{
+    uint8_t d[8] = { 0 };
+    haus_can_set_ee(d, e);
+    return submit(CAN_ID_EE_REPORT, d);
+}
+
 bool can_read_pwm_command(uint16_t* duty_permille)
 {
     if (!ready || duty_permille == nullptr || !pwmPending) return false;

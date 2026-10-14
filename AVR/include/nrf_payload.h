@@ -42,6 +42,7 @@ static const uint16_t NRF_MAGIC_PWM  = 0xABCF;  // PWM output state
 static const uint16_t NRF_MAGIC_PWM_CMD = 0xABD0;  // duty command, sent to the TX
 static const uint16_t NRF_MAGIC_ADC    = 0xABD1;  // ADC peak-to-peak window
 static const uint16_t NRF_MAGIC_STATS  = 0xABD2;  // CAN bus health
+static const uint16_t NRF_MAGIC_EE     = 0xABD3;  // EEPROM restore-point log status
 static const int16_t  ERR_FLAG       = -32768;  // INT16_MIN — no sensor in slot
 static const uint8_t  NRF_MAX_SENSORS = 4;
 
@@ -93,6 +94,24 @@ struct __attribute__((packed)) AdcFrame {
     uint16_t crc;        // CRC-CCITT over all preceding fields
 };
 
+// ─── Pipe 0: EEPROM restore-point log status (13 bytes, packed) ─────────────
+//
+// Separate from the CAN-health frame because the two move on completely
+// different timescales: bus health changes every few seconds, the log every
+// eight hours. A receiver watching this must be able to tell "the duty came up
+// off because that was the decision" from "the duty came up off because the log
+// was unreadable" — which is why the restore source travels with the value.
+struct __attribute__((packed)) EeFrame {
+    uint16_t magic;        // NRF_MAGIC_EE
+    uint16_t restored;     // duty the output was set to at boot, 0xFFFF = none
+    uint16_t records;      // valid records in the ring
+    uint16_t writes;       // appends since boot
+    uint8_t  flags;        // EE_FLAG_*, incl. the restore source in bits 5..7
+    uint8_t  oldest;       // first slot of the valid arc
+    uint8_t  newest;       // last slot of the valid arc
+    uint16_t crc;          // CRC-CCITT over all preceding fields
+};
+
 // ─── Pipe 0: CAN bus health frame (13 bytes, packed) ─────────────────────────
 // Publishes the CAN side of the system over the radio so it can be watched
 // without a scope or a CAN sniffer on the bus. Reported on its own slower
@@ -131,6 +150,12 @@ struct __attribute__((packed)) StatsFrame {
 // hardware", this means "not yet up".
 #define NRF_STATS_FLAG_NOT_READY 0x02
 
+// The restore-point log could not be located, so the duty came up on the boot
+// constant with nothing restored. Latched here as well as carried in detail by
+// the 0xABD3 frame, because an anomaly is the single most important thing to
+// know about this node and it should be visible without decoding a second frame.
+#define NRF_STATS_FLAG_EE_ANOMALY 0x04
+
 // MCP2515 EFLG bits (CAN_EFLAG_*) are defined in haus_can.h.
 #define CAN_EFLAG_MASK  0xFF
 
@@ -162,6 +187,7 @@ static_assert(sizeof(IdFrame)   == NRF_FRAME_SIZE, "IdFrame size drift");
 static_assert(sizeof(PwmFrame)  == NRF_FRAME_SIZE, "PwmFrame size drift");
 static_assert(sizeof(AdcFrame)  == NRF_FRAME_SIZE, "AdcFrame size drift");
 static_assert(sizeof(StatsFrame)== NRF_FRAME_SIZE, "StatsFrame size drift");
+static_assert(sizeof(EeFrame)   == NRF_FRAME_SIZE, "EeFrame size drift");
 
 // ─── Downstream CAN mapping ──────────────────────────────────────────────────
 // Classic CAN carries at most 8 data bytes, which is exactly one DS18B20 ROM

@@ -800,6 +800,130 @@ static void test_counter_cell_would_concentrate(void)
           "worst cell is %u, expected the counter cell at 0", (unsigned)addr);
 }
 
+/* ─── J: restore source reporting ───────────────────────────────────────────── */
+
+/*
+ * The duty alone cannot distinguish "came up off because that was the decision"
+ * from "came up off because the log was empty / unreadable / corrupt". Those are
+ * the same number and completely different states, and the status frames carry
+ * the reason precisely because of it — so the reason is asserted here.
+ */
+static void test_restore_source(void)
+{
+    eeprom_mock_t m;
+    epl_state_t   st;
+    epl_io_t      io;
+    uint16_t      duty;
+    uint8_t       why;
+
+    SECTION("J1  source is reported for every path");
+
+    /* virgin */
+    reset_all(&m, &st, &io);
+    (void)epl_restore_ex(&io, &st, &duty, &why);
+    CHECK(why == EPL_SRC_VIRGIN, "virgin source = %u", why);
+    CHECK(duty == EPL_OFF_DUTY, "virgin duty = %u", duty);
+
+    /* marker */
+    reset_all(&m, &st, &io);
+    epl_append(&io, &st, 275u, (uint8_t)1);
+    epl_scan(&io, &st);
+    (void)epl_restore_ex(&io, &st, &duty, &why);
+    CHECK(why == EPL_SRC_MARKER, "marker source = %u", why);
+    CHECK(duty == 275u, "marker duty = %u, want 275", duty);
+
+    /* window */
+    reset_all(&m, &st, &io);
+    epl_append(&io, &st, 240u, (uint8_t)0);
+    epl_append(&io, &st, 260u, (uint8_t)0);
+    epl_scan(&io, &st);
+    (void)epl_restore_ex(&io, &st, &duty, &why);
+    CHECK(why == EPL_SRC_WINDOW, "window source = %u", why);
+    CHECK(duty == 240u, "window duty = %u, want 240", duty);
+
+    /* a deliberate off is attributed to the newest decision, not the window */
+    reset_all(&m, &st, &io);
+    epl_append(&io, &st, 300u, (uint8_t)0);
+    epl_append(&io, &st, EPL_OFF_DUTY, (uint8_t)0);
+    epl_scan(&io, &st);
+    (void)epl_restore_ex(&io, &st, &duty, &why);
+    CHECK(why == EPL_SRC_MARKER, "deliberate off source = %u, want MARKER", why);
+    CHECK(duty == EPL_OFF_DUTY, "deliberate off duty = %u", duty);
+
+    SECTION("J2  a corrupt newest record falls back, and says so");
+    reset_all(&m, &st, &io);
+    epl_append(&io, &st, 300u, (uint8_t)0);
+    epl_append(&io, &st, 320u, (uint8_t)0);
+    epl_scan(&io, &st);
+    CHECK(st.newest == 1u, "precondition: newest = %u, want 1", st.newest);
+
+    /* Tear the newest record's payload, leaving its checksum stale — the
+     * signature of a power cut before the checksum byte landed.
+     *
+     * The scan skips it rather than treating it as erased, so the previous
+     * record becomes the newest. That is the designed behaviour: the hole is a
+     * hole, not a boundary, and the arc stays contiguous.
+     *
+     * Note the source here is WINDOW, not INVALID. EPL_SRC_INVALID guards a
+     * newest that fails to decode, which cannot happen on this path at all —
+     * the scan only ever designates slots that decoded. It is defensive against
+     * the EEPROM changing between scan and restore, which single-threaded
+     * firmware cannot do, and it is left in rather than removed because it is
+     * the difference between returning OFF and returning a random permille if
+     * that ever stops being true. */
+    mock_poke(&m, (uint16_t)(st.newest * EPL_REC_SIZE),
+              (uint8_t)(m.mem[(uint16_t)(st.newest * EPL_REC_SIZE)] ^ 0xFFu));
+
+    epl_scan(&io, &st);
+    CHECK(st.count == 1u, "after tearing the newest, count = %u, want 1", st.count);
+    CHECK(st.newest == 0u, "newest = %u, want the previous record at 0", st.newest);
+    CHECK(st.anomaly == 0u, "a single hole must not look anomalous");
+
+    (void)epl_restore_ex(&io, &st, &duty, &why);
+    CHECK(why == EPL_SRC_WINDOW, "torn-newest source = %u, want WINDOW", why);
+    CHECK(duty == 300u, "torn-newest restored %u, want the previous 300", duty);
+
+    SECTION("J3  an anomalous ring is reported and never honoured");
+    {
+        /* Fill every slot, writing straight through the io interface rather than
+         * via epl_append. Going through append cannot produce this state — the
+         * VALID_MAX guard erases before the cap is reached, which is the whole
+         * point of the guard. Writing past it is the only way to check that the
+         * scan actually detects the condition the guard is there to prevent,
+         * rather than silently returning some arbitrary slot. */
+        uint16_t s;
+
+        mock_init(&m);
+        io = mock_io(&m);
+
+        for (s = 0u; s < EPL_SLOTS; s++) {
+            epl_raw_t raw;
+            uint16_t base = (uint16_t)(s * EPL_REC_SIZE);
+            uint8_t  j;
+
+            epl_encode(&raw, (uint16_t)(100u + s), (uint8_t)0);
+            for (j = 0u; j < (uint8_t)EPL_REC_SIZE; j++) {
+                io.wr(io.ctx, (uint16_t)(base + j), raw.b[j]);
+            }
+        }
+
+        CHECK(epl_scan(&io, &st) != 0u, "100%% full ring should report non-zero");
+        CHECK(st.anomaly == 1u, "100%% full ring did not raise the anomaly flag");
+
+        (void)epl_restore_ex(&io, &st, &duty, &why);
+        CHECK(why == EPL_SRC_ANOMALY, "anomalous source = %u, want ANOMALY", why);
+        CHECK(duty == EPL_OFF_DUTY,
+              "anomalous ring restored duty %u — must be OFF, never a random slot",
+              duty);
+
+        /* And the append path must refuse rather than scribble into a ring it
+         * cannot locate. That is what stops a recoverable anomaly becoming a
+         * permanent one. */
+        CHECK(epl_append(&io, &st, 400u, (uint8_t)0) == 0xFFFFu,
+              "append into an anomalous ring was accepted");
+    }
+}
+
 /* ─── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void)
@@ -818,6 +942,7 @@ int main(void)
     test_corrupt_not_erased();
     test_restore_boot_marker();
     test_restore_window();
+    test_restore_source();
     test_randomised();
     test_reboot_soak();
     test_wear_distribution();

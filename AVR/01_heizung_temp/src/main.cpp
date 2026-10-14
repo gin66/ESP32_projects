@@ -8,6 +8,8 @@
 #include "can_sender.h"
 #include "pwm_out.h"
 #include "adc_monitor.h"
+#include "eeprom_log.h"
+#include "eeprom_avr.h"
 
 // ─── Hardware pins (rf-nano V1.0: CE=10, CSN=9) ─────────────────────────────
 #define ONE_WIRE_BUS       4   // DS18B20 data on D4
@@ -192,6 +194,28 @@ static uint16_t      canInitFails = 0;
 static unsigned long lastIdMs    = 0;
 static unsigned long idPeriodMs = IDENTITY_BURST_MS;
 
+// ─── Restore-point log state ─────────────────────────────────────────────────
+// The log itself lives in EEPROM; these are the runtime facts about it that the
+// status frames carry. `epl_restored` is what the output was actually set to at
+// boot — the single most important number here, because until it is read back
+// from the frame there is no way to tell a restored duty from the boot constant.
+static epl_state_t epl_state;
+static uint16_t   epl_restored  = 0;
+static uint8_t    epl_restore_src = EPL_SRC_VIRGIN;
+static uint32_t   epl_writes    = 0;
+
+// Status cadence. Slow on purpose — the log changes every 8 h at most, so a fast
+// report would be pure bus traffic. An anomaly overrides this and reports at the
+// next stats tick, because that is the one case worth telling someone about
+// promptly.
+static const unsigned long EE_PERIOD_MS = 60000UL;
+
+// Minimum gap between two stored-duty writes triggered by a duty change. Worst
+// case is 24 h of writes per day = 8760/year, still ~11 years on one cell, and
+// spread over 256 cells it is irrelevant. Its job is to bound how stale the
+// stored value can get, not to save wear.
+static const unsigned long EE_MIN_WRITE_GAP_MS = 3600000UL;   // 1 h
+
 // ─── Restart counter ─────────────────────────────────────────────────────────
 // Retained across every reset except power-on. The brownout-reset loop is the
 // nastiest amplifier of the boot-state problem: the node re-initialises
@@ -292,6 +316,74 @@ static void broadcast_pwm()
 #endif
 }
 
+// ─── Restore-point log: runtime glue ─────────────────────────────────────────
+// eeprom_log is deliberately free of Arduino, clocks and Serial so it can be
+// compiled unchanged for the host test. These two functions are the entire
+// adapter: they call it once at boot, and append the boot marker.
+//
+// Every append goes through epl_write() so that epl_writes stays an accurate
+// liveness counter and a failed append is visible rather than silent.
+const epl_io_t* epl_io(void);
+
+static const epl_io_t* epl_io(void)
+{
+    static const epl_io_t* io;
+    static uint8_t ready;
+
+    if (!ready) {
+        io = eeprom_log_avr_io();
+        ready = 1;
+    }
+    return io;
+}
+
+static void epl_write_boot_marker(void)
+{
+    /* The marker carries the already-resolved duty, which is what makes the next
+     * restart an O(1) restore. Skipped when the newest record is already a
+     * marker — otherwise a node stuck in a reset loop would spend every one of
+     * its boot cycles rewriting the same record, burning the very wear budget
+     * the ring exists to spread out.
+     *
+     * Anomalous ring: nothing is written. epl_append() refuses in that state,
+     * and forcing a write to an unlocatable ring is how a recoverable anomaly
+     * becomes a permanently corrupted one. */
+    if (epl_state.anomaly) return;
+    if (epl_state.count > 0u && epl_state.newest < EPL_SLOTS) {
+        epl_raw_t raw;
+        epl_raw_t probe;
+        epl_rec_t newest;
+        uint16_t  base = (uint16_t)(epl_state.newest * EPL_REC_SIZE);
+        uint8_t   i;
+
+        for (i = 0u; i < (uint8_t)EPL_REC_SIZE; i++) {
+            probe.b[i] = epl_io()->rd(epl_io()->ctx, (uint16_t)(base + i));
+        }
+        newest = epl_decode(&probe);
+        if (newest.valid && newest.boot) return;   /* already stamped */
+    }
+
+    if (epl_append(epl_io(), &epl_state, epl_restored, (uint8_t)1) != 0xFFFFu) {
+        epl_writes++;
+    }
+}
+
+// Scan, restore, and record why. Called once, before pwm_out_begin().
+static void epl_restore_boot(void)
+{
+    const epl_io_t* io = epl_io();
+
+    epl_scan(io, &epl_state);
+    epl_restore_ex(io, &epl_state, &epl_restored, &epl_restore_src);
+
+    if (epl_state.anomaly) {
+        /* The restore point is gone. This is the one log line that must never be
+         * missed, because the node now looks healthy while running on the boot
+         * constant — see risk analysis §3.0. */
+        Serial.println(F("[TX] EEPROM log ANOMALOUS — restore point lost"));
+    }
+}
+
 // Last writer wins: no ramping, no minimum-on/off pulse, no other validation
 // than the permille clamp inside pwm_out_set().
 static void set_pwm_duty(uint16_t permille)
@@ -299,6 +391,28 @@ static void set_pwm_duty(uint16_t permille)
     pwm_out_set(permille);
     pwm_duty = permille;
     broadcast_pwm();
+
+    /* Refresh the stored duty when it has moved and enough time has passed.
+     *
+     * The 8 h heartbeat alone is not enough: millis() restarts on reboot, so a
+     * node resetting more often than once per 8 h of uptime would never reach
+     * it and would keep restoring something arbitrarily old — which is precisely
+     * the window that lets a freeze go unnoticed. This is the backup, and
+     * set_pwm_duty() is the natural place for it because the loop already comes
+     * here for every duty change.
+     *
+     * Refused on an anomalous ring: forcing a write into a ring we cannot locate
+     * is how a recoverable anomaly becomes a permanent one. */
+    static unsigned long lastEeWriteMs = 0;
+    unsigned long now = millis();
+
+    if (epl_state.anomaly) return;
+    if ((unsigned long)(now - lastEeWriteMs) < EE_MIN_WRITE_GAP_MS) return;
+
+    if (epl_append(epl_io(), &epl_state, permille, (uint8_t)0) != 0xFFFFu) {
+        epl_writes++;
+        lastEeWriteMs = now;
+    }
 }
 
 // ─── PWM ISR liveness ────────────────────────────────────────────────────────
@@ -566,6 +680,84 @@ static void send_adc_stats()
     Serial.println(f.readings);
 }
 
+// ─── Publish EEPROM restore-point log status ─────────────────────────────────
+//
+// The log is what makes the commanded duty survive a power cut, so its health is
+// part of the node's state, not a debugging extra. It travels on its own frame
+// (CAN 0x2C8, radio 0xABD3) rather than inside the CAN-health frame, because the
+// two move on completely different timescales: bus health every few seconds,
+// the log every eight hours.
+//
+// The restore *source* travels with the duty deliberately. "The output came up
+// off because that was the decision" and "it came up off because the log was
+// unreadable" produce the same duty, and only the source tells them apart —
+// which is the difference between a working node and one that has silently lost
+// its restore point.
+static void send_ee_stats()
+{
+    EeFrame f;
+    uint8_t flags = 0;
+
+    if (epl_state.anomaly) flags |= EE_FLAG_ANOMALY;
+    if (epl_state.count == 0) flags |= EE_FLAG_EMPTY;
+    if (epl_state.wrapped)   flags |= EE_FLAG_WRAPPED;
+    if (epl_restore_src != EPL_SRC_MARKER && epl_restore_src != EPL_SRC_VIRGIN)
+        flags |= EE_FLAG_NOMARK;
+    if (epl_restore_src == EPL_SRC_INVALID)   flags |= EE_FLAG_BADNEW;
+    if (epl_restore_src == EPL_SRC_ANOMALY)   flags |= EE_FLAG_ANOMALY;
+
+    flags |= (uint8_t)((epl_restore_src << EE_SRC_SHIFT) & EE_SRC_MASK);
+
+    f.magic    = NRF_MAGIC_EE;
+    f.restored = epl_restored;
+    f.records  = epl_state.count;
+    f.writes   = (epl_writes > 0xFFFFu) ? 0xFFFFu : epl_writes;
+    f.flags    = flags;
+    f.oldest   = (uint8_t)epl_state.oldest;
+    f.newest   = (uint8_t)epl_state.newest;
+    f.crc      = frame_crc16(&f, sizeof(f));
+
+#if !CAN_QUIET_RADIO
+    radio_send(&f, sizeof(f));
+#endif
+
+#if !CAN_LISTEN_ONLY
+    // Saturating to uint8 on CAN: the ring caps at EPL_VALID_MAX (240) so the
+    // record count always fits, and writes-since-boot is a liveness hint that
+    // does not need a second byte.
+    haus_can_ee_t e;
+    e.restored_duty = epl_restored;
+    e.flags         = flags;
+    e.records       = (epl_state.count > 0xFFu) ? 0xFFu : (uint8_t)epl_state.count;
+    e.oldest        = (uint8_t)epl_state.oldest;
+    e.newest        = (uint8_t)epl_state.newest;
+    e.writes        = (epl_writes > 0xFFu) ? 0xFFu : (uint8_t)epl_writes;
+    e.reserved      = 0;
+    can_send_ee(&e);
+#endif
+
+    Serial.print(F("[TX] ee    restored="));
+    Serial.print(epl_restored);
+    Serial.print(F("  records="));
+    Serial.print(epl_state.count);
+    Serial.print(F(" writes="));
+    Serial.print(f.writes);
+    Serial.print(F("  arc="));
+    Serial.print(f.oldest);
+    Serial.print(F(".."));
+    Serial.print(f.newest);
+    switch (epl_restore_src) {
+        case EPL_SRC_VIRGIN:  Serial.print(F("  src=virgin"));  break;
+        case EPL_SRC_MARKER:  Serial.print(F("  src=marker"));  break;
+        case EPL_SRC_WINDOW:  Serial.print(F("  src=window"));  break;
+        case EPL_SRC_INVALID: Serial.print(F("  src=BAD-NEWEST")); break;
+        case EPL_SRC_ANOMALY: Serial.print(F("  src=ANOMALY-RESTORE-LOST")); break;
+        default: break;
+    }
+    if (epl_state.anomaly) Serial.println(F("  ANOMALOUS"));
+    else Serial.println();
+}
+
 // ─── Publish CAN bus health ──────────────────────────────────────────────────
 // Sent over the radio as well as CAN, so the bus can be watched wirelessly. The
 // frame reports counters since boot plus the live register values; it is sent on
@@ -588,6 +780,10 @@ static void send_can_stats()
     f.eflg     = eflg;
     f.canstat  = 0;   // CANSTAT is not in the library's public API
     f.present  = present ? NRF_STATS_FLAG_PRESENT : 0;
+    // Latched here as well as in the dedicated 0xABD3 frame: an anomaly is
+    // the most important thing to know about this node, and it should be
+    // visible without decoding a second frame.
+    if (epl_state.anomaly) f.present |= NRF_STATS_FLAG_EE_ANOMALY;
     f.crc      = frame_crc16(&f, sizeof(f));
 
     // Written even when the controller is absent. With no MCP2515 the CAN frame
@@ -709,12 +905,22 @@ void setup()
     can_csn_high();
     nrf_csn_high();
 
+    // Restore the duty the upstream controller last commanded, from the EEPROM
+    // log. Placed before pwm_out_begin() so the output is driven once, with the
+    // restored value, and never blips through the boot constant on the way.
+    //
+    // The scan reads all 256 slots — about a thousand EEPROM reads, a few
+    // milliseconds. That sits inside the 15 ms window the watchdog must be
+    // disarmed in only if it happens BEFORE wdt_disable(), so it must stay
+    // after it. Hence wdt_disable() above, then this, then the output.
+    epl_restore_boot();
+
     // The output goes into a defined state next, before anything that can fail
     // or block. Everything below can take hundreds of milliseconds — with the
     // watchdog already running at 2 s, and with the heater's state decided
     // here rather than by whatever the driver stage does with a floating pin.
     pwm_out_begin();
-    set_pwm_duty(PWM_DUTY_PERMILLE);
+    set_pwm_duty(epl_restored);
 
     // 2 s from here on. The longest single blocking region in the loop is
     // listen_window() at 250 ms, which feeds the watchdog itself, so this has
@@ -723,6 +929,11 @@ void setup()
 
     Serial.begin(115200);
     Serial.println("[TX] boot");
+
+    // Re-stamped now that the serial link is up: the boot marker is what makes
+    // the next restart an O(1) restore instead of a window walk, so it is worth
+    // writing even if this node never runs long enough to hit the 8 h schedule.
+    epl_write_boot_marker();
 
     sensors.begin();
     sensors.setWaitForConversion(false);   // conversion is handled in loop()
@@ -786,6 +997,8 @@ void loop()
     static unsigned long convStartMs = 0;
     static bool          convBusy = false;
     static unsigned long lastStatsMs = 0;
+    static unsigned long lastEeStatsMs = 0;
+    static uint8_t       eeAnomalyReported = 0;
     static uint32_t okCount = 0, failCount = 0;
 
     // Brings up the radio and CAN if they are not yet up, and detects a radio
@@ -811,6 +1024,16 @@ void loop()
     if (millis() - lastStatsMs >= STATS_PERIOD_MS) {
         lastStatsMs = millis();
         send_can_stats();
+    }
+
+    /* Restore-point log status. Slow cadence, because the log changes at most
+     * every 8 h — but an anomaly jumps the queue, since that is the one case
+     * worth telling someone about promptly rather than on the next minute. */
+    if ((millis() - lastEeStatsMs >= EE_PERIOD_MS) ||
+        (epl_state.anomaly && !eeAnomalyReported)) {
+        lastEeStatsMs = millis();
+        eeAnomalyReported = epl_state.anomaly ? 1u : 0u;
+        send_ee_stats();
     }
 
     // CAN commands are applied verbatim and immediately. Anything else on the

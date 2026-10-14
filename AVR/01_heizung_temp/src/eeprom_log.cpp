@@ -250,14 +250,20 @@ uint8_t epl_in_region(const epl_state_t* st, uint16_t slot)
 
 /* ─── Restore ──────────────────────────────────────────────────────────────── */
 
-uint16_t epl_restore(const epl_io_t* io, const epl_state_t* st)
+uint8_t epl_restore_ex(const epl_io_t* io, const epl_state_t* st,
+                       uint16_t* duty, uint8_t* why)
 {
     uint16_t  best;
     epl_raw_t raw;
     epl_rec_t newest;
     uint8_t   i;
+    uint8_t   src;
 
-    if (st->count == 0u) return EPL_OFF_DUTY;
+    if (st->count == 0u) {
+        src = EPL_SRC_VIRGIN;
+        best = EPL_OFF_DUTY;
+        goto done;
+    }
 
     /* An anomalous scan means the ring could not be located — the empty arc was
      * not a single run, or there was none. Nothing about the layout can be
@@ -265,11 +271,19 @@ uint16_t epl_restore(const epl_io_t* io, const epl_state_t* st)
      * to OFF is the only answer that cannot be a random duty out of the EEPROM.
      *
      * The caller is expected to log this, but the restore itself stays safe. */
-    if (st->anomaly) return EPL_OFF_DUTY;
+    if (st->anomaly) {
+        src = EPL_SRC_ANOMALY;
+        best = EPL_OFF_DUTY;
+        goto done;
+    }
 
     raw = read_raw(io, st->newest);
     newest = epl_decode(&raw);
-    if (!newest.valid) return EPL_OFF_DUTY;
+    if (!newest.valid) {
+        src = EPL_SRC_INVALID;
+        best = EPL_OFF_DUTY;
+        goto done;
+    }
 
     /* The newest record IS the latest decision, so it is tested first and
      * separately. Two reasons it cannot just be the seed of the window walk:
@@ -281,13 +295,22 @@ uint16_t epl_restore(const epl_io_t* io, const epl_state_t* st)
      *   - if it says "heating", it belongs in the minimum. It is one of the
      *     entries that kept the heating on.
      */
-    if (newest.duty == EPL_OFF_DUTY) return EPL_OFF_DUTY;
+    if (newest.duty == EPL_OFF_DUTY) {
+        src = EPL_SRC_MARKER;
+        best = EPL_OFF_DUTY;
+        goto done;
+    }
 
     /* The common case: a boot marker carries the already-resolved answer, so the
      * window is not consulted at all. That is what makes the O(1) restore worth
      * having — a node that keeps rebooting never walks the window. */
-    if (newest.boot) return newest.duty;
+    if (newest.boot) {
+        src = EPL_SRC_MARKER;
+        best = newest.duty;
+        goto done;
+    }
 
+    src = EPL_SRC_WINDOW;
     best = newest.duty;
 
     for (i = 1u; i <= EPL_RESTORE_WINDOW; i++) {
@@ -306,7 +329,17 @@ uint16_t epl_restore(const epl_io_t* io, const epl_state_t* st)
         if (r.duty < best) best = r.duty;
     }
 
-    return best;
+done:
+    if (duty != 0) *duty = best;
+    if (why  != 0) *why  = src;
+    return (uint8_t)0;
+}
+
+uint16_t epl_restore(const epl_io_t* io, const epl_state_t* st)
+{
+    uint16_t duty;
+    (void)epl_restore_ex(io, st, &duty, 0);
+    return duty;
 }
 
 /* ─── Append ───────────────────────────────────────────────────────────────── */

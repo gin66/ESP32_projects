@@ -172,7 +172,15 @@ void loop()
     static uint16_t pwmFrames = 0;
     static uint16_t adcFrames = 0;
     static uint16_t statsFrames = 0;
+    static uint16_t eeFrames = 0;
     static uint16_t pwm_duty = 0xFFFF;   // no PWM frame seen yet
+
+    // Last restore-point log report, so the idle summary can say what the
+    // transmitter came up with rather than showing nothing until one arrives.
+    static bool     ee_have = false;
+    static uint16_t ee_records = 0;
+    static uint16_t ee_restored = 0;
+    static uint8_t  ee_flags = 0;
 
     // Last CAN stats received, so the idle summary can show current bus health
     // rather than nothing at all between the 5 s reports.
@@ -334,6 +342,55 @@ void loop()
                 Serial.println(frame_crc16(&f, sizeof(f)), HEX);
             }
 
+        } else if (magic == NRF_MAGIC_EE) {
+            EeFrame f;
+            memcpy(&f, buf, sizeof(f));
+
+            if (f.crc == frame_crc16(&f, sizeof(f))) {
+                eeFrames++;
+                ee_records = f.records;
+                ee_flags   = f.flags;
+                ee_restored = f.restored;
+                ee_have    = true;
+
+                Serial.print(F("[RX] ee   restored="));
+                Serial.print(f.restored);
+                Serial.print(F("  records="));
+                Serial.print(f.records);
+                Serial.print(F(" writes="));
+                Serial.print(f.writes);
+                Serial.print(F("  arc="));
+                Serial.print(f.oldest);
+                Serial.print(F(".."));
+                Serial.print(f.newest);
+                if (f.flags & EE_FLAG_WRAPPED) Serial.print(F(" (wrapped)"));
+
+                Serial.print(F("  src="));
+                switch (f.flags & EE_SRC_MASK) {
+                    case EE_SRC_VIRGIN << EE_SRC_SHIFT: Serial.print(F("virgin"));  break;
+                    case EE_SRC_MARKER << EE_SRC_SHIFT: Serial.print(F("marker"));  break;
+                    case EE_SRC_WINDOW << EE_SRC_SHIFT: Serial.print(F("window"));  break;
+                    case EE_SRC_ANOMALY << EE_SRC_SHIFT: Serial.print(F("ANOMALY")); break;
+                    case EE_SRC_INVALID << EE_SRC_SHIFT: Serial.print(F("bad-newest")); break;
+                    default: Serial.print(F("?")); break;
+                }
+
+                // The one that matters: the duty came up on the boot constant
+                // with nothing restored, which looks identical to a deliberate
+                // off unless the receiver says so.
+                if (f.flags & EE_FLAG_ANOMALY) {
+                    Serial.println(F("  ANOMALOUS — restore point lost"));
+                } else {
+                    Serial.println();
+                }
+            } else {
+                rejected++;
+                Serial.print(F("[RX] ee rejected: crc got="));
+                Serial.print(f.crc, HEX);
+                Serial.print(F(" exp="));
+                Serial.println(frame_crc16(&f, sizeof(f)), HEX);
+            }
+
         } else if (magic == NRF_MAGIC_PWM) {
             PwmFrame f;
             memcpy(&f, buf, sizeof(f));
@@ -391,6 +448,23 @@ void loop()
         Serial.print(adcFrames);
         Serial.print("  stats=");
         Serial.print(statsFrames);
+        Serial.print("  ee=");
+        Serial.print(eeFrames);
+        if (ee_have) {
+            Serial.print(F("  ["));
+            Serial.print(ee_restored);
+            if (ee_flags & EE_FLAG_ANOMALY) {
+                // Outranks every other reading: without it the restore point is
+                // gone and the duty on the heater is just the boot constant.
+                Serial.print(F(" RESTORE-LOST"));
+            } else if (ee_flags & EE_FLAG_EMPTY) {
+                Serial.print(F(" EMPTY"));
+            } else {
+                Serial.print(F(" rec="));
+                Serial.print(ee_records);
+            }
+            Serial.print(F("]"));
+        }
         if (stat_have) {
             // Repeats the live health bits: a fault that has since cleared still
             // shows here, because the last report is all this node has.

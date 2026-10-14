@@ -27,8 +27,8 @@ or age it out. That is now the single highest-priority open item.**
 
 | # | Risk | Severity | Status |
 |---|------|----------|--------|
-| 3.0 | **Freeze: power loss → boot duty is heater OFF** | **Critical** | Design settled (§4); **integration OPEN** |
-| 3.1 | No command timeout / dead-man switch | Critical | **OPEN** — now a hard dependency of 3.0's fix |
+| 3.0 | **Freeze: power loss → boot duty is heater OFF** | **Critical** | **FIXED** — restore wired in, `PWM_SRC_*` reporting added |
+| 3.1 | ~~No command timeout / dead-man switch~~ | — | **CLOSED by decision** — rejected, see §3.0 |
 | 3.2 | No duty clamp, ramp or rate limit | High | OPEN |
 | 4.1 | `DEVICE_FAULT_*` not mapped → −252…−254 °C as valid data | High | OPEN |
 | 4.2 | DS18B20 CRC / sentinel collision at −55 °C | High | OPEN (partly inherent) |
@@ -553,16 +553,51 @@ commanding heat. The realistic edge cases are a shoulder-season spell — where
 restoring "off" is the correct answer anyway — and a controller that died *and*
 had stopped demanding heat, which is not distinguishable from a deliberate off.
 
-What that argument does *not* cover, and what the design therefore still owes:
+#### No dead-man timeout — a deliberate rejection
 
-1. **A dead-man timeout (§3.1)** — because "controller died while demanding heat"
-   and "controller died having stopped" are indistinguishable from here, and only
-   one of those should result in the duty being held indefinitely. The restore
-   re-anchors the decision; nothing bounds it.
-2. **The 8 h refresh**, so a restored duty is never more than a few hours stale.
-   That bounds the longest stretch for which the argument above holds. 24 h was
-   rejected precisely because it leaves a full night between writes.
-3. **The polarity verified at the load** (Batch 1.2). No longer a boot-constant
+This document originally recommended a command timeout: expire the duty if no
+`0x240` arrives within N seconds, so a dead controller could not hold it
+indefinitely. **That recommendation was wrong, and has been withdrawn.**
+
+The reasoning error was treating the duty as a *lease*. A lease has to expire,
+because it was granted on information that may since have changed. But "hold the
+house at 55 %" is not a lease — it remains true for as long as nobody says
+otherwise. Expiring it would:
+
+* drop the heat every time the controller **merely rebooted**, which is a far
+  more common event than a controller dying while still demanding heat, and
+  a reboot is precisely when the duty is most needed;
+* convert a harmless controller restart into a frozen house — reintroducing the
+  very failure the persistence exists to prevent;
+* and it could not distinguish "controller died while demanding heat" from
+  "controller died having stopped", so it would discard the *correct* value as
+  often as the wrong one.
+
+The cost accepted instead: **a duty can outlive its author.** That is correct for
+a setpoint and wrong only if the controller was acting on information that has
+since changed — which is the controller's problem to fix when it returns, not
+this node's to guess at by inventing a safe value.
+
+What replaces the timeout is **making the source visible** rather than bounding
+the value. `PWM_SRC_*` travels in bits 1..2 of the PWM frame's flags byte, on
+both wires at once:
+
+| Source | Meaning |
+|---|---|
+| `EEPROM` | restored from the log; **nothing is commanding this node** |
+| `CAN` | last valid command was CAN `0x240` |
+| `NRF` | last valid command was radio `0xABD0` |
+| `FAULT` | local safety action, i.e. the PWM ISR stall fallback |
+
+A node sitting on `EEPROM` forever is then *legible* as such — which is the
+diagnostic a timeout was being asked to provide, without the behaviour change
+that made it unacceptable.
+
+What the design still owes:
+
+1. **The 8 h refresh**, so a restored duty is never more than a few hours stale.
+   24 h was rejected precisely because it leaves a full night between writes.
+2. **The polarity verified at the load** (Batch 1.2). No longer a boot-constant
    question: the whole log is expressed relative to `PWM_DUTY_PERMILLE`, so the
    measurement changes that constant and nothing else.
 
@@ -581,7 +616,7 @@ What is missing:
 
 | Missing control | Consequence |
 |---|---|
-| Command timeout / dead-man switch | If the commanding node crashes or reboots, the heater holds its last duty **forever**. Nothing ages it out. |
+| ~~Command timeout / dead-man switch~~ | **Rejected, deliberately.** The duty is state, not a lease — see "No dead-man timeout" in §3.0. Replaced by `PWM_SRC_*` reporting, which makes the same fact visible without changing behaviour. |
 | Sequence number or heartbeat on PWM commands | A stale frame sitting in an RX buffer, or replayed by a buggy peer, is applied as if fresh. |
 | Ramp / slew limit | A single frame can step the duty 0 → 100 % instantly. |
 | Upper duty clamp | The README's own measurement puts the pump cutoff at ~55 % duty. Nothing enforces it; a command of 1000 permille is accepted verbatim. |
@@ -592,9 +627,12 @@ What is missing:
 | Brownout / BOD | Default fuse settings. A sagging supply resets the node silently to the boot duty. |
 | Fault latch | Nothing latches a fault into EEPROM or into a CAN frame. |
 
-**A dead-man timeout is the single highest-value change on this list.** A 10–30 s
-window after which the duty falls to a defined safe value would convert every
-node failure in this document from "heater stuck at last demand" into "heater off".
+**The highest-value change on this list is the EEPROM restore point** (§6b), and
+it is now implemented: the duty survives a restart, so the freeze scenario is
+mitigated rather than merely analysed. What replaced the dead-man timeout is
+source reporting — `PWM_SRC_EEPROM` in the status frames is this node saying
+"I am holding a restored duty and nothing is commanding me", which is the
+honest form of the alarm the timeout was trying to raise.
 
 Note the asymmetry that makes this worse: the bus is designed so that everything
 still works when the radio is dead (§1.1 fail-soft, CAN fail-soft). That is good
@@ -993,7 +1031,7 @@ through winter.
 |---|--------|----------------|--------|
 | 1.1 | **Wire up the EEPROM restore point.** `eeprom_log` is written and tested (§6b); it needs calling from `main.cpp`: scan on boot, restore, `pwm_out_begin()` with the restored duty, then append the boot marker. Write triggers go in `set_pwm_duty()`. | §3.0 | M |
 | 1.2 | **Verify the drive polarity at the load** and write the measurement down. The whole policy rests on a downstream, undocumented, *inverting* transfer function. The README also still claims duty goes to `OCR1A` while the code writes `OCR1B`. | §3.0 | S |
-| 1.3 | **Add a dead-man timeout.** If no valid `0x240` arrives within N seconds, fall back to the restored/boot duty and raise a fault flag in the stats frame. This is now a **hard dependency** of 1.1 — the restore re-anchors the decision, but nothing bounds it. `millis()` time, not the WDT clock (see §1.2). | §3.1 | M |
+| 1.3 | ~~**Add a dead-man timeout**~~ — **REJECTED.** The duty is durable state, not a lease; expiring it would drop the heat on every controller reboot. See "No dead-man timeout" in §3.0. | §3.1 | — |
 | 1.4 | **Clamp commanded duty** to the range the hardware supports (~550 permille, per the README's own 56 % pump-cutoff measurement) and **ramp** rather than step. | §3.2 | S |
 | 1.5 | **Set the HEAT_ON predicate** — the single named constant the ring is built around. Provisionally `duty != PWM_DUTY_PERMILLE`, which needs no polarity assumption. Settle it together with 1.2. | §6b | S |
 

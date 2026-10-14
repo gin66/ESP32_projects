@@ -255,11 +255,22 @@ static void get_protocol_info(uint32_t id, const uint8_t* data, uint8_t len,
       snprintf(label, label_size, "PWM");
       if (len >= 5) {
         haus_can_pwm_t p;
+        const char *src;
         haus_can_get_pwm(data, &p);
+        /* The transmitter never ages a duty out, so the source is the only thing
+         * that separates "being commanded right now" from "holding whatever was
+         * in EEPROM at boot". A node restored from the log looks otherwise
+         * identical to a healthy idle one. */
+        switch (haus_can_pwm_source(p.flags)) {
+          case PWM_SRC_CAN:   src = "CAN";   break;
+          case PWM_SRC_NRF:   src = "NRF";   break;
+          case PWM_SRC_FAULT: src = "FAULT"; break;
+          default:            src = "EEPROM";break;
+        }
         snprintf(decoded, decoded_size,
-                 "duty=%d/1000 f=%dHz %s",
+                 "duty=%d/1000 f=%dHz %s src=%s",
                  p.duty_permille, p.frequency_hz,
-                 (p.flags & PWM_FLAG_ACTIVE) ? "ACTIVE" : "OFF");
+                 (p.flags & PWM_FLAG_ACTIVE) ? "ACTIVE" : "OFF", src);
       }
       return;
     }

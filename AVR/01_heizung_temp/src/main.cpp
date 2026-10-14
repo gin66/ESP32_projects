@@ -121,6 +121,34 @@ static int rom_compare(const uint8_t a[8], const uint8_t b[8])
 // ─── PWM duty: commanded from CAN, mirrored on CAN and the radio ────────────
 static uint16_t pwm_duty = 0;
 
+// Where pwm_duty came from, as PWM_SRC_*.
+//
+// The duty is state, not a lease. Whatever the controller last decided stands
+// until something changes it — there is no dead-man timeout, because expiring a
+// duty on the grounds that the controller has gone quiet would drop the heat
+// every time the controller merely rebooted, which is a far more common event
+// than a controller dying while still demanding it.
+//
+// The trade is accepted explicitly: a duty can outlive its author. That is
+// correct for "hold the house at 55%" and wrong only if the controller was
+// acting on information that has since changed — which is the controller's
+// problem to fix when it returns, not this node's to guess at.
+//
+// So the source is tracked and reported instead. A node that booted on its
+// EEPROM restore and has heard nothing since is then distinguishable from one
+// being actively commanded, which is the question a receiver really has.
+static uint8_t pwm_source = PWM_SRC_EEPROM;
+
+static const char* pwm_source_str(uint8_t src)
+{
+    switch (src) {
+        case PWM_SRC_CAN:   return "CAN";
+        case PWM_SRC_NRF:   return "NRF";
+        case PWM_SRC_FAULT: return "FAULT";
+        default:            return "EEPROM";
+    }
+}
+
 // Listen-window accounting, so a failing command path can be localised to
 // "never arrived" vs "arrived but malformed" vs "accepted".
 static uint16_t win_frames = 0;   // anything received while listening
@@ -298,13 +326,18 @@ static void peripherals_tick()
     }
 }
 
+static void set_pwm_duty(uint16_t permille);
+
 static void broadcast_pwm()
 {
     PwmFrame f;
     f.magic  = NRF_MAGIC_PWM;
     f.duty   = pwm_duty;
     f.hz     = PWM_OUT_HZ;
-    f.flags  = pwm_out_active() ? PWM_FLAG_ACTIVE : 0;
+    /* Bit 0 stays "is the counter modulating", bits 1..2 carry the source. Both
+     * go out on the same byte, so the radio and CAN frames cannot disagree about
+     * where the duty came from. */
+    f.flags  = (uint8_t)((pwm_out_active() ? PWM_FLAG_ACTIVE : 0) | pwm_source);
     memset(f.reserved, 0, sizeof(f.reserved));
     f.crc    = frame_crc16(&f, sizeof(f));
 
@@ -386,6 +419,17 @@ static void epl_restore_boot(void)
 
 // Last writer wins: no ramping, no minimum-on/off pulse, no other validation
 // than the permille clamp inside pwm_out_set().
+//
+// `src` is one of PWM_SRC_*, recorded so a receiver can tell an actively
+// commanded duty from one merely restored. set_pwm_duty() keeps the current
+// source, which is what the EEPROM refresh path wants: re-persisting a duty
+// does not make EEPROM its author.
+static void set_pwm_duty_from(uint16_t permille, uint8_t src)
+{
+    pwm_source = src;
+    set_pwm_duty(permille);
+}
+
 static void set_pwm_duty(uint16_t permille)
 {
     pwm_out_set(permille);
@@ -461,7 +505,7 @@ static void pwm_liveness_tick()
         pwmStalled = true;
         pwmStallCount++;
         Serial.println(F("[TX] PWM ISR stalled — forcing safe output"));
-        set_pwm_duty(PWM_FAULT_SAFE_DUTY);
+        set_pwm_duty_from(PWM_FAULT_SAFE_DUTY, PWM_SRC_FAULT);
     }
 }
 
@@ -533,7 +577,7 @@ static void listen_window(unsigned long ms)
     radio.openWritingPipe(NRF_BC_ADDR);   // re-assert after the mode switch
 
     if (changed) {
-        set_pwm_duty(want);
+        set_pwm_duty_from(want, PWM_SRC_NRF);
         Serial.print("[TX] PWM set to ");
         Serial.print(want);
         Serial.println(" permille");
@@ -920,7 +964,7 @@ void setup()
     // watchdog already running at 2 s, and with the heater's state decided
     // here rather than by whatever the driver stage does with a floating pin.
     pwm_out_begin();
-    set_pwm_duty(epl_restored);
+    set_pwm_duty_from(epl_restored, PWM_SRC_EEPROM);
 
     // 2 s from here on. The longest single blocking region in the loop is
     // listen_window() at 250 ms, which feeds the watchdog itself, so this has
@@ -1040,10 +1084,11 @@ void loop()
     // bus is ignored, so the board keeps broadcasting on a bus it does not own.
     uint16_t cmd;
     if (can_read_pwm_command(&cmd) && cmd != pwm_duty) {
-        set_pwm_duty(cmd);
+        set_pwm_duty_from(cmd, PWM_SRC_CAN);
         Serial.print("[TX] PWM commanded to ");
         Serial.print(cmd);
-        Serial.println(" permille");
+        Serial.print(" permille  src=");
+        Serial.println(pwm_source_str(pwm_source));
     }
 
     unsigned long now = millis();
@@ -1093,6 +1138,8 @@ void loop()
         Serial.print(can_dropped());
         Serial.print("  pwm=");
         Serial.print(pwm_duty);
+        Serial.print("/");
+        Serial.print(pwm_source_str(pwm_source));
         Serial.print("  edges=");
         Serial.print(pwm_out_rising_edges());
         Serial.print("/");

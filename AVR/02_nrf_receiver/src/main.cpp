@@ -162,6 +162,16 @@ void setup()
     Serial.println("[RX] type a duty 0..1000 and press Enter to command the PWM");
 }
 
+static const char* pwm_src_str(uint8_t flags)
+{
+    switch (flags & PWM_SRC_MASK) {
+        case PWM_SRC_CAN:   return "CAN";
+        case PWM_SRC_NRF:   return "NRF";
+        case PWM_SRC_FAULT: return "FAULT";
+        default:            return "EEPROM";
+    }
+}
+
 // ─── Main loop ───────────────────────────────────────────────────────────────
 void loop()
 {
@@ -174,6 +184,8 @@ void loop()
     static uint16_t statsFrames = 0;
     static uint16_t eeFrames = 0;
     static uint16_t pwm_duty = 0xFFFF;   // no PWM frame seen yet
+    static uint8_t  pwm_source = PWM_SRC_EEPROM;
+    static uint8_t  pwm_src_have = 0;
 
     // Last restore-point log report, so the idle summary can say what the
     // transmitter came up with rather than showing nothing until one arrives.
@@ -405,8 +417,17 @@ void loop()
                 Serial.print(f.duty);
                 Serial.print(" permille @ ");
                 Serial.print(f.hz);
-                Serial.println((f.flags & PWM_FLAG_ACTIVE)
+                Serial.print((f.flags & PWM_FLAG_ACTIVE)
                                  ? F(" Hz  (modulating)") : F(" Hz  (endpoint, held)"));
+                // Where the duty came from. The transmitter never ages a duty
+                // out, so this is the only thing distinguishing "being commanded
+                // right now" from "holding whatever was persisted at boot" --
+                // and a quiet node looks identical to a frozen one otherwise.
+                Serial.print(F("  src="));
+                Serial.print(pwm_src_str(f.flags));
+                pwm_source = (uint8_t)(f.flags & PWM_SRC_MASK);
+                pwm_src_have = 1u;
+                Serial.println();
             } else {
                 rejected++;
                 Serial.print("[RX] pwm rejected: crc got=");
@@ -490,7 +511,15 @@ void loop()
         } else {
             Serial.print(pwm_duty);
         }
-        Serial.print(" permille  kbd=");
+        Serial.print(" permille");
+        if (pwm_src_have) {
+            Serial.print(" src=");
+            Serial.print(pwm_src_str(pwm_source));
+            if (pwm_source == PWM_SRC_EEPROM) {
+                Serial.print(F(" (restored, nothing commanding)"));
+            }
+        }
+        Serial.print("  kbd=");
         Serial.println((uint16_t)serialLen);   // digits buffered, awaiting Enter
     }
 }

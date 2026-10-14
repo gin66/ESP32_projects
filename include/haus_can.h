@@ -229,10 +229,31 @@ static inline void haus_can_get_temperature(const uint8_t* buf,
 
 #define PWM_FLAG_ACTIVE 0x01 /* 0 < duty < 1000 permille */
 
+/* ─── Where the duty in force came from (flags bits 1..2) ─────────────────────
+ *
+ * The duty is durable state, not a lease, so it is never aged out: whatever the
+ * controller last decided stands until something changes it. That makes "who
+ * last said so" the only thing worth knowing beyond the value itself, because it
+ * answers the question a receiver actually has after a restart — was this
+ * commanded by something alive, or is it simply what was persisted?
+ *
+ * Without this, a node that came up on its EEPROM restore and has heard nothing
+ * since is indistinguishable from one that is actively being commanded, and a
+ * frozen house looks exactly like a quiet one. */
+#define PWM_SRC_EEPROM 0x00 /* restored from the log; no live command yet  */
+#define PWM_SRC_CAN    0x02 /* last valid command was CAN 0x240            */
+#define PWM_SRC_NRF    0x04 /* last valid command was radio 0xABD0          */
+#define PWM_SRC_FAULT  0x06 /* local safety action, e.g. PWM ISR stall     */
+#define PWM_SRC_MASK   0x06
+
+static inline uint8_t haus_can_pwm_source(uint8_t flags) {
+  return (uint8_t)(flags & PWM_SRC_MASK);
+}
+
 typedef struct __attribute__((packed)) {
   uint16_t duty_permille; /* 0 = off, 1000 = full on */
   uint16_t frequency_hz;  /* PWM frequency */
-  uint8_t flags;          /* PWM_FLAG_* */
+  uint8_t flags;          /* PWM_FLAG_* | PWM_SRC_* */
 } haus_can_pwm_t;
 
 static inline void haus_can_set_pwm(uint8_t* buf, const haus_can_pwm_t* p) {

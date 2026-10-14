@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <avr/wdt.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <RF24.h>
@@ -21,7 +22,27 @@
 // hardware PWM pin). A0 takes the current-coil signal and is measured by the
 // adc_monitor module, which owns the channel selection. D3, D5, D6 and D7 are
 // the only unassigned digital pins on the Nano.
-#define PWM_DUTY_PERMILLE  0   // held low until a CAN command
+#define PWM_DUTY_PERMILLE  1000   // GPIO held high → heater off until a CAN command
+
+// Duty forced onto the output when the PWM ISR is found stalled, and the duty
+// the board wakes up with. Deliberately the same value for now.
+//
+// The README's own measurement says the driver stage inverts, so "higher duty"
+// may mean "less heat" — but it also says the probe was on a downstream node
+// whose characteristics were never documented. Until that is resolved, forcing
+// the *boot* value is the only choice that cannot introduce a direction nobody
+// has verified. It guarantees a defined state rather than "whatever interior
+// duty happened to be running", which is what the stall otherwise leaves.
+//
+// Change this in one place once §7 Batch 1.2 has verified the polarity.
+#define PWM_FAULT_SAFE_DUTY  PWM_DUTY_PERMILLE
+
+// How long the Timer1 compare vectors may make no progress before it is called
+// a stall. At 1 kHz there are two ISR entries per millisecond, so 250 ms is
+// ~500 missed entries — far outside anything attributable to a long blocking
+// call in this loop (the longest is listen_window(), exactly 250 ms, and that
+// polls the liveness itself).
+static const unsigned long PWM_STALL_LIMIT_MS = 250UL;
 
 // ─── Cadence ─────────────────────────────────────────────────────────────────
 // requestTemperatures() blocks until the DS18B20 conversion finishes (up to
@@ -104,6 +125,155 @@ static uint16_t win_frames = 0;   // anything received while listening
 static uint16_t win_cmds = 0;     // well-formed duty commands accepted
 static uint16_t win_bad = 0;      // foreign magic or bad CRC
 
+// ─── Peripheral bring-up state machine ───────────────────────────────────────
+// The radio and the CAN controller are brought up from loop(), not setup().
+//
+// The reason is a boot-path hang: RF24::begin() returns false if the part does
+// not answer one SPI readback, and the obvious handling for that was to spin
+// forever. On a mains-adjacent heating controller that is the worst possible
+// place to hang — not merely because the node then stops, but because the hang
+// used to happen *before* pwm_out_begin(), leaving D7 high-impedance and the
+// driver stage input floating. A floating input is an undefined output, not a
+// safe one.
+//
+// So setup() now does nothing that can fail before the output is pinned, and
+// both peripherals are attempted here instead — retried until they answer. A
+// peripheral that is slow at boot, marginal, or not populated at all costs
+// telemetry, not the node.
+
+static const unsigned long PERIPH_RETRY_MS = 5000UL;
+
+#if !CAN_QUIET_RADIO
+static bool          radioReady     = false;
+static unsigned long radioRetryMs   = 0;
+static uint16_t      radioInitFails = 0;
+
+// Single entry point for every transmission, so "the radio is not up yet"
+// cannot be forgotten at a call site — writing to an un-initialised nRF24
+// leaves the shared SPI bus in an unknown state.
+static bool radio_send(const void* frame, uint8_t len)
+{
+    if (!radioReady) return false;
+    return radio.write(frame, len);
+}
+
+static bool radio_bring_up()
+{
+    if (!radio.begin()) return false;
+
+    radio.setChannel(NRF_CHANNEL);
+    radio.setDataRate(RF24_250KBPS);
+    radio.setPALevel(RF24_PA_MAX);
+    radio.setPayloadSize(NRF_FRAME_SIZE);   // one length for every frame
+    radio.openWritingPipe(NRF_BC_ADDR);      // broadcasts leave on pipe 0
+    radio.openReadingPipe(1, NRF_CMD_ADDR);  // duty commands arrive on pipe 1
+    radio.setCRCLength(RF24_CRC_16);
+    radio.setAutoAck(true);
+    radio.setRetries(5, 15);
+    radio.stopListening();
+
+#if defined(FAILURE_HANDLING)
+    // RF24's own "hardware failure" latch. Cleared on a successful bring-up so
+    // that the next fault is attributable to the next failure rather than
+    // inherited from this one.
+    radio.failureDetected = 0;
+#endif
+    return true;
+}
+#endif  // !CAN_QUIET_RADIO
+
+static unsigned long canRetryMs   = 0;
+static uint16_t      canInitFails = 0;
+
+// Identity cadence lives at file scope rather than inside loop() so that a
+// radio which comes up late can be handed a fresh burst of identity frames —
+// otherwise a receiver powered on after the initial burst would wait out the
+// full 60 s before learning which sensors exist.
+static unsigned long lastIdMs    = 0;
+static unsigned long idPeriodMs = IDENTITY_BURST_MS;
+
+// ─── Restart counter ─────────────────────────────────────────────────────────
+// Retained across every reset except power-on. The brownout-reset loop is the
+// nastiest amplifier of the boot-state problem: the node re-initialises
+// repeatedly, re-applying the boot duty each time, and looks exactly like a
+// healthy idle node over any link that is not the serial port. Reporting how
+// many times this board has restarted is what makes it visible.
+//
+// PORF distinguishes the two cases that matter: a genuine first power-up, where
+// the .noinit contents are meaningless and must be ignored, versus everything
+// else — watchdog, brownout, external reset — where the retained value is real.
+//
+// Note what this does NOT yet cover: the Nano's default fuses have the brownout
+// detector disabled, so an undervoltage dip does not produce a flagged reset of
+// its own — it produces the erratic behaviour that follows one. Enabling BOD in
+// the fuse settings is what would turn a slow brownout into a clean counted
+// restart. That is a hardware change, not a firmware one, and it is not done
+// here.
+static uint8_t bootCount __attribute__((section(".noinit")));
+
+static void peripherals_tick()
+{
+#if !CAN_QUIET_RADIO
+    if (!radioReady) {
+        // Rollover-safe deadline test: negative means "not due yet".
+        if ((long)(millis() - radioRetryMs) < 0) return;
+        radioRetryMs = millis() + PERIPH_RETRY_MS;
+
+        if (radio_bring_up()) {
+            radioReady     = true;
+            radioInitFails = 0;
+            Serial.println(F("[TX] radio ready — 250 kbps, 13-byte frames"));
+            // Re-announce the sensor set now that there is a radio to hear it.
+            idPeriodMs = IDENTITY_BURST_MS;
+        } else {
+            radioInitFails++;
+            // Report the first failure and then every twelfth: an absent radio
+            // is a wiring state, not an event, and must not flood the log.
+            if (radioInitFails == 1 || (radioInitFails % 12) == 0) {
+                Serial.print(F("[TX] nRF24 not responding (attempt "));
+                Serial.print(radioInitFails);
+                Serial.println(F(") — continuing without radio"));
+            }
+        }
+        return;
+    }
+
+#if defined(FAILURE_HANDLING)
+    // Up and running. RF24 raises failureDetected when a transfer never
+    // completes at all. That is distinct from a frame simply not being
+    // acknowledged: a frame to an absent receiver still ends in TX_DF after
+    // the retry count expires, which is normal, not a fault. Only the former
+    // means the radio has stopped answering.
+    if (radio.failureDetected) {
+        radioReady = false;
+        Serial.println(F("[TX] radio stopped answering — re-initialising"));
+    }
+#endif
+#endif  // !CAN_QUIET_RADIO
+
+    // CAN answers from can_present(), which is the driver's own ready flag —
+    // one source of truth, no second copy to drift.
+    if (!can_present()) {
+        if ((long)(millis() - canRetryMs) < 0) return;
+        canRetryMs = millis() + PERIPH_RETRY_MS;
+
+        if (can_init()) {
+            canInitFails = 0;
+            Serial.print(F("[TX] CAN ready @ 125 kbit/s, data id "));
+            Serial.print(CAN_ID_DATA_BASE, HEX);
+            Serial.println(F(""));
+            can_dump_config();
+        } else {
+            canInitFails++;
+            if (canInitFails == 1 || (canInitFails % 12) == 0) {
+                Serial.print(F("[TX] CAN controller not answering (attempt "));
+                Serial.print(canInitFails);
+                Serial.println(F(") — continuing without CAN"));
+            }
+        }
+    }
+}
+
 static void broadcast_pwm()
 {
     PwmFrame f;
@@ -115,7 +285,7 @@ static void broadcast_pwm()
     f.crc    = frame_crc16(&f, sizeof(f));
 
 #if !CAN_QUIET_RADIO
-    radio.write(&f, sizeof(f));
+    radio_send(&f, sizeof(f));
 #endif
 #if !CAN_LISTEN_ONLY
     can_send_pwm(f.duty, f.hz, f.flags);
@@ -131,6 +301,56 @@ static void set_pwm_duty(uint16_t permille)
     broadcast_pwm();
 }
 
+// ─── PWM ISR liveness ────────────────────────────────────────────────────────
+// A watchdog fed unconditionally at the bottom of loop() proves one thing only:
+// that the main loop is turning. It cannot see a dead Timer1 compare vector.
+// If the compare interrupts stop while the main loop keeps spinning, the WDT
+// keeps being fed happily while the duty output has silently frozen — and that
+// output is the thing that drives the heater. An unconditional feed would report
+// that node as perfectly healthy.
+//
+// So edge progress is checked separately, and deliberately does NOT reset the
+// board. A stalled PWM is a partial fault, and a reset would drop the output
+// straight onto PWM_DUTY_PERMILLE — the unsafe boot state — turning a partial
+// fault into a total one. Instead it forces a defined safe duty, latches a flag
+// for the stats frame, and counts itself.
+static bool          pwmStalled    = false;
+static uint32_t      pwmStallCount = 0;
+static uint32_t      pwmLastRuns   = 0;
+static unsigned long pwmLastOkMs   = 0;
+
+static void pwm_liveness_tick()
+{
+    uint32_t runs = pwm_out_isr_runs();
+    unsigned long now = millis();
+
+    if (runs != pwmLastRuns) {
+        pwmLastRuns = runs;
+        pwmLastOkMs = now;
+        if (pwmStalled) {
+            pwmStalled = false;
+            Serial.println(F("[TX] PWM ISR recovered"));
+        }
+        return;
+    }
+
+    // At 0 or 1000 permille both interrupts are deliberately off and the port is
+    // driven directly — there are no edges to make. Demanding them there would
+    // report a fault that does not exist, and PWM_DUTY_PERMILLE is the default
+    // boot state, so that guard is what stops this firing forever at power-on.
+    if (!pwm_out_active()) return;
+
+    // Grace after TIMSK1 is first set: the first compare match has not landed yet.
+    if ((unsigned long)(now - pwmLastOkMs) < PWM_STALL_LIMIT_MS) return;
+
+    if (!pwmStalled) {
+        pwmStalled = true;
+        pwmStallCount++;
+        Serial.println(F("[TX] PWM ISR stalled — forcing safe output"));
+        set_pwm_duty(PWM_FAULT_SAFE_DUTY);
+    }
+}
+
 // ─── Listen window ───────────────────────────────────────────────────────────
 // After each broadcast the radio turns around and listens for a duty command.
 // A nRF-only controller needs no schedule of its own: it waits for the
@@ -141,6 +361,8 @@ static void set_pwm_duty(uint16_t permille)
 // Nothing is transmitted from in here; the reply carrying the new duty is
 // deferred until the radio is back in transmit mode.
 #if !CAN_QUIET_RADIO
+// Requires radioReady: startListening()/available()/read() on an un-initialised
+// radio reads an unknown SPI bus. Caller guarantees it.
 static void listen_window(unsigned long ms)
 {
     uint16_t want = pwm_duty;
@@ -157,6 +379,13 @@ static void listen_window(unsigned long ms)
         // — and because min/max is an extremum statistic, a gap that long can
         // swallow whole half-cycles and pull the reported peak in.
         adc_monitor_tick();
+
+        // This window is the longest blocking region in the firmware — exactly
+        // as long as PWM_STALL_LIMIT_MS. Keeping both checks running inside it
+        // means neither has to reason about the other: the stall timer cannot
+        // be fooled by this block, and the watchdog is fed on the way through.
+        pwm_liveness_tick();
+        wdt_reset();
 
         uint16_t cmd;
         if (can_read_pwm_command(&cmd) && cmd != pwm_duty) {
@@ -243,7 +472,7 @@ static void send_identities()
         f.crc = frame_crc16(&f, sizeof(f));
 
 #if !CAN_QUIET_RADIO
-        radio.write(&f, sizeof(f));
+        radio_send(&f, sizeof(f));
 #endif
 #if !CAN_LISTEN_ONLY
         can_send_identity(i, sensor_roms[i]);
@@ -277,7 +506,9 @@ static bool send_temperatures(TempFrame& f)
     f.crc = frame_crc16(&f, sizeof(f));
 
 #if !CAN_QUIET_RADIO
-    bool ok = radio.write(&f, sizeof(f));
+    // False covers both "the radio is not up" and "no node acknowledged" —
+    // both mean the readings did not leave this board.
+    bool ok = radio_send(&f, sizeof(f));
 #else
     (void)f;
     bool ok = true;
@@ -310,7 +541,7 @@ static void send_adc_stats()
     f.crc    = frame_crc16(&f, sizeof(f));
 
 #if !CAN_QUIET_RADIO
-    radio.write(&f, sizeof(f));
+    radio_send(&f, sizeof(f));
 #endif
 #if !CAN_LISTEN_ONLY
     can_send_adc(f.max, f.min, f.pp, f.flags);
@@ -363,7 +594,7 @@ static void send_can_stats()
     // is a no-op, but the radio frame still goes out and still carries the
     // absence — which is the case that most needs to be visible.
 #if !CAN_QUIET_RADIO
-    radio.write(&f, sizeof(f));
+    radio_send(&f, sizeof(f));
 #endif
 #if !CAN_LISTEN_ONLY
     can_send_stats(sent, recv, refused, eflg, 0, f.present);
@@ -408,8 +639,22 @@ static void send_can_stats()
     if (eflg & CAN_EFLAG_RX1OVR) Serial.print(F(" RXBUF1-OVR"));
     Serial.print(" intf=0x");
     Serial.print(intf, HEX);
-    Serial.print("  rst=");
+Serial.print(" boot=");
+    Serial.print(bootCount);
+    Serial.print(" pwm_stall=");
+    Serial.print(pwmStallCount);
+    Serial.println(pwmStalled ? F(" ACTIVE") : F(""));
+    Serial.print(" rst=");
     Serial.print(can_recoveries());
+    Serial.print("/");
+    Serial.print(can_recover_tries());
+    Serial.print(" abort=");
+    Serial.print(can_tx_aborts());
+    if (can_tx_aborts() > 0) {
+        Serial.print("(0x");
+        Serial.print(can_tx_abort_faults(), HEX);
+        Serial.print(")");
+    }
     Serial.print(" spi=");
     Serial.print(can_spi_errors());
     Serial.print(" probe=");
@@ -432,8 +677,49 @@ static void send_can_stats()
 // ─── Setup ───────────────────────────────────────────────────────────────────
 void setup()
 {
+    // THE FIRST STATEMENT. Unconditional, and not guarded on a reset-cause flag.
+    //
+    // The ATmega328P watchdog enable latch survives every reset except
+    // power-on, and comes back at the fastest prescaler — about 15 ms —
+    // regardless of the WDP that was programmed. So this call has to fit inside
+    // 15 ms, not inside the WDTO_2S window configured further down.
+    //
+    // Skip it and the firmware bricks itself on the first non-power-on reset:
+    // sensors.begin() alone spends 50–150 ms in delay(), so the board never
+    // reaches loop(), never feeds the watchdog, and resets every 15 ms
+    // forever. It looks fine during testing because power-on clears the latch —
+    // the failure only appears at the first brownout or power glitch.
+    //
+    // A guard here (`if (MCUSR & _BV(WDRF))`) would reintroduce exactly the
+    // state-dependent path this avoids. The call is a handful of cycles; do it
+    // unconditionally.
+    wdt_disable();
+
+    // Restart accounting. PORF is the only reset this board cannot distinguish
+    // from a first-ever power-up, and it is the only case where the .noinit
+    // contents are meaningless.
+    if (MCUSR & _BV(PORF)) {
+        bootCount = 1;
+    } else {
+        bootCount = (bootCount == 0xFF) ? 1 : (uint8_t)(bootCount + 1);
+    }
+
+    // CSN lines first: deselect both SPI peripherals so that nothing on the
+    // shared bus is addressed by an accident of pin state after reset.
     can_csn_high();
     nrf_csn_high();
+
+    // The output goes into a defined state next, before anything that can fail
+    // or block. Everything below can take hundreds of milliseconds — with the
+    // watchdog already running at 2 s, and with the heater's state decided
+    // here rather than by whatever the driver stage does with a floating pin.
+    pwm_out_begin();
+    set_pwm_duty(PWM_DUTY_PERMILLE);
+
+    // 2 s from here on. The longest single blocking region in the loop is
+    // listen_window() at 250 ms, which feeds the watchdog itself, so this has
+    // roughly 8x headroom even with the RC oscillator's ~10% error.
+    wdt_enable(WDTO_2S);
 
     Serial.begin(115200);
     Serial.println("[TX] boot");
@@ -454,40 +740,8 @@ void setup()
         Serial.println(CAN_ID_ID_BASE + i, HEX);
     }
 
-#if CAN_QUIET_RADIO
-    Serial.println("[TX] radio OFF (CAN_QUIET_RADIO=1)");
-#else
-    if (!radio.begin()) {
-        Serial.println("[TX] ERROR: nRF24 not responding!");
-        while (1) {}
-    }
-
-    radio.setChannel(NRF_CHANNEL);
-    radio.setDataRate(RF24_250KBPS);
-    radio.setPALevel(RF24_PA_MAX);
-    radio.setPayloadSize(NRF_FRAME_SIZE);   // one length for every frame
-    radio.openWritingPipe(NRF_BC_ADDR);      // broadcasts leave on pipe 0
-    radio.openReadingPipe(1, NRF_CMD_ADDR);  // duty commands arrive on pipe 1
-    radio.setCRCLength(RF24_CRC_16);
-    radio.setAutoAck(true);
-    radio.setRetries(5, 15);
-    radio.stopListening();
-
-    Serial.println("[TX] radio ready — 250 kbps, 13-byte frames");
-#endif
-
-    // can_init() runs regardless of CAN_QUIET_RADIO.
-    if (can_init()) {
-        Serial.print("[TX] CAN ready @ 125 kbit/s, data id ");
-        Serial.print(CAN_ID_DATA_BASE, HEX);
-        Serial.println("");
-        can_dump_config();
-    } else {
-        Serial.println("[TX] CAN init failed — continuing without CAN");
-    }
-
-    pwm_out_begin();
-    set_pwm_duty(PWM_DUTY_PERMILLE);
+    // The radio and the CAN controller are brought up from loop() and retried
+    // until they answer. Nothing left in setup() can stop the node.
 
     Serial.print("[TX] t1 A=");
     Serial.print(pwm_out_tccr1a(), HEX);
@@ -507,6 +761,22 @@ void setup()
     // through analogRead() afterwards would have to undo that.
     adc_monitor_begin();
     Serial.print("[TX] ADC A0 free-running, internal 1.1 V bandgap, LSB 1074.2 uV");
+
+    // A restart count above 1 with no PORF is the brownout-reset loop. It is
+    // called out on the boot line rather than only in the periodic stats,
+    // because the whole point is that nobody is watching the serial port.
+    if (bootCount > 1) {
+        Serial.print(F(" — restarted "));
+        Serial.print(bootCount);
+        Serial.print(F(" times"));
+        Serial.print(MCUSR & _BV(PORF) ? F(" (POR)") : F(" (no POR: brownout/watchdog)"));
+    }
+
+#if CAN_QUIET_RADIO
+    Serial.println(F(" — radio OFF (CAN_QUIET_RADIO=1)"));
+#else
+    Serial.println();
+#endif
 }
 
 // ─── Main loop ───────────────────────────────────────────────────────────────
@@ -515,10 +785,13 @@ void loop()
     static unsigned long lastCycleMs = 0;
     static unsigned long convStartMs = 0;
     static bool          convBusy = false;
-    static unsigned long lastIdMs = 0;
-    static unsigned long idPeriodMs = IDENTITY_BURST_MS;
     static unsigned long lastStatsMs = 0;
     static uint32_t okCount = 0, failCount = 0;
+
+    // Brings up the radio and CAN if they are not yet up, and detects a radio
+    // that has stopped answering. Runs first so the peripherals are attempted
+    // on the very first pass rather than after the first sensor scan.
+    peripherals_tick();
 
     can_pump();
 
@@ -526,6 +799,10 @@ void loop()
     // the pass as possible: the later this sits, the more of the previous pass's
     // time goes unsampled.
     adc_monitor_tick();
+
+    // Health, not just liveness: see the comment at pwm_liveness_tick() for why
+    // this is separate from the watchdog feed at the bottom of the loop.
+    pwm_liveness_tick();
 
     if (adc_monitor_due()) {
         send_adc_stats();
@@ -573,7 +850,7 @@ void loop()
         // Printing costs milliseconds at 115200 baud and the controller is
         // counting from the broadcast it just received — opening the window late
         // is what makes a command get missed.
-        listen_window(LISTEN_WINDOW_MS);
+        if (radioReady) listen_window(LISTEN_WINDOW_MS);
 #endif
 
         Serial.print("[TX]");
@@ -617,4 +894,9 @@ void loop()
             idPeriodMs = IDENTITY_PERIOD_MS;
         }
     }
+
+    // Watchdog feed. Deliberately last: it attests that the entire pass
+    // completed, which is what makes it worth anything. A single `wdr`
+    // instruction, and the loop is a free-running spin, so this costs nothing.
+    wdt_reset();
 }

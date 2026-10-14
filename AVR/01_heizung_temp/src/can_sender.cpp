@@ -19,9 +19,66 @@
 #define REG_TXB0SIDH      0x31
 #define PROBE_LEN         13
 
-// Automatic bus-off recovery. Off while the fault is being isolated: a reset
-// clears TEC/REC. can_recover() is still available.
-#define CAN_AUTO_RECOVER     0
+// TXBnCTRL, and the bits that describe why a transmission stalled. The library
+// exposes none of these — readRegister()/modifyRegister() are private — so the
+// same raw SPI used by can_spi_probe() below is used here rather than patching
+// a dependency.
+#define REG_TXB0CTRL      0x30
+#define REG_TXB1CTRL      0x40
+#define REG_TXB2CTRL      0x50
+#define TXB_ABTF          0x40
+#define TXB_MLOA          0x20
+#define TXB_TXERR         0x10
+#define TXB_TXREQ         0x08
+#define TXB_FAULT_MASK    (TXB_TXREQ | TXB_ABTF | TXB_MLOA | TXB_TXERR)
+
+static uint8_t spi_read_reg(uint8_t addr)
+{
+    uint8_t v;
+    SPI.beginTransaction(SPISettings(MCP_SPI_CLOCK, MSBFIRST, SPI_MODE0));
+    digitalWrite(MCP2515_CS_PIN, LOW);
+    SPI.transfer(MCP_INSTR_READ);
+    SPI.transfer(addr);
+    v = SPI.transfer(0x00);
+    digitalWrite(MCP2515_CS_PIN, HIGH);
+    SPI.endTransaction();
+    return v;
+}
+
+static void spi_write_reg(uint8_t addr, uint8_t val)
+{
+    SPI.beginTransaction(SPISettings(MCP_SPI_CLOCK, MSBFIRST, SPI_MODE0));
+    digitalWrite(MCP2515_CS_PIN, LOW);
+    SPI.transfer(MCP_INSTR_WRITE);
+    SPI.transfer(addr);
+    SPI.transfer(val);
+    digitalWrite(MCP2515_CS_PIN, HIGH);
+    SPI.endTransaction();
+}
+
+// Automatic bus-off recovery.
+//
+// The MCP2515 latches bus-off in EFLG.TXBO and the only way out on this board
+// is the SPI RESET instruction — no ~RESET pin is broken out. Left off, one
+// latched fault would take CAN down until the next power cycle, so it is on.
+// The "off while the fault is being isolated" behaviour is a diagnostic
+// choice, not a safety one: this node is not the bus owner and has no reason to
+// sit out a fault it is not causing.
+#define CAN_AUTO_RECOVER     1
+
+// How long a transmit buffer may sit with TXREQ set before it is aborted.
+//
+// Normal arbitration on a 125 kbit/s bus resolves in well under a millisecond
+// and an ACK arrives within one frame, so this is roughly two orders of
+// magnitude above anything legitimate. It exists for the one case that
+// otherwise wedges the node permanently: nothing on the bus ACKs, the
+// controller retries the same frame forever, all three TX buffers fill with
+// TXREQ set, and every later send returns ERROR_ALLTXBUSY. See tx_abort_stuck().
+#define TX_STUCK_MS          250UL
+
+// Backoff between bus-off recovery attempts. A reset is not free — it drops
+// every queued frame — so this must not become a retry loop of its own.
+#define RECOVER_BACKOFF_MS   2000UL
 
 void can_csn_high()
 {
@@ -31,24 +88,90 @@ void can_csn_high()
 
 static MCP2515 mcp(MCP2515_CS_PIN, MCP_SPI_CLOCK);
 
-static uint16_t  sent = 0;
-static uint16_t  received = 0;
-static uint16_t  dropped = 0;
-static uint16_t  rxMalformed = 0;
-static uint16_t  rxOverflows = 0;
-static uint16_t  spiErrors = 0;
+static uint16_t sent = 0;
+static uint16_t received = 0;
+static uint16_t dropped = 0;
+static uint16_t rxMalformed = 0;
+static uint16_t rxOverflows = 0;
+static uint16_t spiErrors = 0;
 static bool      ready = false;
+
+// Stuck-TX accounting. txAborts is the headline number: any non-zero value
+// means frames were being discarded because nothing acknowledged them.
+static uint32_t txAborts = 0;
+static uint8_t  txAbortFaults = 0xFF;   // TXBnCTRL of the last buffer aborted
+static bool     txAbortReportLeft = true;  // report the first one, then be quiet
 
 static bool          pwmPending = false;
 static uint16_t      pwmDuty = 0;
 
 static bool          busOff = false;
-static bool          busOffReported = false;
 static uint8_t       busOffEflg = 0;
 static uint16_t      recoveries = 0;
-#if CAN_AUTO_RECOVER
+static uint16_t      recoverTries = 0;
 static unsigned long lastRecoverMs = 0;
-#endif
+
+// ─── Stuck transmit-buffer detection ─────────────────────────────────────────
+// sendMessage() hands a frame to a TX buffer and returns; it never waits for an
+// ACK. With the controller's auto-retry enabled, a frame that is never
+// acknowledged simply stays there with TXREQ set, indefinitely. Three such
+// frames occupy all three buffers and every subsequent send returns
+// ERROR_ALLTXBUSY — so the node goes permanently mute, and nothing in the
+// firmware ever clears it. This is not hypothetical: it is what happens
+// whenever the other end of the bus is off for a few seconds.
+//
+// The repair is the one the controller provides for exactly this condition —
+// writing 0 to TXREQ aborts the pending transmission and returns the buffer to
+// the available pool. It costs one register read and, only when a buffer is
+// actually stuck, one register write.
+static unsigned long txPendingSince[3] = { 0, 0, 0 };
+static bool         txPending[3]       = { false, false, false };
+
+static void tx_abort_stuck()
+{
+    static const uint8_t ctrl[3] = { REG_TXB0CTRL, REG_TXB1CTRL, REG_TXB2CTRL };
+
+    unsigned long now = millis();
+
+    for (uint8_t i = 0; i < 3; i++) {
+        uint8_t v = spi_read_reg(ctrl[i]);
+
+        if (v == 0xFF) {          // no controller answering on MISO
+            spiErrors++;
+            txPending[i] = false;
+            continue;
+        }
+
+        if (!(v & TXB_TXREQ)) {
+            txPending[i] = false;
+            continue;
+        }
+
+        if (!txPending[i]) {      // first sighting: start the clock
+            txPending[i] = true;
+            txPendingSince[i] = now;
+            continue;
+        }
+
+        if ((unsigned long)(now - txPendingSince[i]) < TX_STUCK_MS) continue;
+
+        // Abort the transmission. The fault bits go with it so the next send
+        // starts from a clean buffer: TXREQ alone does not reliably clear
+        // ABTF/MLOA/TXERR, and a stale MLOA would misdescribe the next stall.
+        spi_write_reg(ctrl[i], (uint8_t)(v & ~TXB_FAULT_MASK));
+        txPending[i] = false;
+        txAborts++;
+        txAbortFaults = v;
+
+        if (txAbortReportLeft) {
+            txAbortReportLeft = false;
+            Serial.print(F("[CAN] aborted stuck TX buffer "));
+            Serial.print(i);
+            Serial.print(F(" ctrl=0x"));
+            Serial.println(v, HEX);
+        }
+    }
+}
 
 static bool configure()
 {
@@ -60,6 +183,13 @@ static bool configure()
 #else
     if (mcp.setNormalMode() != MCP2515::ERROR_OK) return false;
 #endif
+
+    // A freshly reset controller is not in bus-off and has no error counters,
+    // whatever the previous incarnation was doing. Clearing here means both
+    // can_init() and can_recover() converge on the same clean state, and the
+    // pump cannot immediately re-trigger a recovery that has already happened.
+    busOff = false;
+    busOffEflg = 0;
     return true;
 }
 
@@ -138,6 +268,19 @@ uint8_t can_spi_probe(uint8_t* got)
     };
     uint8_t buf[PROBE_LEN];
     if (!ready) {
+        if (got != nullptr) memset(got, 0, PROBE_LEN);
+        return 0xFF;
+    }
+
+    // Never write the pattern into a buffer that is still transmitting. The
+    // datasheet is explicit that TXBnSIDH/EID8/D0-D7 must not be written while
+    // TXREQ is set, and a buffer stuck with TXREQ set is exactly the state
+    // tx_abort_stuck() exists to clear — so probing here would corrupt the very
+    // frame the abort is about to discard, and inject a garbage extended-ID
+    // frame onto the bus besides. Report "busy" instead and let the caller
+    // count it as a non-answer; there is nothing to learn from a probe that
+    // cannot be run safely.
+    if (spi_read_reg(REG_TXB0CTRL) & TXB_TXREQ) {
         if (got != nullptr) memset(got, 0, PROBE_LEN);
         return 0xFF;
     }
@@ -228,27 +371,49 @@ static void rx_drain()
 
 void can_pump()
 {
-    if (busOff && !busOffReported) {
-        busOffReported = true;
+    // Bus-off recovery.
+    //
+    // The MCP2515 latches bus-off in EFLG.TXBO and cannot leave it without the
+    // SPI RESET instruction — no ~RESET pin is broken out on this board — so
+    // without this path CAN stays dead until the next power cycle. The attempt
+    // is backed off: the reset drops every queued frame, and an un-backed-off
+    // retry loop would be an outage of its own making.
+    //
+    // Nothing else can work while the controller is off the bus, so the rest of
+    // the pump is skipped until recovery has been tried.
+    if (busOff) {
+        if ((unsigned long)(millis() - lastRecoverMs) >= RECOVER_BACKOFF_MS) {
+            lastRecoverMs = millis() + RECOVER_BACKOFF_MS;
+            recoverTries++;
 
-        uint8_t tec = 0, rec = 0;
-        can_error_counters(&tec, &rec);
-        Serial.print(F("[CAN] bus-off  eflg=0x"));
-        Serial.print(busOffEflg, HEX);
-        Serial.print(F(" tec="));
-        Serial.print(tec);
-        Serial.print(F(" rec="));
-        Serial.print(rec);
-#if CAN_AUTO_RECOVER
-        Serial.println(F(" — resetting MCP2515"));
-        can_recover();
-#else
-        Serial.println(F(" (auto-recover disabled)"));
-#endif
+            uint8_t tec = 0, rec = 0;
+            can_error_counters(&tec, &rec);
+            Serial.print(F("[CAN] bus-off  eflg=0x"));
+            Serial.print(busOffEflg, HEX);
+            Serial.print(F(" tec="));
+            Serial.print(tec);
+            Serial.print(F(" rec="));
+            Serial.print(rec);
+            Serial.print(F(" try="));
+            Serial.print(recoverTries);
+
+            // can_recover() clears busOff on success; if it fails it leaves
+            // ready false, and the peripheral state machine in main.cpp then
+            // falls back to plain can_init() retries.
+            if (can_recover()) {
+                Serial.println(F(" — recovered"));
+            } else {
+                Serial.println(F(" — reset did not take, will retry"));
+            }
+        }
+        return;
     }
-    if (!busOff) busOffReported = false;
 
     if (!ready) return;
+
+    // Before rx_drain(), so a buffer that is wedged from a previous fault is
+    // returned to the pool before this pass tries to transmit on top of it.
+    tx_abort_stuck();
     rx_drain();
 }
 
@@ -354,6 +519,21 @@ uint16_t can_rx_overflows()
 uint16_t can_recoveries()
 {
     return recoveries;
+}
+
+uint16_t can_recover_tries()
+{
+    return recoverTries;
+}
+
+uint32_t can_tx_aborts()
+{
+    return txAborts;
+}
+
+uint8_t can_tx_abort_faults()
+{
+    return txAbortFaults;
 }
 
 uint16_t can_spi_errors()

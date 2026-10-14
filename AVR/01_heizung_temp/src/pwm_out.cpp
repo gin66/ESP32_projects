@@ -111,8 +111,35 @@ bool pwm_out_active()
     return (TIMSK1 & (_BV(OCIE1A) | _BV(OCIE1B))) != 0;
 }
 
-uint32_t pwm_out_rising_edges()  { return rising; }
-uint32_t pwm_out_falling_edges() { return falling; }
+uint32_t pwm_out_rising_edges()
+{
+    // 32-bit atomic reads: a bare return of a volatile uint32_t is four
+    // non-atomic instructions on AVR, and a Timer1 compare firing mid-read
+    // yields a torn count — an edge tally that never could have happened.
+    noInterrupts();
+    uint32_t v = rising;
+    interrupts();
+    return v;
+}
+
+uint32_t pwm_out_falling_edges()
+{
+    noInterrupts();
+    uint32_t v = falling;
+    interrupts();
+    return v;
+}
+
+// Combined ISR entry count, used as the liveness signal for the main loop's
+// PWM health monitor. Derived from the existing counters rather than a third
+// one, so this costs nothing inside either ISR.
+uint32_t pwm_out_isr_runs()
+{
+    noInterrupts();
+    uint32_t v = rising + falling;
+    interrupts();
+    return v;
+}
 uint8_t  pwm_out_timsk1()        { return (uint8_t)TIMSK1; }
 uint8_t  pwm_out_tccr1a()        { return (uint8_t)TCCR1A; }
 uint8_t  pwm_out_tccr1b()        { return (uint8_t)TCCR1B; }

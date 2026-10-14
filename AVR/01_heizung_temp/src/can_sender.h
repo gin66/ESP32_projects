@@ -73,12 +73,29 @@ bool can_init();
 // Reset and reconfigure the controller. The MCP2515 latches bus-off (EFLG.TXBO)
 // and cannot leave it without the SPI RESET instruction — which is the only way
 // back on this board, since no ~RESET pin is broken out. This is what can_pump()
-// invokes automatically when bus-off is seen; callable by hand for tests.
-// Returns false if the controller did not answer.
+// invokes automatically, on a backoff, when bus-off is seen; callable by hand for
+// tests. Returns false if the controller did not answer.
+//
+// A successful configure() clears the driver's bus-off state, so this also
+// serves as the way to clear a fault that was never bus-off (a wedged SPI bus,
+// say) without a power cycle.
 bool can_recover();
 
 // Number of successful automatic recoveries since boot.
 uint16_t can_recoveries();
+
+// Recovery attempts since boot, successful or not. A rising number with
+// can_recoveries() flat means the controller is not answering the reset.
+uint16_t can_recover_tries();
+
+// Transmit buffers aborted since boot because they sat with TXREQ set for
+// longer than a legitimate transmission can (see tx_abort_stuck()). Non-zero
+// means frames were being discarded because nothing acknowledged them.
+uint32_t can_tx_aborts();
+
+// TXBnCTRL bits (ABTF/MLOA/TXERR/TXREQ) of the last buffer aborted, which say
+// why the frame stalled: arbitration lost, message lost, or transmit error.
+uint8_t can_tx_abort_faults();
 
 // Times getErrorFlags() came back 0xFF (no reply on MISO).
 uint16_t can_spi_errors();
@@ -95,13 +112,15 @@ void can_dump_config();
 uint8_t can_spi_probe(uint8_t* got);
 
 // Consume received frames and count them. Must be called regularly: it is what
-// empties the two receive buffers, and nothing else drains them. It also drives
-// bus-off recovery: a latched bus-off (seen via EFLG in the drain) is reset from
-// here, so a controller that drops off the bus returns on its own.
+// empties the two receive buffers, and nothing else drains them. It also does
+// the two recovery jobs — aborting transmit buffers that are wedged with TXREQ
+// set (which is what permanently mutes this node otherwise), and resetting a
+// latched bus-off, which the MCP2515 cannot leave without a SPI RESET.
 //
 // There is no TX queue to advance. autowp's sendMessage() loads a buffer and
 // returns, so a frame that was never ACKed is left to the controller's own retry
-// logic rather than being tracked in software.
+// logic rather than being tracked in software — see tx_abort_stuck() for how
+// that is bounded.
 void can_pump();
 
 bool can_ready();

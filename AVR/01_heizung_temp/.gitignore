@@ -1,0 +1,11 @@
+# Build artifacts
+.pio/
+.vscode/
+
+# Host test artifacts (test/test_eeprom_log/)
+# Real GCC keeps DWARF in the .o and emits none of these; the Apple clang shim
+# behind /usr/bin/gcc does produce a .dSYM bundle for -g builds.
+*.o
+*.dSYM/
+test/test_eeprom_log/test_eeprom_log
+test/test_eeprom_log/test_eeprom_log_san

@@ -1113,15 +1113,46 @@ every cell is used — no idle majority absorbing a hot minority.
 
 | | |
 |---|---|
-| Nominal | 8 h uptime, or a duty change with ≥1 h since the last write |
-| Restore window | last 10 records ≈ 80 h |
-| Ring history | 256 slots ≈ 85 days |
+| Boot | one record, written after the scan (`epl_write_boot_marker()`) |
+| Steady state | heartbeat every 60 s, **only if the duty has moved since the last record** |
+| Idle cost | zero — a node nobody commands never writes |
+| Worst-case cost | 1440 writes/day ÷ 240 slots ≈ 6 per cell per day, ≈ 21 900 per cell over 10 y |
+| Restore window | last 10 records ≈ 10 min |
+| Ring history | 256 slots ≈ 2.8 days |
 
-The window bound needs a backup, because `millis()` restarts on reboot: a node
-resetting more often than once per 8 h of uptime would otherwise never write, and
-would keep restoring something arbitrarily old. The duty-change trigger covers
-that — and it hooks into `set_pwm_duty()`, which is already the single choke
-point where the duty changes.
+**This replaced a design that did not work, found on the bench.** The nominal
+cadence was "8 h uptime, or a duty change with ≥1 h since the last write". The 1 h
+was introduced in `1d1fd57` as *"the backup for the 8 h heartbeat"* — and the 8 h
+heartbeat was never implemented, so that one number became the only
+change-triggered write path in the firmware. Because `millis()` restarts on boot,
+its window opened after *every* boot, so a node power-cycled more often than
+hourly — which is exactly what a marginal supply does — would never persist a
+commanded duty at all.
+
+Bench confirmation: duty commanded to 500 shortly after boot, then power-cycled.
+The node came back on the previous value, with `rec` unchanged. Freeze protection
+that does not survive a power cut on the schedule this node actually sees.
+
+Two things about the replacement are load-bearing:
+
+- **The heartbeat only fires when the duty has moved.** `epl_persisted_duty`
+  tracks the last duty written by something the restore walk *honours*, and a
+  fault record does not count towards it — the walk skips those, so the duty
+  behind one is not what a restore would find, and letting it count would mask a
+  real duty change.
+- **The cadence is a floor, not a ceiling.** The previous design wrote on every
+  duty change subject to an hour's gate, so a controller re-sending the same value
+  every second still spent a cell once an hour. Nothing here can do that.
+
+The residual window is one heartbeat, not zero: a duty change followed by power
+loss within 60 s restores the previous value. Sixty seconds is the right trade for
+a heating load — long enough that it cannot be worn out, short enough that a
+freeze does not begin at it.
+
+Note the boot marker cannot cover this, and is not trying to. It records
+`epl_restored`, which is assigned once at `epl_restore_boot()` and never updated,
+so it re-stamps *what was restored*, not *what was in force when power was lost*.
+At boot the command has not happened yet.
 
 ---
 

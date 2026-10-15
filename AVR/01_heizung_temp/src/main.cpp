@@ -269,17 +269,26 @@ static const unsigned long EE_PERIOD_MS = 60000UL;
  * commanded to 500 shortly after boot was gone after a power cycle and the node
  * came back on the previous value.
  *
- * The policy is now simply what it should have been: one write after the boot
- * scan, and one every 8 h after that. Nothing is written in between, so the
- * cost is exactly two records per 8 h of uptime.
+ * The policy is now what it should have been: one write after the boot scan,
+ * then a heartbeat that re-asserts the duty in force.
  *
- * The window this leaves is real and worth stating: if the duty changes and the
- * node loses power before the next heartbeat, it restores the previous value.
- * That is up to 8 h of exposure, and it is the price of not writing on change.
- * Raising this to something like 60 s costs at most ~6 writes per cell per day
- * (epl_append advances to the next slot, so wear is already spread 240:1) and
- * shrinks the window to a minute. */
-static const unsigned long EE_HEARTBEAT_MS = 28800000UL;   // 8 h
+ * The heartbeat only writes when the duty has actually moved, so a node nobody
+ * is commanding costs nothing at all, and a command storm still cannot turn
+ * into write traffic — the cadence is the floor either way. That matters more
+ * than the raw number: the earlier design wrote on every duty change subject to
+ * an hour's gate, which meant a controller that re-sent the same value every
+ * second still spent cells once an hour.
+ *
+ * Wear, worst case (duty genuinely changing every single interval):
+ * 1440 writes/day spread over 240 slots by epl_append(), which advances to the
+ * next slot each time, so ~6 writes per cell per day, ~21 900 per cell over ten
+ * years against the ATmega328P's 100 000-cycle rating.
+ *
+ * The window this leaves is the heartbeat interval, not zero: if the duty
+ * changes and power is lost before the next tick, the previous value is
+ * restored. One minute is the right trade for a heating load — long enough that
+ * it cannot be worn out, short enough that a freeze does not start at it. */
+static const unsigned long EE_HEARTBEAT_MS = 60000UL;       // 1 min
 
 // ─── Restart counter ─────────────────────────────────────────────────────────
 // Retained across every reset except power-on. The brownout-reset loop is the
@@ -372,13 +381,11 @@ static void broadcast_pwm()
     f.duty   = pwm_duty;
     f.hz     = PWM_OUT_HZ;
     /* Bit 0 says whether the PIN is being modulated, not whether the timer is.
-     * Those differ in failover: the counter is stopped, but the pin is being
-     * square-waved from the main loop at 1 kHz. Reading the timer's state there
-     * reported "endpoint, held" about a pin that was actively switching — a
-     * receiver would conclude the output was constant while the load was being
-     * driven. pwm_out_active() only answers the question for the timer path. */
-    uint8_t modulating = (uint8_t)((pwm_out_active() || pwm_out_failover_active())
-                                   ? 1u : 0u);
+     * Those differ twice over now. In failover the counter is stopped entirely
+     * and the loop square-waves the pin at 1 kHz. At an endpoint the opposite
+     * holds: the timer is very much running, keeping liveness honest, but the
+     * pin is held still. Neither is answerable by reading TIMSK1 any more. */
+    uint8_t modulating = (uint8_t)(pwm_out_modulating() ? 1u : 0u);
 
     /* Bit 0 modulating, bits 1..2 the source. Both go out on the same byte, so
      * the radio and CAN frames cannot disagree about where the duty came from. */
@@ -413,6 +420,13 @@ static const epl_io_t* epl_io(void)
     return io;
 }
 
+/* Last duty written by something the restore walk honours — the boot marker or
+ * the heartbeat. A fault record is deliberately not counted here: the restore
+ * walk skips those, so the duty behind one is not what a restore would find, and
+ * treating it as the persisted value would let a fault record mask the fact that
+ * the real duty had moved. */
+static uint16_t epl_persisted_duty = 0;
+
 static void epl_write_boot_marker(void)
 {
     /* The marker carries the already-resolved duty, which is what makes the next
@@ -439,6 +453,7 @@ static void epl_write_boot_marker(void)
     }
 
     if (epl_append(epl_io(), &epl_state, epl_restored, (uint8_t)EPL_FLAG_BOOT) != 0xFFFFu) {
+        epl_persisted_duty = epl_restored;
         epl_writes++;
     }
 }
@@ -448,6 +463,7 @@ static void epl_write_boot_marker(void)
  * power cut, which is exactly the case the .noinit escalation latch cannot
  * cover. Set by epl_restore_boot(), read by the status frames. */
 static bool epl_pwm_failed = false;
+
 
 // Scan, restore, and record why. Called once, before pwm_out_begin().
 static void epl_restore_boot(void)
@@ -600,11 +616,10 @@ static void pwm_failover_enter(void)
 
 static void pwm_liveness_tick(void)
 {
-    uint32_t runs = pwm_out_isr_runs();
     pwm_fault_action_t act;
 
-    if (!pwm_monitor_observe(&pwmMon, runs, millis(),
-                             (uint8_t)(pwm_out_active() ? 1u : 0u))) {
+    if (!pwm_monitor_observe(&pwmMon, (uint8_t)(pwm_out_alive() ? 1u : 0u),
+                             millis())) {
         if (pwmMon.stalled) Serial.println(F("[TX] PWM ISR recovered"));
         return;
     }
@@ -668,6 +683,12 @@ static void sys_cmd_exec(uint8_t cmd, uint8_t arg)
          * the main loop, millis(), the watchdog — perfectly healthy. That is
          * the exact condition pwm_monitor_observe() exists to catch, and it
          * cannot be produced by breaking anything physical. */
+        /* Clearing the compares is now a *detectable* dead output path rather
+         * than one the monitor has to be told to ignore: the liveness handshake
+         * goes silent, and nothing about the duty excuses it. Under the old
+         * scheme this command could not do its job — pwm_out_active() reported
+         * false here exactly as it did for a healthy endpoint duty, and the
+         * monitor stood down for both. */
         TIMSK1 = 0;
         return;
 
@@ -1464,11 +1485,12 @@ void loop()
     static uint8_t        eeBeatFired = 0u;
     unsigned long         now = millis();
     if ((!eeBeatFired || (unsigned long)(now - lastEeBeatMs) >= EE_HEARTBEAT_MS) &&
-        !epl_state.anomaly) {
+        !epl_state.anomaly && pwm_duty != epl_persisted_duty) {
         if (epl_append(epl_io(), &epl_state, pwm_duty, (uint8_t)0) != 0xFFFFu) {
             epl_writes++;
             lastEeBeatMs = now;
             eeBeatFired = 1u;
+            epl_persisted_duty = pwm_duty;
             Serial.print(F("[TX] EEPROM heartbeat: duty "));
             Serial.print(pwm_duty);
             Serial.print(F(" permille, records="));
@@ -1555,12 +1577,13 @@ void loop()
         Serial.print(pwm_duty);
         Serial.print("/");
         Serial.print(pwm_source_str(pwm_source));
-        Serial.print("  edges=");
-        Serial.print(pwm_out_rising_edges());
-        Serial.print("/");
-        Serial.print(pwm_out_falling_edges());
-        Serial.print("/");
-        Serial.print(pwm_out_timsk1(), HEX);
+        /* The output path's own verdict, not a measurement of it. There is no
+         * edge count here on purpose: a total only means something when you know
+         * it ought to be moving, and at an endpoint duty it should not be — so
+         * the same number would mean two different things depending on a field
+         * further up the line. One bit, one meaning. */
+        Serial.print("  pwm_stall=");
+        Serial.print(pwmMon.stalled);
         Serial.print("  win[f/c/b]=");
         Serial.print(win_frames);
         Serial.print("/");

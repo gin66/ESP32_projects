@@ -300,10 +300,27 @@ Two details that are easy to get wrong and were both wrong here first:
   read as a fault and go straight into safe mode on a perfectly healthy output.
   The latch is now magic-guarded (`PWM_BOOT_MAGIC`) and ignored unless it is
   genuinely ours.
-- **The requested duty is not the delivered duty.** The waveform can only change
-  state at a `loop()` pass boundary, so the delivered high time is quantised up.
-  Rising/falling edge counters report what actually happened on the pin rather
-  than assuming the request was honoured — the log prints `delivered (n…)`.
+- **In the timer path there is nothing left to measure.** The requested duty is
+  the delivered duty: the ISRs do the timing, not the main loop. What *is* worth
+  proving is that the timer is turning at all, so each ISR sets a byte and the
+  firmware checks that **both** compare matches have arrived — clearing them on
+  success. That handshake is the only edge signal in the design, deliberately.
+  An earlier version reported cumulative rising/falling edges, and then a
+  "completed pairs" rate, and both were wrong in the same way: a total only means
+  something when you know it ought to be moving, and at an endpoint duty it
+  should not be. The same number would carry two meanings depending on a field
+  further up the line, and the failure mode is silence on a dead pin. The
+  interface is a `bool` and nothing else. The stats line shows the monitor's own
+  verdict, `pwm_stall=`, for the same reason.
+
+  It also means clearing `TIMSK1` — what the `S` diagnostic does — is now a
+  *detectable* dead output path rather than one the monitor is told to ignore.
+  Under the old scheme `S` could not reproduce the fault it exists to reproduce.
+
+- **In safe mode the delivered duty is measured,** because there the loop moves
+  the pin: the waveform can only change state at a `loop()` pass boundary, so the
+  high time is quantised up, and the log prints `delivered (n…)` from the loop's
+  own counts.
 
 Because the fault is written to the EEPROM ring, it **survives reflashing**. That
 is the point of recording it, but it also means a flash is not a clean slate: a

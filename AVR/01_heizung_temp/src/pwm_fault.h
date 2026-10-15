@@ -112,12 +112,15 @@ typedef struct {
 
 /* Fold one observation. Returns non-zero if this observation is a stall.
  *
- * `active` is whether the counter is supposed to be generating edges at all.
- * It must be passed in rather than deduced here: at 0 or 1000 permille both
- * interrupts are deliberately off and demanding edges would report a fault
- * that does not exist. */
-uint8_t pwm_monitor_observe(pwm_monitor_t* m, uint32_t runs, uint32_t now_ms,
-                            uint8_t active);
+ * `alive` is a positive proof that BOTH Timer1 compare matches arrived since the
+ * previous call — not a counter, and not a duty-derived guess. The compare
+ * interrupts stay enabled at every duty now, so there is no "active" argument and
+ * no duty that has to be excused: the timer is either running or it is not.
+ *
+ * Keeping it that way is what makes SYSCMD_PWM_STALL work. Clearing TIMSK1 has to
+ * be distinguishable from a healthy parked output, or the diagnostic that exists
+ * to reproduce a dead output path reproduces nothing. */
+uint8_t pwm_monitor_observe(pwm_monitor_t* m, uint8_t alive, uint32_t now_ms);
 
 /* ─── Escalation ───────────────────────────────────────────────────────────── */
 

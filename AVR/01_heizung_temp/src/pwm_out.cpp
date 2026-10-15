@@ -13,8 +13,30 @@
 #define TCIFR1 TIFR1
 #endif
 
-static volatile uint32_t rising = 0;
-static volatile uint32_t falling = 0;
+/* Liveness handshake, set by the ISRs and cleared by the consumer.
+ *
+ * These are NOT edge tallies. Each ISR sets its own byte on every entry, and
+ * pwm_out_alive() reports true only when BOTH are set, clearing them as it does
+ * so. The timer running is therefore proven in the only way that matters: two
+ * compare matches actually arrived. Nothing has to reason about what the counter
+ * should have reached, or which duty makes a counter legitimately stationary.
+ *
+ * That last point is the whole reason this exists, and it is why there are no
+ * edge tallies alongside it. A running total of rising and falling edges was the
+ * previous signal, and it carried the same defect it was meant to detect: it only
+ * means something while both edges are supposed to occur, so a counter frozen at
+ * an endpoint duty looks identical to a frozen counter on a dead output path.
+ * Keeping it as a secondary figure would have reintroduced that ambiguity through
+ * the back door, with the authority of a number on the stats line. One signal,
+ * one meaning. */
+static volatile uint8_t liveRise = 0;
+static volatile uint8_t liveFall = 0;
+
+/* Whether each compare is allowed to touch the pin. The interrupts stay enabled
+ * at every duty; at an endpoint the pin is held by the port register instead and
+ * these keep the ISRs from disturbing it. */
+static volatile uint8_t riseEnabled = 0;
+static volatile uint8_t fallEnabled = 0;
 
 // ── Why both edges are compare matches, and why OCR1A sits on TOP ───────────
 //
@@ -39,8 +61,14 @@ static volatile uint32_t falling = 0;
 // operations on a byte another piece of code also touches. That is safe only
 // because OneWire performs its bit-banging writes inside cli()/sei() critical
 // sections. Any future non-atomic PORTD write in the main loop would race here.
-ISR(TIMER1_COMPA_vect) { rising++;  PORTD |=  PORT_BIT; }  // TOP reached, pulse starts
-ISR(TIMER1_COMPB_vect) { falling++; PORTD &= ~PORT_BIT; }  // duty reached, pulse ends
+ISR(TIMER1_COMPA_vect) {                      // TOP reached, pulse starts
+    liveRise = 1u;
+    if (riseEnabled) PORTD |= PORT_BIT;
+}
+ISR(TIMER1_COMPB_vect) {                      // duty reached, pulse ends
+    liveFall = 1u;
+    if (fallEnabled) PORTD &= ~PORT_BIT;
+}
 
 // Silence both edges. Must be called with interrupts globally disabled: an
 // already-pending compare match would otherwise drop the pin after we set it.
@@ -79,19 +107,23 @@ void pwm_out_set(uint16_t permille)
 
     noInterrupts();
 
-    // The endpoints need no timing at all, so drive the port directly and leave
-    // both interrupts off — exact 0 % and exact 100 %, with no per-period
-    // interrupt cost and no edge artefacts.
-    if (permille == 0) {
-        pwm_stop_edges();
-        PORTD &= ~PORT_BIT;
-        interrupts();
-        return;
-    }
-
-    if (permille == 1000) {
-        pwm_stop_edges();
-        PORTD |= PORT_BIT;
+    // At an endpoint the pin is still held by the port register — exact 0 % and
+    // exact 100 %, no edge artefacts — but the compare interrupts stay enabled
+    // and both edge enables go false, so the ISRs keep proving the timer is
+    // alive without touching the pin.
+    //
+    // OCR1B is parked at 0 so the falling match lands at the bottom of the count
+    // and can never coincide with OCR1A at TOP. That coincidence is the trap
+    // documented above: matching and overflowing in the same cycle lets the
+    // overflow win, which turns "100 %" into nearly 0 %.
+    if (permille == 0u || permille == 1000u) {
+        riseEnabled = 0u;
+        fallEnabled = 0u;
+        if (permille == 0u) PORTD &= ~PORT_BIT;
+        else                 PORTD |=  PORT_BIT;
+        TCIFR1  = _BV(TOV1) | _BV(OCF1A) | _BV(OCF1B);
+        OCR1B   = 0u;
+        TIMSK1  = _BV(OCIE1A) | _BV(OCIE1B);
         interrupts();
         return;
     }
@@ -100,6 +132,8 @@ void pwm_out_set(uint16_t permille)
     // reach TOP, so the falling match always precedes the rising one.
     uint16_t ticks = (uint16_t)((uint32_t)permille * PWM_TICKS / 1000UL);
 
+    riseEnabled = 1u;
+    fallEnabled = 1u;
     PORTD &= ~PORT_BIT;             // begin from a known edge
     TCIFR1 = _BV(TOV1) | _BV(OCF1A) | _BV(OCF1B);
     OCR1B  = ticks;
@@ -108,9 +142,21 @@ void pwm_out_set(uint16_t permille)
     interrupts();
 }
 
-bool pwm_out_active()
+/* True once both compare matches have arrived since the last call, which also
+ * clears them — so a caller polling this gets "did anything happen at all",
+ * not a count it has to difference itself. Cleared only on success: clearing
+ * unconditionally would let a poll landing between the two edges report a false
+ * negative. */
+bool pwm_out_alive(void)
 {
-    return (TIMSK1 & (_BV(OCIE1A) | _BV(OCIE1B))) != 0;
+    bool alive;
+
+    noInterrupts();
+    alive = (liveRise != 0u) && (liveFall != 0u);
+    if (alive) { liveRise = 0u; liveFall = 0u; }
+    interrupts();
+
+    return alive;
 }
 
 // ─── Failover: software square wave, timer stopped ───────────────────────────
@@ -124,6 +170,18 @@ static uint8_t       foStep    = 0;   /* 0 = next edge is rising */
 static uint8_t       foActive  = 0;
 static uint32_t      foRising  = 0;
 static uint32_t      foFalling = 0;
+
+/* Is the PIN actually being switched? Not the same question as "is the timer
+ * running", and the two have come apart now: at an endpoint the compare
+ * interrupts stay enabled to keep liveness honest, but the pin is held by the
+ * port register and never moves. Confusing the two is what made a failover — where
+ * the counter is stopped entirely and the loop square-waves the pin — report
+ * itself to the receiver as "endpoint, held". */
+bool pwm_out_modulating(void)
+{
+    if (foActive) return true;
+    return (riseEnabled != 0u) && (fallEnabled != 0u);
+}
 
 void pwm_out_failover_begin(uint16_t permille)
 {
@@ -191,38 +249,20 @@ uint32_t pwm_out_failover_falling(void)
 
 void pwm_out_failover_end(void)
 {
+    noInterrupts();
     foActive = 0;
+    riseEnabled = 0u;
+    fallEnabled = 0u;
+    interrupts();
     pwm_out_begin();   /* reprograms the counter and re-arms the compare pair */
 }
 
-uint32_t pwm_out_rising_edges()
-{
-    // 32-bit atomic reads: a bare return of a volatile uint32_t is four
-    // non-atomic instructions on AVR, and a Timer1 compare firing mid-read
-    // yields a torn count — an edge tally that never could have happened.
-    noInterrupts();
-    uint32_t v = rising;
-    interrupts();
-    return v;
-}
-
-uint32_t pwm_out_falling_edges()
+void pwm_out_edges_resume(void)
 {
     noInterrupts();
-    uint32_t v = falling;
+    riseEnabled = 0u;
+    fallEnabled = 0u;
     interrupts();
-    return v;
-}
-
-// Combined ISR entry count — the liveness signal the main loop's PWM health
-// monitor uses. Derived from the two counters above rather than a third one, so
-// it costs nothing inside either ISR.
-uint32_t pwm_out_isr_runs()
-{
-    noInterrupts();
-    uint32_t v = rising + falling;
-    interrupts();
-    return v;
 }
 
 uint8_t  pwm_out_timsk1()        { return (uint8_t)TIMSK1; }

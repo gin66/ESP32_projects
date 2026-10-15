@@ -47,45 +47,50 @@ static void test_liveness(void)
 {
     pwm_monitor_t m = { 0u, 0u, 0u };
 
-    SECTION("A  edges advancing means no stall");
+    SECTION("A  both compare matches arriving means no stall");
 
-    CHECK(pwm_monitor_observe(&m, 100u, 1000u, 1u) == 0u, "first sample stalled");
-    CHECK(pwm_monitor_observe(&m, 200u, 1001u, 1u) == 0u, "progress stalled");
-    CHECK(pwm_monitor_observe(&m, 300u, 5000u, 1u) == 0u,
+    /* `alive` is now a positive handshake — true once BOTH Timer1 compare
+     * matches have been seen since the previous call — not a counter to
+     * difference. Anything non-zero counts as alive. */
+    CHECK(pwm_monitor_observe(&m, 1u, 1000u) == 0u, "first sample stalled");
+    CHECK(pwm_monitor_observe(&m, 1u, 1001u) == 0u, "progress stalled");
+    CHECK(pwm_monitor_observe(&m, 1u, 5000u) == 0u,
           "progress stalled even though 4 s passed");
 
-    SECTION("B  no progress for the limit is a stall");
-    m.last_runs = 1000u; m.last_ok_ms = 10000u; m.stalled = 0u;
+    SECTION("B  silence for the limit is a stall");
+    m.last_ok_ms = 10000u; m.stalled = 0u;
 
     /* One tick under the limit must not fire, or the threshold is off by enough
      * to matter against a 250 ms listen_window() that polls in the same pass. */
-    CHECK(pwm_monitor_observe(&m, 1000u, 10000u + (PWM_STALL_LIMIT_MS - 1u), 1u) == 0u,
+    CHECK(pwm_monitor_observe(&m, 0u, 10000u + (PWM_STALL_LIMIT_MS - 1u)) == 0u,
           "fired under the limit");
-    CHECK(pwm_monitor_observe(&m, 1000u, 10000u + PWM_STALL_LIMIT_MS, 1u) == 1u,
+    CHECK(pwm_monitor_observe(&m, 0u, 10000u + PWM_STALL_LIMIT_MS) == 1u,
           "did not fire exactly at the limit");
     CHECK(m.stalled == 1u, "stalled flag not set");
 
-    SECTION("C  an inactive output is never a stall");
-    /* At 0 or 1000 permille both interrupts are off by design. Demanding edges
-     * there would report a fault on every boot, since PWM_DUTY_PERMILLE is the
-     * default state. */
-    m.last_runs = 2000u; m.last_ok_ms = 0u; m.stalled = 0u;
-    CHECK(pwm_monitor_observe(&m, 2000u, 900000u, 0u) == 0u,
-          "reported a stall with the counter intentionally idle");
-    CHECK(m.stalled == 0u, "set stalled while inactive");
+    SECTION("C  a cleared TIMSK1 IS a stall — this is SYSCMD_PWM_STALL");
+    /* The case the old design could not express. With the compare interrupts off
+     * and an `active` flag telling the monitor to stand down, clearing TIMSK1
+     * was indistinguishable from parking the output at an endpoint, so the one
+     * diagnostic that exists to reproduce a dead output path reproduced nothing.
+     * With the interrupts kept alive at every duty there is no such ambiguity,
+     * and silence is silence whatever the duty is. */
+    m.last_ok_ms = 0u; m.stalled = 0u;
+    CHECK(pwm_monitor_observe(&m, 0u, PWM_STALL_LIMIT_MS) == 1u,
+          "a dead output path went unreported");
 
     SECTION("D  the limit is evaluated without signed overflow");
     /* last_ok_ms near the top of the range: an unsigned difference wraps
      * correctly, a signed one would not. */
-    m.last_runs = 5u; m.last_ok_ms = 0x7FFFFFFFu; m.stalled = 0u;
-    CHECK(pwm_monitor_observe(&m, 5u, 0x7FFFFFFFu + (PWM_STALL_LIMIT_MS - 1u), 1u) == 0u,
+    m.last_ok_ms = 0x7FFFFFFFu; m.stalled = 0u;
+    CHECK(pwm_monitor_observe(&m, 0u, 0x7FFFFFFFu + (PWM_STALL_LIMIT_MS - 1u)) == 0u,
           "fired early across the wrap");
-    CHECK(pwm_monitor_observe(&m, 5u, 0x7FFFFFFFu + PWM_STALL_LIMIT_MS, 1u) == 1u,
+    CHECK(pwm_monitor_observe(&m, 0u, 0x7FFFFFFFu + PWM_STALL_LIMIT_MS) == 1u,
           "missed the limit across the wrap");
 
     SECTION("E  recovery clears the stall");
-    m.last_runs = 9u; m.last_ok_ms = 20000u; m.stalled = 1u;
-    CHECK(pwm_monitor_observe(&m, 40u, 20500u, 1u) == 0u, "recovery reported a stall");
+    m.last_ok_ms = 20000u; m.stalled = 1u;
+    CHECK(pwm_monitor_observe(&m, 40u, 20500u) == 0u, "recovery reported a stall");
     CHECK(m.stalled == 0u, "stalled flag not cleared on recovery");
 }
 

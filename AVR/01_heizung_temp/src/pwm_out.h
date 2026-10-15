@@ -27,9 +27,26 @@ void pwm_out_begin();
 // Set the duty cycle in permille (0…1000).
 void pwm_out_set(uint16_t permille);
 
-// True while the counter is generating edges, i.e. 0 < duty < 100 %. At the two
+// (removed: pwm_out_active was a TIMSK1 read, which no longer distinguishes a
+// parked endpoint from a dead output path — see pwm_out_alive.)
 // endpoints both interrupts are off and the port is driven directly instead.
-bool pwm_out_active();
+/* True once both Timer1 compare matches have arrived since the previous call;
+ * also clears them. This is the liveness signal — see the comment above the ISRs
+ * for why it is not a counter the caller has to difference. */
+bool pwm_out_alive(void);
+
+/* No running total is exposed, deliberately. A counter here would have to be
+ * differenced by its caller to carry any meaning, and a difference means nothing
+ * at an endpoint duty — which is the ambiguity this whole arrangement exists to
+ * remove. A bool is the honest interface. */
+
+/* Whether the pin is being switched, as opposed to held at an endpoint. True in
+ * failover too, where the timer is stopped and the loop drives the waveform. */
+bool pwm_out_modulating(void);
+
+/* Re-enables both edge drives after the failover waveform had the pin. Called by
+ * pwm_out_failover_end(); exposed for symmetry with the rest of this module. */
+void pwm_out_edges_resume(void);
 
 // Failover output: a software square wave on the pin, with the timer stopped.
 //
@@ -69,8 +86,10 @@ uint8_t pwm_out_failover_active(void);
  * requested 20% into about 27%, i.e. roughly 6 V instead of 7 V on the board's
  * own measured curve.
  *
- * These count rising and falling edges so the delivered duty can be *reported*
- * rather than assumed:  duty = rising / (rising + falling). Anything derived from
+ * These are the failover waveform's own counts, and unlike the timer path they
+ * are a true measurement: the loop is what moves the pin here, so a shortfall
+ * against the requested duty is real and worth reporting —
+ * duty = rising / (rising + falling). Anything derived from
  * the requested value is fiction.
  */
 uint32_t pwm_out_failover_rising(void);
@@ -96,8 +115,6 @@ void pwm_out_failover_end(void);
 // Read under a brief critical section: a bare 32-bit volatile read is four
 // non-atomic instructions on AVR, and a compare interrupt firing mid-read
 // returns a torn count that never actually occurred.
-uint32_t pwm_out_rising_edges();
-uint32_t pwm_out_falling_edges();
 
 // Combined ISR entry count — the liveness signal the main loop's PWM health
 // monitor uses. Derived from the two counters above rather than a third one, so
@@ -106,7 +123,6 @@ uint32_t pwm_out_falling_edges();
 // This is what a watchdog fed from the main loop cannot see: the loop can spin
 // forever while these stop incrementing, leaving the duty output frozen and the
 // watchdog perfectly happy.
-uint32_t pwm_out_isr_runs();
 
 // Raw TIMSK1, so a diagnostic can confirm both compare interrupts are still
 // enabled rather than being cleared by something else on the way past.

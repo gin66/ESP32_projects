@@ -77,7 +77,7 @@
 /* The duty that means "deliberately not heating". Everything in this module is
  * expressed relative to this constant, never to a physical direction — which is
  * what keeps the whole log independent of the unresolved drive-polarity question
- * (risk analysis §7 Batch 1.2). Changing it later is a one-line change. */
+ * (risk analysis §7 item B1.2). Changing it later is a one-line change. */
 #define EPL_OFF_DUTY       ((uint16_t)1000u)
 
 /* ─── Record layout (4 bytes) ───────────────────────────────────────────────

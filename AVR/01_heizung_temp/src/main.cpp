@@ -43,7 +43,7 @@
 //
 // All three are unverified in *direction*, for the same reason: the README says
 // the driver stage inverts and that the probe sat on a downstream node whose
-// characteristics were never documented. Until §7 Batch 1.2 measures the load,
+// characteristics were never documented. Until §7 item B1.2 measures the load,
 // treat these as three numbers to be set, not three meanings that are known.
    // see pwm_fault.h
 

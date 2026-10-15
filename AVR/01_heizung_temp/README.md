@@ -650,7 +650,35 @@ Revisit this if absolute accuracy turns out to matter more than avoiding an
 external part: `REFS1:0 = 00` plus a real 1 V reference returns LSB to
 976.56 µV and takes the reference out of the temperature loop.
 
-Two traps worth writing down:
+### Measured Vpp ranges (A0)
+
+With the coil signal on internal 1.1 V reference, peak-to-peak counts are:
+
+| State | Vpp | Notes |
+|-------|-----|-------|
+| Pump running | 470–500 | Normal operating range |
+| Pump running | up to 600 | Spike values |
+| Pump not running | 48–66 | Quiet / idle |
+
+These values confirm the ADC is reading the coil secondary correctly — a
+running pump produces roughly 10× the envelope of an idle one, and spikes
+above 600 are possible but do not indicate a fault in the sampling path.
+
+### Current measurement accuracy
+
+Converting the maximum spike reading (600 counts) through the signal chain:
+
+```
+600 @ 1024 = 1.1 V internal reference
+  → 600/1024 × 1.1 V = 0.644 V peak-to-peak
+  → 0.322 V peak
+  → 0.228 V RMS (eff)
+  → ÷ 10 (transformer turns ratio) = 0.0228 V RMS
+  → × 30 A/V (sensor sensitivity) = 0.68 A
+```
+
+The pump is rated for **0.319 A**, so the measurement at full spike is roughly
+**2× the rated current**. This discrepancy warrants investigation.
 
 **The macro names are misleading here, so the bits are written explicitly.**
 `INTERNAL` is the right choice for this board, but its meaning is not obvious:
@@ -681,3 +709,26 @@ Current footprint: **1054 B RAM (51 %), 14.9 kB flash (48 %).**
   authoritative.
 - Sensor ranking is recomputed from the bus every cycle, so unplugging a sensor
   removes it from the announcements on the next pass.
+
+### Learned sensor ranks (serial output)
+
+When sensors are discovered, the serial monitor prints their 8-byte DS18B20 ROM
+addresses mapped to CAN rank:
+
+```
+[RX] learned rank 0 = 281BF75704E13C26
+[RX] learned rank 1 = 2876C25704E13CF9
+[RX] learned rank 2 = 28B9EE81E3E13C2E
+```
+
+The ROM prefix `0x28` identifies a DS18B20. The remaining 6 bytes are the unique
+serial number. Rank is assigned by sorting the currently-present sensors by ROM
+address — rank 0 is the lowest ROM, rank 2 the highest.
+
+In the current installation:
+
+| Rank | Role | CAN ID |
+|------|------|--------|
+| 0 | Heater (on the heating element) | `0x180` |
+| 1 | To the heater (supply side) | `0x181` |
+| 2 | Board temperature (on the rf-nano PCB) | `0x182` |

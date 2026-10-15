@@ -157,7 +157,7 @@ struct __attribute__((packed)) SysCmdFrame {
 struct __attribute__((packed)) StatsFrame {
     uint16_t magic;      // NRF_MAGIC_STATS
     uint16_t sent;       // frames accepted for transmission since boot
-    uint16_t received;   // frames taken off the bus since boot, before filtering
+    uint16_t received;   // frames read from the RX buffers (heater: 0x240 only)
     uint16_t refused;    // frames this board would not transmit (queue full, ...)
     uint8_t  eflg;       // MCP2515 EFLG, error flags as read
     uint8_t  canstat;    // MCP2515 CANSTAT, controller status as read

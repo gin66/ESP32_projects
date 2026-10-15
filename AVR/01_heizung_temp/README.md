@@ -51,6 +51,11 @@ simultaneously.
 - Bitrate **125 kbit/s**, selected by `CAN_BITRATE` in `src/can_sender.cpp`.
 - The crystal is **8 MHz** and is declared explicitly as `MCP_8MHZ`. This is not
   a formality — see below.
+- Acceptance filter admits only standard ID `0x240`, the PWM command. Both
+  masks compare all 11 ID bits and all six filters hold that ID, so the
+  high-rate frames never enter the two RX buffers. `received` counts `0x240`
+  frames the CPU took out of those buffers. `RX0OVR` / `RX1OVR` then mean
+  that command itself arrived faster than `can_pump()` drained it.
 - With nothing connected to the bus, no node ACKs, so frames are dropped and the
   `refused=` counter climbs. That is the expected behaviour on an unpopulated
   bus, not a fault — though `TXREQ` will sit set, because a frame that is never
@@ -88,7 +93,7 @@ watched from a receiver with no CAN sniffer attached:
 
 ```
 [0..1] sent      frames accepted for transmission since boot
-[2..3] received  frames taken off the bus since boot, before any filtering
+[2..3] received  0x240 frames read from the RX buffers since boot
 [4..5] refused   frames this board would not transmit (queue full, no controller)
 [6]    EFLG      MCP2515 error flags, as read
 [7]    CANSTAT   MCP2515 controller status, as read
@@ -108,8 +113,10 @@ The CAN copy has no DLC-8 room for it, so it rides in bit 7 of the `CANSTAT`
 byte (`0x80`). `EFLG` is a 5-bit field and `CANSTAT` 4-bit, so the bit is spare in
 both and the packing is lossless.
 
-`received` counts before the PWM filter, deliberately: a device that starts
-sending garbage should show as a rising count, not as silence.
+`received` counts frames the acceptance filter let through, which is `0x240`
+only. A flood of some other identifier no longer increments it, and no longer
+fills the RX buffers. `RX0OVR` / `RX1OVR` means a `0x240` was not drained in
+time.
 
 `refused` is the same value as the old `can_drop=` counter and means the driver's
 TX queue was full. It rises rather than back-pressuring the caller on purpose —

@@ -32,6 +32,20 @@
 #define TXB_TXREQ         0x08
 #define TXB_FAULT_MASK    (TXB_TXREQ | TXB_ABTF | TXB_MLOA | TXB_TXERR)
 
+// Acceptance-filter registers. The library's register enum is private, same
+// reason as the TXBnCTRL addresses above.
+#define REG_RXF0SIDH      0x00
+#define REG_RXF5SIDH      0x18
+#define REG_RXM0SIDH      0x20
+#define REG_RXM1SIDH      0x24
+#define REG_RXB0CTRL      0x60
+#define REG_RXB1CTRL      0x70
+// RXBnCTRL.RXM = 01: standard identifiers that meet the filter, only.
+#define RXB_RXM_STD       0x20
+#define RXB_RXM_MASK      0x60
+// RXB0 rolls a second accepted frame into RXB1 instead of setting RX0OVR.
+#define RXB0_BUKT         0x04
+
 static uint8_t spi_read_reg(uint8_t addr)
 {
     uint8_t v;
@@ -173,10 +187,79 @@ static void tx_abort_stuck()
     }
 }
 
+// Drop every identifier except the PWM command before it can occupy a buffer.
+//
+// rx_drain() only acts on CAN_ID_PWM_SET. reset() leaves both masks at zero,
+// which is "don't care" for every ID bit, so the high-rate frames are loaded
+// into the two RX buffers and thrown away in software. Two buffers is the
+// whole queue: a burst sets RX0OVR/RX1OVR and the 0x240 that arrived in that
+// window is the frame that was lost. The same burst also changes CANINTF
+// between the three reads in readIntfStable(), so rx_drain() bails and the
+// buffers stay full.
+//
+// RXB0 is gated by RXF0/RXF1 against RXM0, RXB1 by RXF2–RXF5 against RXM1.
+// One mask left at zero accepts every ID into that buffer, so both masks
+// compare all 11 standard-ID bits and all six filters hold CAN_ID_PWM_SET.
+// The filters are standard frames (EXIDE clear) and RXBnCTRL.RXM is
+// standard-only, so an extended frame matches nothing.
+//
+// BUKT stays set. A second 0x240 then rolls into RXB1 while the first is
+// still unread. Rollover ignores RXB1's own filters, which is safe only
+// because RXB0 itself accepts just this one ID.
+//
+// setFilter() leaves the controller in config mode; the caller enters normal
+// or listen-only afterwards. This lives in configure() rather than only in
+// can_init() because a bus-off recovery resets the chip, and that reset
+// restores the accept-everything masks.
+static bool accept_only_pwm()
+{
+    if (mcp.setFilterMask(MCP2515::MASK0, false, CAN_SFF_MASK) != MCP2515::ERROR_OK)
+        return false;
+    if (mcp.setFilterMask(MCP2515::MASK1, false, CAN_SFF_MASK) != MCP2515::ERROR_OK)
+        return false;
+
+    const MCP2515::RXF order[] = {
+        MCP2515::RXF0, MCP2515::RXF1, MCP2515::RXF2,
+        MCP2515::RXF3, MCP2515::RXF4, MCP2515::RXF5
+    };
+    for (uint8_t i = 0; i < 6; i++) {
+        if (mcp.setFilter(order[i], false, CAN_ID_PWM_SET) != MCP2515::ERROR_OK)
+            return false;
+    }
+
+    spi_write_reg(REG_RXB0CTRL, (uint8_t)(RXB_RXM_STD | RXB0_BUKT));
+    spi_write_reg(REG_RXB1CTRL, RXB_RXM_STD);
+
+    // SIDH is ID[10:3]. A mask of 0x7FF stores 0xFF there. BUKT1 (RXB0CTRL
+    // bit 1) is a read-only copy of BUKT, so the compare ignores it.
+    const uint8_t sidh = (uint8_t)(CAN_ID_PWM_SET >> 3);
+    const uint8_t rxm_bukt = (uint8_t)(RXB_RXM_MASK | RXB0_BUKT);
+    bool ok = spi_read_reg(REG_RXM0SIDH) == 0xFF
+           && spi_read_reg(REG_RXM1SIDH) == 0xFF
+           && spi_read_reg(REG_RXF0SIDH) == sidh
+           && spi_read_reg(REG_RXF5SIDH) == sidh
+           && (spi_read_reg(REG_RXB0CTRL) & rxm_bukt) == (uint8_t)(RXB_RXM_STD | RXB0_BUKT)
+           && (spi_read_reg(REG_RXB1CTRL) & RXB_RXM_MASK) == RXB_RXM_STD;
+    if (!ok) {
+        static bool reported = false;
+        if (!reported) {
+            reported = true;
+            Serial.println(F("[CAN] acceptance filter did not read back"));
+        }
+        return false;
+    }
+    return true;
+}
+
 static bool configure()
 {
     if (mcp.reset() != MCP2515::ERROR_OK) return false;
     if (mcp.setBitrate(CAN_125KBPS, MCP_8MHZ) != MCP2515::ERROR_OK) return false;
+    // Before the mode switch. A filter call drops the chip back to config
+    // mode and leaves it there; entering normal first would take the node
+    // off the bus again, and a failed filter must not leave it accepting
+    // every ID.
+    if (!accept_only_pwm()) return false;
 
 #if CAN_LISTEN_ONLY
     if (mcp.setListenOnlyMode() != MCP2515::ERROR_OK) return false;
@@ -230,6 +313,8 @@ void can_dump_config()
 #else
     Serial.print(F("normal"));
 #endif
+    Serial.print(F("  accept=0x"));
+    Serial.print(CAN_ID_PWM_SET, HEX);
     Serial.print(F("  EFLG=0x"));
     Serial.print(eflg, HEX);
     Serial.print(F(" INTF=0x"));
@@ -357,6 +442,9 @@ static void rx_drain()
         badLatched = false;
 
         received++;
+        // The acceptance filter already admits only CAN_ID_PWM_SET. The
+        // compare stays so a frame that should not have been loaded — an
+        // RTR, or a filter that did not stick — cannot become a duty.
         if ((f.can_id & (CAN_EFF_FLAG | CAN_RTR_FLAG | CAN_ERR_FLAG)) == 0
             && (uint16_t)f.can_id == CAN_ID_PWM_SET
             && f.can_dlc >= 2) {

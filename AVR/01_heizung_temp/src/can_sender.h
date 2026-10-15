@@ -13,6 +13,10 @@
  * The module is fail-soft: if no MCP2515 answers on the SPI bus, can_init()
  * returns false and every send becomes a no-op, so the temperature and nRF24
  * paths keep running on an unpopulated board.
+ *
+ * Receive is filtered in the MCP2515 to the one standard ID this node acts
+ * on, CAN_ID_PWM_SET. The two RX buffers are not deep enough to hold the
+ * rest of the bus.
  */
 
 #ifndef CAN_SENDER_H
@@ -55,7 +59,10 @@ bool can_send_adc(uint16_t max_count, uint16_t min_count, uint16_t pp, uint8_t f
 
 // Report: bus health, so it can be watched over the radio rather than by having
 // a scope on CAN. Fields are counters since boot plus the live register values.
-//   [0..1] accepted for transmission   [2..3] received   [4..5] refused
+//   [0..1] accepted for transmission
+//   [2..3] received — frames read out of the RX buffers. The acceptance
+//          filter admits only CAN_ID_PWM_SET, so this is not bus traffic.
+//   [4..5] refused
 //   [6]    EFLG, MCP2515 error flags, as read
 //   [7]    CANSTAT, controller status, as read
 bool can_send_stats(uint16_t sent, uint16_t received, uint16_t refused,
@@ -118,8 +125,9 @@ void can_dump_config();
 uint8_t can_spi_probe(uint8_t* got);
 
 // Consume received frames and count them. Must be called regularly: it is what
-// empties the two receive buffers, and nothing else drains them. It also does
-// the two recovery jobs — aborting transmit buffers that are wedged with TXREQ
+// empties the two receive buffers, and nothing else drains them. Only
+// CAN_ID_PWM_SET is loaded into those buffers. It also does the two recovery
+// jobs — aborting transmit buffers that are wedged with TXREQ
 // set (which is what permanently mutes this node otherwise), and resetting a
 // latched bus-off, which the MCP2515 cannot leave without a SPI RESET.
 //

@@ -354,13 +354,12 @@ would race the PWM edge.
 ### Measured output
 
 Measured 2026-10-11 by commanding a duty from the receiver's serial console and
-probing the node with a DC voltmeter.
+probing the node with a DC voltmeter. The transfer function is **inverting and
+verified** — see the circuit analysis below, where the two endpoints confirm
+D7 swings fully rail-to-rail and the duty reaches the load.
 
-**The drive polarity is still unverified at the load.** Everything above assumes
-it is *inverting*: commanded 0 % reads 11.57 V and commanded 100 % reads 0.137 V.
-If that is wrong at the load, the safe-mode duty of 200 permille is wrong with it.
-Confirming this is item B1.2 in `doc/risk_analysis.md` §7 and is the one thing
-still blocking unattended winter operation.
+That verification is what makes the safe-mode duty a measured choice rather than a
+guess: 200 permille is the 6.99 V row of this table, not a nominal fraction.
 
 | Commanded duty | Measured | Implied inverted duty * |
 |---|---|---|

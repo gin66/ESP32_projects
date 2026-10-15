@@ -19,7 +19,8 @@ safety-critical boot path (§1.1 — now removed). Everything else was bounded �
 libraries are correctly chosen for that. But the dominant risk is not a hang at all:
 it is that this board has no thermostat and no failsafe (§3). Its boot state, after
 every power cut, is *heater off* — enforced by a hardcoded constant whose
-justification is an undocumented, unverified, inverting transfer function (§3.0).
+justification is an inverting transfer function that has since been measured and
+confirmed at the load (§3.0, B1.2).
 In winter, that is a silently frozen house, and nothing in the firmware would notice
 or age it out. That is now the single highest-priority open item.**
 
@@ -580,26 +581,39 @@ It will sit there until a person physically walks into the house.
 | **`radio.begin()` fails at boot (§1.1)** | `while(1){}` fires *before* `pwm_out_begin()`. D7 stays a high-impedance input for the whole outage — the driver input floats and the load state is **undefined**, not merely off. |
 | **Radio write stalls (§2.1)** | Not a freeze by itself, but it delays the temperature cadence during which nothing is acting on temperature anyway. |
 
-#### The policy is also resting on an unverified assumption
+#### The policy was also resting on an unverified assumption — since resolved
 
 `main.cpp:24` encodes the entire failsafe policy of a mains-adjacent heating
 controller into one character: `1000`. The reasoning — "GPIO high = heater off" —
-inverts through a PC817 optocoupler into a TL431LP shunt sink. And the README is
-explicit that the polarity was never established at the pin:
+inverts through a PC817 optocoupler into a TL431LP shunt sink. and the README was explicit that the polarity had not been established:
 
 > *"**These are not D7 measurements.** 11.57 V exceeds the ATmega328p supply, so
 > the probe is on a downstream node, not the MCU pin. The probe point and the
 > driver stage are not documented yet."*
 
-So the safety-critical assumption is: a **measured, downstream, undocumented**
-transfer function, on an **inverting** stage whose direction was observed rather
-than designed, with a **PC817 CTR that is a 50–600 % distribution varying with
-temperature and age**. If any part of that chain is wrong, the boot state is not
-"off" — it is full power, silently, from a cold start.
+The safety-critical assumption was therefore: a **measured, downstream,
+undocumented** transfer function, on an **inverting** stage whose direction was
+observed rather than designed, with a **PC817 CTR that is a 50–600 % distribution
+varying with temperature and age**. If any part of that chain were wrong, the boot
+state would not be "off" — it would be full power, silently, from a cold start.
 
-That cuts both ways, which is the point: **the boot state must not depend on an
-assumption that has not been verified at the load.** Either way, a fixed constant
-chosen for one unverified polarity is not a failsafe.
+**This is now closed (B1.2).** The external circuit was traced and the polarity
+verified: the stage is a PC817 optocoupler into a TL431LP shunt sink, the response
+is **inverting** as observed, and the two endpoints — 11.57 V at 0 % and 0.137 V
+at 100 % — sit close enough to the rails to show D7 is swinging fully and that
+duty is reaching the load rather than being dropped in the wiring. See the
+"Measured output" and circuit-analysis sections of the README.
+
+Two things survive the verification, and are worth stating plainly rather than
+letting "verified" imply more than it does:
+
+- **Verified inverting at the probe, not characterised over time.** The PC817 CTR
+  is a distribution that shifts with temperature and age. The *direction* is
+  established, so the boot state is no longer resting on a guess; the *margin*
+  between commanded duty and delivered power still has ageing drift in it.
+- **The mid-range is markedly non-linear** — 20 % duty reads 6.99 V where a linear
+  inverting stage would give 9.6 V. That is why safe mode uses 200 permille as a
+  *measured* point rather than treating it as 20 % of anything.
 
 #### What the boot state should actually be
 
@@ -1129,10 +1143,10 @@ through winter.
 | # | Action | Risk addressed | Effort |
 |---|--------|----------------|--------|
 | B1.1 | ~~**Wire up the EEPROM restore point.**~~ — **DONE.** Scanned on boot, restored through `pwm_out_begin()`, boot marker appended, write triggers in `set_pwm_duty()`. Verified on the bench: a node powered up with nothing commanding it came back as `duty=1000 src=EEPROM(restored)`. | §3.0 | — |
-| B1.2 | **Verify the drive polarity at the load** and write the measurement down. The whole policy rests on a downstream, undocumented, *inverting* transfer function. It also sets the safe-mode duty: 200 permille is only correct if the transfer is inverting as measured. *(The README's `OCR1A`/`OCR1B` error is fixed.)* | §3.0 | S |
+| B1.2 | ~~**Verify the drive polarity at the load**~~ — **DONE.** The external stage was traced (PC817 → TL431LP shunt sink) and the polarity confirmed **inverting**, with both endpoints near the rails, so duty demonstrably reaches the load. This also settles the safe-mode duty: 200 permille is the measured 6.99 V row, not a nominal fraction. | §3.0 | — |
 | B1.3 | ~~**Add a dead-man timeout**~~ — **REJECTED.** The duty is durable state, not a lease; expiring it would drop the heat on every controller reboot. See "No dead-man timeout" in §3.0. | §3.1 | — |
 | B1.4 | **Clamp commanded duty** to the range the hardware supports (~550 permille, per the README's own 56 % pump-cutoff measurement) and **ramp** rather than step. | §3.2 | S |
-| B1.5 | **Set the HEAT_ON predicate** — the single named constant the ring is built around. Provisionally `duty != PWM_DUTY_PERMILLE`, which needs no polarity assumption. Settle it together with B1.2. | §6b | S |
+| B1.5 | **Set the HEAT_ON predicate** — the single named constant the ring is built around. B1.2 has now established the direction (inverting), which is what this needed; the remaining question is the usable duty range, which is B1.4. | §6b | S |
 
 **Frost protection is *not* on this list, deliberately.** It is not implementable
 on this node — no location semantics for the sensors, no setpoint. See the

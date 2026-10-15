@@ -293,6 +293,8 @@ void loop()
     // transmitter came up with rather than showing nothing until one arrives.
     static bool     ee_have = false;
     static uint16_t ee_records = 0;
+    static uint16_t ee_writes = 0;
+    static uint8_t  ee_oldest = 0, ee_newest = 0;
     static uint16_t ee_restored = 0;
     static uint8_t  ee_flags = 0;
 
@@ -515,6 +517,9 @@ static uint8_t  stat_eflg = 0;          // live MCP2515 error flags
             if (f.crc == frame_crc16(&f, sizeof(f))) {
                 eeFrames++;
                 ee_records = f.records;
+                ee_writes  = f.writes;
+                ee_oldest  = f.oldest;
+                ee_newest  = f.newest;
                 ee_flags   = f.flags;
                 ee_restored = f.restored;
                 ee_have    = true;
@@ -693,6 +698,21 @@ static uint8_t  stat_eflg = 0;          // live MCP2515 error flags
             } else {
                 Serial.print(F(" rec="));
                 Serial.print(ee_records);
+                /* Ring geometry, which the frame has always carried and this line
+                 * never showed. The arc and the write count answer the two
+                 * questions that matter when a restore looks wrong: how much of
+                 * the ring is in use, and whether anything is being written at
+                 * all. A node restoring something old with writes=0 and a
+                 * small count is not touching its log, which is the thing to
+                 * know before suspecting the restore walk. */
+                Serial.print(F("/"));
+                Serial.print((uint16_t)256u);
+                Serial.print(F(" arc="));
+                Serial.print(ee_oldest);
+                Serial.print(F(".."));
+                Serial.print(ee_newest);
+                Serial.print(F(" w="));
+                Serial.print(ee_writes);
             }
             if (ee_flags & EE_FLAG_PWMFAIL) {
                 /* The flag is durable and the ring holds 80 hours, so it can mean

@@ -258,7 +258,28 @@ static const unsigned long EE_PERIOD_MS = 60000UL;
 // case is 24 h of writes per day = 8760/year, still ~11 years on one cell, and
 // spread over 256 cells it is irrelevant. Its job is to bound how stale the
 // stored value can get, not to save wear.
-static const unsigned long EE_MIN_WRITE_GAP_MS = 3600000UL;   // 1 h
+/* How often the duty in force is re-asserted into the log.
+ *
+ * Previously there was a 1 h rate limit on duty-change writes, added in 1d1fd57
+ * as a "backup for the 8 h heartbeat". The 8 h heartbeat was never implemented,
+ * so that number became the only change-triggered write path — and because
+ * millis() restarts on boot, its one-hour window opened after *every* boot. A
+ * node power-cycled more often than hourly, which is what a marginal supply
+ * does, would never persist a commanded duty at all. Bench-confirmed: a duty
+ * commanded to 500 shortly after boot was gone after a power cycle and the node
+ * came back on the previous value.
+ *
+ * The policy is now simply what it should have been: one write after the boot
+ * scan, and one every 8 h after that. Nothing is written in between, so the
+ * cost is exactly two records per 8 h of uptime.
+ *
+ * The window this leaves is real and worth stating: if the duty changes and the
+ * node loses power before the next heartbeat, it restores the previous value.
+ * That is up to 8 h of exposure, and it is the price of not writing on change.
+ * Raising this to something like 60 s costs at most ~6 writes per cell per day
+ * (epl_append advances to the next slot, so wear is already spread 240:1) and
+ * shrinks the window to a minute. */
+static const unsigned long EE_HEARTBEAT_MS = 28800000UL;   // 8 h
 
 // ─── Restart counter ─────────────────────────────────────────────────────────
 // Retained across every reset except power-on. The brownout-reset loop is the
@@ -487,27 +508,7 @@ static void set_pwm_duty(uint16_t permille)
     pwm_duty = permille;
     broadcast_pwm();
 
-    /* Refresh the stored duty when it has moved and enough time has passed.
-     *
-     * The 8 h heartbeat alone is not enough: millis() restarts on reboot, so a
-     * node resetting more often than once per 8 h of uptime would never reach
-     * it and would keep restoring something arbitrarily old — which is precisely
-     * the window that lets a freeze go unnoticed. This is the backup, and
-     * set_pwm_duty() is the natural place for it because the loop already comes
-     * here for every duty change.
-     *
-     * Refused on an anomalous ring: forcing a write into a ring we cannot locate
-     * is how a recoverable anomaly becomes a permanent one. */
-    static unsigned long lastEeWriteMs = 0;
-    unsigned long now = millis();
-
-    if (epl_state.anomaly) return;
-    if ((unsigned long)(now - lastEeWriteMs) < EE_MIN_WRITE_GAP_MS) return;
-
-    if (epl_append(epl_io(), &epl_state, permille, (uint8_t)0) != 0xFFFFu) {
-        epl_writes++;
-        lastEeWriteMs = now;
-    }
+    (void)permille;   /* persistence is the heartbeat's job, not this one's */
 }
 
 // ─── PWM ISR liveness ────────────────────────────────────────────────────────
@@ -1455,6 +1456,30 @@ void loop()
      *     most wanted.
      *   - an anomaly, the one case worth reporting promptly at all.
      */
+    /* Re-assert the duty in force, so the persisted value cannot drift
+     * arbitrarily far behind the live one. Refused on an anomalous ring:
+     * forcing a write into a ring we cannot locate is how a recoverable
+     * anomaly becomes a permanent one. */
+    static unsigned long lastEeBeatMs = 0u;
+    static uint8_t        eeBeatFired = 0u;
+    unsigned long         now = millis();
+    if ((!eeBeatFired || (unsigned long)(now - lastEeBeatMs) >= EE_HEARTBEAT_MS) &&
+        !epl_state.anomaly) {
+        if (epl_append(epl_io(), &epl_state, pwm_duty, (uint8_t)0) != 0xFFFFu) {
+            epl_writes++;
+            lastEeBeatMs = now;
+            eeBeatFired = 1u;
+            Serial.print(F("[TX] EEPROM heartbeat: duty "));
+            Serial.print(pwm_duty);
+            Serial.print(F(" permille, records="));
+            Serial.print(epl_state.count);
+            Serial.print(F(" arc="));
+            Serial.print(epl_state.oldest);
+            Serial.print(F(".."));
+            Serial.println((uint16_t)epl_state.newest);
+        }
+    }
+
     static uint8_t eeFirstReported = 0u;
     if (!eeFirstReported ||
         (unsigned long)(millis() - lastEeStatsMs) >= EE_PERIOD_MS ||
@@ -1475,8 +1500,6 @@ void loop()
         Serial.print(" permille  src=");
         Serial.println(pwm_source_str(pwm_source));
     }
-
-    unsigned long now = millis();
 
     // Non-blocking conversion. requestTemperatures() used to block for the full
     // 750 ms conversion, which left the loop unresponsive for most of every

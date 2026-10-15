@@ -28,7 +28,8 @@ or age it out. That is now the single highest-priority open item.**
 | # | Risk | Severity | Status |
 |---|------|----------|--------|
 | 3.0 | **Freeze: power loss → boot duty is heater OFF** | **Critical** | **FIXED** — restore wired in, `PWM_SRC_*` reporting added |
-| 1.6 | PWM output path dead → duty silently undelivered | High | **FIXED** — three-step escalation, see §1.2 |
+| 1.6 | PWM output path dead → duty silently undelivered | High | **FIXED** — three-step escalation, documented in §1.2 |
+| 1.7 | `.noinit` fault latch trusted across a flash → false failover on a healthy output | High | **FIXED** — magic-guarded, §1.2 |
 | 3.1 | ~~No command timeout / dead-man switch~~ | — | **CLOSED by decision** — rejected, see §3.0 |
 | 3.2 | No duty clamp, ramp or rate limit | High | OPEN |
 | 4.1 | `DEVICE_FAULT_*` not mapped → −252…−254 °C as valid data | High | OPEN |
@@ -368,6 +369,47 @@ and is never acted on. Not harmful by itself, but it should be stated explicitly
 rather than left implicit.
 
 ---
+
+### 1.7 FIXED — `.noinit` trusted across a flash, so a healthy node booted into safe mode
+
+Found on the bench, not in review, and worth recording because the reasoning is
+the kind that only fails on the second reflash.
+
+§1.2 puts the escalation latch in `.noinit`, which is deliberate — it must survive
+the watchdog reset that step 1 depends on. The assumption behind that is that
+`.noinit` is cleared by a power-on reset and nothing else. **That assumption is
+wrong in the way that matters:** `avrdude` preserves `.noinit` across a flash
+upload. It is not RAM, and the bootloader writes over `flash`/`boot`, not over
+`.noinit`.
+
+So the sequence was: node entered failover for any reason, latch set; firmware was
+fixed and reflashed; node came up still believing a fault was latched, and went
+straight into safe mode on an output path that was perfectly healthy. The symptom
+was indistinguishable from a real fault — `src=FAULT`, heater at 200 permille —
+and it survived every subsequent reflash, because the act of refitting was the
+thing keeping it broken.
+
+`PORF` does not help. On an upload `MCUSR` is not set to `PORF` either, so the
+boot-reason test cannot distinguish "freshly flashed" from "watchdog reset", and
+a node flashed over USB never reports a power-on reset at all.
+
+Fixed by guarding the latch: `PWM_BOOT_MAGIC` (`0xA70F`) is written alongside the
+state on every genuine entry, and the latch is honoured **only** if it matches.
+Uninitialised `.noinit` reads as garbage and is ignored; a latch we wrote is
+trusted. That is the same argument as the EEPROM format tag in §6b, applied to a
+region no `erase` command can reach.
+
+Two consequences worth keeping:
+
+- **`.noinit` is not a safe place to put anything that outlives a flash**, unless
+  it carries its own validity marker. It is the right place for a watchdog-reset
+  latch and the wrong place for anything else.
+- **A flash is not a clean slate.** The EEPROM ring deliberately outlives a flash
+  too — that is what makes a fault record survive a power blip — so a node can
+  come up reporting `EE_FLAG_PWMFAIL` from a fault that was fixed weeks ago. This
+  is correct behaviour being misread as a live fault. `X` at the receiver erases
+  the log; the receiver now ages the flag so a historical one can be told from an
+  ongoing one.
 
 ## 2. Blocking paths that are bounded but damaging
 
@@ -1005,7 +1047,7 @@ firmware image and traces it. So the algorithm is pure C with an injected EEPROM
 interface, compiled unchanged for the host against a mock.
 
 ```sh
-make -C test/test_eeprom_log test        # 517 374 assertions
+make -C test/test_eeprom_log test        # 517 684 checks
 make -C test/test_eeprom_log sanitize    # same, under ASan + UBSan
 make -C test/test_eeprom_log compiler    # show which gcc
 ```
@@ -1083,8 +1125,8 @@ through winter.
 
 | # | Action | Risk addressed | Effort |
 |---|--------|----------------|--------|
-| 1.1 | **Wire up the EEPROM restore point.** `eeprom_log` is written and tested (§6b); it needs calling from `main.cpp`: scan on boot, restore, `pwm_out_begin()` with the restored duty, then append the boot marker. Write triggers go in `set_pwm_duty()`. | §3.0 | M |
-| 1.2 | **Verify the drive polarity at the load** and write the measurement down. The whole policy rests on a downstream, undocumented, *inverting* transfer function. The README also still claims duty goes to `OCR1A` while the code writes `OCR1B`. | §3.0 | S |
+| 1.1 | ~~**Wire up the EEPROM restore point.**~~ — **DONE.** Scanned on boot, restored through `pwm_out_begin()`, boot marker appended, write triggers in `set_pwm_duty()`. Verified on the bench: a node powered up with nothing commanding it came back as `duty=1000 src=EEPROM(restored)`. | §3.0 | — |
+| 1.2 | **Verify the drive polarity at the load** and write the measurement down. The whole policy rests on a downstream, undocumented, *inverting* transfer function. It also sets the safe-mode duty: 200 permille is only correct if the transfer is inverting as measured. *(The README's `OCR1A`/`OCR1B` error is fixed.)* | §3.0 | S |
 | 1.3 | ~~**Add a dead-man timeout**~~ — **REJECTED.** The duty is durable state, not a lease; expiring it would drop the heat on every controller reboot. See "No dead-man timeout" in §3.0. | §3.1 | — |
 | 1.4 | **Clamp commanded duty** to the range the hardware supports (~550 permille, per the README's own 56 % pump-cutoff measurement) and **ramp** rather than step. | §3.2 | S |
 | 1.5 | **Set the HEAT_ON predicate** — the single named constant the ring is built around. Provisionally `duty != PWM_DUTY_PERMILLE`, which needs no polarity assumption. Settle it together with 1.2. | §6b | S |
@@ -1098,7 +1140,7 @@ correction in §3.0.
 | # | Action | Risk addressed | Effort |
 |---|--------|----------------|--------|
 | 2.1 | ~~**Enable the watchdog**~~ — **DONE.** `wdt_disable()` first in `setup()`, `wdt_enable(WDTO_2S)`, `wdt_reset()` at the bottom of `loop()` and inside `listen_window()`. Plus a separate PWM-ISR liveness monitor that forces a safe duty rather than resetting. | §1.2 | — |
-| 2.2 | **Boot counter** — **PARTLY DONE.** `.noinit` + `PORF` is in place and reported on the boot line. But it does **not** survive power loss: on `PORF` the value is discarded, so a power cut still reports a clean `boot=1`. The log in §6b carries the reboot flag across power cuts, which is what actually closes this. | §3.0, §1.2 | S |
+| 2.2 | **Boot counter** — **PARTLY DONE.** `.noinit` + `PORF` is in place and reported on the boot line. But it does **not** survive power loss: on `PORF` the value is discarded, so a power cut still reports a clean `boot=1`. The log in §6b carries the reboot flag across power cuts, which is what actually closes this. Unrelated but found while fixing 1.7: the *same* `.noinit` region also holds the PWM fault latch, so it needed the same treatment — see 1.7. | §3.0, §1.2 | S |
 | 2.3 | **Map all five DallasTemperature fault sentinels** in `raw_to_cdeg()`, and invert the test to `raw <= DEVICE_FAULT_OPEN_RAW` so a future library release cannot leak a new one through. | §4.1 | S |
 
 2.1 and 2.3 are both small and independent of 2.2.
@@ -1150,7 +1192,10 @@ recovers, rather than trusting the code review.
 | Power-cycle mid-winter with no CAN controller | The restored duty comes back (not `1000`), and the boot marker is appended. This is the regression test for §3.0 |
 | Power-cycle with a virgin or scribbled EEPROM | Restores OFF, never a random permille — see test A2/A3 in the harness |
 | Let it run a week | No counter has wrapped; `sent` is monotonically increasing |
-| `make -C test/test_eeprom_log test` | 517 374 assertions, 0 failures — and it must stay that way after any change to `eeprom_log.cpp` |
+| `make -C test/test_eeprom_log test` | 517 684 checks, 0 failures — and it must stay that way after any change to `eeprom_log.cpp` |
+| `make -C test/test_pwm_fault test` | 78 checks, 0 failures — the escalation and `.noinit` trust rules |
+| Press `V` at the receiver while in safe mode | Output returns to Timer1; **a genuine fault drops straight back to failover** |
+| Watch `delivered (` on the transmitter log | Delivered duty converges on requested; a persistent gap means the loop is too slow |
 
 ## 8. What is already right
 

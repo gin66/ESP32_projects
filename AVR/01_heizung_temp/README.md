@@ -237,39 +237,113 @@ pwm_out_set(1000);  // exact 100 %, interrupts off, pin driven high
 
 ### Commanding it
 
-The duty is **commanded from CAN**, not set locally: a frame on `0x240` is
-applied verbatim, last writer wins. There is deliberately no ramping, no
-minimum on/off pulse and no validation beyond the permille clamp — the value is
-overwritten as it arrives.
+The duty is commanded from CAN (`0x240`) or from the radio (`0xABD0`), and it
+is **also durable**: a node with no live command at all comes back on whatever was
+last in force. Applied verbatim, last writer wins. There is deliberately no
+ramping, no minimum on/off pulse and no validation beyond the permille clamp.
+
+There is deliberately **no dead-man timeout**. The duty is durable state, not a
+lease: expiring it would drop the heat every time the controller above this node
+rebooted. The upstream device is the thing with a timeout; this node's job is to
+honour the last instruction until it is given another one. See `doc/risk_analysis.md`
+§3.0 for the reasoning.
+
+Every duty is attributed to its source, and the source is reported on both wires
+(`PWM_SRC_` in the `0x2C8` flags and in the PWM frame) — so a receiver can tell
+"nobody is commanding this node" apart from "somebody is commanding it to OFF",
+which are the same duty and completely different situations:
+
+| Source | Meaning |
+|---|---|
+| `PWM_SRC_EEPROM` | restored from the log; no live command received yet |
+| `PWM_SRC_CAN` | last valid command was CAN `0x240` |
+| `PWM_SRC_NRF` | last valid command was radio `0xABD0` |
+| `PWM_SRC_FAULT` | local safety action, e.g. a PWM ISR stall |
 
 The current duty is then mirrored outward on both buses: on `0x280` and on the
 `0xABCF` radio frame. It is repeated once per measurement cycle as well as on
 every change, so a receiver that powers up late converges on the correct value
 without a request/response exchange.
 
-### Why the radio cannot command it
+Boot duty comes from the EEPROM restore-point log (see below), so an
+unattended winter reboot resumes the duty in force rather than dropping to OFF.
 
-The nRF24 is half-duplex. This board is a transmitter — `openWritingPipe()` plus
-`stopListening()` — so it is not listening for anything. Accepting an NRF command
-would mean interleaving `startListening()` with the temperature broadcasts, i.e.
-time-division scheduling on the radio. CAN is already bidirectional, needs no
-mode change, and does not touch the working broadcast path, so it is the command
-channel.
+### The PWM output path, and what happens when it dies
 
-If NRF-sourced PWM control is genuinely needed, the clean way is a separate node
-rather than making this one listen between broadcasts.
+The duty is applied by Timer1 compare interrupts. If those stop matching — a
+stalled ISR, a wedged timer — the commanded duty stops reaching the load
+silently, which for a heating load in February is the failure that matters. That
+is handled as a three-step escalation, documented in `doc/risk_analysis.md` §1.2:
+
+1. **First stall** — record the fault in the EEPROM log, let the watchdog reboot
+   the node. A reboot re-establishes the timer from a known-good register state.
+2. **Fault already in the log at boot** — enter *safe mode*: a 1 kHz waveform at
+   **200 permille**, driven directly on the pin and timed off `micros()`, because
+   if the compare vectors are dead there is no way to make edges with them. 200
+   permille is the measured ~7 V point from the table below — enough to keep the
+   pipe and the electronics alive, not enough to overheat the element.
+3. **Recovery** — the bench command `V` (`SYSCMD_REVIVE`) hands the pin back to
+   Timer1. If the path is genuinely broken, the liveness monitor puts it straight
+   back into safe mode, so the attempt is bounded rather than being a way to
+   escape a real fault.
+
+Safe mode is not a terminal state. It is advanced from `loop()`, so CAN, the ADC,
+the watchdog and the serial console all keep running. On the wire the source
+reads `PWM_SRC_FAULT` for its whole duration rather than the node looking
+merely idle.
+
+Two details that are easy to get wrong and were both wrong here first:
+
+- **`PORF` is not enough to trust `.noinit`.** The fault latch lives in a region
+  that survives a watchdog reset, but `avrdude` **also** preserves `.noinit`
+  across a flash upload. A freshly flashed node with a never-written latch would
+  read as a fault and go straight into safe mode on a perfectly healthy output.
+  The latch is now magic-guarded (`PWM_BOOT_MAGIC`) and ignored unless it is
+  genuinely ours.
+- **The requested duty is not the delivered duty.** The waveform can only change
+  state at a `loop()` pass boundary, so the delivered high time is quantised up.
+  Rising/falling edge counters report what actually happened on the pin rather
+  than assuming the request was honoured — the log prints `delivered (n…)`.
+
+Because the fault is written to the EEPROM ring, it **survives reflashing**. That
+is the point of recording it, but it also means a flash is not a clean slate: a
+node may come up reporting `PWM-OUTPUT-FAILED` from a fault that has long since
+been fixed. The receiver ages the flag for this reason — neither side has a clock,
+so it reports how long *it* has been observing it. `X` at the receiver erases the
+log.
+
+### How the radio commands it, despite being half-duplex
+
+The nRF24 is half-duplex and this board is primarily a transmitter, so it cannot
+listen continuously without interleaving with the temperature broadcasts. Instead
+each measurement cycle opens one short **listen window** (250 ms) between
+broadcasts, drains at most one command, and returns to transmitting. The command
+pipe is `0xABD0`, distinct from the `0xABD1` broadcast pipe, so commands and
+broadcasts are separate addresses on the same radio.
+
+The window is kept deliberately short, and `CAN` polling, the ADC sampling and
+the PWM liveness monitor all keep running *inside* it. Two reasons: a 250 ms
+blind spot is 25 windows of a 50 Hz signal — enough to swallow whole half-cycles
+in the min/max statistic — and the window is exactly as long as
+`PWM_STALL_LIMIT_MS`, so keeping the stall check inside it means the stall timer
+cannot be fooled by the block. The watch is fed on the way through.
+
+**Known exposure:** the RX pipe number is not checked before accepting a command,
+so a `0xABD0` frame delivered to the *broadcast* address would be honoured by every
+node that heard it. Tracked as §4.4 in `doc/risk_analysis.md`; the fix is a
+`getLastRxPipe()` check before the duty is applied.
 
 The endpoints bypass the counter entirely: there are no edges to generate, so
 both interrupts are disabled and the port is driven directly. Interior values
 (1…999 permille) re-enable the interrupt pair.
 
-This matters more than it looks. Setting `OCR1A` equal to `TOP` would make the
+This matters more than it looks. Setting the duty register equal to `TOP` would make the
 counter match *and* overflow in the same cycle, and overflow wins the priority
 contest (`OVF1` is vector 5, `OCF1A` is vector 11) — the pin would go high and
-then straight back low, i.e. nearly 0 % rather than 100 %. Likewise `OCR1A == 0`
+then straight back low, i.e. nearly 0 % rather than 100 %. Likewise a zero duty
 emitted a ~1 µs spike on every period. Both endpoints now avoid the counter.
 
-Duty is written to `OCR1A`, which is backed by an atomic 16-bit temp register,
+Duty is written to `OCR1B`, which is backed by an atomic 16-bit temp register,
 so it can be changed from the main loop at any time without masking interrupts.
 
 D4 and D7 share port D, and the ISRs use read-modify-write on `PORTD`. That is
@@ -279,9 +353,14 @@ would race the PWM edge.
 
 ### Measured output
 
-Measured 2026-10-11, while D7 was still driven, by commanding a duty from the
-receiver's serial console and probing the node with a DC voltmeter. The current
-firmware does not drive D7, so this table is not the present output.
+Measured 2026-10-11 by commanding a duty from the receiver's serial console and
+probing the node with a DC voltmeter.
+
+**The drive polarity is still unverified at the load.** Everything above assumes
+it is *inverting*: commanded 0 % reads 11.57 V and commanded 100 % reads 0.137 V.
+If that is wrong at the load, the safe-mode duty of 200 permille is wrong with it.
+Confirming this is item 1.2 in `doc/risk_analysis.md` §7 and is the one thing
+still blocking unattended winter operation.
 
 | Commanded duty | Measured | Implied inverted duty * |
 |---|---|---|

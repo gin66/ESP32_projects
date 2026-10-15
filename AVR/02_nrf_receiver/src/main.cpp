@@ -37,12 +37,18 @@ static uint8_t serialLen = 0;
 // on the same wire the safety-critical heating control travels on, for no gain.
 /* Transmit and retry until acknowledged, or the deadline passes.
  *
- * The node is only listening inside a ~250 ms window once per ~1 s measurement
- * cycle, so a single write lands roughly one time in four. Every operator
- * command here is a deliberate act aimed at a failure path that cannot be
- * reached any other way, and a three-in-four chance of silently doing nothing
- * makes them useless on a bench — which is exactly what happened: X appeared to
- * do nothing, and the fault flag was still there afterwards.
+ * The node opens its listen window once per TEMPERATURE cycle — every 5 s — and
+ * holds it for 250 ms. So the opportunity arrives every 5000 ms, and a retry span
+ * shorter than that has a large chance of containing none at all.
+ *
+ * An earlier version retried for 1500 ms, reasoned from the 1 s ADC cadence. The
+ * ADC frames do go out once a second, but the listen window is not on that clock:
+ * it hangs off the conversion-complete branch of the loop, which is every
+ * TEMP_PERIOD_MS. A 1500 ms span therefore overlapped a window about a quarter of
+ * the time, and three commands in four were dropped in silence.
+ *
+ * 6 s is the shortest span that guarantees at least one window fits, whatever the
+ * phase: up to 250 ms of it is spent waiting inside one.
  *
  * Blocks for the whole deadline, so broadcasts are missed while it runs. That is
  * the right trade for a command somebody just typed by hand.
@@ -80,7 +86,7 @@ static bool sys_cmd_send(uint8_t cmd)
      * diagnostic keypress appears to kill the link, and only a reset brings it
      * back. The duty-send path below already brackets its write for exactly
      * this reason; this one had to as well. */
-    return radio_send_retry(&f, sizeof(f), 1500);
+    return radio_send_retry(&f, sizeof(f), 6000);
 }
 
 static void serial_diag(char c)
@@ -166,7 +172,7 @@ static void send_pwm_command(uint16_t permille)
     memset(f.reserved, 0, sizeof(f.reserved));
     f.crc   = frame_crc16(&f, sizeof(f));
 
-    bool ok = radio_send_retry(&f, sizeof(f), 1500);
+    bool ok = radio_send_retry(&f, sizeof(f), 6000);
 
     // A false here means nobody acknowledged: the sender was not inside its
     // listen window when this frame went out, so the command was lost.

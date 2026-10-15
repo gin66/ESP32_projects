@@ -724,7 +724,14 @@ static void sys_cmd_exec(uint8_t cmd, uint8_t arg)
         Serial.println(F("[TX] *** DIAG: filling every EEPROM slot"));
         Serial.flush();
         {
+            /* 1024 EEPROM byte writes at ~3.3 ms each, so ~3.4 s against a 2 s
+             * watchdog. Fed every 16 slots, for the same reason X feeds: without
+             * it the command trips the watchdog partway through and reaches the
+             * intended end state by accident, via a reboot that leaves the boot
+             * line reporting "restarted N times" — which reads as a fault rather
+             * than as the anomaly that was deliberately created. */
             uint16_t slot;
+            Serial.print(F("[TX] ***       filling"));
             for (slot = 0u; slot < EPL_SLOTS; slot++) {
                 epl_raw_t raw;
                 uint16_t base = (uint16_t)(slot * EPL_REC_SIZE);
@@ -734,7 +741,13 @@ static void sys_cmd_exec(uint8_t cmd, uint8_t arg)
                 for (j = 0u; j < (uint8_t)EPL_REC_SIZE; j++) {
                     epl_io()->wr(epl_io()->ctx, (uint16_t)(base + j), raw.b[j]);
                 }
+                if ((slot & 0x0Fu) == 0x0Fu) {
+                    Serial.print('.');
+                    Serial.flush();
+                    wdt_reset();
+                }
             }
+            Serial.println();
         }
         epl_scan(epl_io(), &epl_state);
         if (epl_state.anomaly) {

@@ -464,6 +464,44 @@ static void epl_write_boot_marker(void)
  * cover. Set by epl_restore_boot(), read by the status frames. */
 static bool epl_pwm_failed = false;
 
+/* Re-derive, from the ring as it stands now, whether a PWM failure is recorded.
+ *
+ * This was inline in epl_restore_boot(), which made the answer a property of the
+ * boot: it was computed once and never again. So the X diagnostic erased the very
+ * record that sets the flag and still could not clear it — it survived until the
+ * next power cycle, which is what made it look like it kept resurrecting itself.
+ *
+ * Called after boot and again after anything that rewrites the ring wholesale
+ * (X, and the anomaly injection in A), because those change the question the
+ * flag answers without the node having restarted. */
+static void epl_rescan_fault(void)
+{
+    const epl_io_t* io = epl_io();
+    uint8_t i;
+
+    /* Look back through the restore window for a recorded PWM failure. A record
+     * older than that is not interesting: at an 8 h cadence the window is ~80 h,
+     * so anything beyond that is history rather than a current condition. */
+    epl_pwm_failed = 0u;
+
+    for (i = 0u; i <= EPL_RESTORE_WINDOW; i++) {
+        uint16_t slot = (uint16_t)((epl_state.newest + EPL_SLOTS - i) % EPL_SLOTS);
+        epl_raw_t raw;
+        uint8_t  j;
+
+        if (epl_state.count == 0u || !epl_in_region(&epl_state, slot)) break;
+
+        for (j = 0u; j < (uint8_t)EPL_REC_SIZE; j++) {
+            raw.b[j] = io->rd(io->ctx, (uint16_t)((uint16_t)(slot * EPL_REC_SIZE) + j));
+        }
+        if (epl_decode(&raw).valid &&
+            (epl_decode(&raw).flags & EPL_FLAG_PWM_FAIL)) {
+            epl_pwm_failed = 1u;
+            return;
+        }
+    }
+}
+
 
 // Scan, restore, and record why. Called once, before pwm_out_begin().
 static void epl_restore_boot(void)
@@ -473,29 +511,7 @@ static void epl_restore_boot(void)
     epl_scan(io, &epl_state);
     epl_restore_ex(io, &epl_state, &epl_restored, &epl_restore_src);
 
-    /* Look back through the restore window for a recorded PWM failure. A record
-     * older than that is not interesting: at an 8 h cadence the window is ~80 h,
-     * so anything beyond that is history rather than a current condition. */
-    epl_pwm_failed = 0u;
-    {
-        uint8_t i;
-        for (i = 0u; i <= EPL_RESTORE_WINDOW; i++) {
-            uint16_t slot = (uint16_t)((epl_state.newest + EPL_SLOTS - i) % EPL_SLOTS);
-            epl_raw_t raw;
-            uint8_t  j;
-
-            if (epl_state.count == 0u || !epl_in_region(&epl_state, slot)) break;
-
-            for (j = 0u; j < (uint8_t)EPL_REC_SIZE; j++) {
-                raw.b[j] = io->rd(io->ctx, (uint16_t)(slot * EPL_REC_SIZE + j));
-            }
-            if (epl_decode(&raw).valid &&
-                (epl_decode(&raw).flags & EPL_FLAG_PWM_FAIL)) {
-                epl_pwm_failed = 1u;
-                break;
-            }
-        }
-    }
+    epl_rescan_fault();
 
     if (epl_state.anomaly) {
         /* The restore point is gone. This is the one log line that must never be
@@ -750,6 +766,7 @@ static void sys_cmd_exec(uint8_t cmd, uint8_t arg)
             Serial.println();
         }
         epl_scan(epl_io(), &epl_state);
+        epl_rescan_fault();   /* the ring was just overwritten wholesale */
         if (epl_state.anomaly) {
             Serial.println(F("[TX] ***       anomaly set — restore falls back to OFF"));
             /* This is destructive on purpose, and the node cannot recover from it
@@ -793,6 +810,11 @@ static void sys_cmd_exec(uint8_t cmd, uint8_t arg)
             Serial.println();
         }
         epl_scan(epl_io(), &epl_state);
+        /* The ring has just been rewritten from scratch, so anything derived
+         * from it is now stale — including the PWM-failure flag, whose only
+         * record was just erased. Without this, X succeeds and the flag it was
+         * supposed to clear stays lit until the node is power-cycled. */
+        epl_rescan_fault();
         epl_writes = 0u;
 
         /* Prove the recovery rather than asserting it: the whole point of X is

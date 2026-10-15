@@ -8,7 +8,7 @@
 
 // ─── PWM command, set from the serial console ────────────────────────────────
 // Type a duty in permille (0..1000) and press Enter to command the sender's
-// output; it is re-sent on every subsequent broadcast until changed.
+// output; it is sent once on the next broadcast window and never retried.
 //
 // A controller must NOT reply the instant the broadcast arrives. At that moment
 // the sender is still waiting for the auto-ACK and has not yet called
@@ -163,9 +163,8 @@ static void cmd_pump(void)
         return;
     }
 
-    /* A miss costs nothing: the window reopens 5 s later and we try again on
-     * that one. Nothing to bound, nothing to time out. */
-    cmdTries++;
+    /* A miss is final: send once, do not retry on later windows. */
+    cmdArmed = false;
 }
 
 // Consume serial input until Enter. Accepts only decimal digits so there is no

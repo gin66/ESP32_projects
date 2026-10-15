@@ -1155,6 +1155,51 @@ static void test_erase_vs_anomaly(void)
           "full ring restored a duty out of an unlocatable log");
     CHECK(epl_append(&io, &st, 300u, (uint8_t)0) == 0xFFFFu,
           "append into an unlocatable ring was accepted");
+
+    SECTION("M3  an erase recovers it completely");
+    /* The operator action after a test round. This has to actually restore the
+     * node, not just silence the symptom: in the anomalous state epl_append()
+     * refuses, so the duty stops being persisted entirely and the next power cut
+     * would restore OFF. An erase that left the ring unwritable would be worse
+     * than no erase at all. */
+    for (slot = 0u; slot < EPL_SLOTS; slot++) epl_erase_slot(&io, slot);
+    epl_scan(&io, &st);
+
+    CHECK(st.count == 0u, "after erase count = %u, want 0", st.count);
+    CHECK(st.anomaly == 0u, "after erase the anomaly flag is still set");
+    CHECK(epl_restore(&io, &st) == EPL_OFF_DUTY,
+          "after erase restore = %u, want OFF", epl_restore(&io, &st));
+
+    CHECK(epl_append(&io, &st, 275u, (uint8_t)EPL_FLAG_BOOT) != 0xFFFFu,
+          "append refused after an erase — node still degraded");
+
+    epl_scan(&io, &st);
+    CHECK(st.count == 1u, "count after refilling = %u, want 1", st.count);
+    CHECK(st.anomaly == 0u, "anomaly came back after refilling");
+    CHECK(epl_restore(&io, &st) == 275u,
+          "after erase+refill restore = %u, want 275", epl_restore(&io, &st));
+
+    SECTION("M4  erase then write, repeatedly, never degrades");
+    /* Enough cycles that a wear- or wrap-related leak in the cap would show. */
+    {
+        uint32_t n;
+        reset_all(&m, &st, &io);
+        for (n = 0u; n < 2000u; n++) {
+            if (epl_append(&io, &st, (uint16_t)(100u + (n % 800u)),
+                           (uint8_t)0) == 0xFFFFu) {
+                CHECK(0u, "append failed at %lu", (unsigned long)n);
+                break;
+            }
+            if ((n % 250u) == 0u) {
+                uint16_t k;
+                for (k = 0u; k < EPL_SLOTS; k++) epl_erase_slot(&io, k);
+                epl_scan(&io, &st);
+            }
+        }
+        epl_scan(&io, &st);
+        CHECK(st.anomaly == 0u, "repeated erase/write cycles degraded the ring");
+        CHECK(st.count <= EPL_VALID_MAX, "count %u above VALID_MAX", st.count);
+    }
 }
 
 /* ─── main ─────────────────────────────────────────────────────────────────── */

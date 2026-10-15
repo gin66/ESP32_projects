@@ -133,9 +133,21 @@ struct __attribute__((packed)) SysCmdFrame {
 
 #define SYSCMD_REBOOT      0  /* starve the watchdog: force a reset          */
 #define SYSCMD_PWM_STALL   1  /* clobber TIMSK1 to simulate a dead PWM path */
-#define SYSCMD_EE_ANOMALY  2  /* scribble the log to force the anomaly path */
-#define SYSCMD_CLEAR_STATS 3  /* zero the health counters                    */
+#define SYSCMD_EE_ANOMALY  2  /* fill every slot: force the unlocatable ring */
+#define SYSCMD_CLEAR_STATS 3  /* zero the RAM counters (does NOT touch EEPROM) */
 #define SYSCMD_REVIVE      4  /* leave failover and retry the timer output path */
+#define SYSCMD_EE_ERASE    5  /* erase the whole log: back to virgin         */
+
+/* E and A are deliberately different operations and were once conflated into one
+ * command named "anomaly", which erased the log to 0xFF and therefore produced
+ * the VIRGIN path rather than the anomaly path it claimed to exercise. They are
+ * not the same thing:
+ *
+ *   erase   -> every slot 0xFF  -> no valid records at all -> virgin, restore
+ *              falls back to OFF. This is the operator action.
+ *   anomaly -> every slot holds a *valid* record -> no empty arc exists -> the
+ *              newest cannot be located. This is the fault injection, and it is
+ *              the case that must never return a random duty. */
 
 // ─── Pipe 0: CAN bus health frame (13 bytes, packed) ─────────────────────────
 // Publishes the CAN side of the system over the radio so it can be watched

@@ -669,9 +669,16 @@ static void sys_cmd_exec(uint8_t cmd, uint8_t arg)
             }
         }
         epl_scan(epl_io(), &epl_state);
-        Serial.println(epl_state.anomaly
-                           ? F("[TX] ***       anomaly flag set — restore will fall back to OFF")
-                           : F("[TX] ***       NOT anomalous — check the build"));
+        if (epl_state.anomaly) {
+            Serial.println(F("[TX] ***       anomaly set — restore falls back to OFF"));
+            /* This is destructive on purpose, and the node cannot recover from it
+             * by itself: epl_append() refuses in the anomalous state, so the duty
+             * stops being persisted entirely and the next power cut would restore
+             * OFF. Say so, and say the key. */
+            Serial.println(F("[TX] ***       node cannot write the log now — press X to erase it"));
+        } else {
+            Serial.println(F("[TX] ***       NOT anomalous — check the build"));
+        }
         return;
 
     case SYSCMD_EE_ERASE:
@@ -687,10 +694,17 @@ static void sys_cmd_exec(uint8_t cmd, uint8_t arg)
         }
         epl_scan(epl_io(), &epl_state);
         epl_writes = 0u;
-        Serial.print(F("[TX] ***       log erased, records="));
-        Serial.print(epl_state.count);
-        Serial.print(F(" — restore falls back to "));
-        Serial.println(epl_restored);
+
+        /* Prove the recovery rather than asserting it: the whole point of X is
+         * that the node can write the log again, including after A has wedged it.
+         * An erase that left the ring unusable would be worse than none. */
+        if (epl_append(epl_io(), &epl_state, epl_restored,
+                       (uint8_t)EPL_FLAG_BOOT) != 0xFFFFu) {
+            epl_writes++;
+            Serial.println(F("[TX] ***       log erased and writable again"));
+        } else {
+            Serial.println(F("[TX] ***       ERASE FAILED — log still unwritable"));
+        }
         return;
 
     case SYSCMD_REVIVE:

@@ -571,13 +571,14 @@ static void decode_protocol(uint32_t id, const uint8_t* data, uint8_t len,
   }
 
   /* ── Time broadcast (custom, type = 0x01) ─────────────────────────── */
-  if (len >= 5 && data[0] == CAN_MSG_TYPE_TIME) {
+  if (len >= sizeof(can_time_message_t) && data[0] == CAN_MSG_TYPE_TIME) {
     info->protocol = (haus_protocol_t)0xFFFF;  /* non-haus marker */
     snprintf(info->label, sizeof(info->label), "TIME-BCAST");
-    if (len >= 5) {
-      snprintf(info->decoded, sizeof(info->decoded), "%02d:%02d:%02d (day %d)",
-               data[4], data[3], data[2], data[1]);
-    }
+    can_time_message_t time_msg;
+    memcpy(&time_msg, data, sizeof(can_time_message_t));
+    snprintf(info->decoded, sizeof(info->decoded), "%02d:%02d:%02d (day %d)",
+             time_msg.hours, time_msg.minutes, time_msg.seconds,
+             time_msg.weekday);
     g_proto_time_broadcast_cnt++;
     return;
   }

@@ -693,7 +693,7 @@ What the design still owes:
 
 1. **The 8 h refresh**, so a restored duty is never more than a few hours stale.
    24 h was rejected precisely because it leaves a full night between writes.
-2. **The polarity verified at the load** (Batch 1.2). No longer a boot-constant
+2. **The polarity verified at the load** (Batch 1, item B1.2). No longer a boot-constant
    question: the whole log is expressed relative to `PWM_DUTY_PERMILLE`, so the
    measurement changes that constant and nothing else.
 
@@ -1119,17 +1119,20 @@ and test on the bench.
 
 ### Batch 1 — safety policy (do these before the board goes back into service)
 
+Row IDs are `B<n>.<m>` — *batch* number, then item within that batch. They are not
+section numbers: the watchdog is §1.2 and it has been done since `8a46ecb`.
+
 Nothing below is optional. The board currently has a boot state that means "no
 heat" and a control path with no timeout, and it is being asked to run unattended
 through winter.
 
 | # | Action | Risk addressed | Effort |
 |---|--------|----------------|--------|
-| 1.1 | ~~**Wire up the EEPROM restore point.**~~ — **DONE.** Scanned on boot, restored through `pwm_out_begin()`, boot marker appended, write triggers in `set_pwm_duty()`. Verified on the bench: a node powered up with nothing commanding it came back as `duty=1000 src=EEPROM(restored)`. | §3.0 | — |
-| 1.2 | **Verify the drive polarity at the load** and write the measurement down. The whole policy rests on a downstream, undocumented, *inverting* transfer function. It also sets the safe-mode duty: 200 permille is only correct if the transfer is inverting as measured. *(The README's `OCR1A`/`OCR1B` error is fixed.)* | §3.0 | S |
-| 1.3 | ~~**Add a dead-man timeout**~~ — **REJECTED.** The duty is durable state, not a lease; expiring it would drop the heat on every controller reboot. See "No dead-man timeout" in §3.0. | §3.1 | — |
-| 1.4 | **Clamp commanded duty** to the range the hardware supports (~550 permille, per the README's own 56 % pump-cutoff measurement) and **ramp** rather than step. | §3.2 | S |
-| 1.5 | **Set the HEAT_ON predicate** — the single named constant the ring is built around. Provisionally `duty != PWM_DUTY_PERMILLE`, which needs no polarity assumption. Settle it together with 1.2. | §6b | S |
+| B1.1 | ~~**Wire up the EEPROM restore point.**~~ — **DONE.** Scanned on boot, restored through `pwm_out_begin()`, boot marker appended, write triggers in `set_pwm_duty()`. Verified on the bench: a node powered up with nothing commanding it came back as `duty=1000 src=EEPROM(restored)`. | §3.0 | — |
+| B1.2 | **Verify the drive polarity at the load** and write the measurement down. The whole policy rests on a downstream, undocumented, *inverting* transfer function. It also sets the safe-mode duty: 200 permille is only correct if the transfer is inverting as measured. *(The README's `OCR1A`/`OCR1B` error is fixed.)* | §3.0 | S |
+| B1.3 | ~~**Add a dead-man timeout**~~ — **REJECTED.** The duty is durable state, not a lease; expiring it would drop the heat on every controller reboot. See "No dead-man timeout" in §3.0. | §3.1 | — |
+| B1.4 | **Clamp commanded duty** to the range the hardware supports (~550 permille, per the README's own 56 % pump-cutoff measurement) and **ramp** rather than step. | §3.2 | S |
+| B1.5 | **Set the HEAT_ON predicate** — the single named constant the ring is built around. Provisionally `duty != PWM_DUTY_PERMILLE`, which needs no polarity assumption. Settle it together with B1.2. | §6b | S |
 
 **Frost protection is *not* on this list, deliberately.** It is not implementable
 on this node — no location semantics for the sensors, no setpoint. See the
@@ -1139,9 +1142,9 @@ correction in §3.0.
 
 | # | Action | Risk addressed | Effort |
 |---|--------|----------------|--------|
-| 2.1 | ~~**Enable the watchdog**~~ — **DONE.** `wdt_disable()` first in `setup()`, `wdt_enable(WDTO_2S)`, `wdt_reset()` at the bottom of `loop()` and inside `listen_window()`. Plus a separate PWM-ISR liveness monitor that forces a safe duty rather than resetting. | §1.2 | — |
-| 2.2 | **Boot counter** — **PARTLY DONE.** `.noinit` + `PORF` is in place and reported on the boot line. But it does **not** survive power loss: on `PORF` the value is discarded, so a power cut still reports a clean `boot=1`. The log in §6b carries the reboot flag across power cuts, which is what actually closes this. Unrelated but found while fixing 1.7: the *same* `.noinit` region also holds the PWM fault latch, so it needed the same treatment — see 1.7. | §3.0, §1.2 | S |
-| 2.3 | **Map all five DallasTemperature fault sentinels** in `raw_to_cdeg()`, and invert the test to `raw <= DEVICE_FAULT_OPEN_RAW` so a future library release cannot leak a new one through. | §4.1 | S |
+| B2.1 | ~~**Enable the watchdog**~~ — **DONE.** `wdt_disable()` first in `setup()`, `wdt_enable(WDTO_2S)`, `wdt_reset()` at the bottom of `loop()` and inside `listen_window()`. Plus a separate PWM-ISR liveness monitor that forces a safe duty rather than resetting. | §1.2 | — |
+| B2.2 | **Boot counter** — **PARTLY DONE.** `.noinit` + `PORF` is in place and reported on the boot line. But it does **not** survive power loss: on `PORF` the value is discarded, so a power cut still reports a clean `boot=1`. The log in §6b carries the reboot flag across power cuts, which is what actually closes this. Unrelated but found while fixing 1.7: the *same* `.noinit` region also holds the PWM fault latch, so it needed the same treatment — see 1.7. | §3.0, §1.2 | S |
+| B2.3 | **Map all five DallasTemperature fault sentinels** in `raw_to_cdeg()`, and invert the test to `raw <= DEVICE_FAULT_OPEN_RAW` so a future library release cannot leak a new one through. | §4.1 | S |
 
 2.1 and 2.3 are both small and independent of 2.2.
 
@@ -1149,10 +1152,10 @@ correction in §3.0.
 
 | # | Action | Risk addressed | Effort |
 |---|--------|----------------|--------|
-| 3.1 | **Relax `readIntfStable`** so a busy bus cannot starve the RX path — two agreeing reads with the third advisory, or clear-and-read when the flag is set rather than requiring it to be stable first. The PWM command path is the safety-critical input and it currently goes quiet exactly when the bus is busiest. | §4.3 | M |
-| 3.2 | **Check the RX pipe number** in `listen_window()` before accepting a command, so a `0xABD0` broadcast to `NRF_BC_ADDR` cannot reach every node at once. | §4.4 | S |
-| 3.3 | **Gate `can_spi_probe()`** on an actual SPI fault instead of running it every 5 s on a healthy bus. | §4.5 | S |
-| 3.4 | **Rate-limit `scan_sensors()`** to the identity cadence, and fix the incorrect comment at `main.cpp:220-222` — `getAddress()` re-runs a ROM search every call in DallasTemperature 4.x; it is *not* cached. This is also what removes the ~1000 interrupt-disabled windows per cycle that jitter the PWM edges. | §2.2 | S |
+| B3.1 | **Relax `readIntfStable`** so a busy bus cannot starve the RX path — two agreeing reads with the third advisory, or clear-and-read when the flag is set rather than requiring it to be stable first. The PWM command path is the safety-critical input and it currently goes quiet exactly when the bus is busiest. | §4.3 | M |
+| B3.2 | **Check the RX pipe number** in `listen_window()` before accepting a command, so a `0xABD0` broadcast to `NRF_BC_ADDR` cannot reach every node at once. | §4.4 | S |
+| B3.3 | **Gate `can_spi_probe()`** on an actual SPI fault instead of running it every 5 s on a healthy bus. | §4.5 | S |
+| B3.4 | **Rate-limit `scan_sensors()`** to the identity cadence, and fix the incorrect comment at `main.cpp:220-222` — `getAddress()` re-runs a ROM search every call in DallasTemperature 4.x; it is *not* cached. This is also what removes the ~1000 interrupt-disabled windows per cycle that jitter the PWM edges. | §2.2 | S |
 
 ### Batch 4 — observability
 
@@ -1161,10 +1164,10 @@ runs for a year unattended is worth almost as much.
 
 | # | Action | Risk addressed | Effort |
 |---|--------|----------------|--------|
-| 4.1 | **Widen the health counters to `uint32_t`** — `sent`, `received`, `dropped`, `rxMalformed`, `rxOverflows`, `spiErrors`, `recoveries`, and `win_frames`/`win_cmds`/`win_bad`. `sent` wraps in ≈12 h today, and a wrapped counter is indistinguishable from a silent node. `okCount`/`failCount` already use `uint32_t`, so the pattern exists. | §5.1 | S |
-| 4.2 | **Copy the ISR edge counters under `noInterrupts()`** in `pwm_out_rising_edges()`/`pwm_out_falling_edges()`. A 32-bit read is four non-atomic instructions on AVR and occasionally yields an edge count that never could have happened. | §5.2 | S |
-| 4.3 | **Write the identity cadence compare as a difference** — `now - IDENTITY_BOOT_MS >= 0` — for consistency with the rest of the file. Currently harmless; latent. | §6.2 | S |
-| 4.4 | **Replace the `String` returns** in `cdeg_to_str()`/`rom_to_str()` with fixed-buffer emitters, removing the last heap use from the firmware. | §5.4 | S |
+| B4.1 | **Widen the health counters to `uint32_t`** — `sent`, `received`, `dropped`, `rxMalformed`, `rxOverflows`, `spiErrors`, `recoveries`, and `win_frames`/`win_cmds`/`win_bad`. `sent` wraps in ≈12 h today, and a wrapped counter is indistinguishable from a silent node. `okCount`/`failCount` already use `uint32_t`, so the pattern exists. | §5.1 | S |
+| B4.2 | **Copy the ISR edge counters under `noInterrupts()`** in `pwm_out_rising_edges()`/`pwm_out_falling_edges()`. A 32-bit read is four non-atomic instructions on AVR and occasionally yields an edge count that never could have happened. | §5.2 | S |
+| B4.3 | **Write the identity cadence compare as a difference** — `now - IDENTITY_BOOT_MS >= 0` — for consistency with the rest of the file. Currently harmless; latent. | §6.2 | S |
+| B4.4 | **Replace the `String` returns** in `cdeg_to_str()`/`rom_to_str()` with fixed-buffer emitters, removing the last heap use from the firmware. | §5.4 | S |
 
 ### Considered and deliberately deferred
 
@@ -1172,7 +1175,7 @@ runs for a year unattended is worth almost as much.
 |------|--------------|
 | **A clean-shutdown flag in EEPROM** | Proposed in an earlier draft and **rejected**. This node is never shut down by intent — there is no exit path at all — so every boot follows an unclean event and the flag would be clear every time, carrying zero information. |
 | Local frost protection | Not implementable here: sensors are ranked by ROM address with no location semantics, and there is no setpoint anywhere in the firmware. See the correction in §3.0. |
-| Act on the ADC current measurement as an over-current cut-out | Genuinely valuable — the coil is on A0 and it is the only real closed-loop protection available. But it needs a calibrated threshold, and Batch 1.2 says the calibration story is not yet sound. Revisit after Batch 1. |
+| Act on the ADC current measurement as an over-current cut-out | Genuinely valuable — the coil is on A0 and it is the only real closed-loop protection available. But it needs a calibrated threshold, and Batch 1 (B1.2) says the calibration story is not yet sound. Revisit after Batch 1. |
 | Escalating response to EFLG `RXWAR`/`TXWAR`/`RXEP` | The frames are now actionable via `can_recoveries()`/`can_recover_tries()`. A warning-band policy is only worth having once there is something on the bus worth protecting. |
 | Removing the 190 ms `radio.write()` stall (§2.1) | Bounded, and the recover-on-`failureDetected` path already restores service after a radio fault. Only worth attacking if the ADC sampling gap is measured to matter. |
 | Cleaning up the duplicated `can_spi_probe()` byte loops | Cosmetic. The helpers now exist and could be reused, but touching working SPI code for tidiness is a poor trade. |

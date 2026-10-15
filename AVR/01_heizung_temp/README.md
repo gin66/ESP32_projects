@@ -359,7 +359,7 @@ probing the node with a DC voltmeter.
 **The drive polarity is still unverified at the load.** Everything above assumes
 it is *inverting*: commanded 0 % reads 11.57 V and commanded 100 % reads 0.137 V.
 If that is wrong at the load, the safe-mode duty of 200 permille is wrong with it.
-Confirming this is item 1.2 in `doc/risk_analysis.md` §7 and is the one thing
+Confirming this is item B1.2 in `doc/risk_analysis.md` §7 and is the one thing
 still blocking unattended winter operation.
 
 | Commanded duty | Measured | Implied inverted duty * |

@@ -59,6 +59,18 @@ static const unsigned long IDENTITY_BURST_MS  = 200UL;
 static const unsigned long IDENTITY_BOOT_MS   = 15000UL;
 static const unsigned long LISTEN_WINDOW_MS   = 250UL;
 
+/* Short listen window used while in PWM failover. All diagnostic commands —
+ * including the one that revives the output — are delivered inside the window,
+ * so suppressing it entirely would leave a node in failover with no escape but
+ * a power cycle. 20 ms is ample to receive a command and is 2% of a second.
+ *
+ * The waveform is not corrupted by this: pwm_out_failover_tick() runs at the top
+ * of the loop and the window blocks after it, so the pin simply *holds* its
+ * level for the duration. That is a bounded 2% duty error instead of the total
+ * loss a 250 ms window would cause, and the load's 15-95 ms smoothing averages
+ * what is left. */
+static const unsigned long LISTEN_WINDOW_FAILOVER_MS = 20UL;
+
 // CAN health is reported more slowly than the ADC window. Bus faults and queue
 // saturation are not per-second events, and EFLG is read-to-clear, so sampling
 // faster mostly buys a shorter window in which a transient fault is invisible.
@@ -1447,9 +1459,12 @@ void loop()
         // Printing costs milliseconds at 115200 baud and the controller is
         // counting from the broadcast it just received — opening the window late
         // is what makes a command get missed.
-        /* No listen window in failover: it is a 250 ms block, which would
-         * stall the 200 us failover waveform completely. */
-        if (radioReady && !pwmFailover) listen_window(LISTEN_WINDOW_MS);
+        /* The window is shortened in failover rather than dropped: it is how
+         * commands get in at all, and dropping it was leaving a node in fault
+         * with no escape but a power cycle. The pin holds for the duration, so a
+         * 20 ms window is a bounded 2% duty error rather than a dead waveform. */
+        if (radioReady) listen_window(pwmFailover ? LISTEN_WINDOW_FAILOVER_MS
+                                                 : LISTEN_WINDOW_MS);
 #endif
 
         Serial.print("[TX]");

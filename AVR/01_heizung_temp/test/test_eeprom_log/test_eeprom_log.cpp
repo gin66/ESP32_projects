@@ -1028,6 +1028,135 @@ static void test_fault_marker(void)
     CHECK(duty == 350u, "combined flags restored %u, want 350", duty);
 }
 
+
+/* ─── L: the format tag, and why it replaces a manual erase ───────────────── */
+
+/*
+ * The question "when do we need to erase the EEPROM" has a short answer: almost
+ * never. Changing the record layout and bumping EPL_FORMAT makes every existing
+ * record fail to decode, so the ring reads as virgin and the node starts clean.
+ *
+ * Without the tag this would be unsafe rather than merely inconvenient. A
+ * "reserved, must be 0" byte catches nothing, because old records carry 0 there
+ * too. And a record that survives the checksum by accident is not a remote
+ * prospect: at 1-in-256 per slot, near-certain across 256 slots. A phantom
+ * record carries an invented duty, and the restore would put it on the heater.
+ */
+static void test_format_tag(void)
+{
+    epl_raw_t raw;
+    epl_rec_t rec;
+
+    SECTION("L1  a record of this format decodes");
+    epl_encode(&raw, 400u, (uint8_t)0);
+    CHECK(raw.b[2] == EPL_FORMAT, "format tag = 0x%02X, want 0x%02X",
+          raw.b[2], EPL_FORMAT);
+    rec = epl_decode(&raw);
+    CHECK(rec.valid == 1u, "current-format record did not decode");
+
+    SECTION("L2  a record from any other layout is rejected, not misread");
+    {
+        uint16_t old;
+
+        for (old = 0u; old < 256u; old++) {
+            epl_raw_t legacy = raw;
+            legacy.b[2] = (uint8_t)old;
+            rec = epl_decode(&legacy);
+            if ((uint8_t)old != EPL_FORMAT) {
+                CHECK(rec.valid == 0u,
+                      "legacy format tag 0x%02X decoded as valid", (unsigned)old);
+            }
+        }
+    }
+
+    SECTION("L3  a whole ring in a foreign format reads as virgin, not as data");
+    {
+        eeprom_mock_t m;
+        epl_state_t   st;
+        epl_io_t      io;
+        uint16_t      slot;
+
+        /* Write a plausible-looking ring, then stamp every slot with a foreign
+         * format tag — exactly what a firmware update would leave behind. */
+        reset_all(&m, &st, &io);
+        for (slot = 0u; slot < 40u; slot++) {
+            epl_append(&io, &st, (uint16_t)(150u + slot), (uint8_t)0);
+        }
+        epl_scan(&io, &st);
+        CHECK(st.count == 40u, "precondition: %u records", st.count);
+
+        for (slot = 0u; slot < 40u; slot++) {
+            mock_poke(&m, (uint16_t)(slot * EPL_REC_SIZE + 2u), 0x00u);
+        }
+        epl_scan(&io, &st);
+
+        CHECK(st.count == 0u,
+              "foreign-format ring reported %u records instead of 0", st.count);
+        CHECK(st.anomaly == 0u, "foreign-format ring flagged anomalous — it is not");
+        CHECK(epl_restore(&io, &st) == EPL_OFF_DUTY,
+              "foreign-format ring restored %u, want OFF", epl_restore(&io, &st));
+
+        /* And the node is usable immediately, which is the whole point. */
+        CHECK(epl_append(&io, &st, 275u, (uint8_t)EPL_FLAG_BOOT) != 0xFFFFu,
+              "could not append to a foreign-format ring");
+        epl_scan(&io, &st);
+        CHECK(st.count == 1u, "count after refilling = %u, want 1", st.count);
+    }
+}
+
+/* ─── M: erase and anomaly are different operations ────────────────────────── */
+
+/*
+ * These were once one command named "anomaly" which erased the log to 0xFF — and
+ * an erased ring is VIRGIN, not anomalous, so it exercised the wrong branch while
+ * appearing to work. Both are asserted here so they cannot be conflated again.
+ */
+static void test_erase_vs_anomaly(void)
+{
+    eeprom_mock_t m;
+    epl_state_t   st;
+    epl_io_t      io;
+    uint16_t      slot;
+
+    SECTION("M1  erasing every slot gives VIRGIN, not an anomaly");
+    reset_all(&m, &st, &io);
+    for (slot = 0u; slot < 20u; slot++) {
+        epl_append(&io, &st, (uint16_t)(200u + slot), (uint8_t)0);
+    }
+    epl_scan(&io, &st);
+    CHECK(st.count == 20u, "precondition: %u records", st.count);
+
+    for (slot = 0u; slot < EPL_SLOTS; slot++) epl_erase_slot(&io, slot);
+    epl_scan(&io, &st);
+
+    CHECK(st.count == 0u, "erased ring count = %u, want 0", st.count);
+    CHECK(st.anomaly == 0u,
+          "erased ring flagged anomalous — there is a 256-slot empty arc, so it "
+          "is plainly locatable");
+    CHECK(epl_restore(&io, &st) == EPL_OFF_DUTY,
+          "erased ring restored %u, want OFF", epl_restore(&io, &st));
+
+    SECTION("M2  every slot valid gives the anomaly, and is never honoured");
+    mock_init(&m);
+    io = mock_io(&m);
+    for (slot = 0u; slot < EPL_SLOTS; slot++) {
+        epl_raw_t raw;
+        uint16_t base = (uint16_t)(slot * EPL_REC_SIZE);
+        uint8_t  j;
+        epl_encode(&raw, (uint16_t)(100u + slot), (uint8_t)0);
+        for (j = 0u; j < (uint8_t)EPL_REC_SIZE; j++) {
+            io.wr(io.ctx, (uint16_t)(base + j), raw.b[j]);
+        }
+    }
+    epl_scan(&io, &st);
+
+    CHECK(st.anomaly == 1u, "full ring did not raise the anomaly flag");
+    CHECK(epl_restore(&io, &st) == EPL_OFF_DUTY,
+          "full ring restored a duty out of an unlocatable log");
+    CHECK(epl_append(&io, &st, 300u, (uint8_t)0) == 0xFFFFu,
+          "append into an unlocatable ring was accepted");
+}
+
 /* ─── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void)
@@ -1049,6 +1178,8 @@ int main(void)
     test_restore_source();
     test_randomised();
     test_fault_marker();
+    test_format_tag();
+    test_erase_vs_anomaly();
     test_reboot_soak();
     test_wear_distribution();
     test_counter_cell_would_concentrate();

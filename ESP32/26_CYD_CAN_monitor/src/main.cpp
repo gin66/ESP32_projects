@@ -135,6 +135,13 @@ static uint32_t g_proto_heizung_temp_cnt = 0;
 static uint32_t g_proto_heizung_pwm_cnt = 0;
 static uint32_t g_proto_heizung_adc_cnt = 0;
 static uint32_t g_proto_heizung_stats_cnt = 0;
+static uint32_t g_proto_heizung_ee_cnt = 0;
+/* Set when an EEPROM report arrives with the PWM-fault flag, and by the
+ * log's own anomaly flag. Both are conditions where the node looks alive
+ * but is not delivering what its status claims, so they are surfaced
+ * on the stats line rather than left inside a decoded frame. */
+static uint8_t  g_proto_heizung_pwmfail = 0;
+static uint8_t  g_proto_heizung_ee_anom = 0;
 
 // Protocol analyzer state
 static uint16_t g_sml_base_id = 0;
@@ -228,6 +235,9 @@ extern "C" void clear_all_counters() {
   g_proto_heizung_pwm_cnt = 0;
   g_proto_heizung_adc_cnt = 0;
   g_proto_heizung_stats_cnt = 0;
+  g_proto_heizung_ee_cnt = 0;
+  g_proto_heizung_pwmfail = 0;
+  g_proto_heizung_ee_anom = 0;
   Serial.println("[CAN] All counters cleared");
 }
 
@@ -399,6 +409,39 @@ static void decode_protocol(uint32_t id, const uint8_t* data, uint8_t len,
                  a.max_count, a.min_count, a.pp_count, a.flags);
       }
       g_proto_heizung_adc_cnt++;
+      return;
+    }
+
+    /* ── EEPROM restore-point log (0x2C8) ─────────────────────────────── */
+    case HAUS_PROTO_HEIZUNG_EE: {
+      info->label[0] = 'E';
+      info->label[1] = 'E';
+      info->label[2] = '\0';
+      if (len >= 8) {
+        haus_can_ee_t e;
+        const char *src;
+        haus_can_get_ee(data, &e);
+
+        switch (e.flags & EE_SRC_MASK) {
+          case EE_SRC_VIRGIN  << EE_SRC_SHIFT: src = "virgin";     break;
+          case EE_SRC_MARKER  << EE_SRC_SHIFT: src = "marker";     break;
+          case EE_SRC_WINDOW  << EE_SRC_SHIFT: src = "window";     break;
+          case EE_SRC_ANOMALY << EE_SRC_SHIFT: src = "ANOMALY";    break;
+          case EE_SRC_INVALID << EE_SRC_SHIFT: src = "bad-newest"; break;
+          default:                                 src = "?";        break;
+        }
+
+        snprintf(info->decoded, sizeof(info->decoded),
+                 "rest=%u rec=%u arc=%u..%u w=%u %s%s%s",
+                 e.restored_duty, e.records, e.oldest, e.newest, e.writes, src,
+                 (e.flags & EE_FLAG_WRAPPED) ? " wrap" : "",
+                 (e.flags & EE_FLAG_PWMFAIL) ? " PWMFAIL" : "");
+
+        g_proto_heizung_pwmfail =
+            (uint8_t)((e.flags & EE_FLAG_PWMFAIL) ? 1 : 0);
+        g_proto_heizung_ee_anom = (uint8_t)((e.flags & EE_FLAG_ANOMALY) ? 1 : 0);
+      }
+      g_proto_heizung_ee_cnt++;
       return;
     }
 
@@ -609,12 +652,14 @@ static void update_can_display(void) {
   if (g_proto_display_mode == PROTO_MODE_ANALYZER) {
     snprintf(stats_buf, sizeof(stats_buf),
              "Proto: TS:%lu SML:%lu TB:%lu HID:%lu HTmp:%lu "
-             "HPWM:%lu HADC:%lu HSt:%lu Ukn:%lu",
+             "HPWM:%lu HADC:%lu HSt:%lu HEE:%lu%s%s Ukn:%lu",
              g_proto_timestamp_cnt, g_proto_sml_cnt,
              g_proto_time_broadcast_cnt,
              g_proto_heizung_id_cnt, g_proto_heizung_temp_cnt,
              g_proto_heizung_pwm_cnt, g_proto_heizung_adc_cnt,
-             g_proto_heizung_stats_cnt,
+             g_proto_heizung_stats_cnt, g_proto_heizung_ee_cnt,
+             g_proto_heizung_ee_anom ? " EE-ANOM" : "",
+             g_proto_heizung_pwmfail ? " PWMFAIL" : "",
              g_proto_unknown_cnt);
   } else {
     snprintf(stats_buf, sizeof(stats_buf), "RX: %lu | TX: %lu | Err: %lu",
@@ -711,6 +756,17 @@ static void update_can_display(void) {
                                         lv_color_hex(0xFFCC66), LV_PART_MAIN);
             lv_obj_set_style_text_color(objects.lblTime[i],
                                         lv_color_hex(0xFFCC66), LV_PART_MAIN);
+            break;
+          case HAUS_PROTO_HEIZUNG_EE:
+            /* Red when the log is in a state the node cannot be trusted from:
+             * a lost restore point, or a recorded output-path failure. */
+            lv_obj_set_style_text_color(
+                objects.lblData[i],
+                lv_color_hex((g_proto_heizung_ee_anom || g_proto_heizung_pwmfail)
+                                 ? 0xFF6666 : 0x66CCCC),
+                LV_PART_MAIN);
+            lv_obj_set_style_text_color(objects.lblTime[i],
+                                        lv_color_hex(0x66CCCC), LV_PART_MAIN);
             break;
           case HAUS_PROTO_HEIZUNG_STATS:
             lv_obj_set_style_text_color(objects.lblData[i],

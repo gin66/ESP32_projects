@@ -56,11 +56,12 @@ static void serial_diag(char c)
     switch (c) {
         case 'R': case 'r': what = "reboot (starve watchdog)"; cmd = SYSCMD_REBOOT;      break;
         case 'S': case 's': what = "kill TIMSK1 (PWM stall)"; cmd = SYSCMD_PWM_STALL;   break;
-        case 'E': case 'e': what = "scribble EEPROM log";      cmd = SYSCMD_EE_ANOMALY;  break;
+        case 'A': case 'a': what = "fill EEPROM (force anomaly)"; cmd = SYSCMD_EE_ANOMALY;  break;
+        case 'X': case 'x': what = "erase EEPROM log";          cmd = SYSCMD_EE_ERASE;    break;
         case 'C': case 'c': what = "clear counters";           cmd = SYSCMD_CLEAR_STATS; break;
         case 'V': case 'v': what = "revive from failover";      cmd = SYSCMD_REVIVE;      break;
         default:
-            Serial.println("  ? R=reboot S=pwm-stall E=eeprom-scribble C=clear V=revive");
+            Serial.println("  ? R=reboot S=pwm-stall A=eeprom-fill X=eeprom-erase C=counters V=revive");
             return;
     }
 
@@ -207,6 +208,8 @@ void setup()
     radio.startListening();
 
     Serial.println("[RX] ready — broadcasts on pipe 1, commands on pipe 0");
+    Serial.println(F("[RX] keys: 0..1000+Enter=duty   R=reboot S=pwm-stall"));
+    Serial.println(F("[RX]       A=eeprom-fill X=eeprom-erase C=counters V=revive"));
     Serial.println("[RX] type a duty 0..1000 and press Enter to command the PWM");
 }
 

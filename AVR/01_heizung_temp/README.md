@@ -299,9 +299,39 @@ probe reads as high, using the two measured endpoints as the reference.
 
 Two things to note before these are used for calibration:
 
-**These are not D7 measurements.** 11.57 V exceeds the ATmega328p supply, so the
-probe is on a downstream node, not the MCU pin. The probe point and the driver
-stage are not documented yet.
+**These are not D7 measurements.** 11.57 V exceeds the ATmega328p supply because
+the probe sits on the downstream side of a galvanically isolated driver stage.
+The signal path is: D7 → R7 (620 Ω) → PC817 LED (phototransistor side) →
+output node → TL431LP (U2) shunt regulator → high-impedance external load on a
++24 V rail. The optocoupler (U1, PC817) isolates the 5 V MCU domain from the
+external load domain, so the probe measures voltage on the +24 V side.
+
+The driver stage is now fully documented:
+
+```
+D7 (ATmega328p, 5V)
+  │
+  R7 (620 Ω)  ← LED current: (5.0 − 1.2) / 620 ≈ 6.1 mA
+  │
+  PC817 U1 (LED pin 1 → pin 2)
+  │
+  [galvanic isolation — phototransistor pin 3 → pin 4]
+  │
+  ├── R6 (470 Ω) → GND (MCU side)
+  │
+  └── Output node (probe point at C2, 4.7 µF)
+        ├── C2 (4.7 µF) → GND  ← **PROBE POINT**
+        ├── R5 (3.3 kΩ) → junction with R4/C1
+        ├── R4 (4.3 kΩ) → +5V (via C1 22 µF)
+        ├── R1 (sense resistor) → TL431 REF (pin 1)
+        ├── TL431LP U2 (pin 2 = Anode → GND)
+        └── J3 (3-pin screw terminal) → external high-impedance load on +24 V rail
+```
+
+R1 is the TL431 sense resistor, setting sink current = 2.5 V / R1.
+The external load has a **high-impedance input**, so it draws negligible current
+from the output node — the node voltage is determined by the division between
+the phototransistor's on-resistance and the TL431's constant-current sink.
 
 **The response is inverted** — more commanded duty gives *less* voltage —
 which is what an inverting driver (common-emitter NPN, or N-channel MOSFET with
@@ -333,8 +363,9 @@ BOM from `Heizung.kicad_sch` (KiCad 9):
 | R5 | 3.3 kΩ | — | output RC series element |
 | C2 | 4.7 µF | — | output RC capacitor, **probe point** |
 | U2 | — | TL431LP | precision shunt regulator in the output path |
-| R1, R3 | 3.3 kΩ | — | adjacent to U2 |
-| R2 | 12 kΩ | — | adjacent to U2 |
+| R1    | 3.3 kΩ | — | **TL431 sense resistor** (sets sink current = 2.5 V / R1) |
+| R3    | 3.3 kΩ | — | adjacent to U2 |
+| R2    | 12 kΩ  | — | adjacent to U2 |
 | R6 | 470 Ω | — | near the PC817 output |
 | J3 | — | Screw 1x03 | external 3-pin terminal |
 
@@ -348,14 +379,15 @@ series resistor. Any analysis that treats the 12 V side as a resistive pull-up
 is therefore wrong, including the earlier estimate of the collector current the
 phototransistor has to sink.
 
-**Caveat — the schematic is not yet fully connected.** Parsing
-`Heizung.kicad_sch` shows 35 header pin stubs, each ending in a label, and a
-separate island of 44 wires carrying the output circuit, with **no wire bridging
-the two**. `D7` is a label on a dangling stub; the intent (D7 → R7 → PC817) is
-clear from placement, but the netlist is not drawn. Which of R1/R3 is the TL431
-sense resistor therefore cannot be confirmed from the file, so the sink current
-— plausibly `2.5 V / 3.3 kΩ` ≈ 0.76 mA — is a hypothesis, not a measured fact.
-Check it before relying on any current figure here.
+**Schematic note — the KiCad file has no `Wire` objects connecting the output
+circuit to the MCU side.** The schematic shows 35 header pin stubs with labels
+and a separate island of 44 wires carrying the output circuit, with **no wire
+bridging the two**. The connection exists on the actual PCB (D7 → R7 → PC817),
+but the netlist in the KiCad file is incomplete — no wires were drawn.
+
+R1 is confirmed as the TL431 sense resistor (see above), so the sink current
+is `2.5 V / R1` ≈ 0.76 mA (if R1 = 3.3 kΩ). This is the constant current the
+TL431 sinks from the output node when it turns on.
 
 **The RC values, against a 1 ms PWM period:**
 

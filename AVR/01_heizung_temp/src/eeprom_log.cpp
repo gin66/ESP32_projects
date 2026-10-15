@@ -39,7 +39,7 @@ void epl_encode(epl_raw_t* raw, uint16_t duty, uint8_t flags)
 
     raw->b[0] = (uint8_t)(word & 0xFFu);
     raw->b[1] = (uint8_t)((word >> 8) & 0xFFu);
-    raw->b[2] = (uint8_t)0u;                       /* reserved */
+    raw->b[2] = EPL_FORMAT;
     raw->b[3] = chk_of(word, (uint8_t)(flags & EPL_FLAGS_MASK));
 }
 
@@ -69,7 +69,11 @@ epl_rec_t epl_decode(const epl_raw_t* raw)
         return r;
     }
 
-    if (raw->b[2] != 0u) {                         /* reserved byte must be 0 */
+    /* Format gate. A record from any other layout is not merely corrupt, it is
+     * from a different format, and the distinction matters: rejecting it here
+     * makes a layout bump self-invalidating instead of requiring every node to
+     * be erased by hand. */
+    if (raw->b[2] != EPL_FORMAT) {
         r.duty = 0u;
         r.flags = 0u;
         r.valid = 0u;

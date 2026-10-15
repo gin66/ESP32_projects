@@ -302,10 +302,11 @@ static void get_protocol_info(uint32_t id, const uint8_t* data, uint8_t len,
           default:                                 src = "?";       break;
         }
         snprintf(decoded, decoded_size,
-                 "restored=%u rec=%u arc=%u..%u w=%u %s%s%s",
+                 "restored=%u rec=%u arc=%u..%u w=%u %s%s%s%s",
                  e.restored_duty, e.records, e.oldest, e.newest, e.writes, src,
                  (e.flags & EE_FLAG_WRAPPED) ? " wrapped" : "",
-                 (e.flags & EE_FLAG_ANOMALY) ? " RESTORE-LOST" : "");
+                 (e.flags & EE_FLAG_ANOMALY) ? " RESTORE-LOST" : "",
+                 (e.flags & EE_FLAG_PWMFAIL) ? " PWM-OUTPUT-FAILED" : "");
       }
       return;
     }

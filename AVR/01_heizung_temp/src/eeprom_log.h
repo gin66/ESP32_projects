@@ -102,6 +102,22 @@
  * not be reported, and would reset the escalation history to "first occurrence".
  * In the log it survives power loss, travels over both wires, and is visible to
  * a receiver that never saw the fault happen. */
+/* Format tag, in the byte that was spare.
+ *
+ * This is what makes a manual erase almost unnecessary. Change the record layout
+ * and bump this: every record written by any other version then fails to decode,
+ * so the ring reads as virgin and the node starts clean rather than trying to
+ * interpret old bytes.
+ *
+ * Without it, a layout change leaves old records that either fail the checksum
+ * (fine) or — at roughly 1 chance in 256 per slot, so near-certain across 256
+ * slots — accidentally *pass* it and come back as phantom records with invented
+ * duties. The duty in a phantom record would then drive the heater.
+ *
+ * A bare "reserved, must be 0" byte catches nothing: old bytes are 0 there too.
+ */
+#define EPL_FORMAT          ((uint8_t)0x5Au)
+
 #define EPL_FLAG_BOOT      ((uint16_t)0x0001u)
 #define EPL_FLAG_PWM_FAIL  ((uint16_t)0x0002u)
 #define EPL_FLAGS_MASK     ((uint16_t)0x003Fu)

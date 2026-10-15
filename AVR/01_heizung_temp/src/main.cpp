@@ -642,16 +642,55 @@ static void sys_cmd_exec(uint8_t cmd, uint8_t arg)
         return;
 
     case SYSCMD_EE_ANOMALY:
-        Serial.println(F("[TX] *** DIAG: scribbling the EEPROM log"));
+        /* Fill EVERY slot with a valid record, so there is no empty arc at all
+         * and the newest cannot be located.
+         *
+         * This was previously an erase, which does the opposite: erasing to 0xFF
+         * leaves a 256-slot empty arc and the scan correctly reports VIRGIN. So
+         * the command named "anomaly" was exercising the wrong branch entirely.
+         *
+         * The VALID_MAX guard inside epl_append() makes this state unreachable
+         * through the normal path — which is the guard working, not a problem —
+         * so the records are written straight through the io interface, the same
+         * way the host test builds it. */
+        Serial.println(F("[TX] *** DIAG: filling every EEPROM slot"));
         Serial.flush();
-        /* Erase every slot so the ring has no empty arc to find and the scan
-         * must report the anomaly rather than mis-locate the newest record. */
+        {
+            uint16_t slot;
+            for (slot = 0u; slot < EPL_SLOTS; slot++) {
+                epl_raw_t raw;
+                uint16_t base = (uint16_t)(slot * EPL_REC_SIZE);
+                uint8_t  j;
+
+                epl_encode(&raw, (uint16_t)(100u + slot), (uint8_t)0);
+                for (j = 0u; j < (uint8_t)EPL_REC_SIZE; j++) {
+                    epl_io()->wr(epl_io()->ctx, (uint16_t)(base + j), raw.b[j]);
+                }
+            }
+        }
+        epl_scan(epl_io(), &epl_state);
+        Serial.println(epl_state.anomaly
+                           ? F("[TX] ***       anomaly flag set — restore will fall back to OFF")
+                           : F("[TX] ***       NOT anomalous — check the build"));
+        return;
+
+    case SYSCMD_EE_ERASE:
+        /* The operator action, and a distinct thing from CLEAR_STATS: this is
+         * the only command that touches EEPROM on purpose. Normally unnecessary,
+         * because bumping EPL_FORMAT invalidates every existing record on its
+         * own — this is for a log that has to be discarded right now. */
+        Serial.println(F("[TX] *** DIAG: erasing the EEPROM log"));
+        Serial.flush();
         {
             uint16_t slot;
             for (slot = 0u; slot < EPL_SLOTS; slot++) epl_erase_slot(epl_io(), slot);
         }
         epl_scan(epl_io(), &epl_state);
-        Serial.println(F("[TX] ***       anomaly flag now set"));
+        epl_writes = 0u;
+        Serial.print(F("[TX] ***       log erased, records="));
+        Serial.print(epl_state.count);
+        Serial.print(F(" — restore falls back to "));
+        Serial.println(epl_restored);
         return;
 
     case SYSCMD_REVIVE:

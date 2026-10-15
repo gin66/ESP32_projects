@@ -220,14 +220,14 @@ already checks every frame with hardware CRC-16 and bit stuffing.
 
 1 kHz, adjustable duty, ~14-bit resolution in 1 µs steps.
 
-A PCB copper short tied this net to D8, the MCP2515 chip-select. With the short in place, driving D7 low made the SPI probe fail even when the compare interrupts were off and the LED current was zero. Leaving D7 as an input avoided the short. The copper has been removed. After that, a stats line read `sent=61 recv=20 tec=0 rec=0 eflg=0x0 intf=0x4 spi=0 probe=0`.
+The rf-nano is a black-box module — D7 is one of its pins, and the schematic
+shows only the external circuit connected to that pin, not the nano's internals.
 
-`PORT_BIT` is D7 again, and `pwm_out_begin()` sets the pin as an output. `PWM_DUTY_PERMILLE` is 0, so boot holds the pin low until a command arrives. `TCCR1A` is written as 0, so the timer does not drive D9 (OC1A, nRF CSN) or D10 (OC1B, nRF CE).
-
-The ATmega328p has one 16-bit timer and both of its hardware PWM pins are D9/D10, so >8-bit resolution anywhere means software PWM. Timer1 runs in fast PWM mode 14 (TOP = ICR1) with OC1A and OC1B disconnected. The rising edge is the compare-A match at TOP. The falling edge is the compare-B match at the duty count. Two interrupts per period, not the overflow vector.
-
-Timer1 is otherwise unused: RF24 only calls `millis()` and
-`delayMicroseconds()`, which are Timer0 and a calibrated loop.
+A PCB copper short tied this net to D8, the MCP2515 chip-select. With the short
+in place, driving D7 low made the SPI probe fail even when the compare
+interrupts were off and the LED current was zero. Leaving D7 as an input
+avoided the short. The copper has been removed. After that, a stats line read
+`sent=61 recv=20 tec=0 rec=0 eflg=0x0 intf=0x4 spi=0 probe=0`.
 
 ```cpp
 pwm_out_set(250);   // 25 %
@@ -279,7 +279,9 @@ would race the PWM edge.
 
 ### Measured output
 
-Measured 2026-10-11, while D7 was still driven, by commanding a duty from the receiver's serial console and probing the node with a DC voltmeter. The current firmware does not drive D7, so this table is not the present output.
+Measured 2026-10-11, while D7 was still driven, by commanding a duty from the
+receiver's serial console and probing the node with a DC voltmeter. The current
+firmware does not drive D7, so this table is not the present output.
 
 | Commanded duty | Measured | Implied inverted duty * |
 |---|---|---|
@@ -297,41 +299,34 @@ Measured 2026-10-11, while D7 was still driven, by commanding a duty from the re
 \* `1 − (11.57 − V) / (11.57 − 0.137)`, i.e. the fraction of the swing that the
 probe reads as high, using the two measured endpoints as the reference.
 
-Two things to note before these are used for calibration:
-
 **These are not D7 measurements.** 11.57 V exceeds the ATmega328p supply because
 the probe sits on the downstream side of a galvanically isolated driver stage.
-The signal path is: D7 → R7 (620 Ω) → PC817 LED (phototransistor side) →
-output node → TL431LP (U2) shunt regulator → high-impedance external load on a
-+24 V rail. The optocoupler (U1, PC817) isolates the 5 V MCU domain from the
-external load domain, so the probe measures voltage on the +24 V side.
+The rf-nano is a black-box module; D7 is one of its pins, and the schematic
+shows only the external circuit connected to that pin — the nano's internals
+(Timer1, software PWM, firmware) are not drawn.
 
-The driver stage is now fully documented:
+The external circuit connected to D7:
 
-```
-D7 (ATmega328p, 5V)
-  │
-  R7 (620 Ω)  ← LED current: (5.0 − 1.2) / 620 ≈ 6.1 mA
-  │
-  PC817 U1 (LED pin 1 → pin 2)
-  │
-  [galvanic isolation — phototransistor pin 3 → pin 4]
-  │
-  ├── R6 (470 Ω) → GND (MCU side)
-  │
-  └── Output node (probe point at C2, 4.7 µF)
-        ├── C2 (4.7 µF) → GND  ← **PROBE POINT**
-        ├── R5 (3.3 kΩ) → junction with R4/C1
-        ├── R4 (4.3 kΩ) → +5V (via C1 22 µF)
-        ├── R1 (sense resistor) → TL431 REF (pin 1)
-        ├── TL431LP U2 (pin 2 = Anode → GND)
-        └── J3 (3-pin screw terminal) → external high-impedance load on +24 V rail
-```
+| ref | value | part | role |
+|---|---|---|---|
+| R7 | 620 Ω | — | PC817 LED series, fed from D7 |
+| U1 | — | PC817 | LED / phototransistor isolation |
+| C1 | 22 µF | — | output node capacitor |
+| R4 | 4.3 kΩ | — | in series with C1 |
+| R5 | 3.3 kΩ | — | output RC series element |
+| C2 | 4.7 µF | — | output RC capacitor, **probe point** |
+| U2 | — | TL431LP | precision shunt regulator in the output path |
+| R1 | 3.3 kΩ | — | **TL431 sense resistor** (sets sink current = 2.5 V / R1) |
+| R3 | 3.3 kΩ | — | adjacent to U2 |
+| R2 | 12 kΩ | — | adjacent to U2 |
+| R6 | 470 Ω | — | near the PC817 output |
+| J3 | — | Screw 1x03 | external 3-pin terminal |
 
-R1 is the TL431 sense resistor, setting sink current = 2.5 V / R1.
-The external load has a **high-impedance input**, so it draws negligible current
-from the output node — the node voltage is determined by the division between
-the phototransistor's on-resistance and the TL431's constant-current sink.
+LED current is `(5.0 − 1.2) / 620` ≈ **6.1 mA**, above the PC817's 5 mA test
+condition. The external load has a **high-impedance input**, so it draws
+negligible current from the output node — the node voltage is determined by
+the division between the phototransistor's on-resistance and the TL431's
+constant-current sink (`2.5 V / R1` ≈ 0.76 mA).
 
 **The response is inverted** — more commanded duty gives *less* voltage —
 which is what an inverting driver (common-emitter NPN, or N-channel MOSFET with
@@ -350,44 +345,19 @@ The table above is directly usable as a calibration curve as it stands, but
 control authority would be poor in the mid-range: to move the probe between
 40 % and 60 % of its swing requires commanding 20 % to 40 % of duty.
 
-#### Load — PC817 with TL431LP current sink
-
-BOM from `Heizung.kicad_sch` (KiCad 9):
-
-| ref | value | part | role |
-|---|---|---|---|
-| R7 | 620 Ω | — | PC817 LED series, fed from D7 |
-| U1 | — | PC817 | LED / phototransistor isolation |
-| C1 | 22 µF | — | output node capacitor |
-| R4 | 4.3 kΩ | — | in series with C1 |
-| R5 | 3.3 kΩ | — | output RC series element |
-| C2 | 4.7 µF | — | output RC capacitor, **probe point** |
-| U2 | — | TL431LP | precision shunt regulator in the output path |
-| R1    | 3.3 kΩ | — | **TL431 sense resistor** (sets sink current = 2.5 V / R1) |
-| R3    | 3.3 kΩ | — | adjacent to U2 |
-| R2    | 12 kΩ  | — | adjacent to U2 |
-| R6 | 470 Ω | — | near the PC817 output |
-| J3 | — | Screw 1x03 | external 3-pin terminal |
-
-LED current is `(5.0 − 1.2) / 620` ≈ **6.1 mA**, above the PC817's 5 mA test
-condition.
-
 **U2 is a TL431LP precision shunt regulator, not a plain pull-up resistor.**
 This is the "current limit" in this stage, and it means the load current is set
-by the TL431 reference against a sense resistor rather than by the rail and a
-series resistor. Any analysis that treats the 12 V side as a resistive pull-up
-is therefore wrong, including the earlier estimate of the collector current the
-phototransistor has to sink.
+by the TL431 reference against a sense resistor (R1) rather than by the rail
+and a series resistor. Any analysis that treats the 12 V side as a resistive
+pull-up is therefore wrong.
 
-**Schematic note — the KiCad file has no `Wire` objects connecting the output
-circuit to the MCU side.** The schematic shows 35 header pin stubs with labels
-and a separate island of 44 wires carrying the output circuit, with **no wire
-bridging the two**. The connection exists on the actual PCB (D7 → R7 → PC817),
-but the netlist in the KiCad file is incomplete — no wires were drawn.
-
-R1 is confirmed as the TL431 sense resistor (see above), so the sink current
-is `2.5 V / R1` ≈ 0.76 mA (if R1 = 3.3 kΩ). This is the constant current the
-TL431 sinks from the output node when it turns on.
+**Schematic note.** The KiCad file has no `Wire` objects connecting the output
+circuit to the nano pin labels — 35 header pin stubs with labels on one side,
+a separate island of 44 wires carrying the output circuit on the other, with
+**no wire bridging the two**. The connection exists on the actual PCB (D7 → R7
+→ PC817), but the netlist in the KiCad file is incomplete — no wires were
+drawn. The nano itself (ATmega328p, firmware, Timer1) is a black-box module;
+the schematic shows only the external circuit connected to its pins.
 
 **The RC values, against a 1 ms PWM period:**
 

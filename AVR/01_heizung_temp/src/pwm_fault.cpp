@@ -9,6 +9,25 @@
 
 #include "pwm_fault.h"
 
+void pwm_boot_state_init(pwm_boot_state_t* st)
+{
+    if (st == 0) return;
+    st->magic             = PWM_BOOT_MAGIC;
+    st->boot_count        = 1u;
+    st->pwm_fault_last_boot = 0u;
+    st->pwm_fault_runs    = 0u;
+}
+
+uint8_t pwm_boot_state_trusted(const pwm_boot_state_t* st, uint8_t porf)
+{
+    if (st == 0) return 0u;
+    /* Power-on always means we may not trust it: the contents are whatever RAM
+     * powered up as. Checking it in addition to the magic costs nothing and
+     * covers the case where SRAM happens to hold the pattern. */
+    if (porf) return 0u;
+    return (uint8_t)((st->magic == PWM_BOOT_MAGIC) ? 1u : 0u);
+}
+
 uint8_t pwm_monitor_observe(pwm_monitor_t* m, uint32_t runs, uint32_t now_ms,
                             uint8_t active)
 {

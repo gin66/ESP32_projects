@@ -265,7 +265,7 @@ static const unsigned long EE_MIN_WRITE_GAP_MS = 3600000UL;   // 1 h
 // the fuse settings is what would turn a slow brownout into a clean counted
 // restart. That is a hardware change, not a firmware one, and it is not done
 // here.
-static uint8_t bootCount __attribute__((section(".noinit")));
+static pwm_boot_state_t bootState __attribute__((section(".noinit")));
 
 static void peripherals_tick()
 {
@@ -338,10 +338,18 @@ static void broadcast_pwm()
     f.magic  = NRF_MAGIC_PWM;
     f.duty   = pwm_duty;
     f.hz     = PWM_OUT_HZ;
-    /* Bit 0 stays "is the counter modulating", bits 1..2 carry the source. Both
-     * go out on the same byte, so the radio and CAN frames cannot disagree about
-     * where the duty came from. */
-    f.flags  = (uint8_t)((pwm_out_active() ? PWM_FLAG_ACTIVE : 0) | pwm_source);
+    /* Bit 0 says whether the PIN is being modulated, not whether the timer is.
+     * Those differ in failover: the counter is stopped, but the pin is being
+     * square-waved from the main loop at 1 kHz. Reading the timer's state there
+     * reported "endpoint, held" about a pin that was actively switching — a
+     * receiver would conclude the output was constant while the load was being
+     * driven. pwm_out_active() only answers the question for the timer path. */
+    uint8_t modulating = (uint8_t)((pwm_out_active() || pwm_out_failover_active())
+                                   ? 1u : 0u);
+
+    /* Bit 0 modulating, bits 1..2 the source. Both go out on the same byte, so
+     * the radio and CAN frames cannot disagree about where the duty came from. */
+    f.flags  = (uint8_t)((modulating ? PWM_FLAG_ACTIVE : 0u) | pwm_source);
     memset(f.reserved, 0, sizeof(f.reserved));
     f.crc    = frame_crc16(&f, sizeof(f));
 
@@ -527,8 +535,7 @@ static uint32_t      pwmStallCount = 0;
 // Latched across the watchdog reboot that step 1 triggers. .noinit, not EEPROM:
 // a watchdog reset preserves it, and a power loss is a fresh start anyway. The
 // EEPROM log carries the fault for *reporting* — see pwm_fault_record().
-static uint8_t pwmFaultLastBoot __attribute__((section(".noinit")));
-static uint8_t pwmFaultRuns     __attribute__((section(".noinit")));
+static pwm_boot_state_t *pwmBoot = &bootState;   /* the .noinit block */
 
 static bool     pwmFailover = false;   // terminal safe mode for this boot
 static bool     pwm_fault_persisted = false;  // decided at boot, acted on in loop()
@@ -553,7 +560,16 @@ static void pwm_failover_enter(void)
 {
     pwmFailover = true;
     pwm_source  = PWM_SRC_FAULT;
+
+    /* Publish the duty that is actually reaching the load, not the one that was
+     * commanded and could not be delivered. The frame reports the output state,
+     * so leaving pwm_duty at the failed command would have every receiver
+     * believing the heater was being driven at a duty it is not being driven at.
+     * src=FAULT on the same frame says why the value changed and who did it. */
+    pwm_duty = PWM_FAILOVER_PERMILLE;
+
     pwm_fault_record();
+    broadcast_pwm();
 
     Serial.println(F("[TX] PWM FAILURE PERSISTED — entering safe mode"));
     Serial.print(F("[TX]   1 kHz square wave @ "));
@@ -584,7 +600,8 @@ static void pwm_liveness_tick(void)
         Serial.println(F("[TX] PWM ISR stalled — no edge progress"));
     }
 
-    act = pwm_fault_on_stall(&pwmFaultLastBoot, &pwmFaultRuns);
+    act = pwm_fault_on_stall(&pwmBoot->pwm_fault_last_boot,
+                          &pwmBoot->pwm_fault_runs);
 
     if (act == PWM_FAULT_FAILOVER) {
         pwm_failover_enter();          /* never returns */
@@ -1124,7 +1141,7 @@ static void send_can_stats()
     Serial.print(" intf=0x");
     Serial.print(intf, HEX);
 Serial.print(" boot=");
-    Serial.print(bootCount);
+    Serial.print(bootState.boot_count);
     Serial.print(" pwm_stall=");
     Serial.print(pwmStallCount);
     Serial.println(pwmMon.stalled ? F(" ACTIVE") : F(""));
@@ -1182,22 +1199,26 @@ void setup()
     // Restart accounting. PORF is the only reset this board cannot distinguish
     // from a first-ever power-up, and it is the only case where the .noinit
     // contents are meaningless.
-    if (MCUSR & _BV(PORF)) {
-        bootCount       = 1;
-        pwmFaultLastBoot = 0u;
-        pwmFaultRuns     = 0u;
-    } else {
-        bootCount = (bootCount == 0xFF) ? 1 : (uint8_t)(bootCount + 1);
+    /* Restart accounting, and the PWM escalation stage.
+     *
+     * The .noinit block is only trusted if this firmware wrote it — see
+     * pwm_boot_state_trusted(). PORF on its own is NOT sufficient, and getting
+     * that wrong is what put this node into failover on a freshly flashed chip:
+     * an upload starts the application with a watchdog reset, not a power-on
+     * one, so PORF stays clear while RAM still holds whatever it powered up as.
+     * A garbage run-count above the threshold then escalates before the monitor
+     * has run once. */
+    if (pwm_boot_state_trusted(&bootState, (uint8_t)((MCUSR & _BV(PORF)) ? 1u : 0u))) {
+        bootState.boot_count = (uint8_t)(bootState.boot_count + 1u);
 
-        /* PWM escalation stage. pwm_fault_boot() folds the retained latch into the
-         * run count and decides only what is knowable at boot — a single latch
-         * buys a retry, not failover, because whether the fault is still there is
-         * not knowable until the monitor observes it. Both are taken by pointer:
-         * the count has to survive the reset this very call exists to reason
-         * about. */
-        if (pwm_fault_boot(&pwmFaultLastBoot, &pwmFaultRuns) == PWM_FAULT_FAILOVER) {
+        /* A single latched fault buys a retry, not failover: whether the fault is
+         * still there is not knowable until the monitor observes it. */
+        if (pwm_fault_boot(&pwmBoot->pwm_fault_last_boot,
+                           &pwmBoot->pwm_fault_runs) == PWM_FAULT_FAILOVER) {
             pwm_fault_persisted = 1u;
         }
+    } else {
+        pwm_boot_state_init(&bootState);
     }
 
     // CSN lines first: deselect both SPI peripherals so that nothing on the
@@ -1276,9 +1297,9 @@ void setup()
     // A restart count above 1 with no PORF is the brownout-reset loop. It is
     // called out on the boot line rather than only in the periodic stats,
     // because the whole point is that nobody is watching the serial port.
-    if (bootCount > 1) {
+    if (bootState.boot_count > 1) {
         Serial.print(F(" — restarted "));
-        Serial.print(bootCount);
+        Serial.print(bootState.boot_count);
         Serial.print(F(" times"));
         Serial.print(MCUSR & _BV(PORF) ? F(" (POR)") : F(" (no POR: brownout/watchdog)"));
     }
@@ -1338,7 +1359,7 @@ void loop()
         lastStatsMs = millis();
         if (pwmFailover) {
             Serial.print(F("[TX] failover, boot="));
-            Serial.print(bootCount);
+            Serial.print(bootState.boot_count);
             Serial.print(F(" writes="));
             Serial.print(epl_writes);
             Serial.println();

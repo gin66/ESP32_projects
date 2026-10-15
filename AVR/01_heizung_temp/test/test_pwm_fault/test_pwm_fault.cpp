@@ -32,6 +32,15 @@ static uint32_t g_failures;
 
 #define SECTION(name) printf("-- %s\n", name)
 
+/* Fill a struct with a repeating byte, the way uninitialised SRAM looks. */
+static void memset_pattern(pwm_boot_state_t* p, uint8_t v)
+{
+    uint8_t* b = (uint8_t*)p;
+    uint16_t i;
+    for (i = 0u; i < (uint16_t)sizeof(pwm_boot_state_t); i++) b[i] = v;
+}
+
+
 /* ─── Liveness detection ───────────────────────────────────────────────────── */
 
 static void test_liveness(void)
@@ -256,6 +265,79 @@ static void test_fault_flag_roundtrip(void)
     }
 }
 
+
+/* ─── Retained boot state ──────────────────────────────────────────────────── */
+
+/*
+ * Regression test for a bug found on the bench: a freshly flashed node went
+ * straight into failover and reported src=FAULT, with no stall ever observed.
+ *
+ * .noinit is never initialised by the C runtime, and the only guard on it was
+ * PORF. That is not enough: an Arduino upload starts the application with a
+ * watchdog reset rather than a power-on one, so PORF stays clear, and flashing
+ * does not clear RAM either. The three retained bytes were whatever SRAM powered
+ * up as, and a garbage run-count above the escalation threshold sent the node
+ * into safe mode before the monitor had run once.
+ */
+static void test_boot_state_trust(void)
+{
+    pwm_boot_state_t st;
+
+    SECTION("T1  a virgin block is never trusted");
+    memset_pattern(&st, 0xFFu);
+    CHECK(pwm_boot_state_trusted(&st, 0u) == 0u,
+          "all-0xFF block trusted with PORF clear (the reported failure)");
+
+    memset_pattern(&st, 0x00u);
+    CHECK(pwm_boot_state_trusted(&st, 0u) == 0u, "all-zero block trusted");
+
+    SECTION("T2  our own block is trusted across a watchdog reset");
+    pwm_boot_state_init(&st);
+    st.pwm_fault_last_boot = 1u;
+    st.pwm_fault_runs      = 2u;
+    CHECK(pwm_boot_state_trusted(&st, 0u) == 1u,
+          "a block we wrote was not trusted after a non-power-on reset");
+
+    SECTION("T3  a power-on reset discards it even with the magic intact");
+    /* RAM is undefined after a power-on, so a surviving magic byte would be a
+     * coincidence, not provenance. */
+    CHECK(pwm_boot_state_trusted(&st, 1u) == 0u,
+          "a power-on reset was trusted despite the magic matching");
+
+    SECTION("T4  init stamps the magic and clears the counters");
+    pwm_boot_state_init(&st);
+    CHECK(st.magic == PWM_BOOT_MAGIC, "magic = 0x%04X, want 0x%04X",
+          st.magic, PWM_BOOT_MAGIC);
+    CHECK(st.boot_count == 1u, "boot_count = %u, want 1", st.boot_count);
+    CHECK(st.pwm_fault_last_boot == 0u, "fault latch not cleared");
+    CHECK(st.pwm_fault_runs == 0u, "run count not cleared");
+
+    SECTION("T5  a garbage run count cannot escalate on an untrusted block");
+    /* The exact reported failure: a plausible block that is not ours, carrying a
+     * run count past the boot-loop threshold. */
+    {
+        pwm_boot_state_t g;
+        memset_pattern(&g, 0x5Au);
+        g.magic               = 0x1234u;   /* not ours */
+        g.boot_count          = 200u;
+        g.pwm_fault_last_boot = 1u;
+        g.pwm_fault_runs      = 9u;        /* past PWM_BOOT_LOOP_FAILOVER */
+
+        CHECK(pwm_boot_state_trusted(&g, 0u) == 0u,
+              "a foreign block with a high run count was trusted");
+
+        pwm_boot_state_init(&g);
+        CHECK(pwm_fault_boot(&g.pwm_fault_last_boot, &g.pwm_fault_runs)
+                  == PWM_FAULT_RUN,
+              "an untrusted block still escalated after re-init");
+    }
+
+    SECTION("T6  null is tolerated");
+    CHECK(pwm_boot_state_trusted(0, 0u) == 0u, "null trusted");
+    pwm_boot_state_init(0);
+    CHECK(1u, "null init did not survive");
+}
+
 int main(void)
 {
     printf("pwm_fault escalation tests\n");
@@ -266,6 +348,7 @@ int main(void)
 
     test_liveness();
     test_escalation();
+    test_boot_state_trust();
     test_waveform();
     test_fault_flag_roundtrip();
 

@@ -55,6 +55,42 @@
  * is the waveform's high time directly. */
 #define PWM_FAILOVER_PERMILLE ((uint16_t)200u)
 
+/* ─── Retained boot state ──────────────────────────────────────────────────── */
+
+/*
+ * The three bytes of boot state this firmware keeps across a reset live in
+ * .noinit, which the C runtime never initialises. Trusting them is therefore
+ * unsafe unless something proves they were written by *this* firmware.
+ *
+ * PORF is not that proof. An upload resets the chip through the bootloader,
+ * which commonly starts the application with a watchdog reset rather than a
+ * power-on one, so PORF stays clear — and flashing does not clear RAM either. On
+ * a chip that has never run this firmware those bytes are simply whatever SRAM
+ * powered up as. A garbage run-count above the escalation threshold then sends
+ * the node into failover before the monitor has run a single time, which looks
+ * exactly like a hardware fault and is not one.
+ *
+ * A magic word makes it deterministic. The latch is honoured only if we wrote it.
+ * This is the same idea as EPL_FORMAT in the EEPROM record, for the same reason:
+ * a version check that cannot tell "ours" from "someone else's" checks nothing.
+ */
+#define PWM_BOOT_MAGIC ((uint16_t)0xA70Fu)
+
+typedef struct {
+    uint16_t magic;
+    uint8_t  boot_count;
+    uint8_t  pwm_fault_last_boot;
+    uint8_t  pwm_fault_runs;
+} pwm_boot_state_t;
+
+/* Stamp the magic so the next boot may trust this block. */
+void pwm_boot_state_init(pwm_boot_state_t* st);
+
+/* 1 only if this block was written by this firmware and the reset was not a
+ * power-on. `porf` is the MCUSR PORF bit. Anything else — a virgin chip, an
+ * upload without a power cycle, a genuine power-on — is not trusted. */
+uint8_t pwm_boot_state_trusted(const pwm_boot_state_t* st, uint8_t porf);
+
 typedef enum {
     PWM_FAULT_RUN = 0,   /* no fault: keep monitoring                    */
     PWM_FAULT_REBOOT,    /* first occurrence: latch it and reboot       */

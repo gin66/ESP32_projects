@@ -558,7 +558,7 @@ static void set_pwm_duty(uint16_t permille)
 // reset, so .noinit survives it, which is all the escalation needs. EEPROM
 // would only add durability across a power loss, and a power loss is a fresh
 // start anyway — it would spend wear to record a fact nothing acts on.
-static pwm_monitor_t pwmMon = { 0u, 0u, 0u };
+static pwm_monitor_t pwmMon = { 0u };
 static uint32_t      pwmStallCount = 0;
 
 // Latched across the watchdog reboot that step 1 triggers. .noinit, not EEPROM:
@@ -616,10 +616,27 @@ static void pwm_failover_enter(void)
 
 static void pwm_liveness_tick(void)
 {
+    /* Armed so the first check lands on the first loop pass: a timer that is dead
+     * at boot should be caught at boot, not five seconds later. */
+    static unsigned long lastAliveMs = 0;
     pwm_fault_action_t act;
+    bool alive;
 
-    if (!pwm_monitor_observe(&pwmMon, (uint8_t)(pwm_out_alive() ? 1u : 0u),
-                             millis())) {
+    /* pwm_out_alive() clears its flags on every call, so it may only be sampled
+     * once per PWM_ALIVE_POLL_MS. Sampling it every loop pass — roughly every
+     * 286 us against a 1 ms period — would ask it more often than the edges
+     * arrive, and the answer would then depend on where the poll happened to land
+     * in the PWM cycle: a flicker, not a fact. Five seconds covers five of each
+     * edge, which makes a false unambiguous, and for a heating load "was the
+     * output being driven at all in the last five seconds" is the only version
+     * of the question worth asking. */
+    unsigned long nowMs = millis();
+    if ((unsigned long)(nowMs - lastAliveMs) < PWM_ALIVE_POLL_MS) return;
+    lastAliveMs = nowMs;
+
+    alive = pwm_out_alive();
+
+    if (!pwm_monitor_observe(&pwmMon, (uint8_t)(alive ? 1u : 0u))) {
         if (pwmMon.stalled) Serial.println(F("[TX] PWM ISR recovered"));
         return;
     }
@@ -836,7 +853,7 @@ static void listen_window(unsigned long ms)
         adc_monitor_tick();
 
         // This window is the longest blocking region in the firmware — exactly
-        // as long as PWM_STALL_LIMIT_MS. Keeping both checks running inside it
+        // as long as a PWM period. Keeping both checks running inside it
         // means neither has to reason about the other: the stall timer cannot
         // be fooled by this block, and the watchdog is fed on the way through.
         pwm_liveness_tick();

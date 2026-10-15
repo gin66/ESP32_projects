@@ -28,28 +28,12 @@ uint8_t pwm_boot_state_trusted(const pwm_boot_state_t* st, uint8_t porf)
     return (uint8_t)((st->magic == PWM_BOOT_MAGIC) ? 1u : 0u);
 }
 
-uint8_t pwm_monitor_observe(pwm_monitor_t* m, uint8_t alive, uint32_t now_ms)
+uint8_t pwm_monitor_observe(pwm_monitor_t* m, uint8_t alive)
 {
-    /* `alive` is a positive proof that both compare matches arrived since the
-     * previous call, not a counter to difference. There is deliberately no
-     * "active" flag any more: the compare interrupts now stay enabled at every
-     * duty including 0 and 1000 permille, so the timer is either running or it
-     * is not, and no duty has to be excused from the check. That flag was the
-     * reason SYSCMD_PWM_STALL could not do its job — clearing TIMSK1 looked
-     * identical to parking the output at an endpoint, and the monitor skipped
-     * both. */
     if (alive) {
-        m->last_ok_ms  = now_ms;
-        m->stalled     = 0u;
+        m->stalled = 0u;
         return 0u;
     }
-
-    /* Unsigned difference, so this survives the 49.7-day millis() wrap. The
-     * comparison is unsigned too: the subtraction has already wrapped into the
-     * correct half of the range, and casting to a signed type would break it
-     * at exactly 2^31 ms. */
-    if ((uint32_t)(now_ms - m->last_ok_ms) < PWM_STALL_LIMIT_MS) return 0u;
-
     m->stalled = 1u;
     return 1u;
 }

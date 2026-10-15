@@ -107,29 +107,39 @@ void pwm_out_set(uint16_t permille)
 
     noInterrupts();
 
-    // At an endpoint the pin is still held by the port register — exact 0 % and
-    // exact 100 %, no edge artefacts — but the compare interrupts stay enabled
-    // and both edge enables go false, so the ISRs keep proving the timer is
-    // alive without touching the pin.
+    // At an endpoint the pin is held by the port register — exact 0 % and exact
+    // 100 %, no edge artefacts — while the compare interrupts stay enabled and
+    // both edge enables go false, so the ISRs keep proving the timer is alive
+    // without touching the pin. OCR1B goes to mid-scale purely to give the two
+    // matches somewhere clearly separate to happen.
     //
-    // OCR1B is parked at 0 so the falling match lands at the bottom of the count
-    // and can never coincide with OCR1A at TOP. That coincidence is the trap
-    // documented above: matching and overflowing in the same cycle lets the
-    // overflow win, which turns "100 %" into nearly 0 %.
+    // It used to be parked at 0 instead. That puts the falling match at the wrap,
+    // one tick from the rising match at TOP — technically two matches, but close
+    // enough that the handshake depends on where the poll lands. Mid-scale keeps
+    // them half a period apart at every duty, so no combination of duty and poll
+    // phase can make them ambiguous.
     if (permille == 0u || permille == 1000u) {
         riseEnabled = 0u;
         fallEnabled = 0u;
         if (permille == 0u) PORTD &= ~PORT_BIT;
         else                 PORTD |=  PORT_BIT;
         TCIFR1  = _BV(TOV1) | _BV(OCF1A) | _BV(OCF1B);
-        OCR1B   = 0u;
+        OCR1B   = (uint16_t)(PWM_TICKS / 2UL);
         TIMSK1  = _BV(OCIE1A) | _BV(OCIE1B);
         interrupts();
         return;
     }
 
-    // Interior duty. 1…999 permille maps to 16…15984 ticks, which can never
-    // reach TOP, so the falling match always precedes the rising one.
+    // Interior duty, clamped to 1…99 %. 1 and 99 % rather than 1…999 because
+    // near the endpoints the two matches crowd together: at 1 % the falling match
+    // is 160 ticks into a 16000-tick period, a hair away from the wrap. Clamping
+    // keeps a real minimum separation, which is what makes the liveness handshake
+    // readable at any duty instead of only at comfortable ones.
+    if (permille < 10u)   permille = 10u;
+    if (permille > 990u)  permille = 990u;
+
+    // 10…990 permille maps to 160…15840 ticks, comfortably inside the period, so
+    // the falling match always precedes the rising one by a clear margin.
     uint16_t ticks = (uint16_t)((uint32_t)permille * PWM_TICKS / 1000UL);
 
     riseEnabled = 1u;
@@ -153,7 +163,7 @@ bool pwm_out_alive(void)
 
     noInterrupts();
     alive = (liveRise != 0u) && (liveFall != 0u);
-    if (alive) { liveRise = 0u; liveFall = 0u; }
+    liveRise = 0u; liveFall = 0u;
     interrupts();
 
     return alive;

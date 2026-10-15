@@ -33,7 +33,22 @@ void pwm_out_set(uint16_t permille);
 /* True once both Timer1 compare matches have arrived since the previous call;
  * also clears them. This is the liveness signal — see the comment above the ISRs
  * for why it is not a counter the caller has to difference. */
+/* CONTRACT: do not call this more than once per PWM_ALIVE_POLL_MS.
+ *
+ * That is not a performance note, it is what makes the answer mean anything. The
+ * flags are cleared on every call, so a call is only interpretable if a whole
+ * period has elapsed since the last one — otherwise the poll can land between the
+ * two compare matches, read one flag set and one clear, report false, and destroy
+ * the edge it had just seen. Sampled faster than the edges it is supposed to be
+ * measuring, this returns something phase-dependent: a flicker that reads as an
+ * intermittent fault, not a fact about the hardware.
+ *
+ * Five periods contain five rising and five falling matches, so a false can only
+ * mean the timer genuinely stopped inside the last five seconds. The flags are
+ * cleared on every call precisely because that gap makes clearing unconditional
+ * rather than a source of lost edges. */
 bool pwm_out_alive(void);
+
 
 /* No running total is exposed, deliberately. A counter here would have to be
  * differenced by its caller to carry any meaning, and a difference means nothing

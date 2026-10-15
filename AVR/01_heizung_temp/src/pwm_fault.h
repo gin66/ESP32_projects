@@ -29,7 +29,6 @@
 /* No edge progress for this long counts as a stall. At 1 kHz there are two ISR
  * entries per millisecond, so 250 ms is ~500 missed entries — far outside
  * anything attributable to a long blocking call in the loop. */
-#define PWM_STALL_LIMIT_MS  ((uint32_t)250u)
 
 /* Consecutive boots on which the stall has been *observed* before safe mode.
  * 1 means "try a single reset first" — so the fault is given exactly one retry
@@ -97,6 +96,14 @@ typedef enum {
     PWM_FAULT_FAILOVER   /* it survived a reset: take over the pin       */
 } pwm_fault_action_t;
 
+/* How often the output path may be sampled for liveness. This doubles as the
+ * stall threshold: the caller waits this long, which covers many PWM periods, so
+ * a false already means the timer stopped inside that window and nothing further
+ * needs timing. For a heating load, "was the output being driven at all in the
+ * last five seconds" is the only version of the question worth asking — asking
+ * it more often does not make it a better question. */
+#define PWM_ALIVE_POLL_MS ((unsigned long)5000UL)
+
 /* ─── Liveness ─────────────────────────────────────────────────────────────── */
 
 /* Edge-progress tracker.
@@ -105,8 +112,6 @@ typedef enum {
  * samples rather than keeping its own timer, because it has no clock of its own
  * and the caller's is already counting. */
 typedef struct {
-    uint32_t last_runs;
-    uint32_t last_ok_ms;
     uint8_t  stalled;
 } pwm_monitor_t;
 
@@ -120,7 +125,12 @@ typedef struct {
  * Keeping it that way is what makes SYSCMD_PWM_STALL work. Clearing TIMSK1 has to
  * be distinguishable from a healthy parked output, or the diagnostic that exists
  * to reproduce a dead output path reproduces nothing. */
-uint8_t pwm_monitor_observe(pwm_monitor_t* m, uint8_t alive, uint32_t now_ms);
+/* No time arithmetic here and none is needed. The caller samples at most once
+ * per PWM_ALIVE_POLL_MS, far longer than one PWM period, so the interval alone
+ * answers "was it turning recently". An earlier version tracked last_ok_ms
+ * against a 250 ms limit and had to care about millis() wraparound; both fell
+ * away with the sampling rate. */
+uint8_t pwm_monitor_observe(pwm_monitor_t* m, uint8_t alive);
 
 /* ─── Escalation ───────────────────────────────────────────────────────────── */
 

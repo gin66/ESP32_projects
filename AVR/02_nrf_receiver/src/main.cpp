@@ -35,6 +35,35 @@ static uint8_t serialLen = 0;
 //
 // Deliberately radio-only: putting a reboot command on the CAN bus would put it
 // on the same wire the safety-critical heating control travels on, for no gain.
+/* Transmit and retry until acknowledged, or the deadline passes.
+ *
+ * The node is only listening inside a ~250 ms window once per ~1 s measurement
+ * cycle, so a single write lands roughly one time in four. Every operator
+ * command here is a deliberate act aimed at a failure path that cannot be
+ * reached any other way, and a three-in-four chance of silently doing nothing
+ * makes them useless on a bench — which is exactly what happened: X appeared to
+ * do nothing, and the fault flag was still there afterwards.
+ *
+ * Blocks for the whole deadline, so broadcasts are missed while it runs. That is
+ * the right trade for a command somebody just typed by hand.
+ *
+ * RF24::write() also has to be bracketed by stopListening()/startListening(),
+ * or the chip is left in standby-TX and this receiver never hears anything
+ * again. */
+static bool radio_send_retry(const void* buf, uint8_t len, uint16_t ms)
+{
+    unsigned long t0 = millis();
+
+    for (;;) {
+        radio.stopListening();
+        bool ok = radio.write(buf, len);
+        radio.startListening();
+        if (ok) return true;
+        if ((unsigned long)(millis() - t0) >= ms) return false;
+        delay(25);
+    }
+}
+
 static bool sys_cmd_send(uint8_t cmd)
 {
     SysCmdFrame f;
@@ -51,11 +80,7 @@ static bool sys_cmd_send(uint8_t cmd)
      * diagnostic keypress appears to kill the link, and only a reset brings it
      * back. The duty-send path below already brackets its write for exactly
      * this reason; this one had to as well. */
-    radio.stopListening();
-    bool ok = radio.write(&f, sizeof(f));
-    radio.startListening();
-
-    return ok;
+    return radio_send_retry(&f, sizeof(f), 1500);
 }
 
 static void serial_diag(char c)
@@ -141,9 +166,7 @@ static void send_pwm_command(uint16_t permille)
     memset(f.reserved, 0, sizeof(f.reserved));
     f.crc   = frame_crc16(&f, sizeof(f));
 
-    radio.stopListening();
-    bool ok = radio.write(&f, sizeof(f));
-    radio.startListening();
+    bool ok = radio_send_retry(&f, sizeof(f), 1500);
 
     // A false here means nobody acknowledged: the sender was not inside its
     // listen window when this frame went out, so the command was lost.
@@ -287,8 +310,27 @@ void loop()
     #define RXK_STATS 4u
     #define RXK_EE    5u
     #define RXK_COUNT 6u
+
     static unsigned long seenAt[RXK_COUNT] = { 0 };
     static const char*    seenName[RXK_COUNT] = { "temp", "id", "pwm", "adc", "can-stats", "eeprom" };
+
+    /* How long each frame type may go unseen before it is worth reporting.
+     * Per type, because the node does not send everything at one rate: the ADC
+     * and PWM frames go out about once a second and temperatures and bus stats
+     * every 5 s, but identity and EEPROM status are deliberately slow at 60 s
+     * because neither changes quickly. One flat cutoff flagged a perfectly
+     * healthy 60 s-cadence frame as stale half the time, which trains you to
+     * ignore the one word on the line that is meant to mean something. These
+     * mirror the transmitter's own TEMP_PERIOD_MS, IDENTITY_PERIOD_MS,
+     * STATS_PERIOD_MS and EE_PERIOD_MS, plus slack for a long loop pass. */
+    static const unsigned long staleBudgetMs[RXK_COUNT] = {
+        20000UL,    /* temp       5 s  */
+        150000UL,   /* id        60 s  */
+        10000UL,    /* pwm       ~1 s  */
+        10000UL,    /* adc        1 s  */
+        20000UL,    /* can-stats  5 s  */
+        150000UL,   /* eeprom    60 s  */
+    };
     static unsigned long lastFrameMs = 0;
     static unsigned long pwmfailSinceMs = 0;
     static uint8_t      lastKind = 0xFFu;
@@ -617,10 +659,20 @@ static uint8_t  stat_eflg = 0;          // live MCP2515 error flags
             if (missing == 0u) {
                 /* All types seen at some point — now report how stale the
                  * non-critical ones are, since that is what actually goes wrong
-                 * in the field. */
+                 * in the field.
+                 *
+                 * The threshold is PER TYPE, because the node does not send
+                 * everything at one rate: the ADC and PWM frames go out about
+                 * once a second, temperatures and bus stats every 5 s, but
+                 * identity and EEPROM status are deliberately slow at 60 s
+                 * because neither changes quickly. One flat cutoff flagged a
+                 * perfectly healthy 60 s-cadence frame as stale half the time,
+                 * which trains you to ignore the one word on the line that is
+                 * supposed to mean something. Each budget below is the node's own
+                 * period plus generous slack for a long loop pass. */
                 for (k = 0u; k < RXK_COUNT; k++) {
                     unsigned long age = (unsigned long)(millis() - seenAt[k]);
-                    if (age > 30000u) {
+                    if (age > staleBudgetMs[k]) {
                         Serial.print(F("  stale "));
                         Serial.print(seenName[k]);
                         Serial.print("=");

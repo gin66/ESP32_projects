@@ -718,8 +718,27 @@ static void sys_cmd_exec(uint8_t cmd, uint8_t arg)
         Serial.println(F("[TX] *** DIAG: erasing the EEPROM log"));
         Serial.flush();
         {
+            /* A full erase is 1024 EEPROM byte writes at ~3.3 ms each, so about
+             * 3.4 s. The watchdog fires at 2 s and is not fed anywhere in this
+             * loop, so without this the command trips it partway through and
+             * reboots the node into a half-erased log — the very state X exists
+             * to remove. An earlier run did exactly that and left rec=9 with the
+             * fault flag still set, which read as "the erase did nothing".
+             *
+             * Fed every 16 slots so the margin is comfortable rather than
+             * borderline, with progress dots because 3.4 s of silence on a
+             * bench looks like a hang. */
             uint16_t slot;
-            for (slot = 0u; slot < EPL_SLOTS; slot++) epl_erase_slot(epl_io(), slot);
+            Serial.print(F("[TX] ***       erasing"));
+            for (slot = 0u; slot < EPL_SLOTS; slot++) {
+                epl_erase_slot(epl_io(), slot);
+                if ((slot & 0x0Fu) == 0x0Fu) {
+                    Serial.print('.');
+                    Serial.flush();
+                    wdt_reset();
+                }
+            }
+            Serial.println();
         }
         epl_scan(epl_io(), &epl_state);
         epl_writes = 0u;

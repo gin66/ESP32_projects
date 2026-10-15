@@ -122,6 +122,8 @@ static uint16_t      foLowUs   = 0;
 static unsigned long foNextUs  = 0;
 static uint8_t       foStep    = 0;   /* 0 = next edge is rising */
 static uint8_t       foActive  = 0;
+static uint32_t      foRising  = 0;
+static uint32_t      foFalling = 0;
 
 void pwm_out_failover_begin(uint16_t permille)
 {
@@ -156,9 +158,11 @@ void pwm_out_failover_tick(void)
     if (foStep) {
         PORTD |=  PORT_BIT;
         span = foHighUs;
+        foRising++;
     } else {
         PORTD &= ~PORT_BIT;
         span = foLowUs;
+        foFalling++;
     }
 
     foNextUs += span;
@@ -173,6 +177,16 @@ void pwm_out_failover_tick(void)
 uint8_t pwm_out_failover_active(void)
 {
     return foActive;
+}
+
+uint32_t pwm_out_failover_rising(void)
+{
+    return foRising;
+}
+
+uint32_t pwm_out_failover_falling(void)
+{
+    return foFalling;
 }
 
 void pwm_out_failover_end(void)

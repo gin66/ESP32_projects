@@ -332,7 +332,24 @@ static void test_boot_state_trust(void)
               "an untrusted block still escalated after re-init");
     }
 
-    SECTION("T6  null is tolerated");
+    SECTION("T6  the requested duty is not the delivered duty — see pwm_out");
+    /* The waveform can only change state at a main-loop pass boundary, so the
+     * delivered high time is quantised up to the pass length. Requesting 200 us
+     * with a ~293 us pass delivered ~27%, measured on the bench as ~6 V instead
+     * of ~7 V. The fix is a tighter loop plus reporting the delivered duty from
+     * the edge counters; this pins the arithmetic those counters feed so the
+     * reported figure cannot be misread as the requested one. */
+    {
+        uint32_t up = 271u, down = 729u, tot = up + down;
+        CHECK((up * 1000UL) / tot == 271u,
+              "delivered duty arithmetic wrong: %lu",
+              (unsigned long)((up * 1000UL) / tot));
+        CHECK(((up * 1000UL) / tot) != PWM_FAILOVER_PERMILLE,
+              "delivered duty equals the requested one — the quantisation this "
+              "test documents is not being reproduced");
+    }
+
+    SECTION("T7  null is tolerated");
     CHECK(pwm_boot_state_trusted(0, 0u) == 0u, "null trusted");
     pwm_boot_state_init(0);
     CHECK(1u, "null init did not survive");

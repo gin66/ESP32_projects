@@ -60,6 +60,22 @@ void pwm_out_failover_tick(void);
 // 1 while the failover waveform is driving the pin.
 uint8_t pwm_out_failover_active(void);
 
+/* Counters for the failover waveform.
+ *
+ * The requested duty is not the delivered duty. The waveform can only change
+ * state at a main-loop pass boundary, so the delivered high time is quantised up
+ * to the pass time — and the pass time is not constant, because CAN polling and
+ * serial reporting share the loop with it. Measured on the bench that turned a
+ * requested 20% into about 27%, i.e. roughly 6 V instead of 7 V on the board's
+ * own measured curve.
+ *
+ * These count rising and falling edges so the delivered duty can be *reported*
+ * rather than assumed:  duty = rising / (rising + falling). Anything derived from
+ * the requested value is fiction.
+ */
+uint32_t pwm_out_failover_rising(void);
+uint32_t pwm_out_failover_falling(void);
+
 // Leave failover and hand the pin back to the timer, re-running pwm_out_begin()'s
 // register programming. Used by the bench command that tries to revive a node: if
 // the path is genuinely broken the liveness monitor will simply put it back into

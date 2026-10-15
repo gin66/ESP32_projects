@@ -1322,21 +1322,35 @@ void loop()
     static uint8_t       eeAnomalyReported = 0;
     static uint32_t okCount = 0, failCount = 0;
 
-    /* PWM safe mode. Reached when the ISR stall survived a watchdog reboot, so
-     * it is already known not to be transient. */
-    if (pwm_fault_persisted && !pwmFailover) pwm_failover_enter();
-
-    /* The failover waveform, advanced here because this loop is its timebase.
-     * As early as possible: the resolution of the delivered duty is the loop's
-     * iteration time, so anything ahead of it directly distorts the waveform. */
-    if (pwmFailover) pwm_out_failover_tick();
+    /* ── Failover output — the first statement of the loop ───────────────────
+     *
+     * This loop is the timebase for the failover waveform, so the loop's
+     * iteration time IS the resolution of the duty reaching the load. Measured on
+     * the bench a pass took ~293 us with CAN polling running, which quantises a
+     * requested 200 us high time up to a whole pass: the output landed at ~27%
+     * instead of 20%, about 6 V rather than 7 V on the measured curve.
+     *
+     * Worse than the inaccuracy was the coupling: it made the heating output a
+     * function of CAN bus load, because a busier bus meant a slower loop meant
+     * more duty. pwm_failover_tick() therefore comes before everything, and the
+     * expensive per-pass work below is throttled while in failover. What is
+     * actually delivered is measured and reported rather than assumed. */
+    if (pwmFailover)          pwm_out_failover_tick();
+    else if (pwm_fault_persisted) pwm_failover_enter();
 
     // Brings up the radio and CAN if they are not yet up, and detects a radio
-    // that has stopped answering. Runs first so the peripherals are attempted
-    // on the very first pass rather than after the first sensor scan.
+    // that has stopped answering.
     peripherals_tick();
 
-    can_pump();
+    /* CAN polling is the single largest per-pass cost (three register reads in
+     * tx_abort_stuck() plus another three in the RX drain, all SPI). In failover
+     * it is polled every eighth pass: the bus is not what failed, the PWM output
+     * path is, and a stable waveform is worth more here than bus latency. */
+    static uint8_t failoverPoll = 0;
+    if (!pwmFailover || (++failoverPoll >= 8u)) {
+        if (pwmFailover) failoverPoll = 0u;
+        can_pump();
+    }
 
     // One unguarded read of the last completed conversion. Called as early in
     // the pass as possible: the later this sits, the more of the previous pass's
@@ -1358,10 +1372,27 @@ void loop()
     if (millis() - lastStatsMs >= STATS_PERIOD_MS) {
         lastStatsMs = millis();
         if (pwmFailover) {
-            Serial.print(F("[TX] failover, boot="));
+            /* Report the duty actually delivered, not the one requested. They
+             * differ because the waveform can only change state at a loop-pass
+             * boundary, and the pass length varies with bus and serial load. */
+            uint32_t up   = pwm_out_failover_rising();
+            uint32_t down = pwm_out_failover_falling();
+            uint32_t tot  = up + down;
+
+            Serial.print(F("[TX] failover duty="));
+            Serial.print(PWM_FAILOVER_PERMILLE);
+            Serial.print(F(" requested, "));
+            if (tot) {
+                Serial.print((uint32_t)((up * 1000UL) / tot));
+            } else {
+                Serial.print('?');
+            }
+            Serial.print(F(" delivered ("));
+            Serial.print(up);
+            Serial.print('/');
+            Serial.print(down);
+            Serial.print(F(" edges) boot="));
             Serial.print(bootState.boot_count);
-            Serial.print(F(" writes="));
-            Serial.print(epl_writes);
             Serial.println();
         } else {
             send_can_stats();

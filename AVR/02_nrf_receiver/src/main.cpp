@@ -45,7 +45,17 @@ static bool sys_cmd_send(uint8_t cmd)
     memset(f.reserved, 0, sizeof(f.reserved));
     f.crc      = frame_crc16(&f, sizeof(f));
 
-    return radio.write(&f, sizeof(f));
+    /* RF24::write() drops the chip into standby-TX (startFastWrite -> ce(HIGH))
+     * and never returns it to RX. Calling it while still listening therefore
+     * leaves the receiver deaf for the rest of the session — the next
+     * diagnostic keypress appears to kill the link, and only a reset brings it
+     * back. The duty-send path below already brackets its write for exactly
+     * this reason; this one had to as well. */
+    radio.stopListening();
+    bool ok = radio.write(&f, sizeof(f));
+    radio.startListening();
+
+    return ok;
 }
 
 static void serial_diag(char c)

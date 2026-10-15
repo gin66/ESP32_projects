@@ -180,16 +180,17 @@ static void note_identity(uint8_t rank, const uint8_t rom[8])
     }
 }
 
-// ─── Setup ───────────────────────────────────────────────────────────────────
-void setup()
-{
-    Serial.begin(115200);
-    Serial.println("[RX] boot");
+/* ─── Radio bring-up, with retry ───────────────────────────────────────────── */
 
-    if (!radio.begin()) {
-        Serial.println("[RX] ERROR: nRF24 not responding!");
-        while (1) {}
-    }
+/* setup() must not hang on a peripheral that failed to answer — the same rule the
+ * transmitter follows. On a bench tool an absent radio is fatal to its purpose,
+ * so it says so plainly and retries rather than spinning silently. */
+static unsigned long radioRetryMs = 0u;
+static bool radioReady = false;
+
+static bool radio_bring_up(void)
+{
+    if (!radio.begin()) return false;
 
     radio.setChannel(NRF_CHANNEL);
     radio.setDataRate(RF24_250KBPS);
@@ -206,6 +207,23 @@ void setup()
     radio.setAutoAck(true);
     radio.setRetries(5, 15);
     radio.startListening();
+
+#if defined(FAILURE_HANDLING)
+    radio.failureDetected = 0;
+#endif
+    return true;
+}
+
+// ─── Setup ───────────────────────────────────────────────────────────────────
+void setup()
+{
+    Serial.begin(115200);
+    Serial.println("[RX] boot");
+
+    radioReady = radio_bring_up();
+    if (!radioReady) {
+        Serial.println(F("[RX] ERROR: nRF24 not responding — retrying every 5 s"));
+    }
 
     Serial.println("[RX] ready — broadcasts on pipe 1, commands on pipe 0");
     Serial.println(F("[RX] keys: 0..1000+Enter=duty   R=reboot S=pwm-stall"));
@@ -245,12 +263,30 @@ void loop()
     static uint16_t ee_restored = 0;
     static uint8_t  ee_flags = 0;
 
+    /* Last-seen time per frame type.
+     *
+     * The idle line used to print cumulative counters since boot, which on a
+     * quiet link is actively misleading: `adc=36` reads like activity when it
+     * may be an hour old. What matters when nothing is arriving is *how long*,
+     * not *how many*. Kept as unsigned long so the rollover arithmetic below
+     * stays exact. */
+    #define RXK_TEMP  0u
+    #define RXK_ID    1u
+    #define RXK_PWM   2u
+    #define RXK_ADC   3u
+    #define RXK_STATS 4u
+    #define RXK_EE    5u
+    #define RXK_COUNT 6u
+    static unsigned long seenAt[RXK_COUNT] = { 0 };
+    static const char*    seenName[RXK_COUNT] = { "temp", "id", "pwm", "adc", "can-stats", "eeprom" };
+    static unsigned long lastFrameMs = 0;
+    static uint8_t      lastKind = 0xFFu;
+
     // Last CAN stats received, so the idle summary can show current bus health
     // rather than nothing at all between the 5 s reports.
     static bool     stat_have = false;
-    static uint16_t stat_sent = 0, stat_recv = 0, stat_refused = 0;
-    static uint8_t  stat_eflg = 0;
     static bool     stat_present = false;   // does the transmitter have a controller
+static uint8_t  stat_eflg = 0;          // live MCP2515 error flags
 
     bool gotAny = false;
 
@@ -262,6 +298,24 @@ void loop()
 
         uint16_t magic;
         memcpy(&magic, buf, sizeof(magic));
+
+        /* Liveness first, before any decode: a frame that fails its CRC is still
+         * proof the link is alive, which is the question the idle line answers. */
+        {
+            uint8_t k = 0xFFu;
+            if      (magic == NRF_MAGIC_TEMP)  k = RXK_TEMP;
+            else if (magic == NRF_MAGIC_ID)    k = RXK_ID;
+            else if (magic == NRF_MAGIC_PWM)   k = RXK_PWM;
+            else if (magic == NRF_MAGIC_ADC)   k = RXK_ADC;
+            else if (magic == NRF_MAGIC_STATS) k = RXK_STATS;
+            else if (magic == NRF_MAGIC_EE)    k = RXK_EE;
+
+            if (k < RXK_COUNT) {
+                seenAt[k] = millis();
+                lastKind = k;
+                lastFrameMs = millis();
+            }
+        }
 
         if (magic == NRF_MAGIC_TEMP) {
             TempFrame f;
@@ -356,10 +410,6 @@ void loop()
                 // Counters are since boot, so a delta between reports is what
                 // says anything about current activity. Hold the last values so
                 // the summary can print a rate rather than a running total.
-                stat_sent = f.sent;
-                stat_recv = f.received;
-                stat_refused = f.refused;
-                stat_eflg = f.eflg;
                 stat_present = (f.present & NRF_STATS_FLAG_PRESENT) != 0;
                 stat_have = true;
 
@@ -496,38 +546,84 @@ void loop()
 
     serial_command();
 
+    /* Retry a radio that did not come up, rather than leaving the bench tool
+     * permanently deaf after a marginal boot. */
+    if (!radioReady && (long)(millis() - radioRetryMs) >= 0) {
+        radioRetryMs = millis() + 5000UL;
+        if (radio_bring_up()) {
+            radioReady = true;
+            Serial.println(F("[RX] radio up"));
+        }
+    }
+    if (!radioReady) {
+        Serial.println(F("[RX] nRF24 still absent — no packets possible"));
+        return;
+    }
+
     if (replyPending && (long)(millis() - replyAtMs) >= 0) {
         replyPending = false;
         send_pwm_command(pwm_target);
     }
 
-    if (!gotAny && millis() - lastStatus >= 5000) {
-        lastStatus = millis();
-        uint8_t n = 0;
-        for (uint8_t i = 0; i < NRF_MAX_SENSORS; i++) n += known[i] ? 1 : 0;
+    /* Idle line: printed only when genuinely nothing is arriving, and it says
+     * what is missing rather than counting things that happened long ago. */
+    if (!gotAny && (unsigned long)(millis() - lastStatus) >= 3000u) {
+        unsigned long quiet = lastFrameMs ? (unsigned long)(millis() - lastFrameMs) : 0u;
+        uint8_t k, n = 0;
 
-        Serial.print("[RX] waiting — learned ");
+        lastStatus = millis();
+        for (k = 0u; k < NRF_MAX_SENSORS; k++) n += known[k] ? 1u : 0u;
+
+        Serial.print(F("[RX] "));
+        if (lastFrameMs == 0u) {
+            Serial.print(F("NO FRAMES EVER"));
+        } else {
+            Serial.print(F("quiet "));
+            Serial.print((uint32_t)(quiet / 1000u));
+            Serial.print(F("s, last was "));
+            Serial.print(lastKind < RXK_COUNT ? seenName[lastKind] : "?");
+        }
+
+        Serial.print(F("  learned "));
         Serial.print(n);
         Serial.print("/");
         Serial.print(NRF_MAX_SENSORS);
-        Serial.print("  temps=");
-        Serial.print(tempFrames);
-        Serial.print("  ids=");
-        Serial.print(idFrames);
-        Serial.print("  pwm=");
-        Serial.print(pwmFrames);
-        Serial.print("  adc=");
-        Serial.print(adcFrames);
-        Serial.print("  stats=");
-        Serial.print(statsFrames);
-        Serial.print("  ee=");
-        Serial.print(eeFrames);
+
+        /* Named absences are the actionable part. A cumulative count of zero is
+         * not: it cannot be told apart from a type that simply is not enabled on
+         * the transmitter, whereas "never seen" can be read against what the
+         * transmitter is supposed to be sending. */
+        {
+            uint8_t missing = 0u;
+            for (k = 0u; k < RXK_COUNT; k++) {
+                if (seenAt[k] == 0u) {
+                    if (missing == 0u) Serial.print(F("  never saw:"));
+                    Serial.print(F(" "));
+                    Serial.print(seenName[k]);
+                    missing = 1u;
+                }
+            }
+            if (missing == 0u) {
+                /* All types seen at some point — now report how stale the
+                 * non-critical ones are, since that is what actually goes wrong
+                 * in the field. */
+                for (k = 0u; k < RXK_COUNT; k++) {
+                    unsigned long age = (unsigned long)(millis() - seenAt[k]);
+                    if (age > 30000u) {
+                        Serial.print(F("  stale "));
+                        Serial.print(seenName[k]);
+                        Serial.print("=");
+                        Serial.print((uint32_t)(age / 1000u));
+                        Serial.print(F("s"));
+                    }
+                }
+            }
+        }
+
         if (ee_have) {
-            Serial.print(F("  ["));
+            Serial.print(F("  eeprom:"));
             Serial.print(ee_restored);
             if (ee_flags & EE_FLAG_ANOMALY) {
-                // Outranks every other reading: without it the restore point is
-                // gone and the duty on the heater is just the boot constant.
                 Serial.print(F(" RESTORE-LOST"));
             } else if (ee_flags & EE_FLAG_EMPTY) {
                 Serial.print(F(" EMPTY"));
@@ -535,42 +631,48 @@ void loop()
                 Serial.print(F(" rec="));
                 Serial.print(ee_records);
             }
-            Serial.print(F("]"));
+            if (ee_flags & EE_FLAG_PWMFAIL) Serial.print(F(" PWM-OUTPUT-FAILED"));
         }
+
         if (stat_have) {
-            // Repeats the live health bits: a fault that has since cleared still
-            // shows here, because the last report is all this node has.
             if (!stat_present) {
-                // Absent beats every other reading, so it goes first and short.
-                Serial.print(F("  [NO CAN]"));
-            } else {
-            Serial.print("  [eflg=0x");
-            Serial.print(stat_eflg, HEX);
-            if (stat_eflg) Serial.print(F("!"));
-            Serial.print(F(" sent="));
-            Serial.print(stat_sent);
-            Serial.print(F(" refused="));
-            Serial.print(stat_refused);
-            Serial.print("]");
+                Serial.print(F("  [NO CAN on transmitter]"));
+            } else if (stat_eflg) {
+                /* Only when non-zero. EFLG is read-to-clear on the transmitter,
+                 * so a clear report afterwards does not erase the fact that it
+                 * happened — which is why a fault seen once here is worth keeping
+                 * on the idle line rather than only in its own frame. */
+                Serial.print(F("  bus-eflg=0x"));
+                Serial.print(stat_eflg, HEX);
+                if (stat_eflg & CAN_EFLAG_TXBO) Serial.print(F(" TX-BUSOFF"));
+                if (stat_eflg & CAN_EFLAG_TXEP) Serial.print(F(" TX-ERRPASSIVE"));
+                if (stat_eflg & CAN_EFLAG_RX0OVR || stat_eflg & CAN_EFLAG_RX1OVR)
+                    Serial.print(F(" RX-OVERRUN"));
             }
         }
-        Serial.print("  rejected=");
-        Serial.print(rejected);
-        Serial.print("  duty=");
-        if (pwm_duty == 0xFFFF) {
-            Serial.print("--");           // no PWM frame seen yet
-        } else {
-            Serial.print(pwm_duty);
-        }
-        Serial.print(" permille");
+
         if (pwm_src_have) {
-            Serial.print(" src=");
+            Serial.print(F("  duty="));
+            Serial.print(pwm_duty);
+            Serial.print(F(" src="));
             Serial.print(pwm_src_str(pwm_source));
-            if (pwm_source == PWM_SRC_EEPROM) {
-                Serial.print(F(" (restored, nothing commanding)"));
-            }
+            if (pwm_source == PWM_SRC_EEPROM) Serial.print(F("(restored)"));
         }
-        Serial.print("  kbd=");
-        Serial.println((uint16_t)serialLen);   // digits buffered, awaiting Enter
+
+        /* Rejected frames are an integrity problem, not a liveness one, so they
+         * only earn a place on the line when non-zero. */
+        if (rejected) {
+            Serial.print(F("  REJECTED="));
+            Serial.print(rejected);
+        }
+        Serial.println();
+    }
+
+    /* Typed-but-unsubmitted digits. Printed every pass so a half-typed value is
+     * visible, and the only thing here that is not about the link. */
+    if (serialLen) {
+        Serial.print(F("[RX] kbd "));
+        for (uint8_t i = 0u; i < serialLen; i++) Serial.print(serialBuf[i]);
+        Serial.println(F(" ... (Enter to send)"));
     }
 }

@@ -280,6 +280,7 @@ void loop()
     static unsigned long seenAt[RXK_COUNT] = { 0 };
     static const char*    seenName[RXK_COUNT] = { "temp", "id", "pwm", "adc", "can-stats", "eeprom" };
     static unsigned long lastFrameMs = 0;
+    static unsigned long pwmfailSinceMs = 0;
     static uint8_t      lastKind = 0xFFu;
 
     // Last CAN stats received, so the idle summary can show current bus health
@@ -631,7 +632,20 @@ static uint8_t  stat_eflg = 0;          // live MCP2515 error flags
                 Serial.print(F(" rec="));
                 Serial.print(ee_records);
             }
-            if (ee_flags & EE_FLAG_PWMFAIL) Serial.print(F(" PWM-OUTPUT-FAILED"));
+            if (ee_flags & EE_FLAG_PWMFAIL) {
+                /* The flag is durable and the ring holds 80 hours, so it can mean
+                 * "failing right now" or "failed once last week". Nothing in the
+                 * frame carries an age — there is no clock on either side — so the
+                 * only honest answer available is how long THIS receiver has been
+                 * seeing it. That at least separates ongoing from historical, and
+                 * starts from zero if the flag is cleared while we are watching. */
+                if (pwmfailSinceMs == 0u) pwmfailSinceMs = millis();
+                Serial.print(F(" PWM-OUTPUT-FAILED "));
+                Serial.print((uint32_t)((unsigned long)(millis() - pwmfailSinceMs) / 1000u));
+                Serial.print(F("s"));
+            } else {
+                pwmfailSinceMs = 0u;   /* cleared, or not yet seen */
+            }
         }
 
         if (stat_have) {

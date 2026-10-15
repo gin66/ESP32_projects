@@ -28,74 +28,31 @@ static unsigned long replyAtMs = 0;
 static char    serialBuf[8];
 static uint8_t serialLen = 0;
 
-// ─── Radio transmit ──────────────────────────────────────────────────────────
+// ─── Command transmission, synchronised to the node's window ───────────────
 
-/* Hard ceiling on send attempts, independent of the deadline. */
-#define RADIO_SEND_MAX_TRIES 20u
-
-/* The radio's STATUS register would say "no ACK" versus "something arrived and
- * we missed it", which is the interesting distinction here — but RF24 keeps
- * `status` and `read_register()` private and exposes no way to get at it, and
- * carving one out is not worth it for a bench tool. The attempt count below is
- * the weaker but honest signal. */
-/* Transmit, retrying briefly.
+/* Commands are SENT IN STEP with the receiver's window rather than fired blind.
  *
- * The bound is deliberately short and doubly enforced. An earlier version
- * retried for 1.5 s and then for 6 s, and both were wrong for a bench tool: the
- * node only listens inside a 250 ms window once per 5 s, so a long span was the
- * only way to guarantee landing — and a long span meant this function held the
- * whole main loop, silencing every frame the receiver prints. Pressing a key and
- * watching the log go dead is exactly what a wedged receiver looks like, and a
- * tool that can be mistaken for one is worse than one that says "missed, press
- * again".
+ * The node broadcasts its PWM state and opens its listen window immediately
+ * afterwards, in the same pass of its loop. So the 0xABCF frame is a free
+ * announcement that the window is about to open: waiting for it puts the
+ * transmit inside the window by construction, with no retry loop, no timeout and
+ * no guessing about phase.
  *
- * So: a handful of attempts inside ~400 ms, then report. The duty command
- * nearly always lands on the first try anyway; when it does not, the operator
- * presses Enter again.
+ * This replaced two failures in a row. A single fire lands roughly one time in
+ * twenty, because the window is 250 ms in every 5 s. Spamming attempts at a
+ * fixed interval was worse than useless — 45 of 60 tries were needed, so the
+ * margin was thin, and every attempt costs a transmitter that is busy elsewhere.
  *
- * Bounded on ATTEMPTS as well as on time. The deadline check cannot fire while
- * RF24::write() has not returned, and that call sits inside the library's own
- * do/while around errHandler(), which can re-enter it. An attempt cap cannot be
- * defeated by anything inside the library, so the loop always terminates.
- *
- * RF24::write() must also be bracketed by stopListening()/startListening(), or
- * the chip is left in standby-TX and this receiver never hears anything again. */
-static bool radio_send_retry(const void* buf, uint8_t len, uint16_t ms)
-{
-    unsigned long t0    = millis();
-    uint16_t      tries = 0u;
-    bool          ok    = false;
+ * One attempt per window, and the next window arrives on its own in 5 s. */
+#define CMD_NONE  0xFFu
 
-    for (;;) {
-        radio.stopListening();
-        ok = radio.write(buf, len);
-        radio.startListening();
-        tries++;
-
-        if (ok) break;
-        if (tries >= RADIO_SEND_MAX_TRIES) break;
-        if ((unsigned long)(millis() - t0) >= ms) break;
-        delay(20);
-    }
-
-    return ok;
-}
-
-
-// ─── Queued diagnostic commands ──────────────────────────────────────────────
-
-/* The node opens its listen window for 250 ms once per 5 s, so a command has to
- * survive several attempts spread over seconds. Doing that with a blocking
- * retry in the key handler is what wedged this receiver; doing it here, one
- * attempt per loop pass, costs the log nothing. */
-#define CMD_RETRY_MS   100UL
-#define CMD_MAX_TRIES  60u          /* ~6 s: guarantees one window fits */
-
-#define CMD_NONE       0xFFu
-
-static uint8_t        cmdQueued = CMD_NONE;
-static uint16_t       cmdTries  = 0u;
-static unsigned long  cmdNextMs = 0UL;
+/* One armed frame at a time. A label instead of a decoded command, because the
+ * duty path arms this too and the two report differently. */
+static uint8_t        cmdBuf[NRF_FRAME_SIZE];
+static uint8_t        cmdLen;
+static const char*    cmdLabel = "?";
+static uint16_t       cmdTries = 0u;
+static bool           cmdArmed = false;
 
 static const char* cmd_name(uint8_t cmd)
 {
@@ -109,6 +66,8 @@ static const char* cmd_name(uint8_t cmd)
         default:                 return "?";
     }
 }
+
+static void cmd_arm(const void* frame, uint8_t len, const char* label);
 
 /* Queues a diagnostic command. Deliberately does no radio work. */
 static void serial_diag(char c)
@@ -127,63 +86,64 @@ static void serial_diag(char c)
             return;
     }
 
-    cmdQueued = cmd;
-    cmdTries  = 0u;
-    Serial.print(F("[RX] queued DIAG "));
+    SysCmdFrame f;
+    f.magic    = NRF_MAGIC_SYS;
+    f.cmd      = cmd;
+    f.arg      = 0u;
+    memset(f.reserved, 0, sizeof(f.reserved));
+    f.crc      = frame_crc16(&f, sizeof(f));
+
+    cmd_arm(&f, sizeof(f), cmd_name(cmd));
+    Serial.print(F("[RX] armed DIAG "));
     Serial.println(cmd_name(cmd));
 }
 
-/* One transmit attempt. The only place a diagnostic frame is ever sent. */
-static bool cmd_send_once(uint8_t cmd)
+/* Arms a frame to be sent on the next announced window. Copies the frame, so
+ * the caller may build it on the stack. */
+static void cmd_arm(const void* frame, uint8_t len, const char* label)
 {
-    SysCmdFrame f;
+    if (len > sizeof(cmdBuf)) return;
+    memcpy(cmdBuf, frame, len);
+    cmdLen   = len;
+    cmdLabel = label;
+    cmdTries = 0u;
+    cmdArmed = true;
+}
 
-    f.magic = NRF_MAGIC_SYS;
-    f.cmd   = cmd;
-    f.arg   = 0u;
-    memset(f.reserved, 0, sizeof(f.reserved));
-    f.crc   = frame_crc16(&f, sizeof(f));
-
+/* One transmit attempt. The only place a command frame is ever sent. */
+static bool cmd_send_once(void)
+{
     /* Cleared before every attempt. RF24's write() is wrapped in its own
      * do/while around errHandler(), which re-enters the write when this flag is
      * set — a path this receiver has no way to bound from outside. */
     radio.failureDetected = 0u;
 
     radio.stopListening();
-    bool ok = radio.write(&f, sizeof(f));
+    bool ok = radio.write(cmdBuf, cmdLen);
     radio.startListening();
 
     return ok;
 }
 
-/* Services the queue. Called once per loop pass; at most one attempt per
- * CMD_RETRY_MS, so the frame log keeps running at its normal rate throughout. */
+/* Services the armed command. Called once per loop pass, but transmits nothing
+ * until a window has actually been announced. */
 static void cmd_pump(void)
 {
-    unsigned long now;
+    if (!cmdArmed) return;
 
-    if (cmdQueued == CMD_NONE) return;
-
-    now = millis();
-    if ((long)(now - cmdNextMs) < 0) return;   /* not yet */
-    cmdNextMs = now + CMD_RETRY_MS;
-
-    if (cmd_send_once(cmdQueued)) {
-        Serial.print(F("[RX] DIAG "));
-        Serial.print(cmd_name(cmdQueued));
-        Serial.print(F(" sent, "));
+    if (cmd_send_once()) {
+        Serial.print(F("[RX] "));
+        Serial.print(cmdLabel);
+        Serial.print(F(" delivered on window "));
         Serial.print((uint32_t)(cmdTries + 1u));
-        Serial.println(F(" attempt(s)"));
-        cmdQueued = CMD_NONE;
+        Serial.println();
+        cmdArmed = false;
         return;
     }
 
-    if (++cmdTries >= CMD_MAX_TRIES) {
-        Serial.print(F("[RX] DIAG "));
-        Serial.print(cmd_name(cmdQueued));
-        Serial.println(F(" NOT acked — gave up"));
-        cmdQueued = CMD_NONE;
-    }
+    /* A miss costs nothing: the window reopens 5 s later and we try again on
+     * that one. Nothing to bound, nothing to time out. */
+    cmdTries++;
 }
 
 // Consume serial input until Enter. Accepts only decimal digits so there is no
@@ -251,16 +211,10 @@ static void send_pwm_command(uint16_t permille)
     memset(f.reserved, 0, sizeof(f.reserved));
     f.crc   = frame_crc16(&f, sizeof(f));
 
-    bool ok = radio_send_retry(&f, sizeof(f), 400);
-
-    /* Always one line. The node only listens in a 250 ms window once per 5 s, so
-     * a miss is expected often enough to say so plainly rather than leave the
-     * operator wondering whether the keypress registered. */
-    Serial.print(F("[RX] commanded "));
+    cmd_arm(&f, sizeof(f), "duty");
+    Serial.print(F("[RX] duty "));
     Serial.print(permille);
-    if (permille > 0 && !ok) Serial.print(F("  missed the window — press Enter again"));
-    else                      Serial.print(F(" permille"));
-    Serial.println();
+    Serial.println(F(" armed — sends on the next PWM broadcast"));
 }
 
 // ─── Learned identity table, built at runtime from the identity frames ──────
@@ -655,6 +609,13 @@ static uint8_t  stat_eflg = 0;          // live MCP2515 error flags
             if (f.crc == frame_crc16(&f, sizeof(f))) {
                 pwmFrames++;
                 pwm_duty = f.duty;
+
+                /* The node opens its listen window immediately after sending
+                 * this frame, in the same pass of its loop. Receiving it is
+                 * therefore the announcement that the window is open, and the
+                 * right moment to transmit is right now — 250 ms of budget for a
+                 * single frame that takes at most ~19 ms to put on the air. */
+                cmd_pump();
                 // Printed on every frame, not just on change: the sender repeats
                 // the duty once per cycle so a late-booting receiver converges,
                 // and that also makes this a live readout of the current value.

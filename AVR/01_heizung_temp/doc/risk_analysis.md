@@ -1275,6 +1275,8 @@ correct:
 
 ## 9. Verification of the remediation
 
+### 9.1 Build
+
 Both `CAN_QUIET_RADIO` configurations build clean after every change:
 
 | Configuration | RAM | Flash |
@@ -1282,11 +1284,68 @@ Both `CAN_QUIET_RADIO` configurations build clean after every change:
 | default (`CAN_QUIET_RADIO 0`, `CAN_LISTEN_ONLY 0`) | 979 B (47.8 %) | 17 212 B (56.0 %) |
 | `CAN_QUIET_RADIO 1` | 936 B (45.7 %) | 14 944 B (48.6 %) |
 
-RAM went **down** (1086 → 979 B) despite the added state machine and recovery
-paths: removing the `while (1) {}` let the compiler fold away the unreachable
-tail of `setup()`, and the hoisted identity statics replaced function-static
-storage with plain statics.
+Host suites, current: **517 684** checks in `test_eeprom_log`, **74** in
+`test_pwm_fault`, zero failures.
 
-Not verified on hardware — the bench tests in §7 are what remains. The claims in
-§1.3 about MCP2515 transmit-buffer behaviour are from the datasheet semantics and
-the `autowp` source, not from measurement on this board.
+### 9.2 Bench results
+
+Run on 2026-10-15 against the current firmware, observed from the radio receiver
+— the node's own serial was not available, which is itself the most important
+consequence of §4.3 below.
+
+| Property | Result |
+|---|---|
+| Virgin EEPROM → OFF | confirmed |
+| Heartbeat persists the duty (60 s) | confirmed |
+| Power-cycle restore at 500 | confirmed, **twice over two restore paths** |
+| — via boot marker | confirmed (`src=marker`) |
+| — via the window walk | confirmed (`src=window`) |
+| Unlocatable ring → OFF + `RESTORE-LOST` | confirmed |
+| Live command overrides the fail-safe | confirmed (`src=NRF`) |
+| PWM stall → fault record → reboot → recover | confirmed |
+| Watchdog fires and recovers | confirmed |
+| `X` recovers an anomalous ring | confirmed; the node resumes writing |
+| Anomaly → erase → power cycle → 500 | confirmed |
+| `PWM-OUTPUT-FAILED` was a phantom | confirmed on hardware |
+
+**Safe mode and `V` revive remain unexercised.** `SYSCMD_PWM_STALL` clears
+`TIMSK1`, which a reboot then re-arms through `pwm_out_set()`, so the fault cannot
+survive the reset and the escalation never reaches its second stage. The first
+stage — record, reboot, recover on the restore point — was confirmed instead.
+Closing this needs either a fault that genuinely persists across a reset or a way
+to enter safe mode directly, and it is the one gap in the winter path.
+
+### 9.3 Three bugs the bench found that review did not
+
+Worth recording separately, because all three were the same shape: correct in
+isolation, wrong in combination.
+
+**The flags byte carried two meanings on bit 5.** `EE_FLAG_PWMFAIL` was `0x20`
+and `EE_SRC_MARKER << EE_SRC_SHIFT` is also `0x20`. So every restore from a boot
+marker — the common case — reported a PWM fault, and wherever the fault was
+genuinely set the source was unreadable, which displayed a normal window-walk
+restore as an anomaly. Nine bits were needed into an eight-bit field; three flags
+were redundant with data already in the frame and were dropped to make room.
+This is what made the flag look like it "kept resurrecting itself" after an erase,
+and it wrongly suggested the fault ladder had produced a stall on real hardware.
+
+**The fault flag was a property of the boot, not of the log.** The scan that
+derives it lived inside `epl_restore_boot()`, so it ran once and never again.
+`X` erased the very record that set the flag and could not clear it, so it
+survived until the next power cycle — which is the second half of why it appeared
+permanent.
+
+**A 3.4 s command against a 2 s watchdog.** `SYSCMD_EE_ERASE` writes 1024 EEPROM
+bytes with nothing feeding the watchdog, so it tripped mid-erase and rebooted into
+a half-erased log — the exact state it exists to remove. `SYSCMD_EE_ANOMALY` had
+the identical defect and was found by reading, after `X` had already been fixed.
+Both now feed every 16 slots.
+
+### 9.4 Open, and not yet closed
+
+| | |
+|---|---|
+| **Safe mode and revive** | unexercised, and unreachable from the bench (§9.2) |
+| **CAN RX overrun under EEPROM writes** | `RXBUF0-OVR` appeared during both `X` and `A`, then cleared. The node does not service CAN while blocked writing, so the controller's RX buffer overruns. It is §4.3's starvation showing under load, not a bus fault — but it is unquantified. |
+| **No transmitter-side diagnostics** | Every result above was read off the radio, because the node's serial was not reachable. `win_frames`/`win_cmds`/`win_bad` are not carried on any frame, so "command arrived and was rejected" is indistinguishable from "command never arrived". That cost several wrong conclusions during this session. |
+| MCP2515 TX behaviour (§1.3) | still from datasheet semantics and the `autowp` source, not measured |

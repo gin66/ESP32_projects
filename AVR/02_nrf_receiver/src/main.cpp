@@ -46,6 +46,20 @@ static uint8_t serialLen = 0;
  * One attempt per window, and the next window arrives on its own in 5 s. */
 #define CMD_NONE  0xFFu
 
+/* Settling delay between seeing the window announce and actually transmitting.
+ *
+ * Commands were being sent inline, from inside the receive handler, the instant
+ * the PWM broadcast arrived. The node broadcasts that frame and opens its window
+ * immediately afterwards — but it still has to finish acknowledging the broadcast
+ * first, and the receiver transmits on the same channel during that ACK. So the
+ * first attempt collided. Only the commands that followed another command landed
+ * on the first window: 34, 71 and 97 windows to deliver when the receiver had been
+ * idle, then window 1 every time.
+ *
+ * Five milliseconds is many times the ~250 us an ACK packet occupies, and is a
+ * negligible fraction of the 250 ms window. */
+#define CMD_SETTLE_MS  5UL
+
 /* One armed frame at a time. A label instead of a decoded command, because the
  * duty path arms this too and the two report differently. */
 static uint8_t        cmdBuf[NRF_FRAME_SIZE];
@@ -53,6 +67,8 @@ static uint8_t        cmdLen;
 static const char*    cmdLabel = "?";
 static uint16_t       cmdTries = 0u;
 static bool           cmdArmed = false;
+static bool           cmdWindowSeen = false;
+static unsigned long  cmdWindowMs = 0UL;
 
 static const char* cmd_name(uint8_t cmd)
 {
@@ -106,8 +122,9 @@ static void cmd_arm(const void* frame, uint8_t len, const char* label)
     memcpy(cmdBuf, frame, len);
     cmdLen   = len;
     cmdLabel = label;
-    cmdTries = 0u;
-    cmdArmed = true;
+    cmdTries      = 0u;
+    cmdArmed      = true;
+    cmdWindowSeen = false;
 }
 
 /* One transmit attempt. The only place a command frame is ever sent. */
@@ -129,7 +146,12 @@ static bool cmd_send_once(void)
  * until a window has actually been announced. */
 static void cmd_pump(void)
 {
-    if (!cmdArmed) return;
+    unsigned long now;
+
+    if (!cmdArmed || !cmdWindowSeen) return;
+
+    now = millis();
+    if ((unsigned long)(now - cmdWindowMs) < CMD_SETTLE_MS) return;
 
     if (cmd_send_once()) {
         Serial.print(F("[RX] "));
@@ -612,11 +634,16 @@ static uint8_t  stat_eflg = 0;          // live MCP2515 error flags
                 pwm_duty = f.duty;
 
                 /* The node opens its listen window immediately after sending
-                 * this frame, in the same pass of its loop. Receiving it is
-                 * therefore the announcement that the window is open, and the
-                 * right moment to transmit is right now — 250 ms of budget for a
-                 * single frame that takes at most ~19 ms to put on the air. */
-                cmd_pump();
+                 * this frame, in the same pass of its loop, so receiving it is
+                 * the announcement that the window is open.
+                 *
+                 * The transmit itself is deferred by CMD_SETTLE_MS — see there.
+                 * Marking the window here and going out inline collided with the
+                 * node's ack of this very frame and cost up to 97 attempts. */
+                if (cmdArmed) {
+                    cmdWindowSeen = true;
+                    cmdWindowMs   = millis();
+                }
                 // Printed on every frame, not just on change: the sender repeats
                 // the duty once per cycle so a late-booting receiver converges,
                 // and that also makes this a live readout of the current value.

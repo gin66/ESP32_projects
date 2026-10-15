@@ -434,7 +434,7 @@ static void decode_protocol(uint32_t id, const uint8_t* data, uint8_t len,
         snprintf(info->decoded, sizeof(info->decoded),
                  "rest=%u rec=%u arc=%u..%u w=%u %s%s%s",
                  e.restored_duty, e.records, e.oldest, e.newest, e.writes, src,
-                 (e.flags & EE_FLAG_WRAPPED) ? " wrap" : "",
+                 (e.oldest > e.newest) ? " wrap" : "",
                  (e.flags & EE_FLAG_PWMFAIL) ? " PWMFAIL" : "");
 
         g_proto_heizung_pwmfail =

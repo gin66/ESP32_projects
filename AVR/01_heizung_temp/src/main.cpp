@@ -1098,17 +1098,16 @@ static void send_ee_stats()
     EeFrame f;
     uint8_t flags = 0;
 
+    /* Three flags only. EMPTY, WRAPPED and NOMARK are derivable from the rest
+     * of the frame and were dropped to make room — carrying all six alongside a
+     * three-bit source needed nine bits of an eight-bit field, and the overlap
+     * silently put EE_FLAG_PWMFAIL on the same bit as EE_SRC_MARKER. */
     if (epl_state.anomaly) flags |= EE_FLAG_ANOMALY;
-    if (epl_state.count == 0) flags |= EE_FLAG_EMPTY;
     /* A PWM failure recorded in the log, which is durable where the .noinit
      * escalation latch is not: it survives a power blip, so a node whose output
      * path failed once still says so after the history has been cleared. */
     if (epl_pwm_failed) flags |= EE_FLAG_PWMFAIL;
-    if (epl_state.wrapped)   flags |= EE_FLAG_WRAPPED;
-    if (epl_restore_src != EPL_SRC_MARKER && epl_restore_src != EPL_SRC_VIRGIN)
-        flags |= EE_FLAG_NOMARK;
-    if (epl_restore_src == EPL_SRC_INVALID)   flags |= EE_FLAG_BADNEW;
-    if (epl_restore_src == EPL_SRC_ANOMALY)   flags |= EE_FLAG_ANOMALY;
+    if (epl_restore_src == EPL_SRC_INVALID) flags |= EE_FLAG_BADNEW;
 
     flags |= (uint8_t)((epl_restore_src << EE_SRC_SHIFT) & EE_SRC_MASK);
 

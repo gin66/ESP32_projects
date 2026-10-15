@@ -574,7 +574,8 @@ static uint8_t  stat_eflg = 0;          // live MCP2515 error flags
                 Serial.print(f.oldest);
                 Serial.print(F(".."));
                 Serial.print(f.newest);
-                if (f.flags & EE_FLAG_WRAPPED) Serial.print(F(" (wrapped)"));
+                /* Was EE_FLAG_WRAPPED; derived from the arc instead. */
+                if (f.oldest > f.newest) Serial.print(F(" (wrapped)"));
 
                 Serial.print(F("  src="));
                 switch (f.flags & EE_SRC_MASK) {
@@ -741,7 +742,8 @@ static uint8_t  stat_eflg = 0;          // live MCP2515 error flags
             Serial.print(ee_restored);
             if (ee_flags & EE_FLAG_ANOMALY) {
                 Serial.print(F(" RESTORE-LOST"));
-            } else if (ee_flags & EE_FLAG_EMPTY) {
+            } else if (ee_records == 0u) {
+                /* Was EE_FLAG_EMPTY, now derived: it said exactly this. */
                 Serial.print(F(" EMPTY"));
             } else {
                 Serial.print(F(" rec="));
@@ -761,6 +763,8 @@ static uint8_t  stat_eflg = 0;          // live MCP2515 error flags
                 Serial.print(ee_newest);
                 Serial.print(F(" w="));
                 Serial.print(ee_writes);
+                /* Was EE_FLAG_WRAPPED, now derived. */
+                if (ee_oldest > ee_newest) Serial.print(F(" wrap"));
             }
             if (ee_flags & EE_FLAG_PWMFAIL) {
                 /* The flag is durable and the ring holds 80 hours, so it can mean

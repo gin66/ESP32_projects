@@ -391,18 +391,32 @@ static inline void haus_can_get_stats(const uint8_t* buf, haus_can_stats_t* s) {
  * output came up on EPL_OFF_DUTY without anything being restored. That is a
  * silent loss of the restore point, and it looks identical to a deliberate off
  * if the duty alone is reported. */
+/* Only three flags travel. The rest are derivable from fields already in the
+ * same 8-byte frame, and carrying them was not free:
+ *
+ *   EMPTY   <- records == 0
+ *   WRAPPED <- oldest > newest
+ *   NOMARK  <- src != EE_SRC_MARKER
+ *
+ * Carrying six flags plus a three-bit source needs nine bits, and the byte has
+ * eight. The overlap landed on bit 5: EE_FLAG_PWMFAIL was 0x20 and
+ * EE_SRC_MARKER << EE_SRC_SHIFT is also 0x20. So every restore from a boot
+ * marker — the common case — set the PWM-failure bit, and a node that had never
+ * failed once reported a fault that outlived its own history. In the other
+ * direction the source was unreadable whenever PWMFAIL was set, which is how a
+ * normal window-walk restore came to be displayed as an anomaly.
+ *
+ * Derived, not lost: a decoder that wants them computes them from the frame. */
 #define EE_FLAG_ANOMALY 0x01  /* ring unlocatable — restore fell back to OFF */
-#define EE_FLAG_EMPTY   0x02  /* no records at all (virgin or erased)       */
-#define EE_FLAG_WRAPPED 0x04  /* valid arc runs past slot 0                  */
-#define EE_FLAG_NOMARK  0x08  /* newest record was not a boot marker         */
-#define EE_FLAG_BADNEW  0x10  /* newest record failed its checksum           */
+#define EE_FLAG_BADNEW  0x02  /* newest record failed its checksum           */
 /* The log holds a record of a PWM output-path failure. Durable where the
  * escalation latch is not: it survives a power blip, so a node whose output
  * path failed once still says so after its history has been cleared. */
-#define EE_FLAG_PWMFAIL 0x20
+#define EE_FLAG_PWMFAIL 0x04
 
-/* Where the restored duty came from. In the top 3 bits of flags so it fits the
- * DLC; 0 means "not recorded", which is a legitimate virgin-device answer. */
+/* Where the restored duty came from, in the top three bits so it fits the DLC;
+ * 0 means "not recorded", which is a legitimate virgin-device answer. Bits 5-7
+ * are the source's alone — see the note above. */
 #define EE_SRC_SHIFT   5
 #define EE_SRC_VIRGIN  0u
 #define EE_SRC_MARKER  1u

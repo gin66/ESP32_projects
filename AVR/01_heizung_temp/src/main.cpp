@@ -891,6 +891,8 @@ static void scan_sensors()
 // ─── Announce every sensor's ROM on its own frame ───────────────────────────
 static void send_identities()
 {
+    uint8_t sent = 0;
+
     for (uint8_t i = 0; i < sensor_count && i < NRF_MAX_SENSORS; i++) {
         IdFrame f;
         f.magic = NRF_MAGIC_ID;
@@ -904,6 +906,20 @@ static void send_identities()
 #if !CAN_LISTEN_ONLY
         can_send_identity(i, sensor_roms[i]);
 #endif
+        sent++;
+    }
+
+    /* Logged because a missing identity frame on the receiving side is otherwise
+     * undiagnosable from here: the transmitter would show a normal-looking
+     * temperature cycle while the receiver's sensor list stayed empty, and there
+     * would be nothing here to tell the two apart. */
+    if (sent > 0u) {
+        Serial.print(F("[TX] identity burst: "));
+        Serial.print(sent);
+        Serial.print(F(" sensor(s), rank0="));
+        Serial.println(rom_to_str(sensor_roms[0]));
+    } else {
+        Serial.println(F("[TX] identity burst: NONE — no sensors ranked"));
     }
 }
 
@@ -1412,11 +1428,20 @@ void loop()
     }
 
     /* Restore-point log status. Slow cadence, because the log changes at most
-     * every 8 h — but an anomaly jumps the queue, since that is the one case
-     * worth telling someone about promptly rather than on the next minute. */
-    if ((millis() - lastEeStatsMs >= EE_PERIOD_MS) ||
+     * every 8 h — but two things jump the queue:
+     *
+     *   - the first report, which must NOT wait the full period. A node that
+     *     booted on a lost restore point would otherwise say nothing about it for
+     *     a minute, which is exactly the interval in which the information is
+     *     most wanted.
+     *   - an anomaly, the one case worth reporting promptly at all.
+     */
+    static uint8_t eeFirstReported = 0u;
+    if (!eeFirstReported ||
+        (unsigned long)(millis() - lastEeStatsMs) >= EE_PERIOD_MS ||
         (epl_state.anomaly && !eeAnomalyReported)) {
         lastEeStatsMs = millis();
+        eeFirstReported = 1u;
         eeAnomalyReported = epl_state.anomaly ? 1u : 0u;
         send_ee_stats();
     }
@@ -1482,6 +1507,8 @@ void loop()
         Serial.print(failCount);
         Serial.print("  can_drop=");
         Serial.print(can_dropped());
+        Serial.print("  sensors=");
+        Serial.print(sensor_count);
         Serial.print("  pwm=");
         Serial.print(pwm_duty);
         Serial.print("/");

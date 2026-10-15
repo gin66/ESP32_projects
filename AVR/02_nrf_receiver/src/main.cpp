@@ -28,100 +28,75 @@ static unsigned long replyAtMs = 0;
 static char    serialBuf[8];
 static uint8_t serialLen = 0;
 
-// ─── Diagnostic commands ─────────────────────────────────────────────────────
-// Bench triggers for the failure paths that cannot be produced any other way.
-// The reboot and the PWM escalation both end in a watchdog reset, so without
-// these they are unobservable from a test bench.
-//
-// Deliberately radio-only: putting a reboot command on the CAN bus would put it
-// on the same wire the safety-critical heating control travels on, for no gain.
-/* Transmit and retry until acknowledged, or the deadline passes.
+// ─── Radio transmit ──────────────────────────────────────────────────────────
+
+/* Hard ceiling on send attempts, independent of the deadline. */
+#define RADIO_SEND_MAX_TRIES 20u
+
+/* The radio's STATUS register would say "no ACK" versus "something arrived and
+ * we missed it", which is the interesting distinction here — but RF24 keeps
+ * `status` and `read_register()` private and exposes no way to get at it, and
+ * carving one out is not worth it for a bench tool. The attempt count below is
+ * the weaker but honest signal. */
+/* Transmit, retrying briefly.
  *
- * The node opens its listen window once per TEMPERATURE cycle — every 5 s — and
- * holds it for 250 ms. So the opportunity arrives every 5000 ms, and a retry span
- * shorter than that has a large chance of containing none at all.
+ * The bound is deliberately short and doubly enforced. An earlier version
+ * retried for 1.5 s and then for 6 s, and both were wrong for a bench tool: the
+ * node only listens inside a 250 ms window once per 5 s, so a long span was the
+ * only way to guarantee landing — and a long span meant this function held the
+ * whole main loop, silencing every frame the receiver prints. Pressing a key and
+ * watching the log go dead is exactly what a wedged receiver looks like, and a
+ * tool that can be mistaken for one is worse than one that says "missed, press
+ * again".
  *
- * An earlier version retried for 1500 ms, reasoned from the 1 s ADC cadence. The
- * ADC frames do go out once a second, but the listen window is not on that clock:
- * it hangs off the conversion-complete branch of the loop, which is every
- * TEMP_PERIOD_MS. A 1500 ms span therefore overlapped a window about a quarter of
- * the time, and three commands in four were dropped in silence.
+ * So: a handful of attempts inside ~400 ms, then report. The duty command
+ * nearly always lands on the first try anyway; when it does not, the operator
+ * presses Enter again.
  *
- * 6 s is the shortest span that guarantees at least one window fits, whatever the
- * phase: up to 250 ms of it is spent waiting inside one.
+ * Bounded on ATTEMPTS as well as on time. The deadline check cannot fire while
+ * RF24::write() has not returned, and that call sits inside the library's own
+ * do/while around errHandler(), which can re-enter it. An attempt cap cannot be
+ * defeated by anything inside the library, so the loop always terminates.
  *
- * Blocks for the whole deadline, so broadcasts are missed while it runs. That is
- * the right trade for a command somebody just typed by hand.
- *
- * RF24::write() also has to be bracketed by stopListening()/startListening(),
- * or the chip is left in standby-TX and this receiver never hears anything
- * again. */
+ * RF24::write() must also be bracketed by stopListening()/startListening(), or
+ * the chip is left in standby-TX and this receiver never hears anything again. */
 static bool radio_send_retry(const void* buf, uint8_t len, uint16_t ms)
 {
-    unsigned long t0 = millis();
+    unsigned long t0    = millis();
+    uint16_t      tries = 0u;
+    bool          ok    = false;
 
     for (;;) {
         radio.stopListening();
-        bool ok = radio.write(buf, len);
+        ok = radio.write(buf, len);
         radio.startListening();
-        if (ok) return true;
-        if ((unsigned long)(millis() - t0) >= ms) return false;
-        delay(25);
-    }
-}
+        tries++;
 
-static bool sys_cmd_send(uint8_t cmd)
-{
-    SysCmdFrame f;
-
-    f.magic    = NRF_MAGIC_SYS;
-    f.cmd      = cmd;
-    f.arg      = 0u;
-    memset(f.reserved, 0, sizeof(f.reserved));
-    f.crc      = frame_crc16(&f, sizeof(f));
-
-    /* RF24::write() drops the chip into standby-TX (startFastWrite -> ce(HIGH))
-     * and never returns it to RX. Calling it while still listening therefore
-     * leaves the receiver deaf for the rest of the session — the next
-     * diagnostic keypress appears to kill the link, and only a reset brings it
-     * back. The duty-send path below already brackets its write for exactly
-     * this reason; this one had to as well. */
-    return radio_send_retry(&f, sizeof(f), 6000);
-}
-
-static void serial_diag(char c)
-{
-    const char* what;
-    uint8_t     cmd;
-
-    switch (c) {
-        case 'R': case 'r': what = "reboot (starve watchdog)"; cmd = SYSCMD_REBOOT;      break;
-        case 'S': case 's': what = "kill TIMSK1 (PWM stall)"; cmd = SYSCMD_PWM_STALL;   break;
-        case 'A': case 'a': what = "fill EEPROM (force anomaly)"; cmd = SYSCMD_EE_ANOMALY;  break;
-        case 'X': case 'x': what = "erase EEPROM log";          cmd = SYSCMD_EE_ERASE;    break;
-        case 'C': case 'c': what = "clear counters";           cmd = SYSCMD_CLEAR_STATS; break;
-        case 'V': case 'v': what = "revive from failover";      cmd = SYSCMD_REVIVE;      break;
-        default:
-            Serial.println("  ? R=reboot S=pwm-stall A=eeprom-fill X=eeprom-erase C=counters V=revive");
-            return;
+        if (ok) break;
+        if (tries >= RADIO_SEND_MAX_TRIES) break;
+        if ((unsigned long)(millis() - t0) >= ms) break;
+        delay(20);
     }
 
-    Serial.print("  -> DIAG ");
-    Serial.print(what);
-    Serial.println(sys_cmd_send(cmd) ? " sent" : " (not acked)");
+    return ok;
 }
+
 
 // Consume serial input until Enter. Accepts only decimal digits so there is no
-// pull-in from random characters, and range-checks before accepting. Letters
-// are single-shot diagnostics and take effect immediately.
+// pull-in from random characters, and range-checks before accepting.
 static void serial_command()
 {
     while (Serial.available()) {
         char c = (char)Serial.read();
 
+        /* Letters are ignored. There used to be a diagnostic key path here —
+         * R/S/A/X/C/V, sent straight to the node — and it was worse than useless:
+         * it ran a blocking retry inside the character handler, so pressing a key
+         * silenced every frame this receiver prints until it returned. From the
+         * bench that is indistinguishable from a wedged receiver, and it is the
+         * one thing a bench tool must never do. */
         if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
-            serialLen = 0;          // an abandoned number is discarded
-            serial_diag(c);
+            serialLen = 0;
             continue;
         }
 
@@ -172,15 +147,16 @@ static void send_pwm_command(uint16_t permille)
     memset(f.reserved, 0, sizeof(f.reserved));
     f.crc   = frame_crc16(&f, sizeof(f));
 
-    bool ok = radio_send_retry(&f, sizeof(f), 6000);
+    bool ok = radio_send_retry(&f, sizeof(f), 400);
 
-    // A false here means nobody acknowledged: the sender was not inside its
-    // listen window when this frame went out, so the command was lost.
-    Serial.print("[RX] commanded ");
+    /* Always one line. The node only listens in a 250 ms window once per 5 s, so
+     * a miss is expected often enough to say so plainly rather than leave the
+     * operator wondering whether the keypress registered. */
+    Serial.print(F("[RX] commanded "));
     Serial.print(permille);
-    Serial.print(permille > 0 && !ok ? "  NOT ACKNOWLEDGED — missed the window"
-                                     : " permille");
-    Serial.println("");
+    if (permille > 0 && !ok) Serial.print(F("  missed the window — press Enter again"));
+    else                      Serial.print(F(" permille"));
+    Serial.println();
 }
 
 // ─── Learned identity table, built at runtime from the identity frames ──────
@@ -265,9 +241,7 @@ void setup()
     }
 
     Serial.println("[RX] ready — broadcasts on pipe 1, commands on pipe 0");
-    Serial.println(F("[RX] keys: 0..1000+Enter=duty   R=reboot S=pwm-stall"));
-    Serial.println(F("[RX]       A=eeprom-fill X=eeprom-erase C=counters V=revive"));
-    Serial.println("[RX] type a duty 0..1000 and press Enter to command the PWM");
+    Serial.println(F("[RX] type 0..1000 + Enter to command the duty"));
 }
 
 static const char* pwm_src_str(uint8_t flags)
@@ -770,11 +744,4 @@ static uint8_t  stat_eflg = 0;          // live MCP2515 error flags
         Serial.println();
     }
 
-    /* Typed-but-unsubmitted digits. Printed every pass so a half-typed value is
-     * visible, and the only thing here that is not about the link. */
-    if (serialLen) {
-        Serial.print(F("[RX] kbd "));
-        for (uint8_t i = 0u; i < serialLen; i++) Serial.print(serialBuf[i]);
-        Serial.println(F(" ... (Enter to send)"));
-    }
 }

@@ -506,7 +506,7 @@ behaviour, not a fault condition.**
 
 Trace it through the code *(line numbers as of the pre-remediation revision — the
 radio line no longer hangs, but the rest of the sequence is unchanged and still
-live; see §7 Batch 1.1)*:
+live; the restore point that fixes it was item B1.1, now done)*:
 
 ```
 power cut

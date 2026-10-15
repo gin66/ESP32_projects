@@ -82,6 +82,110 @@ static bool radio_send_retry(const void* buf, uint8_t len, uint16_t ms)
 }
 
 
+// ─── Queued diagnostic commands ──────────────────────────────────────────────
+
+/* The node opens its listen window for 250 ms once per 5 s, so a command has to
+ * survive several attempts spread over seconds. Doing that with a blocking
+ * retry in the key handler is what wedged this receiver; doing it here, one
+ * attempt per loop pass, costs the log nothing. */
+#define CMD_RETRY_MS   100UL
+#define CMD_MAX_TRIES  60u          /* ~6 s: guarantees one window fits */
+
+#define CMD_NONE       0xFFu
+
+static uint8_t        cmdQueued = CMD_NONE;
+static uint16_t       cmdTries  = 0u;
+static unsigned long  cmdNextMs = 0UL;
+
+static const char* cmd_name(uint8_t cmd)
+{
+    switch (cmd) {
+        case SYSCMD_REBOOT:      return "reboot (starve watchdog)";
+        case SYSCMD_PWM_STALL:   return "kill TIMSK1 (pwm stall)";
+        case SYSCMD_EE_ANOMALY:  return "fill EEPROM (force anomaly)";
+        case SYSCMD_EE_ERASE:    return "erase EEPROM log";
+        case SYSCMD_CLEAR_STATS: return "clear counters";
+        case SYSCMD_REVIVE:      return "revive from failover";
+        default:                 return "?";
+    }
+}
+
+/* Queues a diagnostic command. Deliberately does no radio work. */
+static void serial_diag(char c)
+{
+    uint8_t cmd;
+
+    switch (c) {
+        case 'R': case 'r': cmd = SYSCMD_REBOOT;      break;
+        case 'S': case 's': cmd = SYSCMD_PWM_STALL;   break;
+        case 'A': case 'a': cmd = SYSCMD_EE_ANOMALY;  break;
+        case 'X': case 'x': cmd = SYSCMD_EE_ERASE;    break;
+        case 'C': case 'c': cmd = SYSCMD_CLEAR_STATS; break;
+        case 'V': case 'v': cmd = SYSCMD_REVIVE;      break;
+        default:
+            Serial.println(F("[RX] keys: R S A X C V, or 0..1000+Enter for duty"));
+            return;
+    }
+
+    cmdQueued = cmd;
+    cmdTries  = 0u;
+    Serial.print(F("[RX] queued DIAG "));
+    Serial.println(cmd_name(cmd));
+}
+
+/* One transmit attempt. The only place a diagnostic frame is ever sent. */
+static bool cmd_send_once(uint8_t cmd)
+{
+    SysCmdFrame f;
+
+    f.magic = NRF_MAGIC_SYS;
+    f.cmd   = cmd;
+    f.arg   = 0u;
+    memset(f.reserved, 0, sizeof(f.reserved));
+    f.crc   = frame_crc16(&f, sizeof(f));
+
+    /* Cleared before every attempt. RF24's write() is wrapped in its own
+     * do/while around errHandler(), which re-enters the write when this flag is
+     * set — a path this receiver has no way to bound from outside. */
+    radio.failureDetected = 0u;
+
+    radio.stopListening();
+    bool ok = radio.write(&f, sizeof(f));
+    radio.startListening();
+
+    return ok;
+}
+
+/* Services the queue. Called once per loop pass; at most one attempt per
+ * CMD_RETRY_MS, so the frame log keeps running at its normal rate throughout. */
+static void cmd_pump(void)
+{
+    unsigned long now;
+
+    if (cmdQueued == CMD_NONE) return;
+
+    now = millis();
+    if ((long)(now - cmdNextMs) < 0) return;   /* not yet */
+    cmdNextMs = now + CMD_RETRY_MS;
+
+    if (cmd_send_once(cmdQueued)) {
+        Serial.print(F("[RX] DIAG "));
+        Serial.print(cmd_name(cmdQueued));
+        Serial.print(F(" sent, "));
+        Serial.print((uint32_t)(cmdTries + 1u));
+        Serial.println(F(" attempt(s)"));
+        cmdQueued = CMD_NONE;
+        return;
+    }
+
+    if (++cmdTries >= CMD_MAX_TRIES) {
+        Serial.print(F("[RX] DIAG "));
+        Serial.print(cmd_name(cmdQueued));
+        Serial.println(F(" NOT acked — gave up"));
+        cmdQueued = CMD_NONE;
+    }
+}
+
 // Consume serial input until Enter. Accepts only decimal digits so there is no
 // pull-in from random characters, and range-checks before accepting.
 static void serial_command()
@@ -89,14 +193,14 @@ static void serial_command()
     while (Serial.available()) {
         char c = (char)Serial.read();
 
-        /* Letters are ignored. There used to be a diagnostic key path here —
-         * R/S/A/X/C/V, sent straight to the node — and it was worse than useless:
-         * it ran a blocking retry inside the character handler, so pressing a key
-         * silenced every frame this receiver prints until it returned. From the
-         * bench that is indistinguishable from a wedged receiver, and it is the
-         * one thing a bench tool must never do. */
+        /* A diagnostic key queues a command and returns. It must not transmit
+         * here: this handler runs in loop(), on the same thread that prints every
+         * frame this receiver receives, so anything that blocks inside it silences
+         * the log. An earlier version retried inline and pressing R stopped the
+         * receiver dead. Queueing costs one byte and the loop does the work. */
         if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
             serialLen = 0;
+            serial_diag(c);
             continue;
         }
 
@@ -242,6 +346,8 @@ void setup()
 
     Serial.println("[RX] ready — broadcasts on pipe 1, commands on pipe 0");
     Serial.println(F("[RX] type 0..1000 + Enter to command the duty"));
+    Serial.println(F("[RX] keys:  R=reboot S=pwm-stall A=eeprom-fill"));
+    Serial.println(F("[RX]        X=eeprom-erase C=counters V=revive"));
 }
 
 static const char* pwm_src_str(uint8_t flags)
@@ -583,6 +689,7 @@ static uint8_t  stat_eflg = 0;          // live MCP2515 error flags
     }
 
     serial_command();
+    cmd_pump();
 
     /* Retry a radio that did not come up, rather than leaving the bench tool
      * permanently deaf after a marginal boot. */

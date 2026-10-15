@@ -93,7 +93,19 @@
  * unchanged and a corrupt duty sails through. Two extra rotations close that.
  * It catches partial writes, stuck cells and single-byte rot.
  */
-#define EPL_FLAG_BOOT      ((uint16_t)0x0400u)
+/* flags occupy bits 10..15 of the word. Only the two in use are named; the rest
+ * are reserved so a future flag does not change the layout.
+ *
+ * EPL_FLAG_PWM_FAIL is the sticky half of a PWM output-path failure. It lives
+ * here rather than only in the .noinit latch because .noinit is cleared by a
+ * power-on reset: a fault followed by a power blip would leave no trace, could
+ * not be reported, and would reset the escalation history to "first occurrence".
+ * In the log it survives power loss, travels over both wires, and is visible to
+ * a receiver that never saw the fault happen. */
+#define EPL_FLAG_BOOT      ((uint16_t)0x0001u)
+#define EPL_FLAG_PWM_FAIL  ((uint16_t)0x0002u)
+#define EPL_FLAGS_MASK     ((uint16_t)0x003Fu)
+#define EPL_FLAG_SHIFT     10
 #define EPL_DUTY_MASK      ((uint16_t)0x03FFu)
 #define EPL_REC_EMPTY      ((uint8_t)0xFFu)   /* AVR EEPROM erase sets all bits */
 
@@ -118,12 +130,21 @@ typedef struct {
     uint8_t  anomaly;   /* 1 if the ring is 100% full and the newest is unknowable */
 } epl_state_t;
 
-/* One decoded record. */
+/* One decoded record. `flags` carries EPL_FLAG_*; the named bitfields below are
+ * convenience views on it, not separate storage. */
 typedef struct {
     uint16_t duty;
-    uint8_t  boot;
+    uint8_t  flags;
     uint8_t  valid;
 } epl_rec_t;
+
+/* Record with flags set and duty resolved, for a record the log has just read. */
+typedef struct {
+    uint16_t duty;
+    uint8_t  boot;         /* EPL_FLAG_BOOT     */
+    uint8_t  pwm_fail;     /* EPL_FLAG_PWM_FAIL */
+    uint8_t  valid;
+} epl_flags_t;
 
 /* Raw 4 bytes of a slot, as stored. */
 typedef struct {
@@ -137,8 +158,11 @@ typedef struct {
  * avoid doing so. */
 epl_rec_t epl_decode(const epl_raw_t* raw);
 
+/* Split a decoded record's flags into named bits. */
+epl_flags_t epl_rec_flags(const epl_rec_t* rec);
+
 /* Encode into 4 bytes. chk is placed last so the caller can order the writes. */
-void epl_encode(epl_raw_t* raw, uint16_t duty, uint8_t boot);
+void epl_encode(epl_raw_t* raw, uint16_t duty, uint8_t flags);
 
 /* 1 if every byte of the slot is 0xFF — i.e. genuinely erased. */
 uint8_t epl_slot_is_empty(const epl_io_t* io, uint16_t slot);
@@ -178,7 +202,7 @@ uint8_t epl_restore_ex(const epl_io_t* io, const epl_state_t* st,
 /* Append one record. Enforces EPL_VALID_MAX by erasing the oldest slot first,
  * so the ring can never reach the ambiguous full state. Returns the slot
  * written, or 0xFFFF on fault. st is updated in place. */
-uint16_t epl_append(const epl_io_t* io, epl_state_t* st, uint16_t duty, uint8_t boot);
+uint16_t epl_append(const epl_io_t* io, epl_state_t* st, uint16_t duty, uint8_t flags);
 
 /* Erase one slot back to 0xFF. */
 void epl_erase_slot(const epl_io_t* io, uint16_t slot);

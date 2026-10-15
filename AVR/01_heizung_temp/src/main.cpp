@@ -10,6 +10,7 @@
 #include "adc_monitor.h"
 #include "eeprom_log.h"
 #include "eeprom_avr.h"
+#include "pwm_fault.h"
 
 // ─── Hardware pins (rf-nano V1.0: CE=10, CSN=9) ─────────────────────────────
 #define ONE_WIRE_BUS       4   // DS18B20 data on D4
@@ -26,25 +27,27 @@
 // the only unassigned digital pins on the Nano.
 #define PWM_DUTY_PERMILLE  1000   // GPIO held high → heater off until a CAN command
 
-// Duty forced onto the output when the PWM ISR is found stalled, and the duty
-// the board wakes up with. Deliberately the same value for now.
+// ─── Duties for the non-commanded states ─────────────────────────────────────
 //
-// The README's own measurement says the driver stage inverts, so "higher duty"
-// may mean "less heat" — but it also says the probe was on a downstream node
-// whose characteristics were never documented. Until that is resolved, forcing
-// the *boot* value is the only choice that cannot introduce a direction nobody
-// has verified. It guarantees a defined state rather than "whatever interior
-// duty happened to be running", which is what the stall otherwise leaves.
+// Three distinct constants rather than one, because they are three distinct
+// decisions and aliasing them hides which one is in force:
 //
-// Change this in one place once §7 Batch 1.2 has verified the polarity.
-#define PWM_FAULT_SAFE_DUTY  PWM_DUTY_PERMILLE
+//   PWM_DUTY_PERMILLE          boot. Nothing has asked for anything yet.
+//   PWM_FAILOVER_PERMILLE      PWM output path is broken; a software square wave
+//                              is driving the pin instead. NOT a commanded duty
+//                              and not expressed by the counter at all.
+//   (removed) PWM_FAULT_SAFE_DUTY — the old name for "whatever the fault path
+//                              forced", which was silently PWM_DUTY_PERMILLE. A
+//                              detected output failure and a cold start are
+//                              different events and must not read the same.
+//
+// All three are unverified in *direction*, for the same reason: the README says
+// the driver stage inverts and that the probe sat on a downstream node whose
+// characteristics were never documented. Until §7 Batch 1.2 measures the load,
+// treat these as three numbers to be set, not three meanings that are known.
+   // see pwm_fault.h
 
-// How long the Timer1 compare vectors may make no progress before it is called
-// a stall. At 1 kHz there are two ISR entries per millisecond, so 250 ms is
-// ~500 missed entries — far outside anything attributable to a long blocking
-// call in this loop (the longest is listen_window(), exactly 250 ms, and that
-// polls the liveness itself).
-static const unsigned long PWM_STALL_LIMIT_MS = 250UL;
+
 
 // ─── Cadence ─────────────────────────────────────────────────────────────────
 // requestTemperatures() blocks until the DS18B20 conversion finishes (up to
@@ -154,6 +157,7 @@ static const char* pwm_source_str(uint8_t src)
 static uint16_t win_frames = 0;   // anything received while listening
 static uint16_t win_cmds = 0;     // well-formed duty commands accepted
 static uint16_t win_bad = 0;      // foreign magic or bad CRC
+static uint16_t sysCmds = 0;     // diagnostic commands accepted
 
 // ─── Peripheral bring-up state machine ───────────────────────────────────────
 // The radio and the CAN controller are brought up from loop(), not setup().
@@ -356,8 +360,6 @@ static void broadcast_pwm()
 //
 // Every append goes through epl_write() so that epl_writes stays an accurate
 // liveness counter and a failed append is visible rather than silent.
-const epl_io_t* epl_io(void);
-
 static const epl_io_t* epl_io(void)
 {
     static const epl_io_t* io;
@@ -383,7 +385,6 @@ static void epl_write_boot_marker(void)
      * becomes a permanently corrupted one. */
     if (epl_state.anomaly) return;
     if (epl_state.count > 0u && epl_state.newest < EPL_SLOTS) {
-        epl_raw_t raw;
         epl_raw_t probe;
         epl_rec_t newest;
         uint16_t  base = (uint16_t)(epl_state.newest * EPL_REC_SIZE);
@@ -393,13 +394,19 @@ static void epl_write_boot_marker(void)
             probe.b[i] = epl_io()->rd(epl_io()->ctx, (uint16_t)(base + i));
         }
         newest = epl_decode(&probe);
-        if (newest.valid && newest.boot) return;   /* already stamped */
+        if (newest.valid && (newest.flags & EPL_FLAG_BOOT)) return;   /* already stamped */
     }
 
-    if (epl_append(epl_io(), &epl_state, epl_restored, (uint8_t)1) != 0xFFFFu) {
+    if (epl_append(epl_io(), &epl_state, epl_restored, (uint8_t)EPL_FLAG_BOOT) != 0xFFFFu) {
         epl_writes++;
     }
 }
+
+/* True when the ring holds a record flagged EPL_FLAG_PWM_FAIL — i.e. the output
+ * path has failed at some point, possibly before this boot and possibly across a
+ * power cut, which is exactly the case the .noinit escalation latch cannot
+ * cover. Set by epl_restore_boot(), read by the status frames. */
+static bool epl_pwm_failed = false;
 
 // Scan, restore, and record why. Called once, before pwm_out_begin().
 static void epl_restore_boot(void)
@@ -408,6 +415,30 @@ static void epl_restore_boot(void)
 
     epl_scan(io, &epl_state);
     epl_restore_ex(io, &epl_state, &epl_restored, &epl_restore_src);
+
+    /* Look back through the restore window for a recorded PWM failure. A record
+     * older than that is not interesting: at an 8 h cadence the window is ~80 h,
+     * so anything beyond that is history rather than a current condition. */
+    epl_pwm_failed = 0u;
+    {
+        uint8_t i;
+        for (i = 0u; i <= EPL_RESTORE_WINDOW; i++) {
+            uint16_t slot = (uint16_t)((epl_state.newest + EPL_SLOTS - i) % EPL_SLOTS);
+            epl_raw_t raw;
+            uint8_t  j;
+
+            if (epl_state.count == 0u || !epl_in_region(&epl_state, slot)) break;
+
+            for (j = 0u; j < (uint8_t)EPL_REC_SIZE; j++) {
+                raw.b[j] = io->rd(io->ctx, (uint16_t)(slot * EPL_REC_SIZE + j));
+            }
+            if (epl_decode(&raw).valid &&
+                (epl_decode(&raw).flags & EPL_FLAG_PWM_FAIL)) {
+                epl_pwm_failed = 1u;
+                break;
+            }
+        }
+    }
 
     if (epl_state.anomaly) {
         /* The restore point is gone. This is the one log line that must never be
@@ -467,45 +498,188 @@ static void set_pwm_duty(uint16_t permille)
 // output is the thing that drives the heater. An unconditional feed would report
 // that node as perfectly healthy.
 //
-// So edge progress is checked separately, and deliberately does NOT reset the
-// board. A stalled PWM is a partial fault, and a reset would drop the output
-// straight onto PWM_DUTY_PERMILLE — the unsafe boot state — turning a partial
-// fault into a total one. Instead it forces a defined safe duty, latches a flag
-// for the stats frame, and counts itself.
-static bool          pwmStalled    = false;
+// ─── Escalation ──────────────────────────────────────────────────────────────
+// pwmStalled means the PWM is not working at all: the Timer1 compare vectors
+// have stopped, so the duty in force is not being delivered to the load no
+// matter what the status frames claim. That is a hardware-path failure, and it
+// escalates in three steps rather than one:
+//
+//   1. first occurrence -> latch it, note it, and let the watchdog reboot.
+//
+//      A reset is the right first move, because it can actually fix this:
+//      pwm_out_begin() reprograms TCCR1A, ICR1, OCR1A, OCR1B, TCCR1B and TIMSK1
+//      from scratch, so anything transient — a lost interrupt, a corrupted
+//      timer register, software that clobbered TIMSK1 — is cleared by it.
+//
+//   2. if the fault is present again on the *next* boot, it is not transient.
+//
+//   3. safe mode: a software square wave on the pin with the timer stopped.
+//      Unavoidable, because if the compare vectors are dead there is no way to
+//      make edges with them. See pwm_out_failover_square().
+//
+// The latch lives in .noinit, not EEPROM. A watchdog reset is not a power-on
+// reset, so .noinit survives it, which is all the escalation needs. EEPROM
+// would only add durability across a power loss, and a power loss is a fresh
+// start anyway — it would spend wear to record a fact nothing acts on.
+static pwm_monitor_t pwmMon = { 0u, 0u, 0u };
 static uint32_t      pwmStallCount = 0;
-static uint32_t      pwmLastRuns   = 0;
-static unsigned long pwmLastOkMs   = 0;
 
-static void pwm_liveness_tick()
+// Latched across the watchdog reboot that step 1 triggers. .noinit, not EEPROM:
+// a watchdog reset preserves it, and a power loss is a fresh start anyway. The
+// EEPROM log carries the fault for *reporting* — see pwm_fault_record().
+static uint8_t pwmFaultLastBoot __attribute__((section(".noinit")));
+static uint8_t pwmFaultRuns     __attribute__((section(".noinit")));
+
+static bool     pwmFailover = false;   // terminal safe mode for this boot
+static bool     pwm_fault_persisted = false;  // decided at boot, acted on in loop()
+
+
+
+/* Persist the fault into the ring.
+ *
+ * The .noinit latch is the escalation *decision*, and is cleared by any
+ * power-on reset. This is the fault *record*, and it has to be durable: a fault
+ * followed by a power blip would otherwise leave no trace, could not be
+ * reported, and would reset the escalation history to "first occurrence". */
+static void pwm_fault_record(void)
+{
+    if (epl_state.anomaly) return;   /* never scribble into an unlocatable ring */
+    if (epl_append(epl_io(), &epl_state, pwm_duty, (uint8_t)EPL_FLAG_PWM_FAIL) != 0xFFFFu) {
+        epl_writes++;
+    }
+}
+
+static void pwm_failover_enter(void)
+{
+    pwmFailover = true;
+    pwm_source  = PWM_SRC_FAULT;
+    pwm_fault_record();
+
+    Serial.println(F("[TX] PWM FAILURE PERSISTED — entering safe mode"));
+    Serial.print(F("[TX]   1 kHz square wave @ "));
+    Serial.print(PWM_FAILOVER_PERMILLE);
+    Serial.println(F(" permille on D7; node stays alive, telemetry continues"));
+
+    /* NOT a blocking spin. An earlier revision looped here forever, which made
+     * safe mode unreachable: no serial, no CAN, no radio, and no way out but a
+     * power cycle — on the wire indistinguishable from a crashed node, which is
+     * the opposite of what a diagnostic state is for. The waveform is advanced
+     * from loop() instead, so the fault stays visible and a bench command can
+     * try to revive the output path. */
+    pwm_out_failover_begin(PWM_FAILOVER_PERMILLE);
+}
+
+static void pwm_liveness_tick(void)
 {
     uint32_t runs = pwm_out_isr_runs();
-    unsigned long now = millis();
+    pwm_fault_action_t act;
 
-    if (runs != pwmLastRuns) {
-        pwmLastRuns = runs;
-        pwmLastOkMs = now;
-        if (pwmStalled) {
-            pwmStalled = false;
-            Serial.println(F("[TX] PWM ISR recovered"));
-        }
+    if (!pwm_monitor_observe(&pwmMon, runs, millis(),
+                             (uint8_t)(pwm_out_active() ? 1u : 0u))) {
+        if (pwmMon.stalled) Serial.println(F("[TX] PWM ISR recovered"));
         return;
     }
 
-    // At 0 or 1000 permille both interrupts are deliberately off and the port is
-    // driven directly — there are no edges to make. Demanding them there would
-    // report a fault that does not exist, and PWM_DUTY_PERMILLE is the default
-    // boot state, so that guard is what stops this firing forever at power-on.
-    if (!pwm_out_active()) return;
+    if (pwmStallCount == 0u || (pwmStallCount & 0xFFu) == 0u) {
+        Serial.println(F("[TX] PWM ISR stalled — no edge progress"));
+    }
 
-    // Grace after TIMSK1 is first set: the first compare match has not landed yet.
-    if ((unsigned long)(now - pwmLastOkMs) < PWM_STALL_LIMIT_MS) return;
+    act = pwm_fault_on_stall(&pwmFaultLastBoot, &pwmFaultRuns);
 
-    if (!pwmStalled) {
-        pwmStalled = true;
+    if (act == PWM_FAULT_FAILOVER) {
+        pwm_failover_enter();          /* never returns */
+    }
+
+    if (act == PWM_FAULT_REBOOT) {
         pwmStallCount++;
-        Serial.println(F("[TX] PWM ISR stalled — forcing safe output"));
-        set_pwm_duty_from(PWM_FAULT_SAFE_DUTY, PWM_SRC_FAULT);
+        pwm_fault_record();
+        Serial.println(F("[TX]   first occurrence — latching and rebooting"));
+
+        /* Reboot by starving the watchdog: stop feeding it and let the 2 s
+         * timeout fire. Deliberately not an explicit reset — going through the
+         * watchdog path means the retained flags and the timer registers are all
+         * re-initialised exactly as on any other cold start, and it exercises
+         * the same watchdog that is the whole point of the exercise. */
+        for (;;) {
+            /* no wdt_reset() */
+        }
+    }
+}
+
+// ─── Diagnostic commands ─────────────────────────────────────────────────────
+// Bench-only paths that cannot be produced any other way. The PWM stall in
+// particular ends in a watchdog reset, so without these the escalation ladder
+// and the reboot path are unobservable from a test bench.
+//
+// Every one of these is logged loudly before it acts. They add no new exposure:
+// the same pipe already accepts a duty command, which controls the heater
+// directly, and a command that reboots the node is strictly less consequential
+// than one that sets its output.
+static void sys_cmd_exec(uint8_t cmd, uint8_t arg)
+{
+    switch (cmd) {
+
+    case SYSCMD_REBOOT:
+        Serial.println(F("[TX] *** DIAG: reboot requested — starving watchdog"));
+        Serial.flush();
+        /* Deliberately not an explicit reset: going through the watchdog is what
+         * this command exists to verify. It also leaves the retained flags and
+         * the timer registers initialised exactly as on a cold start. */
+        for (;;) {
+            /* no wdt_reset() */
+        }
+
+    case SYSCMD_PWM_STALL:
+        Serial.println(F("[TX] *** DIAG: killing TIMSK1 — expect stall, reboot,"));
+        Serial.println(F("[TX] ***       then safe mode on the *next* fault"));
+        Serial.flush();
+        /* The most direct way to simulate a dead output path: clear the compare
+         * enables so no edge is ever generated again, leaving everything else —
+         * the main loop, millis(), the watchdog — perfectly healthy. That is
+         * the exact condition pwm_monitor_observe() exists to catch, and it
+         * cannot be produced by breaking anything physical. */
+        TIMSK1 = 0;
+        return;
+
+    case SYSCMD_EE_ANOMALY:
+        Serial.println(F("[TX] *** DIAG: scribbling the EEPROM log"));
+        Serial.flush();
+        /* Erase every slot so the ring has no empty arc to find and the scan
+         * must report the anomaly rather than mis-locate the newest record. */
+        {
+            uint16_t slot;
+            for (slot = 0u; slot < EPL_SLOTS; slot++) epl_erase_slot(epl_io(), slot);
+        }
+        epl_scan(epl_io(), &epl_state);
+        Serial.println(F("[TX] ***       anomaly flag now set"));
+        return;
+
+    case SYSCMD_REVIVE:
+        if (!pwmFailover) {
+            Serial.println(F("[TX] *** DIAG: revive — not in failover"));
+            return;
+        }
+        Serial.println(F("[TX] *** DIAG: reviving — handing D7 back to Timer1"));
+        Serial.flush();
+        /* If the path is genuinely broken the liveness monitor will put it
+         * straight back into failover, which is the correct outcome: the attempt
+         * is bounded and self-limiting rather than a way to escape a real fault. */
+        pwmFailover = false;
+        pwm_out_failover_end();
+        set_pwm_duty(pwm_duty);
+        return;
+
+    case SYSCMD_CLEAR_STATS:
+        Serial.println(F("[TX] *** DIAG: clearing counters"));
+        Serial.flush();
+        win_frames = win_cmds = win_bad = sysCmds = 0u;
+        pwmStallCount = 0u;
+        return;
+
+    default:
+        Serial.print(F("[TX] *** DIAG: unknown command "));
+        Serial.println(cmd, HEX);
+        return;
     }
 }
 
@@ -560,6 +734,19 @@ static void listen_window(unsigned long ms)
 
         uint16_t magic;
         memcpy(&magic, buf, sizeof(magic));
+
+        if (magic == NRF_MAGIC_SYS) {
+            SysCmdFrame c;
+            memcpy(&c, buf, sizeof(c));
+            if (c.crc == frame_crc16(&c, sizeof(c))) {
+                sysCmds++;
+                sys_cmd_exec(c.cmd, c.arg);
+            } else {
+                win_bad++;
+            }
+            continue;   /* never a duty change */
+        }
+
         if (magic != NRF_MAGIC_PWM_CMD) { win_bad++; continue; }
 
         PwmFrame f;
@@ -744,6 +931,10 @@ static void send_ee_stats()
 
     if (epl_state.anomaly) flags |= EE_FLAG_ANOMALY;
     if (epl_state.count == 0) flags |= EE_FLAG_EMPTY;
+    /* A PWM failure recorded in the log, which is durable where the .noinit
+     * escalation latch is not: it survives a power blip, so a node whose output
+     * path failed once still says so after the history has been cleared. */
+    if (epl_pwm_failed) flags |= EE_FLAG_PWMFAIL;
     if (epl_state.wrapped)   flags |= EE_FLAG_WRAPPED;
     if (epl_restore_src != EPL_SRC_MARKER && epl_restore_src != EPL_SRC_VIRGIN)
         flags |= EE_FLAG_NOMARK;
@@ -883,7 +1074,7 @@ Serial.print(" boot=");
     Serial.print(bootCount);
     Serial.print(" pwm_stall=");
     Serial.print(pwmStallCount);
-    Serial.println(pwmStalled ? F(" ACTIVE") : F(""));
+    Serial.println(pwmMon.stalled ? F(" ACTIVE") : F(""));
     Serial.print(" rst=");
     Serial.print(can_recoveries());
     Serial.print("/");
@@ -939,9 +1130,21 @@ void setup()
     // from a first-ever power-up, and it is the only case where the .noinit
     // contents are meaningless.
     if (MCUSR & _BV(PORF)) {
-        bootCount = 1;
+        bootCount       = 1;
+        pwmFaultLastBoot = 0u;
+        pwmFaultRuns     = 0u;
     } else {
         bootCount = (bootCount == 0xFF) ? 1 : (uint8_t)(bootCount + 1);
+
+        /* PWM escalation stage. pwm_fault_boot() folds the retained latch into the
+         * run count and decides only what is knowable at boot — a single latch
+         * buys a retry, not failover, because whether the fault is still there is
+         * not knowable until the monitor observes it. Both are taken by pointer:
+         * the count has to survive the reset this very call exists to reason
+         * about. */
+        if (pwm_fault_boot(&pwmFaultLastBoot, &pwmFaultRuns) == PWM_FAULT_FAILOVER) {
+            pwm_fault_persisted = 1u;
+        }
     }
 
     // CSN lines first: deselect both SPI peripherals so that nothing on the
@@ -1045,6 +1248,15 @@ void loop()
     static uint8_t       eeAnomalyReported = 0;
     static uint32_t okCount = 0, failCount = 0;
 
+    /* PWM safe mode. Reached when the ISR stall survived a watchdog reboot, so
+     * it is already known not to be transient. */
+    if (pwm_fault_persisted && !pwmFailover) pwm_failover_enter();
+
+    /* The failover waveform, advanced here because this loop is its timebase.
+     * As early as possible: the resolution of the delivered duty is the loop's
+     * iteration time, so anything ahead of it directly distorts the waveform. */
+    if (pwmFailover) pwm_out_failover_tick();
+
     // Brings up the radio and CAN if they are not yet up, and detects a radio
     // that has stopped answering. Runs first so the peripherals are attempted
     // on the very first pass rather than after the first sensor scan.
@@ -1065,9 +1277,21 @@ void loop()
         send_adc_stats();
     }
 
+    /* The stats report is a long block of Serial at 115200 — tens of
+     * milliseconds — which would put a visible dent in a 200 us failover half
+     * period. In failover the node keeps running but says less: the fault is
+     * already reported on entry and again on the boot line after a restart. */
     if (millis() - lastStatsMs >= STATS_PERIOD_MS) {
         lastStatsMs = millis();
-        send_can_stats();
+        if (pwmFailover) {
+            Serial.print(F("[TX] failover, boot="));
+            Serial.print(bootCount);
+            Serial.print(F(" writes="));
+            Serial.print(epl_writes);
+            Serial.println();
+        } else {
+            send_can_stats();
+        }
     }
 
     /* Restore-point log status. Slow cadence, because the log changes at most
@@ -1118,7 +1342,9 @@ void loop()
         // Printing costs milliseconds at 115200 baud and the controller is
         // counting from the broadcast it just received — opening the window late
         // is what makes a command get missed.
-        if (radioReady) listen_window(LISTEN_WINDOW_MS);
+        /* No listen window in failover: it is a 250 ms block, which would
+         * stall the 200 us failover waveform completely. */
+        if (radioReady && !pwmFailover) listen_window(LISTEN_WINDOW_MS);
 #endif
 
         Serial.print("[TX]");

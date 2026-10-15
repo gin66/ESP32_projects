@@ -28,12 +28,60 @@ static unsigned long replyAtMs = 0;
 static char    serialBuf[8];
 static uint8_t serialLen = 0;
 
+// ─── Diagnostic commands ─────────────────────────────────────────────────────
+// Bench triggers for the failure paths that cannot be produced any other way.
+// The reboot and the PWM escalation both end in a watchdog reset, so without
+// these they are unobservable from a test bench.
+//
+// Deliberately radio-only: putting a reboot command on the CAN bus would put it
+// on the same wire the safety-critical heating control travels on, for no gain.
+static bool sys_cmd_send(uint8_t cmd)
+{
+    SysCmdFrame f;
+
+    f.magic    = NRF_MAGIC_SYS;
+    f.cmd      = cmd;
+    f.arg      = 0u;
+    memset(f.reserved, 0, sizeof(f.reserved));
+    f.crc      = frame_crc16(&f, sizeof(f));
+
+    return radio.write(&f, sizeof(f));
+}
+
+static void serial_diag(char c)
+{
+    const char* what;
+    uint8_t     cmd;
+
+    switch (c) {
+        case 'R': case 'r': what = "reboot (starve watchdog)"; cmd = SYSCMD_REBOOT;      break;
+        case 'S': case 's': what = "kill TIMSK1 (PWM stall)"; cmd = SYSCMD_PWM_STALL;   break;
+        case 'E': case 'e': what = "scribble EEPROM log";      cmd = SYSCMD_EE_ANOMALY;  break;
+        case 'C': case 'c': what = "clear counters";           cmd = SYSCMD_CLEAR_STATS; break;
+        case 'V': case 'v': what = "revive from failover";      cmd = SYSCMD_REVIVE;      break;
+        default:
+            Serial.println("  ? R=reboot S=pwm-stall E=eeprom-scribble C=clear V=revive");
+            return;
+    }
+
+    Serial.print("  -> DIAG ");
+    Serial.print(what);
+    Serial.println(sys_cmd_send(cmd) ? " sent" : " (not acked)");
+}
+
 // Consume serial input until Enter. Accepts only decimal digits so there is no
-// pull-in from random characters, and range-checks before accepting.
+// pull-in from random characters, and range-checks before accepting. Letters
+// are single-shot diagnostics and take effect immediately.
 static void serial_command()
 {
     while (Serial.available()) {
         char c = (char)Serial.read();
+
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
+            serialLen = 0;          // an abandoned number is discarded
+            serial_diag(c);
+            continue;
+        }
 
         // Accept CR, LF or CRLF. Arduino Serial Monitor can be configured to
         // send any of the three, and treating CR as pure noise means a

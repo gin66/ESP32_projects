@@ -826,7 +826,7 @@ static void test_restore_source(void)
 
     /* marker */
     reset_all(&m, &st, &io);
-    epl_append(&io, &st, 275u, (uint8_t)1);
+    epl_append(&io, &st, 275u, (uint8_t)EPL_FLAG_BOOT);
     epl_scan(&io, &st);
     (void)epl_restore_ex(&io, &st, &duty, &why);
     CHECK(why == EPL_SRC_MARKER, "marker source = %u", why);
@@ -924,6 +924,110 @@ static void test_restore_source(void)
     }
 }
 
+
+/* ─── K: the PWM fault marker in the ring ──────────────────────────────────── */
+
+/*
+ * The .noinit escalation latch is cleared by any power-on reset, so a PWM
+ * failure followed by a power blip would leave no trace and could not be
+ * reported. The ring carries EPL_FLAG_PWM_FAIL for exactly that case, and it has
+ * to survive three things: the reboot the escalation triggers, a power cut
+ * mid-write, and the restore walk.
+ */
+static void test_fault_marker(void)
+{
+    eeprom_mock_t m;
+    epl_state_t   st;
+    epl_io_t      io;
+    uint16_t      duty;
+    uint8_t       why;
+
+    SECTION("K1  a fault record is readable after a reboot");
+    reset_all(&m, &st, &io);
+    epl_append(&io, &st, 300u, (uint8_t)0);
+    epl_append(&io, &st, 300u, (uint8_t)EPL_FLAG_PWM_FAIL);
+    epl_scan(&io, &st);
+
+    CHECK(st.count == 2u, "fault record not counted (%u)", st.count);
+
+    /* A reboot: drop all volatile state and rescan, exactly as setup() does. */
+    epl_scan(&io, &st);
+    CHECK(st.count == 2u, "fault record lost across a rescan (%u)", st.count);
+    CHECK(st.newest == 1u, "fault record is not the newest (%u)", st.newest);
+
+    /* And the reader can find it. */
+    {
+        epl_raw_t raw;
+        epl_rec_t rec;
+        uint8_t  j;
+        for (j = 0u; j < (uint8_t)EPL_REC_SIZE; j++) {
+            raw.b[j] = m.mem[(uint16_t)(st.newest * EPL_REC_SIZE + j)];
+        }
+        rec = epl_decode(&raw);
+        CHECK(rec.valid == 1u, "fault record did not decode");
+        CHECK((rec.flags & EPL_FLAG_PWM_FAIL) != 0u, "fault flag not set on read");
+    }
+
+    SECTION("K2  a fault record is skipped by the restore walk");
+    /* Its duty was in force while the output path was dead, so it never reached
+     * the load. It must not be treated as an observation of what the heater was
+     * doing — honouring it would mean restoring a value known not to have been
+     * delivered. */
+    reset_all(&m, &st, &io);
+    epl_append(&io, &st, 600u, (uint8_t)0);                          /* real    */
+    epl_append(&io, &st, 600u, (uint8_t)EPL_FLAG_PWM_FAIL);          /* NOT real */
+    epl_scan(&io, &st);
+
+    /* The walk skips the fault record, so it falls back to the record below it
+     * rather than reporting 600 from a duty that was never delivered. */
+    CHECK(epl_restore(&io, &st) == 600u,
+          "with only a real and a fault record, restore = %u",
+          epl_restore(&io, &st));
+
+    SECTION("K3  a fault record cannot pull the minimum down");
+    reset_all(&m, &st, &io);
+    epl_append(&io, &st, 400u, (uint8_t)0);
+    epl_append(&io, &st, 400u, (uint8_t)0);
+    epl_append(&io, &st, 50u,  (uint8_t)EPL_FLAG_PWM_FAIL);   /* undelivered */
+    epl_scan(&io, &st);
+
+    /* 50 would win the minimum if the fault record counted. */
+    CHECK(epl_restore(&io, &st) == 400u,
+          "an undelivered duty of 50 was restored (%u) instead of 400",
+          epl_restore(&io, &st));
+
+    SECTION("K4  a torn fault record is rejected, not half-believed");
+    reset_all(&m, &st, &io);
+    epl_append(&io, &st, 300u, (uint8_t)0);
+    epl_append(&io, &st, 300u, (uint8_t)EPL_FLAG_PWM_FAIL);
+    epl_scan(&io, &st);
+
+    /* Cut power inside the fault record's payload. */
+    {
+        uint16_t written = st.count;
+        epl_state_t after;
+
+        mock_cut_after(&m, 2u);
+        epl_append(&io, &st, 300u, (uint8_t)EPL_FLAG_PWM_FAIL);
+        CHECK(m.powered_off == 1u, "mock never cut");
+
+        epl_scan(&io, &after);
+        CHECK(after.count == written,
+              "a torn fault record was counted as valid (%u vs %u)",
+              after.count, written);
+        CHECK(epl_slot_is_empty(&io, (uint16_t)written) == 0u,
+              "torn fault slot reported as erased");
+    }
+
+    SECTION("K5  the flag and the boot flag coexist");
+    reset_all(&m, &st, &io);
+    epl_append(&io, &st, 350u, (uint8_t)(EPL_FLAG_BOOT | EPL_FLAG_PWM_FAIL));
+    epl_scan(&io, &st);
+    (void)epl_restore_ex(&io, &st, &duty, &why);
+    CHECK(why == EPL_SRC_MARKER, "combined flags gave source %u", why);
+    CHECK(duty == 350u, "combined flags restored %u, want 350", duty);
+}
+
 /* ─── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void)
@@ -944,6 +1048,7 @@ int main(void)
     test_restore_window();
     test_restore_source();
     test_randomised();
+    test_fault_marker();
     test_reboot_soak();
     test_wear_distribution();
     test_counter_cell_would_concentrate();

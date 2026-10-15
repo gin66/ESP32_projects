@@ -396,6 +396,10 @@ static inline void haus_can_get_stats(const uint8_t* buf, haus_can_stats_t* s) {
 #define EE_FLAG_WRAPPED 0x04  /* valid arc runs past slot 0                  */
 #define EE_FLAG_NOMARK  0x08  /* newest record was not a boot marker         */
 #define EE_FLAG_BADNEW  0x10  /* newest record failed its checksum           */
+/* The log holds a record of a PWM output-path failure. Durable where the
+ * escalation latch is not: it survives a power blip, so a node whose output
+ * path failed once still says so after its history has been cleared. */
+#define EE_FLAG_PWMFAIL 0x20
 
 /* Where the restored duty came from. In the top 3 bits of flags so it fits the
  * DLC; 0 means "not recorded", which is a legitimate virgin-device answer. */

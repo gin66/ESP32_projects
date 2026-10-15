@@ -32,50 +32,59 @@ static uint8_t chk_of(uint16_t word, uint8_t flags)
 
 /* ─── Record codec ─────────────────────────────────────────────────────────── */
 
-void epl_encode(epl_raw_t* raw, uint16_t duty, uint8_t boot)
+void epl_encode(epl_raw_t* raw, uint16_t duty, uint8_t flags)
 {
-    uint16_t word = (uint16_t)(duty & EPL_DUTY_MASK);
-
-    if (boot) word = (uint16_t)(word | EPL_FLAG_BOOT);
+    uint16_t word = (uint16_t)(duty & EPL_DUTY_MASK)
+                  | (uint16_t)(((uint16_t)flags & EPL_FLAGS_MASK) << EPL_FLAG_SHIFT);
 
     raw->b[0] = (uint8_t)(word & 0xFFu);
     raw->b[1] = (uint8_t)((word >> 8) & 0xFFu);
     raw->b[2] = (uint8_t)0u;                       /* reserved */
-    raw->b[3] = chk_of(word, boot ? (uint8_t)1u : (uint8_t)0u);
+    raw->b[3] = chk_of(word, (uint8_t)(flags & EPL_FLAGS_MASK));
+}
+
+epl_flags_t epl_rec_flags(const epl_rec_t* rec)
+{
+    epl_flags_t f;
+    f.duty     = rec->duty;
+    f.boot     = (uint8_t)((rec->flags & EPL_FLAG_BOOT)     ? 1u : 0u);
+    f.pwm_fail = (uint8_t)((rec->flags & EPL_FLAG_PWM_FAIL) ? 1u : 0u);
+    f.valid    = rec->valid;
+    return f;
 }
 
 epl_rec_t epl_decode(const epl_raw_t* raw)
 {
     epl_rec_t r;
     uint16_t word = (uint16_t)((uint16_t)raw->b[0] | ((uint16_t)raw->b[1] << 8));
-    uint8_t  flags = (uint8_t)((word >> 10) & 0x1u);
+    uint8_t  flags = (uint8_t)((word >> EPL_FLAG_SHIFT) & EPL_FLAGS_MASK);
 
     /* Erased slots must decode as invalid without being mistaken for corrupt —
      * they are different things and the scan treats them differently. */
     if ((raw->b[0] == EPL_REC_EMPTY) && (raw->b[1] == EPL_REC_EMPTY) &&
         (raw->b[2] == EPL_REC_EMPTY) && (raw->b[3] == EPL_REC_EMPTY)) {
         r.duty = 0u;
-        r.boot = 0u;
+        r.flags = 0u;
         r.valid = 0u;
         return r;
     }
 
     if (raw->b[2] != 0u) {                         /* reserved byte must be 0 */
         r.duty = 0u;
-        r.boot = 0u;
+        r.flags = 0u;
         r.valid = 0u;
         return r;
     }
 
     if (raw->b[3] != chk_of(word, flags)) {
         r.duty = 0u;
-        r.boot = 0u;
+        r.flags = 0u;
         r.valid = 0u;
         return r;
     }
 
     r.duty = (uint16_t)(word & EPL_DUTY_MASK);
-    r.boot = (uint8_t)(flags & 1u);
+    r.flags = flags;
     r.valid = 1u;
     return r;
 }
@@ -304,14 +313,21 @@ uint8_t epl_restore_ex(const epl_io_t* io, const epl_state_t* st,
     /* The common case: a boot marker carries the already-resolved answer, so the
      * window is not consulted at all. That is what makes the O(1) restore worth
      * having — a node that keeps rebooting never walks the window. */
-    if (newest.boot) {
+    if (newest.flags & EPL_FLAG_BOOT) {
         src = EPL_SRC_MARKER;
         best = newest.duty;
         goto done;
     }
 
     src = EPL_SRC_WINDOW;
-    best = newest.duty;
+
+    /* Seed the minimum only from a record whose duty actually reached the load.
+     * A PWM-fault record's duty was in force while the output path was dead, so
+     * it was never delivered — seeding from it would have the restore honour a
+     * value known not to have reached the heater, and would let the lowest
+     * undelivered duty in the ring win. Skipped rather than trusted. */
+    best = EPL_OFF_DUTY;
+    if (!(newest.flags & EPL_FLAG_PWM_FAIL)) best = newest.duty;
 
     for (i = 1u; i <= EPL_RESTORE_WINDOW; i++) {
         uint16_t  slot = (uint16_t)((st->newest + EPL_SLOTS - (uint16_t)i) % EPL_SLOTS);
@@ -323,7 +339,13 @@ uint8_t epl_restore_ex(const epl_io_t* io, const epl_state_t* st,
         rraw = read_raw(io, slot);
         r = epl_decode(&rraw);
         if (!r.valid) continue;                /* corrupt or hole: not a boundary */
-        if (r.boot) continue;                  /* markers are transparent */
+        if (r.flags & EPL_FLAG_BOOT) continue;                  /* markers are transparent */
+        /* A PWM-fault record is transparent too, and not out of caution: its duty
+         * was in force while the output path was dead, so it was never actually
+         * delivered to the load. It is not a valid observation of what the heater
+         * was doing, and letting it into the minimum would have the restore honour
+         * a value that is known not to have reached the load. */
+        if (r.flags & EPL_FLAG_PWM_FAIL) continue;
         if (r.duty == EPL_OFF_DUTY) break;     /* an explicit off outranks older */
 
         if (r.duty < best) best = r.duty;
@@ -344,7 +366,7 @@ uint16_t epl_restore(const epl_io_t* io, const epl_state_t* st)
 
 /* ─── Append ───────────────────────────────────────────────────────────────── */
 
-uint16_t epl_append(const epl_io_t* io, epl_state_t* st, uint16_t duty, uint8_t boot)
+uint16_t epl_append(const epl_io_t* io, epl_state_t* st, uint16_t duty, uint8_t flags)
 {
     epl_raw_t raw;
     uint16_t slot;
@@ -373,7 +395,7 @@ uint16_t epl_append(const epl_io_t* io, epl_state_t* st, uint16_t duty, uint8_t 
 
     base = (uint16_t)(slot * EPL_REC_SIZE);
 
-    epl_encode(&raw, duty, boot);
+    epl_encode(&raw, duty, flags);
 
     /* chk is written last. A power cut before it leaves the previous record's
      * checksum against this record's payload, so the slot reads invalid — a

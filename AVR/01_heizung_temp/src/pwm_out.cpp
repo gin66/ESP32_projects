@@ -1,5 +1,7 @@
 #include "pwm_out.h"
 
+#include "pwm_fault.h"   /* the failover waveform arithmetic, kept pure */
+
 // Prescaler 1 → 16 MHz counter. TOP = 16000 ticks → 16000 µs = exactly 1 kHz.
 // The duty is adjustable in 1 µs steps (0.00625 %).
 #define PWM_TICKS 16000UL
@@ -111,6 +113,74 @@ bool pwm_out_active()
     return (TIMSK1 & (_BV(OCIE1A) | _BV(OCIE1B))) != 0;
 }
 
+// ─── Failover: software square wave, timer stopped ───────────────────────────
+//
+// State for the non-blocking waveform. The pin is driven directly here so this
+// module keeps sole ownership of it; main.cpp only calls begin/tick.
+static uint16_t      foHighUs  = 0;
+static uint16_t      foLowUs   = 0;
+static unsigned long foNextUs  = 0;
+static uint8_t       foStep    = 0;   /* 0 = next edge is rising */
+static uint8_t       foActive  = 0;
+
+void pwm_out_failover_begin(uint16_t permille)
+{
+    noInterrupts();
+    pwm_stop_edges();          /* TIMSK1 = 0 and drop what is pending */
+    TCCR1B = 0;                /* counter off entirely, not merely unmasked */
+    PORTD &= ~PORT_BIT;
+    interrupts();
+
+    pwm_fault_waveform(permille, &foHighUs, &foLowUs);
+
+    foStep   = 0;
+    foNextUs = micros() + (unsigned long)foHighUs;
+    foActive = 1;
+}
+
+void pwm_out_failover_tick(void)
+{
+    unsigned long now;
+    unsigned long span;
+
+    if (!foActive) return;
+
+    now = micros();
+
+    /* Wrap-safe: micros() rolls at ~71 minutes, and the signed form is exact
+     * for any interval below ~35 of those. The deadline is one millisecond
+     * away, so the margin is enormous. */
+    if ((long)(now - foNextUs) < 0) return;
+
+    foStep = (uint8_t)(foStep ^ 1u);
+    if (foStep) {
+        PORTD |=  PORT_BIT;
+        span = foHighUs;
+    } else {
+        PORTD &= ~PORT_BIT;
+        span = foLowUs;
+    }
+
+    foNextUs += span;
+
+    /* If the loop was too slow to hit the deadline, move it forward by one
+     * span instead of allowing a burst of catch-up toggles — a burst would put
+     * several edges back-to-back and wreck the very duty this is trying to
+     * deliver. */
+    if ((long)(foNextUs - now) < 0) foNextUs = now + span;
+}
+
+uint8_t pwm_out_failover_active(void)
+{
+    return foActive;
+}
+
+void pwm_out_failover_end(void)
+{
+    foActive = 0;
+    pwm_out_begin();   /* reprograms the counter and re-arms the compare pair */
+}
+
 uint32_t pwm_out_rising_edges()
 {
     // 32-bit atomic reads: a bare return of a volatile uint32_t is four
@@ -130,9 +200,9 @@ uint32_t pwm_out_falling_edges()
     return v;
 }
 
-// Combined ISR entry count, used as the liveness signal for the main loop's
-// PWM health monitor. Derived from the existing counters rather than a third
-// one, so this costs nothing inside either ISR.
+// Combined ISR entry count — the liveness signal the main loop's PWM health
+// monitor uses. Derived from the two counters above rather than a third one, so
+// it costs nothing inside either ISR.
 uint32_t pwm_out_isr_runs()
 {
     noInterrupts();
@@ -140,6 +210,7 @@ uint32_t pwm_out_isr_runs()
     interrupts();
     return v;
 }
+
 uint8_t  pwm_out_timsk1()        { return (uint8_t)TIMSK1; }
 uint8_t  pwm_out_tccr1a()        { return (uint8_t)TCCR1A; }
 uint8_t  pwm_out_tccr1b()        { return (uint8_t)TCCR1B; }

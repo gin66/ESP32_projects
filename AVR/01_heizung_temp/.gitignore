@@ -9,3 +9,5 @@
 *.dSYM/
 test/test_eeprom_log/test_eeprom_log
 test/test_eeprom_log/test_eeprom_log_san
+test/test_pwm_fault/test_pwm_fault
+test/test_pwm_fault/test_pwm_fault_san

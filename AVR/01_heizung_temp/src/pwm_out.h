@@ -31,6 +31,47 @@ void pwm_out_set(uint16_t permille);
 // endpoints both interrupts are off and the port is driven directly instead.
 bool pwm_out_active();
 
+// Failover output: a software square wave on the pin, with the timer stopped.
+//
+// For the case where the Timer1 compare vectors are not running at all. It
+// deliberately avoids every Timer1 *compare* mechanism — no compare match, no
+// interrupt — and drives the port directly, because the whole premise is that
+// the timer path cannot be trusted. The timebase is micros(), which is a polled
+// read of the Timer0 counter and not a compare match, so it does not depend on
+// the thing that failed.
+//
+// NOT a blocking loop. An earlier revision spun here forever, which meant a node
+// in safe mode was unreachable: no serial, no CAN, no radio, no watchdog report,
+// and no way out but a power cycle. On the wire that is indistinguishable from a
+// crashed node, which defeats the purpose of a diagnostic state. The waveform is
+// advanced by pwm_out_failover_tick() from the main loop instead, so everything
+// else keeps running and the fault stays observable.
+
+// Stop the counter entirely and start the failover waveform at `permille`.
+void pwm_out_failover_begin(uint16_t permille);
+
+// Advance the waveform by however much time has passed. Non-blocking; call once
+// per main-loop pass, as early as possible, because the resolution of the duty is
+// the loop's iteration time. Self-corrects if the loop is too slow to hit the
+// deadline: the deadline is moved forward rather than allowing a burst of
+// catch-up toggles.
+void pwm_out_failover_tick(void);
+
+// 1 while the failover waveform is driving the pin.
+uint8_t pwm_out_failover_active(void);
+
+// Leave failover and hand the pin back to the timer, re-running pwm_out_begin()'s
+// register programming. Used by the bench command that tries to revive a node: if
+// the path is genuinely broken the liveness monitor will simply put it back into
+// failover, which is the correct and self-limiting outcome.
+void pwm_out_failover_end(void);
+//
+// At 1 kHz one permille is exactly one microsecond of high time, so the duty
+// argument is the waveform's high time directly — no conversion, and no way for
+// "50%" to silently mean something other than 50%.
+//
+// Non-blocking. Call begin once, then tick from the main loop.
+
 // Edge counters. They are the proof that Timer1 is counting and that both
 // interrupts are actually attached: at 1 kHz each should climb by ~1 per ms
 // while modulating. A frozen pair localises the fault to the timer, whereas a

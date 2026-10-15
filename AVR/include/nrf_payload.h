@@ -43,6 +43,7 @@ static const uint16_t NRF_MAGIC_PWM_CMD = 0xABD0;  // duty command, sent to the 
 static const uint16_t NRF_MAGIC_ADC    = 0xABD1;  // ADC peak-to-peak window
 static const uint16_t NRF_MAGIC_STATS  = 0xABD2;  // CAN bus health
 static const uint16_t NRF_MAGIC_EE     = 0xABD3;  // EEPROM restore-point log status
+static const uint16_t NRF_MAGIC_SYS    = 0xABD4;  // diagnostic command, receiver -> transmitter
 static const int16_t  ERR_FLAG       = -32768;  // INT16_MIN — no sensor in slot
 static const uint8_t  NRF_MAX_SENSORS = 4;
 
@@ -111,6 +112,30 @@ struct __attribute__((packed)) EeFrame {
     uint8_t  newest;       // last slot of the valid arc
     uint16_t crc;          // CRC-CCITT over all preceding fields
 };
+
+// ─── Pipe 1: diagnostic command (13 bytes, packed) ──────────────────────────
+//
+// Bench-only: these drive failure paths that cannot be produced any other way,
+// the reboot and the PWM-output-path escalation in particular. The escalation
+// ends in a watchdog reset, so it is otherwise unobservable from a test bench.
+//
+// This adds no new exposure. The same pipe already accepts a duty command, which
+// controls the heater directly; a command that reboots the node is strictly
+// less consequential than one that sets its output. Every one of these is
+// logged loudly by the transmitter when it acts.
+struct __attribute__((packed)) SysCmdFrame {
+    uint16_t magic;         // NRF_MAGIC_SYS
+    uint8_t  cmd;           // SYSCMD_*
+    uint8_t  arg;
+    uint8_t  reserved[7];
+    uint16_t crc;
+};
+
+#define SYSCMD_REBOOT      0  /* starve the watchdog: force a reset          */
+#define SYSCMD_PWM_STALL   1  /* clobber TIMSK1 to simulate a dead PWM path */
+#define SYSCMD_EE_ANOMALY  2  /* scribble the log to force the anomaly path */
+#define SYSCMD_CLEAR_STATS 3  /* zero the health counters                    */
+#define SYSCMD_REVIVE      4  /* leave failover and retry the timer output path */
 
 // ─── Pipe 0: CAN bus health frame (13 bytes, packed) ─────────────────────────
 // Publishes the CAN side of the system over the radio so it can be watched
@@ -188,6 +213,7 @@ static_assert(sizeof(PwmFrame)  == NRF_FRAME_SIZE, "PwmFrame size drift");
 static_assert(sizeof(AdcFrame)  == NRF_FRAME_SIZE, "AdcFrame size drift");
 static_assert(sizeof(StatsFrame)== NRF_FRAME_SIZE, "StatsFrame size drift");
 static_assert(sizeof(EeFrame)   == NRF_FRAME_SIZE, "EeFrame size drift");
+static_assert(sizeof(SysCmdFrame)== NRF_FRAME_SIZE, "SysCmdFrame size drift");
 
 // ─── Downstream CAN mapping ──────────────────────────────────────────────────
 // Classic CAN carries at most 8 data bytes, which is exactly one DS18B20 ROM

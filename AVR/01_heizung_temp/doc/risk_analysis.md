@@ -28,6 +28,7 @@ or age it out. That is now the single highest-priority open item.**
 | # | Risk | Severity | Status |
 |---|------|----------|--------|
 | 3.0 | **Freeze: power loss → boot duty is heater OFF** | **Critical** | **FIXED** — restore wired in, `PWM_SRC_*` reporting added |
+| 1.6 | PWM output path dead → duty silently undelivered | High | **FIXED** — three-step escalation, see §1.2 |
 | 3.1 | ~~No command timeout / dead-man switch~~ | — | **CLOSED by decision** — rejected, see §3.0 |
 | 3.2 | No duty clamp, ramp or rate limit | High | OPEN |
 | 4.1 | `DEVICE_FAULT_*` not mapped → −252…−254 °C as valid data | High | OPEN |
@@ -206,6 +207,59 @@ a free-running spin with no `delay()`, so the running total is irrelevant.
 Pair it with a boot counter in a retained register (`MCUSR`/`WDRF` in `.noinit`)
 reported in the stats frame. That alone converts the invisible brownout-reset
 loop from §3.0 into a visible fault.
+
+#### PWM output-path failure: a three-step escalation
+
+`pwmStalled` means the PWM is not working at all — the Timer1 compare vectors
+have stopped, so the duty in force is **not being delivered to the load** no
+matter what the status frames claim. That is a hardware-path failure and it
+escalates rather than taking one action:
+
+| Step | Action | Why |
+|---|---|---|
+| 1. first occurrence | latch it, log it, **starve the watchdog** and reboot | A reset can genuinely fix this: `pwm_out_begin()` reprograms `TCCR1A`, `ICR1`, `OCR1A`, `OCR1B`, `TCC1B` and `TIMSK1` from scratch, clearing any transient — a lost interrupt, a corrupted timer register, software that clobbered `TIMSK1`. |
+| 2. fault present again on the next boot | it is not transient | The latch is in `.noinit`, which survives a watchdog reset (only a power-on reset clears it). A power loss is a fresh start anyway, so EEPROM would spend wear to record a fact nothing acts on. |
+| 3. safe mode | `pwm_out_failover_begin()` / `_tick()` — 1 kHz, **200 permille**, timer stopped, **non-blocking** | Unavoidable: if the compare vectors are dead there is no way to make edges with them. The port is driven directly, timed off `micros()` — a polled read of the Timer0 counter, not a compare match, so it does not depend on the thing that failed. |
+
+**200 permille, not 500.** The measured transfer curve puts commanded duty 20 % at
+~7 V, comfortably above the ~2.5 V pump cutoff, while 50 % lands near 3.3 V where
+the heater may not be driven at all. A failover that does not actually turn the
+heater on is worse than useless: it reports FAULT while delivering nothing.
+
+Safe mode is **not a terminal state.** An earlier revision spun in a blocking
+loop, which made the mode unreachable — no serial, no CAN, no radio, no way out
+but a power cycle. On the wire that is indistinguishable from a crashed node,
+which is the opposite of what a diagnostic state is for. The waveform is now
+advanced from `loop()` and everything else keeps running: CAN polling, the ADC and
+the watchdog all continue.
+
+Two things *are* suppressed, and only because they would wreck the waveform
+itself: `listen_window()` (a 250 ms block against a 200 µs half period) and the
+verbose stats report (tens of milliseconds of Serial at 115200). A one-line
+failover summary replaces the latter.
+
+A bench command (`SYSCMD_REVIVE`, `V` at the receiver) hands D7 back to Timer1.
+If the path is genuinely broken the liveness monitor puts it straight back into
+failover, so the attempt is bounded and self-limiting rather than a way to escape
+a real fault.
+
+The fault is also recorded in the EEPROM ring as `EPL_FLAG_PWM_FAIL` and reported
+as `EE_FLAG_PWMFAIL`. `.noinit` is cleared by a power-on reset, so without this a
+fault followed by a power blip would leave no trace, could not be reported, and
+would reset the escalation history to "first occurrence". A fault record is
+**skipped by the restore walk**, because its duty was in force while the output
+path was dead and so was never delivered — restoring it would honour a value
+known not to have reached the heater.
+
+An earlier revision forced a safe duty on the first stall. That was wrong twice
+over: the reboot made it redundant, and forcing a duty calls
+`pwm_stop_edges()`, which sets `TIMSK1 = 0`, which makes `pwm_out_active()`
+false, which makes the liveness monitor short-circuit on its own guard — so the
+fault response disabled the very thing being monitored and no recurrence could
+ever be detected.
+
+`PWM_SRC_FAULT` is reported for the whole of safe mode, on both wires, so a
+receiver sees the fault rather than inferring it.
 
 ### 1.3 FIXED — CAN transmit lockout after three un-ACKed frames
 

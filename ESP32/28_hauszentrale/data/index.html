@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>28_hauszentrale</title>
+    <meta name="esp32_28" content="" />
+    <meta name="Jochen Kiemes" content="" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 1.5rem;
+        color: #222;
+      }
+      h2 {
+        margin-bottom: 0.25rem;
+      }
+      table {
+        border-collapse: collapse;
+        margin-top: 0.5rem;
+      }
+      td,
+      th {
+        text-align: left;
+        padding: 0.25rem 1rem 0.25rem 0;
+        border-bottom: 1px solid #eee;
+      }
+      a.button {
+        display: inline-block;
+        margin-top: 1rem;
+        padding: 0.5rem 1rem;
+        background: #0d6efd;
+        color: #fff;
+        text-decoration: none;
+        border-radius: 4px;
+      }
+      .warn {
+        color: #b00;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>28_hauszentrale</h2>
+    <p id="version">loading version…</p>
+
+    <h3>WiFi</h3>
+    <table id="wifi">
+      <tbody></tbody>
+    </table>
+
+    <h3>SPIFFS</h3>
+    <p id="spiffs">loading…</p>
+    <table id="files">
+      <thead>
+        <tr>
+          <th>file</th>
+          <th>size</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <h3>CPU</h3>
+    <p id="cpu">loading…</p>
+
+    <a class="button" href="/serverIndex">Firmware update</a>
+
+    <script>
+      function set(id, text) {
+        document.getElementById(id).textContent = text;
+      }
+
+      function row(tbody, key, value) {
+        const tr = document.createElement("tr");
+        const th = document.createElement("th");
+        th.textContent = key;
+        const td = document.createElement("td");
+        td.textContent = value;
+        tr.appendChild(th);
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+      }
+
+      async function refresh() {
+        try {
+          const v = await (await fetch("/version")).json();
+          set(
+            "version",
+            `${v.version} (${v.git_branch}@${v.git_hash}, ${v.build_time})`,
+          );
+        } catch (e) {
+          set("version", "version unavailable");
+        }
+
+        try {
+          const w = await (await fetch("/wifi")).json();
+          const tbody = document.querySelector("#wifi tbody");
+          tbody.innerHTML = "";
+          row(tbody, "ssid", w.ssid);
+          row(tbody, "ip", w.ip);
+          row(tbody, "rssi", `${w.rssi} dBm (ch ${w.channel})`);
+          row(tbody, "mac", w.mac);
+        } catch (e) {
+          set("wifi", "wifi unavailable");
+        }
+
+        try {
+          const s = await (await fetch("/spiffs/list")).json();
+          const free = s.total - s.used;
+          set(
+            "spiffs",
+            `${s.used} / ${s.total} bytes used, ${free} free (${Math.round(
+              (100 * s.used) / s.total,
+            )}%)`,
+          );
+          const tbody = document.querySelector("#files tbody");
+          tbody.innerHTML = "";
+          s.files.forEach((f) => row(tbody, f.name, f.size));
+        } catch (e) {
+          set("spiffs", "spiffs unavailable");
+        }
+
+        try {
+          set("cpu", await (await fetch("/cpu")).text());
+        } catch (e) {
+          set("cpu", "cpu unavailable");
+        }
+      }
+
+      refresh();
+      window.setInterval(refresh, 5000);
+    </script>
+  </body>
+</html>

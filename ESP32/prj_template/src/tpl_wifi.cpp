@@ -176,23 +176,24 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
     }
   }
   if (need_connect) {
-    if (verbose) {
-      Serial.println("WiFi connected");
-      Serial.print("IP address: ");
-      Serial.println(WiFi.localIP());
-    }
-
     connect();
   }
+  // Wait for DHCP to assign an IP address before proceeding.
+  // WiFi.waitForConnectResult() returns WL_CONNECTED before DHCP completes,
+  // so localIP() is still 0.0.0.0 at this point.
+  unsigned long dhcp_start = millis();
+  while (WiFi.localIP() == INADDR_NONE && (millis() - dhcp_start) < 5000UL) {
+    Serial.print(".");
+    delay(100);
+  }
+  Serial.println();
+
   if (verbose) {
-    Serial.println("");
     Serial.println("WiFi connected");
     Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
-  }
-
-  if (MDNS.begin(HOSTNAME)) {
     Serial.println("MDNS responder started");
+    MDNS.begin(HOSTNAME);
     MDNS.addService("http", "tcp", 80);
     MDNS.addService("ws", "tcp", 81);
   }

@@ -1,6 +1,7 @@
 # White Paper: 28_hauszentrale — House Central on the Waveshare ESP32-S3-Touch-LCD-7
 
 **Status:** COMPLETE — all sections written. Open questions in §12 remain to be answered before phase 1.
+**Revision:** 1.5 — applies the rev 1.0 review and retires `docs/review.md`. The expander map in §3.2 now matches §3.4, the new template `.cpp` is guarded, `platformio.ini` pins octal PSRAM and UART0, the flush budget is 24 ms, GPIO 2/4/17 are not aliased as LEDs, and the AHT20/CH422G address collision is recorded (Q24, R30)
 **Revision:** 1.4 — adds the bench verification of the physical board (§3.1.1: ESP32-S3 rev v0.2, **16 MB** flash correcting the 8 MB identity, MAC `28:84:85:a7:a6:78`, CH9102 USB-UART bridge, the mechanical UART switch, and the `rtc_pcf85063` / IDF 5.5.4 demo currently on the flash), the mechanical-switch constraint on §3.3 and the §7.5 runbook, D49–D51, Q22–Q23
 **Revision:** 1.3 — adds the memory map (§10.5), the three-tier history store (§7.10), the modelled water-out temperature (§7.11), the CAN enable switch (§7.12, §8.14), the 4 mm type scale (§8.1.1) and the bottom nav pane (§8.11)
 **Revision:** 1.2 — adds the living-room AHT20 + BMP280 local I²C sensors (§3.5, §7.8, F15–F17, N13–N14, §8.13), heater/pump PWM duty control (§3.6, §7.9, F18–F21, N15–N16, §8.6.1), and the declarative-UI analysis (§4.4, D31–D32)
@@ -17,7 +18,7 @@
 | Board | WAVESHARE-ESP32-S3-Touch-LCD-7 (7", 800×480, ST7262, GT911) |
 | Framework | PlatformIO / Arduino / ESP-IDF 5.x, LVGL 9.2 |
 | CAN protocol | `include/haus_can.h` (repo root, single source of truth) |
-| Local sensors | AHT20 (I²C `0x38`) + BMP280 (I²C `0x40`) on the H1 I²C header — living room |
+| Local sensors | BMP280 (I²C `0x76` or `0x77`) on H1. An AHT20 at `0x38` collides with CH422G WR-IO — Q24, R30 |
 | Predecessors | `26_CYD_CAN_monitor`, `19_CYD-project`, `15_power_log_eink` |
 | Peer white paper | `ESP32/prj_template/docs/cyd_board_abstraction.md` |
 
@@ -74,7 +75,7 @@ then build the house central on top of it.
 - CH422G ownership model: single init, named accessors for TP_RST / LCD_BL / SD_CS /
   USB_SEL, **not** a free-running GPIO namespace.
 - Camera-less portrait rotation support.
-- Board constants, `tpl_ledPin`/`tpl_backlightPin` wiring in `tpl_system.h`.
+- Board constants in `tpl_system.h`. This board defines **none** of `tpl_ledPin`, `tpl_ledPin_R/G/B` or `tpl_backlightPin`: GPIO 2 is RGB DATA12, GPIO 17 is DATA3, and GPIO 4 is reserved for Q17/Q19 (§6.7).
 - Symlink regeneration + `make links` integration so every project can adopt it.
 
 The board chapter of this document (§6) **is** the Deliverable-A white paper. When
@@ -96,13 +97,13 @@ precedent of `cyd_board_abstraction.md`, and §6 is replaced by a pointer.
 - Five tappable zones + a gear in the bottom-right corner (three heater
   temperatures, power, living-room climate).
 - Detail screens with history charts and a back button.
-- **Local climate sensor:** an AHT20 (temperature + humidity) and a BMP280
-  (temperature + pressure) on the board's H1 I²C header, read directly by the
-  panel — not on the CAN bus, and therefore outside the F14 resolution chain
-  (§3.5, §7.8, §8.13).
+- **Local climate sensor:** a BMP280 (temperature + pressure) on the board's H1
+  I²C header, read directly by the panel — not on the CAN bus, and therefore
+  outside the F14 resolution chain (§3.5, §7.8, §8.13). Humidity wants a second
+  part; an AHT20 cannot share this bus (Q24, R30).
 - **On-panel diagnostics:** extend `tpl_debug_log` to a 1 MB PSRAM ring, plus a
   scrollable log screen with follow-at-end (§7.6, §8.12).
-- Function resolution through sensor ID, never through CAN rank (F14, §7.7) — rank is
+- Function resolution through sensor ID, never through CAN rank (F14, §7.7) — rank is a
   shiftable address, the function belongs to the probe.
 - OTA over WiFi (primary), with the USB/CAN mux consequence handled explicitly.
 - **Heater and heating-pump control:** the panel is the *controller* of record
@@ -149,13 +150,15 @@ precedent of `cyd_board_abstraction.md`, and §6 is replaced by a pointer.
 | Display | 7" TFT, **800 × 480**, RGB565 parallel, 16-bit data bus |
 | Panel driver | ST7262 |
 | Touch | GT911, capacitive, I2C, 5-point |
-| IO expander | CH422G, I2C @ `0x24` |
+| IO expander | CH422G. Four command addresses, not one slave: WR-OC `0x23`, WR-SET `0x24`, RD-IO `0x26`, WR-IO `0x38` |
 | CAN | TJA1051 transceiver behind an FSUSB42UMX analog switch |
 | Storage | microSD/TF slot, SPI, chip-select via CH422G |
 | Extras | RS485 (external converter board), battery connector, BOOT button |
 
 Full datasheets, schematic and community projects are catalogued in
-`boards/WAVESHARE-ESP32-S3-Touch-LCD-7/`.
+`boards/WAVESHARE-ESP32-S3-Touch-LCD-7-7inch/`. Pin numbers in this document are
+taken from `source/waveshare_lcd_port.h`, not from the board README's prose table,
+which is off by one against that header and against its own register example (§3.4).
 
 Two facts dominate every architectural decision that follows:
 
@@ -241,11 +244,11 @@ Everything else must fit in what remains, which is why the CH422G exists.
 | ---------- | ---- | ------- |
 | Touch (GT911) | SDA 8, SCL 9 | I2C @ 400 kHz, shared with CH422G |
 | CAN (TJA1051) | TX 19, RX 20 | behind FSUSB42UMX, gated by CH422G **IO5** |
-| SD (SPI) | MOSI 11, MISO 13, SCLK 12 | CS via CH422G IO3 |
-| LCD reset | — | CH422G IO2 |
-| Backlight | — | CH422G IO1 → AP3032 **EN** pin via R52 (**on/off only, no PWM** — §7.13) |
-| Touch reset | — | CH422G IO0 |
-| Climate sensors (AHT20, BMP280) | SDA 8, SCL 9 | I²C, on the **H1** header — §3.5 |
+| SD (SPI) | MOSI 11, MISO 13, SCLK 12 | CS via CH422G **IO4** (active low) |
+| LCD reset | — | CH422G **IO3** |
+| Backlight | — | CH422G **IO2** → AP3032 **EN** pin via R52 (**on/off only, no PWM** — §7.13) |
+| Touch reset | — | CH422G **IO1** |
+| Climate sensors | SDA 8, SCL 9 | I²C, on the **H1** header — §3.5. An AHT20 at `0x38` collides with WR-IO; see §7.8 and Q24 |
 
 The backlight being binary rather than dimmable is a real UX regression against the
 CYD boards, which have LEDC PWM. §11 carries it as a risk.
@@ -277,28 +280,33 @@ firmware also has to fight a mechanical default.
 
 This is why §7.5 exists, and it drives three design rules:
 
-- **R1 — Boot must default to USB, and the hardware does not do it.** Rev 1.0
-  asserted that "the CH422G powers up with IO4 low, so a board that is bricked can
-  always be reflashed by power-cycling". **That was wrong**, and the correction
-  inverts the recovery story rather than adjusting it:
+- **R1 — Do not treat the expander's reset value as the chip's power-on level.**
+  Rev 1.0 said the CH422G powers up with `USB_SEL` low, so a bricked board can
+  always be reflashed by power-cycling. The driver does not say that:
 
-  - the Espressif driver resets the output register to `0xFF`
-    (`esp_io_expander_ch422g.c`, `REG_WR_IO_DEFAULT_VAL`);
-  - the C++ wrapper documents that `begin()` *"sets all IO0-7 pins to output
-    high-level mode by default"* (`esp_expander_ch422g.hpp`);
-  - `USB_SEL` is **IO5** (§3.4).
+  - `reset()` in `esp_io_expander_ch422g.c` **writes** `REG_WR_IO_DEFAULT_VAL`
+    (`0xFF`) and `REG_WR_SET_DEFAULT_VAL` (`0x01`). That runs from
+    `esp_io_expander_new_i2c_ch422g()`, which is the first successful I²C
+    transaction, not a readout of the pin at power-on.
+  - `begin()` in `esp_expander_ch422g.hpp` documents the same action: it *sets*
+    IO0–IO7 to output high.
+  - `USB_SEL` is **IO5** (§3.4), so **after that write** the mux selects CAN until
+    N19 drives it low.
 
-  All three agree: **the board powers up in CAN mode with USB dead.** Firmware that
-  crashes before it runs cannot be reflashed over USB, because USB was never there.
-  The guarantee R1 wanted does not exist in silicon; it has to be *created* in
-  firmware — which is why N19 makes driving `USB_SEL` low the first statement of
-  `setup()`, and why §7.12's hardware strap (Q17) is the only escape that survives
-  a firmware bug.
+  The silicon level *before* any write has not been measured. Phase 1 measures IO5
+  with the ESP32 held in reset. Calling the three notes above "the board powers up
+  in CAN mode" conflates a value the driver stores with a pin nobody has probed.
 
-  Until that strap exists the honest recovery procedure is **hold BOOT and
-  power-cycle**, and it works only because the ROM download path runs before the
-  firmware touches anything — *not* because `USB_SEL` defaults low. Bench-confirm
-  it in phase 1 before relying on it.
+  The path that actually programmed this board is not that mux. §3.1.1: the USB-C
+  port enumerates as a CH9102 on GPIO 43/44, ROM download connected immediately,
+  and no native USB device (`VID 0x303A`) appeared. GPIO 19/20 are the S3's native
+  USB pins, and they are what the FSUSB42UMX steers. Whether `USB_SEL` also
+  disconnects the CH9102 is **Q22**. Until that is answered, "CAN on means the
+  board cannot be flashed" is the README's claim, not a measurement. What is
+  measured is that the mechanical switch can silence the CH9102 completely (D50).
+  N19 still runs, so a later `begin()` cannot leave the mux in CAN mode by accident.
+  The hardware strap (Q17) remains the only escape that survives a firmware bug
+  *if* Q22 finds that `USB_SEL` gates the CH9102.
 - **R2 — OTA over WiFi is the only in-service update path.** ArduinoOTA (`:3232`)
   and the `/update` HTTP endpoint are the production path; `esp32usb` is a
   recovery tool used at the bench with CAN disabled.
@@ -307,8 +315,11 @@ This is why §7.5 exists, and it drives three design rules:
   native USB. Verify which one the module initializes; if it is `HWCDC`, the
   template needs a board-conditional.
 
-The recovery path is therefore: hold BOOT, power-cycle, `USB_SEL` comes up low,
-flash over USB. To get back to CAN, reset — no reflash required.
+The recovery path that has already worked on this board (§3.1.1): put the
+mechanical switch in the ESP32 position, hold BOOT, power-cycle, flash over the
+CH9102. `USB_SEL` is not low at power-on in any source we have, and it does not
+need to be for that procedure. Getting back to CAN is N19's later step — config
+says enabled, then `USB_SEL` high and `twai_start()` — not a reset.
 
 **Debugging consequence.** This is not merely an inconvenience. On this board the
 device loses its serial console at the exact moment it becomes interesting — the
@@ -412,7 +423,7 @@ the panel treats the value as an opaque 0…1000 permille number.
 | F12 | The whole application runs on a developer Mac without flashing hardware. |
 | F13 | When USB is unavailable (CAN enabled), diagnostics remain fully accessible **on the panel**: a 1 MB cyclic PSRAM log buffer and a scrollable log screen with follow-at-end. |
 | F14 | A temperature's function (chamber / water-in / water-out) is resolved through **sensor ID**, not through CAN rank: `slot → rank → DS18B20 ROM → function`. Rank is a derived, shiftable address; the function belongs to the sensor and travels with it. |
-| F15 | Read a living-room **temperature, relative humidity and pressure** from an AHT20 and a BMP280 on the H1 I²C header, on a fixed cadence, without involving the CAN bus. |
+| F15 | Read living-room **temperature, relative humidity and pressure** on H1, on a fixed cadence, without involving the CAN bus. Pressure and a temperature can come from a BMP280 at `0x76`/`0x77`. Humidity cannot come from an AHT20 on this bus: `0x38` is CH422G WR-IO (R30, Q24). |
 | F16 | A fifth tappable zone on the home screen for the living-room reading, opening a **detail screen 5** with the shared skeleton: header value, 1 d / 1 w / 1 m range selector, chart, min/mean/max/now readouts and a data-age line. |
 | F17 | Record all three living-room quantities into the same fixed-size history record as the heater series, so they chart at all three ranges and survive the same retention policy. |
 | F18 | **Adjust the commanded PWM duty** from the chamber detail screen, over the full **0 → 1000 permille** range, where 0 = off and 1000 = full on. The slider is a *request*, not a report: the value shown as in force always comes from `0x280`. |
@@ -421,7 +432,7 @@ the panel treats the value as an opaque 0…1000 permille number.
 | F21 | Show the result of the command, not just its dispatch: sent / acknowledged by a fresh `0x280` / timed out, and revert the slider to the reported value if no matching report arrives. |
 | F22 | A persistent **bottom navigation pane**, smartphone-style, on every screen except the log screen: Home, the five detail screens, and Settings. One tap reaches any screen from anywhere. |
 | F23 | Every glyph on the panel is at least **4 mm cap height** (21 px). No screen-level exemption, including the log screen and the CAN monitor. |
-| F24 | A **living-room water-out temperature derived from the commanded PWM duty**, shown on the panel and permanently labelled as modelled — dashed chart line, `MODELLED` badge, `TEMP_MODELLED` flag in the record, excluded from every derived statistic. The model function is supplied later; until then the zone renders `—`. |
+| F24 | A **modelled heater water-out temperature** derived from the commanded PWM duty, shown on the panel and permanently labelled as modelled — dashed chart line, `MODELLED` badge, `TEMP_MODELLED` flag in the record, excluded from every derived statistic. The model function is supplied later; until then the zone renders `—`. This is the heater return, not the living-room sensor. |
 | F25 | A user-switchable **CAN enable**, in Settings under the gear, that hands USB back when CAN is off. Defaults to **off**. Confirmed by a modal naming the consequence. |
 | F26 | History at all three ranges is served without reading the SD card after boot: the 1-day view from an in-RAM day buffer, the week and month views from an in-RAM rollup loaded once at boot. |
 | F27 | The storage state is **operational / faulty / absent**, decided by evidence — a failed rollover write, a CRC mismatch, or free space below the floor all mean *faulty*, not *absent* — and a fault is sticky with the time of first failure. |
@@ -436,11 +447,11 @@ the panel treats the value as an opaque 0…1000 permille number.
 | N3 | CAN reception never blocks the LVGL task. |
 | N4 | SD writes never block the LVGL task. |
 | N5 | House-state code (decoding, formatting, chart maths) is pure C++ with **no Arduino, ESP-IDF or LVGL dependencies**, so it compiles natively on macOS. |
-| N6 | Memory budget: **heap** allocations stay under 64 KB. The two deliberate exceptions are *static* PSRAM buffers, which are sized at compile time and never reallocated — the decoded background image (768 KB, §8.3) and the 6 KB chart chunk buffer. The LVGL draw buffer stays in **internal** RAM, because the panel's DMA cannot cross the octal-PSRAM boundary. |
+| N6 | Memory budget: **heap** allocations stay under 64 KB (§10.5.3). Static PSRAM (§10.5.1) is sized at compile time and never reallocated — the 1 MB log ring, the decoded background (768 KB, §8.3), the day buffer and the rollup. The LVGL draw buffers stay in **internal** RAM, because the panel's DMA cannot cross the octal-PSRAM boundary. The chart working set is ~24 KB (§9.3), not 6 KB. |
 | N7 | The device stays reachable: WiFi/OTA/watchdog behave as in every other project. |
 | N8 | Fonts and background images live in PSRAM or flash, not internal RAM. |
 | N9 | Rebuilding `platformio.ini` for a board switch requires changing exactly one `-D` flag. |
-| N10 | **No code path may depend on a working `Serial`.** With CAN enabled USB is gone, so every diagnostic must reach the PSRAM ring, and from there one of the three sinks: the WebSocket (`ws://<host>:81`), the log screen, or the SD dump. The ring must never block on a dead UART/CDC handle or on a stalled socket. |
+| N10 | **No code path may depend on a working `Serial`.** The mechanical switch can kill the CH9102, and Q22 may find that CAN mode does too, so every diagnostic must reach the PSRAM ring, and from there one of the three sinks: the WebSocket (`ws://<host>:81`), the log screen, or the SD dump. The ring must never block on a dead UART/CDC handle or on a stalled socket. |
 | N11 | Diagnostic logging is always compiled in. The temptation to strip it for "release" is exactly backwards on a board whose only debugging surface is its own display and its own WiFi. |
 | N12 | Log volume is bounded at every stage: capped write rate, a 750 ms WS drain with an 8 KB/tick ceiling and an explicit `dropped` marker, and a 5 Hz on-screen rebuild. A log storm must never become a way to make the panel unresponsive. |
 | N13 | **One I²C bus, one mutex.** H1 carries the CH422G, the GT911, the AHT20 and the BMP280, and it is touched by the touch read callback, the expander accessors (§6.5), the SD backend and the sensor task. `Wire` is not thread-safe, so every transaction on the bus is serialised by a single bus-wide lock, not by the narrower expander lock §6.5 already needs. Sensor reads must never hold it longer than one measurement. |
@@ -483,9 +494,14 @@ service interface. Nothing above `services/` knows which one it got.
 | Display / touch | LVGL's SDL port (`LV_USE_SDL`), giving a real 480 × 800 window with mouse injection. |
 
 **Tooling.** `host/CMakeLists.txt` following LVGL's official `lv_port_pc`
-layout, plus a `make run` target. CI (or a pre-commit hook) runs a headless
-smoke test that boots the app, drives it through each screen via synthetic taps,
-and fails on a screenshot diff or an assertion failure.
+layout, plus a `make run` target. `ESP32/Makefile` today has `fmt`, `links` and
+`build`; `run` is a new target and has to be added there, not assumed.
+CI (or a pre-commit hook) runs a headless smoke test that boots the app, drives
+it through each screen via synthetic taps, and fails on a screenshot diff or an
+assertion failure. The baseline is the pinned `lvgl@~9.2.0` plus the host
+toolchain recorded next to the images. A font or LVGL bump that changes
+rasterisation updates the baseline in the same commit. A diff fails the build;
+it does not warn.
 
 **Explicit non-goal.** The harness is *not* an emulator of the panel. It does not
 model RGB timing, the CH422G, or touch calibration. Those stay verified on
@@ -651,9 +667,8 @@ but the `tpl_cyd_` prefix becomes `tpl_ws7_` because these are not CYDs.
 ```cpp
 // ---- lifecycle -----------------------------------------------------------
 esp_err_t tpl_ws7_setup(uint8_t rotation);          // expander, panel, backlight, touch
-lv_display_t *tpl_ws7_display(uint8_t rotation,
-                              void *buf, size_t buf_size);
-lv_indev_t   *tpl_ws7_touch(void);                   // created with read_cb installed
+lv_display_t *tpl_ws7_display(void *buf, size_t buf_size);  // uses the rotation from setup(); calls lv_display_set_default()
+lv_indev_t   *tpl_ws7_touch(lv_display_t *disp);     // lv_indev_create() needs the display
 
 // ---- geometry ------------------------------------------------------------
 #define TPL_WS7_SCREEN_WIDTH   800    // native panel
@@ -669,22 +684,24 @@ esp_err_t tpl_ws7_panel_reset(void);                // CH422G IO3
 
 // ---- SD card chip select (active LOW on the expander) --------------------
 esp_err_t tpl_ws7_sd_select(bool select);            // IO4; true drives it LOW
+SPIClass    *tpl_ws7_sd_bus(void);                   // the SPI the module started: MOSI 11, SCLK 12, MISO 13
 
 // ---- CAN / USB mux -------------------------------------------------------
 esp_err_t tpl_ws7_set_usb_mode(bool usb);           // IO5; usb=true -> CAN disabled
 bool     tpl_ws7_can_available(void);                // IO5 high?
-esp_err_t tpl_ws7_gpio19_20_mode(bool as_usb);      // USB-SERIAL-JTAG vs IOMUX GPIO
 ```
 
-The last function exists because of a detail that is easy to miss: once `IO5` goes
-high, pins 19/20 must be **IOMUX GPIOs for the CAN peripheral**, not USB. If the
-LCD/CAN task installs a TWAI driver without re-muxing, the transceiver is fed
-from a USB PHY and the bus is silent. `tpl_ws7_gpio19_20_mode()` makes the
-transition explicit and idempotent rather than an ordering landmine.
+There is no `tpl_ws7_gpio19_20_mode()`. On the ESP32-S3, GPIO 19/20 are the native
+USB pins, and USB-Serial-JTAG or USB-OTG claims them only while that peripheral is
+initialised. There is no IOMUX switch to flip at runtime. The decision is
+compile-time: `ARDUINO_USB_CDC_ON_BOOT=0` and `ARDUINO_USB_MODE=0` in §7.1, and no
+call to `HWCDC` / `USB.begin()` anywhere in this project. TWAI then takes GPIO
+19/20 as ordinary GPIOs. Q2 is that choice, confirmed against the CH9102 bench
+(§3.1.1).
 
-`rotation` is accepted by both `setup()` and `display()` because the logical size
-depends on it, and a caller that forgets to pass the same value twice gets a
-compile-time-visible mismatch rather than a mirrored touch layer.
+`rotation` is an argument of `setup()` only. `display()` reads the value `setup()`
+stored. Passing it twice was a way to get the touch layer mirrored relative to the
+panel.
 
 ### 6.3 Display pipeline (RGB panel + LVGL)
 
@@ -702,8 +719,9 @@ Decisions:
 - **Draw buffer: two line buffers, not a full-screen buffer.** With RGB panels the
   flush is a DMA transfer and the driver can write back into the buffer it just
   flushed, so LVGL's `LV_DISPLAY_RENDER_MODE_DIRECT` with a pair of
-  `hres × N`-pixel strips is the memory-efficient choice. For 800 × 20 px at
-  RGB565 that is ~32 KB per buffer in internal RAM — it must *not* be in PSRAM,
+  **panel-width** strips is the memory-efficient choice. The strip is 800 px
+  (the panel), not 480 px (the rotated logical width). For 800 × 20 px at
+  RGB565 that is 32 000 B per buffer in internal RAM — it must *not* be in PSRAM,
   because the DMA cannot cross the PSRAM boundary on an octal PSRAM part.
   The buffer size is a `-D` flag (`TPL_WS7_DRAW_LINES`, default 20) so the S3's
   512 KB of internal SRAM is spent deliberately. This is the opposite of the CYD
@@ -718,19 +736,19 @@ Decisions:
 
 ### 6.4 Touch pipeline (GT911)
 
+The GT911 comes up through `esp_lcd_touch_gt911`, on the same I²C port as the
+CH422G, at `0x5D` (the address the board README's map marks; the other legal
+address is `0x14`). Reset and interrupt are not ESP32 GPIOs:
+
 ```cpp
-esp_lcd_panel_io_i2c_config_t io_cfg = {
-    .dev_addr = 0x5D, .control_panel_io = backlight_io /* shares the bus */,
-    .on_color_trans_done = NULL, .flags = { .disable_control_panel = false },
-};
-esp_lcd_touch_panel_io_i2c_config_t tp_io_cfg = {
-    .dev_addr = 0x5D, .control_panel_io = backlight_io,
-};
-esp_lcd_touch_gt911_config_t tp_cfg = {
-    .i2c_port = 0, .rst_gpio_num = -1,           // reset is via CH422G, not a GPIO
-    .int_gpio_num = -1,                         // no INT line broken out either
-};
+// rst_gpio_num = -1    reset is CH422G IO1, sequenced by tpl_ws7_touch_reset_*()
+// int_gpio_num = -1    no INT line is broken out; the controller is polled
 ```
+
+The field names above are the component's. An earlier draft of this section
+invented `control_panel_io` and `esp_lcd_touch_panel_io_i2c_config_t`. Those are
+not in `esp_lcd`. Phase 3 copies the struct from the version of
+`esp_lcd_touch_gt911` that Q21's core actually resolves.
 
 The interesting consequence: **the GT911 has neither a reset line nor an interrupt
 line on an ESP32 GPIO.** Both are routed through the CH422G, and the reference
@@ -789,8 +807,10 @@ avoidable *within* it by batching.
    **single** I²C write and cannot lose an update to another task's concurrent
    read-modify-write. This is the one thing the module genuinely needs that the
    component does not provide.
-2. **One mutex, taken with a bounded timeout.** The expander is touched by the
-   touch read callback, the SD backend and the CAN task. Same reasoning as N13.
+2. **The one bus mutex from N13, taken with a bounded timeout.** Not a second
+   lock. The expander, the GT911, the BMP280 and the SD chip-select all share
+   GPIO 8/9; two mutexes would deadlock the moment the touch poll and a setter
+   nest. The touch poll is the caller that may not wait (§10.1).
 3. **Named, board-meaningful setters.** Projects call `tpl_ws7_sd_select(true)`,
    never `setIO(4, …)`. The pin numbers live in one place, and §3.4's table is what
    that place is derived from.
@@ -820,10 +840,14 @@ supports 0–3 because it costs one macro and keeps the abstraction honest.
 
 | rotation | logical size | panel | note |
 | -------- | ------------ | ----- | ---- |
-| 0 | 480 × 800 | 800 × 480 native | the portrait case |
-| 1 | 800 × 480 | 800 × 480 native | landscape, no transform |
-| 2 | 480 × 800 | 800 × 480 | portrait, 180° |
-| 3 | 800 × 480 | 800 × 480 | landscape, mirrored |
+| 0 | 480 × 800 | 800 × 480 native | portrait. LVGL `LV_DISPLAY_ROTATION_90`, **not** `LV_DISPLAY_ROTATION_0` |
+| 1 | 800 × 480 | 800 × 480 native | landscape, LVGL rotation 0, no transform |
+| 2 | 480 × 800 | 800 × 480 | portrait, 180° (LVGL rotation 270) |
+| 3 | 800 × 480 | 800 × 480 | landscape, mirrored (LVGL rotation 180) |
+
+`TPL_WS7_ROTATION` is this table, not the LVGL enum. Passing `0` to
+`lv_display_set_rotation()` would leave the panel in landscape. `tpl_ws7_display()`
+is the only place that translates.
 
 `TPL_WS7_WIDTH`/`TPL_WS7_HEIGHT` are defined from `TPL_WS7_ROTATION` so that UI
 code writes `TPL_WS7_WIDTH` and gets the truth.
@@ -835,19 +859,26 @@ internally by `#if defined(IS_WAVESHARE_LCD7)` so non-Waveshare projects — whi
 all of the existing ones — pull in nothing and link unchanged. Same discipline as
 `tpl_display.h`.
 
-**`tpl_system.h`** — add the LED pin block:
+**`tpl_system.h`** — add a block that defines **no** LED pins:
 
 ```cpp
 #ifdef IS_WAVESHARE_LCD7
-#define tpl_ledPin      4    // BOOT-adjacent status LED, if the board has one
-#define tpl_backlightPin 2   // CH422G IO1 — logical, not a real GPIO
+// No status LED is fitted (the board README's onboard list is BOOT, RESET,
+// battery, USB-C, the PH2.0 headers and CAN termination).
+// Do not #define tpl_ledPin, tpl_ledPin_R/G/B or tpl_backlightPin:
+//   GPIO 2  is RGB DATA12. A backlight alias there corrupts a whole colour bit.
+//   GPIO 17 is RGB DATA3.  That is tpl_ledPin_B on both CYD boards.
+//   GPIO 16 is tpl_ledPin_G on both CYD boards and is not an LED here.
+//   GPIO 4  is outside the RGB/I²C/SD/CAN/UART map. It stays unclaimed so Q17
+//           (CAN force-USB strap) and Q19 (LEDC backlight) can compete for it
+//           without a template macro already driving it.
+// tpl_wifi_setup() treats led pin 255 as "no LED" (tpl_wifi.cpp). Pass 255.
 #endif
 ```
 
-`tpl_backlightPin` is *logical* on this board: no ESP32 GPIO drives the backlight.
-It exists only so `tpl_wifi_setup(..., ledPin)` and the CYD-style call sites keep
-compiling. The comment must say so, or the next reader will try to `analogWrite()`
-it.
+An undefined `tpl_backlightPin` is a compile error at the one call site that
+names it. A `#define` of GPIO 2 is silent pixel corruption. The backlight setter
+is `tpl_ws7_backlight()` (§6.2), which drives CH422G IO2.
 
 **`tpl_sd`** — this needs a real change, not just a define. `tpl_sd` assumes a
 directly-driven CS pin (`TPL_SD_CS`, default 5). Here the CS comes from the CH422G
@@ -864,9 +895,28 @@ and the recorder owns *writing*. Both use the same physical card and cooperate b
 never holding the card open across a flush — the recorder flushes and closes before
 `loop()` may call a read endpoint, and reads are opened O_RDONLY.
 
+**The `.cpp` is guarded, not just the header.** `ESP32/Makefile` symlinks every
+`prj_template/src/*.cpp` into every project. A new file therefore lands in
+projects 01–27 the next time anyone runs `make links`. None of them define
+`IS_WAVESHARE_LCD7`, so the translation unit is empty for them:
+
+```cpp
+#include "tpl_waveshare_lcd7.h"
+
+#ifdef IS_WAVESHARE_LCD7
+// ... entire implementation ...
+#endif
+```
+
+The header guard already noted above is load-bearing for the same reason: the
+Makefile also symlinks every template header into every project. Phase 1 does
+not exit until `cd ESP32/26_CYD_CAN_monitor && pio run -e esp32ota` still passes
+after both files exist.
+
 **Symlinks.** `make links` regenerates `include/`, `src/`, `data/`, `tools/`
-symlinks for every project; `tpl_waveshare_lcd7.{h,cpp}` are added to that sweep
-automatically by the existing Makefile rule, so no per-project work is needed.
+symlinks for every project; `tpl_waveshare_lcd7.{h,cpp}` are picked up by the
+existing wildcard, which is why the guard has to be inside the file rather than
+in the Makefile.
 
 ## 7. Deliverable B — Project `ESP32/28_hauszentrale`
 
@@ -882,7 +932,9 @@ board    = esp32-s3-devkitc-1
 framework = arduino
 board_build.f_cpu = 240000000L
 board_build.flash_size = 16MB          ; measured, §3.1.1 — the part is 16 MB, not 8 MB
-board_build.partitions = custom_16m_ota.csv   ; 2x3 MB app + 512 KB SPIFFS
+board_build.arduino.memory_type = qio_opi   ; quad flash (Winbond 4018) + octal PSRAM. Without this the core assumes qio_qspi and PSRAM never comes up.
+board_build.partitions = custom_16m_ota.csv   ; see the note under partitions — 2x3 MB does not use the extra 8 MB
+platform_packages =
 build_flags =
     -I include
     -D LV_LVGL_H_INCLUDE_SIMPLE
@@ -890,10 +942,13 @@ build_flags =
     -D CORE_DEBUG_LEVEL=1
     -D HOSTNAME=\"${common.hostname}\"
     -D NET_WATCHDOG=\"192.168.1.1\"
+    -D CONFIG_SPIRAM_CACHE_WORKAROUND
+    -D ARDUINO_USB_CDC_ON_BOOT=0     ; Serial is UART0, GPIO 43/44, the CH9102. §3.1.1, Q2.
+    -D ARDUINO_USB_MODE=0            ; do not bring up USB-OTG CDC. GPIO 19/20 belong to TWAI.
 lib_deps =
-    lvgl/lvgl@^9.2.0
+    lvgl/lvgl@~9.2.0
     549@^2.2.1
-    bblanchon/ArduinoJson@^7
+    bblanchon/ArduinoJson@^6.17.2
 extra_scripts = pre:../prj_template/tools/generate_version.py
 
 [env:esp32ota]
@@ -907,12 +962,15 @@ build_flags = ${common.build_flags}
 upload_protocol = espota
 upload_port = ${common.hostname}.local
 upload_flags = --port=3232 --host_port=56789
+monitor_speed = 115200
 
 [env:esp32usb]
 build_flags = ${env:esp32ota.build_flags}
 upload_protocol = esptool
 upload_speed = 921600
-; NOTE: only reachable while CH422G USB_SEL is LOW. See 3.3 / R1.
+monitor_speed = 115200
+; Reachable over the CH9102 (GPIO 43/44) when the mechanical switch is in the
+; ESP32 position (§3.1.1, D50). Whether USB_SEL also has to be low is Q22.
 ```
 
 Points worth flagging:
@@ -922,10 +980,15 @@ Points worth flagging:
   custom table: `nvs` 20 KB, `otadata` 8 KB, two 3 MB `app` slots, 512 KB SPIFFS.
   OTA is a stated requirement (F11), so the two-app-slot layout is non-negotiable;
   the sizes are the tunable part. The board has **16 MB** of flash (§3.1.1), so the
-  table is `custom_16m_ota.csv` and there is room to be generous — the layout on
-  the board today is a single 5 MB `factory` app with no OTA slot at all
-  (`rtc_pcf85063`, ESP-IDF v5.5.4), which is a third of the part and no redundancy.
-  **Erase before the first flash.**
+  table is `custom_16m_ota.csv`. Two 3 MB app slots plus 512 KB SPIFFS plus the
+  small NVS/otadata regions use about 6.5 MB of a 16 MB part and leave about
+  9 MB unallocated. Those 3 MB slots are the 8 MB-era sizes. Phase 4 should
+  spend the spare on larger app slots (a decoded-asset-free firmware still has
+  to carry LVGL and the fonts), and the table needs a `phy_init` partition: the
+  image on the board today has 4 KB at `0xf000`, and WiFi calibration looks for
+  it. The layout on the board today is otherwise a single 5 MB `factory` app
+  with no OTA slot (`rtc_pcf85063`, ESP-IDF v5.5.4). **Erase before the first
+  flash.**
 - **`lv_conf.h` must be this project's own.** The repo currently borrows
   `19_CYD-project/include/lv_conf.h` by symlink. That config was written for a
   240-320 px panel and lacks `LV_USE_IMAGE` PNG decoding and the wider Montserrat
@@ -970,10 +1033,20 @@ fallback if that override proves painful. Either way this must be settled in pha
 0–1, because §6.3 cannot start without it and the board README's own snippet
 already says `framework = esp-idf`. **Q21.**
 
-Consequence for `platformio.ini`: `-D LV_LVGL_H_INCLUDE_SIMPLE` and the
-ArduinoJson/`549` deps stay valid on Arduino 3.x, but the partition table, the
-`SPIRAM_CACHE_WORKAROUND` flag and `board_build.arduino.memory_type = qio_opi`
-(review B3) all need re-checking against whichever IDF lands.
+`lvgl@~9.2.0` rather than `^9.2.0`: N1, D2 and R4 depend on 9.2's rotation
+behaviour, and `^` would admit 9.3. `ArduinoJson@^6.17.2` matches
+`26_CYD_CAN_monitor` and the copy `tpl_websocket.h` includes. v7 is a different
+API; taking it in one project that shares the template headers is a repo-wide
+decision, not a silent bump.
+
+`memory_type = qio_opi` is required on whichever core Q21 picks. The bench
+measured quad flash and octal PSRAM (§3.1.1); without the flag the Arduino core
+assumes `qio_qspi` and PSRAM does not initialise, which silently removes the
+background buffer, the log ring and the history tiers. `CONFIG_SPIRAM_CACHE_WORKAROUND`
+is the flag `AGENTS.md` and project 26 already set. Confirm it still exists in
+the IDF that Q21 lands — a removed Kconfig name would make `-Werror` irrelevant
+but a wrong memory type would not. The USB flags above are how Q2 is answered
+at compile time (§6.2).
 
 ### 7.2 CAN subsystem
 
@@ -1014,14 +1087,18 @@ a stale kilowatt figure.
 **Mux ordering.** CAN availability is not a compile-time constant:
 
 ```cpp
-tpl_ws7_setup(TPL_WS7_ROTATION);
-tpl_ws7_gpio19_20_mode(false);   // pins as IOMUX GPIOs, not USB-SERIAL-JTAG
-tpl_ws7_set_usb_mode(false);     // IO5 HIGH -> CAN live, USB dead
-/* ... twai_driver_install() / twai_start() ... */
+tpl_ws7_setup(TPL_WS7_ROTATION);   // N19: USB_SEL low before anything else
+/* display, touch, sensors */
+if (config.can_enabled) {
+    tpl_ws7_set_usb_mode(false);   // IO5 HIGH -> GPIO 19/20 on the transceiver
+    /* twai_driver_install() / twai_start() */
+}
 ```
 
-Every step is idempotent and the order is fixed, because after `IO5` goes high there
-is no USB fallback left with which to diagnose a mistake.
+GPIO 19/20 are free for TWAI because the build never starts a USB peripheral on
+them (§7.1). There is no runtime remux call. After `IO5` goes high, whether the
+CH9102 console survives is Q22; the on-panel log does not depend on the answer
+(N10).
 
 ### 7.3 CAN monitor (lifted from `26_CYD_CAN_monitor`)
 
@@ -1059,8 +1136,8 @@ struct Sample {
   int16_t  living_c100;    // 0.01 C     local I2C, §7.8 — never empty-slot
   uint16_t hum_c100;       // 0.01 %RH   /
   uint32_t pressure_pa;    // Pa         /
-  uint16_t power_w;        // see "Power source" below
-  uint8_t  flags;          // VALID bits + FAULT bits, incl. climate-present
+  uint16_t power_dw;      // decawatts (0.1 W). SML watts × 10, saturated at 6553.5 W
+  uint8_t  flags;          // VALID bits + FAULT bits, incl. climate-present + TEMP_MODELLED
 };
 // 4 + 2*4 + 2 + 4 + 2 + 1 = 21, padded to 24 for 4-byte alignment.
 static_assert(sizeof(Sample) == 24, "fixed-size records enable seeking");
@@ -1084,8 +1161,10 @@ sentinel of their own. Reusing `INT16_MIN` for a locally-read sensor would make
 "the probe is unplugged" and "the chip is not responding" the same value on the
 chart, which is exactly the conflation R5 exists to prevent on the CAN side.
 
-- **ESP32 backend:** SD through the CH422G-controlled CS, append mode, `flush()` at
-  least once a minute and always before any read.
+- **ESP32 backend:** SD through the CH422G-controlled CS (`tpl_ws7_sd_select` /
+  `tpl_ws7_sd_bus`). The day's samples accumulate in the L1 buffer and the file
+  is written **once**, at midnight (§7.10), not flushed every minute. A read
+  waits until that write has closed the file.
 - **Host backend:** identical semantics over a `std::vector` or temp file. This is
   what makes the chart path testable (§4.3).
 - **Cadence:** one sample per minute, on the minute, from a dedicated task fed by
@@ -1161,8 +1240,9 @@ figure with a scale factor that no longer matches the hardware.
 
 ### 7.5 OTA and firmware-update paths
 
-Because `USB_SEL = HIGH` kills USB (§3.3), this section exists because of that one
-fact.
+`USB_SEL` high steers GPIO 19/20 to the CAN transceiver (§3.3). Whether that also
+kills the CH9102 console is Q22. OTA does not depend on the answer; USB flashing
+might.
 
 | Path | Mechanism | When used |
 | ---- | --------- | --------- |
@@ -1177,18 +1257,15 @@ Requirements that follow:
   will enumerate and open cleanly and still return nothing, at any baud, with any
   DTR/RTS sequence. Symptom: `esptool` reports `No serial data received`. This
   costs five seconds to rule out and is the first line of the runbook.
-- **`Serial` must survive.** Confirm the log port is UART0 and not `HWCDC`. The
-  board's USB is a **CH9102 UART bridge** on GPIO 43/44, not native USB CDC — no
-  Espressif USB device is ever enumerated, even in ROM download mode (§3.1.1) — so
-  the hardware side of R3 is settled and only the Arduino core's default remains
-  open (§12 Q2).
-- **Watchdog restarts must be safe.** `tpl_net_watchdog` restarting the device while
-  CAN is enabled does **not** bring it back on USB, because `USB_SEL` powers up
-  HIGH (§3.3). The device returns to CAN mode; USB does not return at all. That
-  inverts the recovery path rev 1.0 described — see R1. The bad case is a crash
-  loop after `IO5` goes high, which is recoverable only by power cycle, and by
-  reflash only if it persists. Crashes must therefore be logged somewhere that
-  survives, which is the SD log from §7.4.
+- **`Serial` is UART0.** The connector is a CH9102 on GPIO 43/44 (§3.1.1), and
+  §7.1 pins `ARDUINO_USB_CDC_ON_BOOT=0`. Phase 1 confirms the firmware's `Serial`
+  object matches that (Q2, resolved). R3's remaining content is the flush budget,
+  not the console.
+- **Watchdog restarts re-run N19.** `setup()` drives `USB_SEL` low before it
+  reads config, then raises it again if CAN is enabled (§7.12). A restart does
+  not inherit a pin state from the previous boot. The bad case is a crash *after*
+  that raise, looping there. Whether the CH9102 is gone in that window is Q22.
+  Crashes are logged to the SD dump from §7.6, which does not need the console.
 - **Boot-time settle.** Leave `USB_SEL` low for the first ~200 ms after boot. The
   Waveshare examples flip it immediately; a short settle reduces the class of
   "worked over USB, dead over CAN" surprises during bring-up.
@@ -1411,33 +1488,48 @@ function.
 
 **Devices on the bus.** All four share GPIO 8/9:
 
-| Device | Address | Bus role |
-| ------ | ------- | -------- |
-| CH422G expander | `0x24` | written by the accessors in §6.5, from three different tasks |
-| GT911 touch | `0x5D` | polled from the LVGL read callback (§6.4) |
-| **AHT20** | `0x38` | read by the sensor task |
-| **BMP280** | `0x40` | read by the sensor task |
+| Device | Address (7-bit) | Bus role |
+| ------ | --------------- | -------- |
+| CH422G WR-OC | `0x23` | open-drain / push-pull for OC0–OC3 |
+| CH422G WR-SET | `0x24` | direction and mode. This is the address §3.1 used to quote alone |
+| CH422G RD-IO | `0x26` | input readback |
+| CH422G WR-IO | `0x38` | the output pattern. **Same address as an AHT20** |
+| GT911 touch | `0x5D` (or `0x14`) | polled from the LVGL read callback (§6.4) |
+| **BMP280** | `0x76` if SDO is low, `0x77` if SDO is high. **Not `0x40`** | read by the sensor task. Neither address collides |
+| **AHT20** | `0x38` | **collides with WR-IO. Do not fit one on this bus** |
 
-No address conflict. The *contention* is the problem, not the addressing: the
-touch poll runs on `loopTask` and can fire between two steps of a BMP280 register
-burst, and Arduino's `Wire` has no re-entrancy protection. Hence **N13** — one
-bus-wide mutex, not §6.5's narrower expander lock, and the sensor task takes it
-for one measurement at a time.
+Rev 1.4 said "no address conflict" and gave the BMP280 as `0x40`. Both are wrong.
+`0x40` is not a BMP280 address (the part only answers `0x76` or `0x77`). `0x38`
+is the AHT20's only address and it is also the address `i2c_master_write_to_device`
+uses for every CH422G output update (`CH422G_REG_WR_IO = 0x70 >> 1`). An AHT20 on
+H1 receives every backlight, reset, chip-select and USB-mux write as a command,
+and an AHT20 read can be accepted by the expander as a new output pattern. That
+breaks the mux and the sensor together. **R30, Q24.** Until Q24 picks a part
+whose address is outside `{0x23, 0x24, 0x26, 0x38, 0x5D, 0x14}`, the living-room
+zone stays `—` (N14). A BMP280 does not have this problem.
+
+Contention is still real for the devices that do share the bus. The touch poll
+runs on `loopTask` and can land between two steps of a BMP280 register burst, and
+Arduino's `Wire` has no re-entrancy protection. Hence **N13** — one bus-wide
+mutex, which is the same lock §6.5 takes, and the sensor task holds it for one
+measurement at a time.
 
 **Per-device requirements.**
 
-- **AHT20** — read the status byte first and treat bit 7 as busy; a
+- **AHT20** — only if Q24 finds a way to put one on a bus that is not this one.
+  On its own bus: read the status byte first and treat bit 7 as busy; a
   measurement is ~80 ms, so the task polls rather than sleeping through it. The
-  6 data bytes carry a CRC-8 (poly `0x31`) that **must** be checked: the part
-  ships with a known-bad default polynomial, and a bus that is electrically fine
-  but noisy produces plausible-looking wrong numbers far more often than an
-  outright error. Power-on needs ≥40 ms before the first command and a soft reset
-  with ≥20 ms after it.
-- **BMP280** — forced mode only. The chip id at `0xD0` must read `0x58`, and the
-  24 bytes of calibration coefficients at `0xE4` must be read **before** any
-  compensated value is meaningful. Forcing a fresh measurement each cycle keeps
-  the part in the µA-scale sleep state between reads, which is what makes a
-  once-a-minute cadence free.
+  6 data bytes carry a CRC-8 (poly `0x31`, init `0xFF`) that must be checked. A
+  noisy bus returns plausible wrong numbers more often than an outright NACK.
+  The polynomial is the part's; it is not programmable and it is not "known-bad".
+  Power-on needs ≥40 ms before the first command and a soft reset with ≥20 ms
+  after it.
+- **BMP280** — forced mode only. The chip id at `0xD0` must read `0x58`. The
+  calibration block is 24 bytes at **`0x88`** (`dig_T1` through `dig_P9`,
+  registers `0x88`–`0x9F`), read before any compensated value is used. `0xE4` is
+  not that block — humidity calibration on a BME280 starts at `0xE1`, and this
+  part is a BMP280. Forcing a fresh measurement each cycle keeps the part asleep
+  between reads.
 
 **Cadence and degradation.** The sensor task samples every 30 s and writes into
 `HausState`; the recorder samples once a minute (§7.4), so the extra resolution is
@@ -1533,19 +1625,20 @@ ever scans a sample file.
 
 | Tier | Granularity | Where | Size | Answers |
 | ---- | ----------- | ----- | ---- | ------- |
-| **L0** samples | 1 min | SD, one file per day | 33 792 B/day | nothing directly — the durable record |
-| **L1** day buffer | 1 min | PSRAM, today only | 33 792 B | **1 day**, at full resolution |
+| **L0** samples | 1 min | SD, one file per day | 34 560 B/day | nothing directly — the durable record |
+| **L1** day buffer | 1 min | PSRAM, today only | 34 560 B | **1 day**, at full resolution |
 | **L2** rollup | 1 hour, 31 days | PSRAM, loaded at boot | 65 472 B | **1 week** and **1 month** |
 
 **L2 column layout** — one column per hour, 744 of them:
 
 ```cpp
 // src/app/rollup.h
-struct RollupColumn {          // 88 B
+struct RollupColumn {          // 4 + 24 + 24 + 24 + 12 = 88 B, no padding
   uint32_t t;                  // bucket start, unix minutes
-  int32_t  mn[6], mx[6];       // one pair per series, 24 B... see note
-  int32_t  sum[6];
-  uint16_t n[6];
+  int32_t  mn[6];              // 24 B
+  int32_t  mx[6];              // 24 B
+  int32_t  sum[6];             // 24 B
+  uint16_t n[6];               // 12 B
 };
 ```
 
@@ -1573,7 +1666,7 @@ resolution.
 
 ```
 1. mount SD, open /rollup.bin          (65 472 B, ~35 ms)
-2. read the newest /data_YYYYMMDD.bin   (33 792 B, ~20 ms)
+2. read the newest /data_YYYYMMDD.bin   (34 560 B, ~20 ms)
 3. re-apply those samples to L2          -> catches up the columns the rollup predates
 4. replay them into a fresh L1 for today
 5. ui_init() and first frame
@@ -1591,7 +1684,7 @@ the card is absent, steps 1–4 are skipped, L1 starts empty and the charts say
 3. rewrite `/rollup.bin` with the current 744 columns, one write
 4. clear L1 and start a new day
 
-Two writes a day, ~99 KB total. A card that is only ever written twice a day will
+Two writes a day, 34 560 + 65 472 = 100 032 B. A card that is only ever written twice a day will
 outlast the panel it is in.
 
 **The trade this makes, stated plainly.** Between rollovers, the day's history
@@ -1618,7 +1711,7 @@ struct WaterModel {
   virtual bool estimate(int16_t water_in_c100,
                         uint16_t duty_permille,
                         int16_t chamber_c100,
-                        int16_t out_c100) const = 0;
+                        int16_t *out_c100) const = 0;
   virtual const char *provenance() const = 0;   // "model v1", "sensor", …
 };
 ```
@@ -1669,9 +1762,10 @@ A user-switchable **CAN on / CAN off** control, in Settings under the gear
 back USB**, which is the panel's serial console, its flash path and its only
 recovery route.
 
-**Default is off.** CAN disabled is the power-on state (§3.3 R1). A panel that
-has never been configured comes up on USB, which is the only state from which it
-can always be recovered.
+**Default is off.** That is a config default plus N19, not the expander's
+power-on level (§3.3). A panel that has never been configured is told to drive
+`USB_SEL` low before it reads the config. The CH9102 console on GPIO 43/44 is
+what recovery actually uses, subject to the mechanical switch and to Q22.
 
 **The setting is persisted** in `/config.ini` via `TplSpiffsConfig`, so the panel
 boots into whichever mode it was left in. The boot sequence is therefore:
@@ -1700,19 +1794,20 @@ survive on their own.
 disconnects the transceiver when `USB_SEL` is low, so an installed-but-stopped
 TWAI driver cannot interfere. The simpler path is not to start it.
 
-**The recovery gap, named.** If CAN is enabled in config and the firmware is then
-broken, the panel reboots, step 3 raises `USB_SEL`, and there is no USB. Recovery
-depends entirely on the CH422G's power-on default, which is **Q15/review C1 and
-still unanswered**. Three candidate escapes, in order of preference:
+**The recovery gap, named.** If CAN is enabled in config and the firmware then
+crashes *after* step 3, `USB_SEL` is high. Whether that removes the CH9102 is
+**Q22**, not an unanswered power-on default. The driver's `0xFF` is a value it
+writes, and Q15 (a second panel) has nothing to do with it. Three escapes, in
+order of preference:
 
 | Option | Mechanism | Robustness |
 | ------ | --------- | ---------- |
-| **A. Hardware strap** | a jumper on **GPIO 4** (the board's only free, non-exposed GPIO — see §3.2 and review A2) to GND forces USB_SEL low at boot, and the firmware *must* honour it unconditionally | **Best.** No firmware can override a strap read before `setup()` runs. Conflicts with the template's `tpl_ledPin 4`, which should be dropped for this board anyway since no LED is fitted (G3) |
+| **A. Hardware strap** | a jumper on **GPIO 4** to GND forces the firmware to hold `USB_SEL` low. GPIO 4 is outside the RGB/I²C/SD/CAN/UART map (§3.2). GPIO 15 and 16 are also absent from that map; phase 1 confirms they are not inside the module's octal bus before anyone treats 4 as the only choice | **Best against a firmware bug**, and only useful if Q22 says `USB_SEL` gates the CH9102. The template no longer claims GPIO 4 (§6.7). Q19 wants the same pin for LEDC backlight |
 | B. Liveness timeout | if CAN is enabled but no frame is seen within N seconds, drop back to USB and log it | Good against a silent bus, useless against a firmware that crashes before the timer runs. Also silently disables the panel's main job, so it should be **off by default** and configurable |
-| C. BOOT + power cycle | the S3's ROM download mode over USB | Depends entirely on the POR default of `USB_SEL`, i.e. on C1. If the default is high, this does not work at all |
+| C. BOOT + power cycle | ROM download over the CH9102, which §3.1.1 already did on this board | Works today, with the mechanical switch in the ESP32 position. It does **not** depend on `USB_SEL` being low unless Q22 finds that the switch and IO5 are the same gate |
 
-Option A is recommended and GPIO 4 is available for it, but it is a hardware
-change to the board and therefore **Q17**, not a decision this document can make.
+Option A is a board modification, so it is **Q17**. It is not available to
+firmware alone, and it shares its pin with Q19.
 
 ### 7.13 Backlight Dimming — Why Not PWM the Expander
 
@@ -1765,11 +1860,12 @@ well are the ones that visibly flicker — a direct tension with no good middle.
 | **D. Move EN to a GPIO, use LEDC** | **desolder R52 (0 Ω), wire EN to a free ESP32 GPIO, drive with LEDC** | **Recommended if any hardware change is acceptable.** True hardware PWM: zero CPU, zero I²C, no contention, clean and linear, any frequency |
 | E. Dim through the FB divider | populate R49/R50/R51 and inject a PWM into FB | Possible, invasive, load-dependent. Not recommended |
 
-**Option D has a conflict that has to be resolved.** The board's only free,
-non-exposed GPIO is **GPIO 4** (verified against the RGB/I²C/SD/CAN pin budget,
-§3.2) — and §7.12 (Q17) wants GPIO 4 for the hardware CAN force-USB strap.
-Both are good ideas and there is only one pin. That is **Q19**, and it is a
-soldering decision, not a design one.
+**Option D has a pin conflict.** GPIO 4 is the pin §7.12 wants for the CAN
+force-USB strap. It is not claimed by a template LED macro (§6.7), and it is not
+in the RGB/I²C/SD/CAN/UART list. GPIO 15 and 16 are also missing from that list;
+until phase 1 looks at the module pinout, "the only free GPIO" is a claim this
+document does not make. Two mods, one preferred pin: **Q19**. It is a soldering
+decision.
 
 If D is taken, three things change: §3.2's "on/off only, no PWM" becomes wrong;
 `tpl_ws7_backlight()` gains `tpl_ws7_backlight_pwm(uint8_t percent)` alongside the
@@ -2010,13 +2106,16 @@ and overlap the artwork without a mis-tap being costly.
 | Chamber | centre rect over the firebox, ~300 × 180 at y≈250 | Detail screen 1 |
 | Water in | pipe segment + label, ~180 × 120 at y≈500 | Detail screen 2 |
 | Water out | pipe segment + label, ~180 × 120 at y≈500 | Detail screen 3 |
-| Power | the power readout block, ~440 × 96 at y≈644 | Detail screen 4 |
-| **Living room** | full-width band, ~440 × 72 at y≈620 | **Detail screen 5** |
-| Gear | 64 × 64 at (416, 736) | CAN monitor |
+| Power | full-width band, y=656, 56 px tall (the §8.2 row) | Detail screen 4 |
+| **Living room** | full-width band, y=580, 76 px tall | **Detail screen 5** |
+| Gear | last tab of the nav pane, y=712, 88 px (§8.11). Not a 64 × 64 overlay | CAN monitor |
 | Clock | (optional) whole clock area | toggles °C / °F and a 24 h clock |
 
-The power and living-room bands are adjacent, so they are separated by the same
-8 px dead zone as the water pair below the graphic. Their order matters more than
+The §8.2 drawing places the living-room band at y=580–656 and the power band at
+y=656–712, flush with each other and with the nav pane at y=712. An 8 px dead
+zone between those two bands would have to come out of the 56 px power row, so
+the boundary itself is the guard. The 8 px dead zone stays on the water-in /
+water-out pair, where the labels actually sit next to each other. Their order matters more than
 usual: **living room above, power below**, because the living-room band is the one
 a passer-by may tap by accident and power is the one that must never be
 mis-targeted into a *navigation* — though note that neither opens anything that
@@ -2545,21 +2644,26 @@ first-class feature of this project, not an extra.
 Base resolution is one sample per minute (§7.4), record size 24 B (§7.4). At the
 chart's actual width of 440 px (§8.6):
 
-| Range | Samples | Bytes read | Samples / column | What the column shows |
-| ----- | ------- | ---------- | ---------------- | -------------------- |
-| **1 day** | 1 440 | 34 KB | 3.3 | min–max envelope + mean dot |
-| **1 week** | 10 080 | 236 KB | 22.9 | min–max envelope + mean line |
-| **1 month** | 43 200 | 1012 KB | 98.2 | min–max envelope + mean line |
+| Range | Samples | Raw span | Samples / column | What the column shows |
+| ----- | ------- | -------- | ---------------- | -------------------- |
+| **1 day** | 1 440 | 34 560 B | 3.3 | min–max envelope + mean dot |
+| **1 week** | 10 080 | 241 920 B | 22.9 | min–max envelope + mean line |
+| **1 month** | 43 200 | 1 036 800 B | 98.2 | min–max envelope + mean line |
+
+"Raw span" is the size of the underlying samples. After §7.10 the week and month
+views do not read it; they rescale the rollup (§9.5). 1 440 × 24 = 34 560 exactly.
+Earlier drafts wrote the day buffer as 33 792 (33 × 1024), which is not a whole
+number of records.
 
 At roughly three minutes per column even the one-day view is over-sampled, which
 is why the chart is an **envelope**, not a polyline: a single 90 s thermostat cycle
 spans a third of a column even in the one-day view, and is invisible in a plain
 average at 1 month.
 
-1 MB per month is comfortably inside the 8 MB PSRAM, so a raw month of records
-*could* be cached wholesale. It is deliberately not (§9.5). Retention (§9.7) is
-the figure that actually moved: 24 months is now ~24 MB rather than ~12 MB, which
-still sits comfortably under the 50 MB free-space floor.
+A raw month (1 036 800 B, thirty days of 34 560 B) fits in the 8 MB PSRAM, so it
+*could* be cached wholesale. It is deliberately not (§9.5). Retention (§9.7):
+24 months is 24 × 1 036 800 B ≈ 25 MB of daily files, plus one 65 472 B rollup,
+which still sits under the 50 MB free-space floor.
 
 ### 9.3 Record format and downsampling
 
@@ -2567,8 +2671,9 @@ Two-tier. The **store** is fixed-size binary; the **view** is a downsampled
 envelope.
 
 ```
-store:  data_202610.bin   43 200 x 24 B = 1012 KB / month, append-only
-        seek(index) = index * 24                          O(1)
+store:  /data_YYYYMMDD.bin   1 440 × 24 B = 34 560 B, written whole at midnight (§7.10)
+        seek within a day file: index * 24                O(1)
+        week and month views do not read these files (§9.5)
 
 view:   struct ChartColumn { uint32_t t; int16_t mn[2]; int16_t mx[2];
                              int32_t  sum[2]; uint16_t n[2]; uint8_t flags; };
@@ -2679,14 +2784,14 @@ The scrubber is implemented as an `lv_canvas` overlay plus one `lv_label`, moved
 `LV_EVENT_PRESSING`. Because the chart columns are already indexed by pixel, the
 scrubber is a lookup — no interpolation, no re-read, no extra RAM.
 
-Touch precision at 480 px means one pixel column is ~3 minutes at 1 day and ~90
-minutes at 1 month. The bubble therefore shows the *column's* aggregate, not a
+The chart is 440 px wide (§8.6), so one column is 1 440 / 440 ≈ 3.3 minutes at
+1 day and 43 200 / 440 ≈ 98 minutes at 1 month. The bubble therefore shows the *column's* aggregate, not a
 fabricated instant value. Claiming a precise reading the data cannot support is how
 history views lose trust.
 
 ### 9.7 File rotation and retention
 
-- **One file per day**: `/data_YYYYMMDD.bin`, 33 792 B, written **once** at local
+- **One file per day**: `/data_YYYYMMDD.bin`, 34 560 B, written **once** at local
   midnight by the recorder task (§7.10). Two writes a day in total, including the
   rollup — against the 1 440 a per-minute append would cost.
 - The file is named by the wall clock, and the day boundary comes from the **last
@@ -2696,7 +2801,7 @@ history views lose trust.
   only in PSRAM. A power cut loses it, and §9.3 renders the loss as gaps rather
   than interpolating across them. This is the deliberate side of the write-endurance
   trade (§7.10, Q16, R23).
-- **Retention: 24 months**, configurable in SPIFFS config, at ~1 MB/month ≈ 24 MB.
+- **Retention: 24 months**, configurable in SPIFFS config, at 1 036 800 B/month ≈ 25 MB.
   On startup and daily, the oldest files beyond the limit are deleted. Deleting is
   never more than one file per pass, so a card with 30 stale months does not stall
   the recorder.
@@ -2778,7 +2883,7 @@ struct HausState {          // POD, trivially copyable
   uint32_t pwm_pending_since_ms;
 
   // --- power ---
-  uint16_t power_dw;        // decawatts; see review A7 on the int16_t scale
+  uint16_t power_dw;        // decawatts, same unit as Sample.power_dw (§7.4)
   uint8_t  power_src;       // NONE / SML / ADC
 
   uint32_t rx_frames, tx_frames, bus_errors;
@@ -2811,17 +2916,26 @@ as a success, which is why F18, F21 and §8.6.1 all phrase everything in terms o
 
 | Work | Frequency | Cost |
 | ---- | --------- | ---- |
-| Header + clock | 1 Hz | ~1 % of a frame |
-| Flame animation | 20 Hz, ~120 × 140 px invalidated | ~3 % |
-| Pipe flow dashes | 20 Hz, ~2 × 60 × 24 px | ~1 % |
-| Chart rebuild | 1 / min, full 440 × 260 | ~8 % burst on the recorder task |
+| Header + clock | 1 Hz | small; measure in phase 7 |
+| Flame animation | 20 Hz, ~120 × 140 px invalidated | see below |
+| Pipe flow dashes | 20 Hz, ~2 × 60 × 24 px | see below |
+| Chart rebuild | at most 1 / min, from RAM (§9.5) | ~1 ms, not a fraction of the flush |
 | Background image | never redrawn | 0 |
 
-A full-screen flush at 16 MHz pixel clock is 480 × 800 × 16 bit / 16 MHz ≈ **38 ms**.
-At 20 Hz that is 77 % of a core just for the animated regions — which is why only
-small regions are invalidated and why the background is a cached image. Anything
-that forces full-screen invalidation (a `lv_obj_invalidate` on the screen, a theme
-change) will visibly stutter and is called out in review.
+The one hard number is the panel's scan-out. 800 × 480 = 384 000 px, and the
+pixel clock is 16 MHz, so the active pixels take 384 000 / 16e6 = **24 ms**
+(41.7 Hz). The porches in §6.3 add (4+8+8) by (4+8+8), so a full frame is
+820 × 500 = 410 000 clocks ≈ **26 ms**. An earlier draft divided the same pixels
+by 16 MHz and got 38 ms, then treated a 20 Hz full-screen flush (20 × 38 ms ≈ 76 %
+of a core) as the cost of the animated regions. Both the number and the
+assumption were wrong: LVGL invalidates the flame and the dashes, not the frame.
+
+Those regions are about 120 × 140 + 2 × 60 × 24 = 19 680 px. At 20 Hz that is
+0.39 Mpx/s, about **2.5 %** of the 16 Mpx/s the pixel clock can move. That is the
+argument R3 needs. It is an estimate of pixels, not a measured core load — DMA,
+bounce buffers and LVGL's draw walk are still on top of it. Phase 7 measures the
+home screen against this section. A full-screen invalidate (the screen object,
+or a theme change) is still a 24 ms scan-out and will stutter.
 
 LVGL's `LV_DISPLAY_RENDER_MODE_DIRECT` with partial buffer support handles this; the
 draw buffers are sized `TPL_WS7_DRAW_LINES` lines and live in internal SRAM.
@@ -2855,7 +2969,7 @@ and never reallocated. Nothing in this table is touched by the LVGL draw path
 | Purpose | Bytes | Notes |
 | ------- | ----- | ----- |
 | Debug ring | 1 048 576 | §7.6. `MALLOC_CAP_SPIRAM \| MALLOC_CAP_8BIT`, never freed |
-| **L1 day buffer** (minute samples, today) | 33 792 | §7.10. 1 440 × 24 B |
+| **L1 day buffer** (minute samples, today) | 34 560 | §7.10. 1 440 × 24 B |
 | **L2 hour rollup** (31 days) | 65 472 | §7.10. 744 columns × 88 B |
 | Decoded background image | 768 000 | §8.3. RGB565, 480 × 800 |
 | LVGL chart canvas | 228 800 | §9.4. 440 × 260 × 2 B |
@@ -2879,12 +2993,12 @@ live here (N6). This is the *only* pool where placement is not a free choice.
 
 | Purpose | Bytes | Notes |
 | ------- | ----- | ----- |
-| **LVGL draw buffers** | 65 536 | **2 × 800 × 20 px × 2 B.** The hard internal-RAM cost (§6.3) |
+| **LVGL draw buffers** | 64 000 | **2 × 800 × 20 px × 2 B.** The hard internal-RAM cost (§6.3). Not 65 536 |
 | TWAI driver + RX queue | ~20 480 | 4 096 B task + queue + status |
 | Task stacks (6 tasks) | ~38 912 | loop 8 K, can 4 K, recorder 6 K, sensor 4 K, webserver 4 K, wifi 2.7 K + margin |
 | SML reassembly pool | 774 | 3 × 258 B, lifted from project 15 (`sml_buffers[3]`) |
 | FreeRTOS idle/ISR/heap remainder | ≈ 380 000 | |
-| **Committed** | **≈ 125 700** | **≈ 25 % of internal SRAM** |
+| **Committed** | **≈ 124 200** | **≈ 24 % of internal SRAM**. Draw buffers are 64 000 B, not 65 536 |
 
 #### 10.5.3 Heap — budget 64 KB (N6)
 
@@ -2908,13 +3022,14 @@ SD write, and phase 12's soak test fails if either drops by more than 8 KB over
 
 | Tier | Path | Write pattern | Size |
 | ---- | ---- | ------------- | ---- |
-| Daily samples | `/data_YYYYMMDD.bin` | **once per day**, whole file | 33 792 B |
+| Daily samples | `/data_YYYYMMDD.bin` | **once per day**, whole file | 34 560 B |
 | Rollup (L2) | `/rollup.bin` | once per day, whole file, rewritten | 65 472 B |
 | Log dumps | `/log_*.txt` | on demand + before every reset (§7.6) | up to 1 MB |
 | Assets | — | never (they are in SPIFFS, §4.4/Q4) | — |
 
-**≈ 1.01 MB per month of history.** At 24 months retention that is ~24 MB, and the
-50 MB free-space floor (§9.7) is untouched.
+**1 036 800 B per 30-day month** of daily files (30 × 34 560), plus one 65 472 B
+rollup. At 24 months that is ≈ 25 MB, and the 50 MB free-space floor (§9.7) is
+untouched. The old 1.01 MB figure used 33 792 B/day.
 
 The write count is the design point, not the size. A per-minute append is 1 440
 writes/day; writing the day once is **one**. That is the entire reason for the
@@ -2926,12 +3041,12 @@ written 525 000 times a year to store data that does not change within the day.
 
 | # | Risk | Impact | Likelihood | Mitigation |
 | - | ---- | ------ | ---------- | ---------- |
-| R1 | Enabling CAN kills USB, so a firmware bug becomes a physical power-cycle to recover | High | High | OTA is the production path (§7.5); `USB_SEL` is low at boot (§3.3 R1); BOOT+power-cycle always reflashable; crashes logged to SD, not just serial |
+| R1 | Enabling CAN *may* kill the CH9102 console, so a firmware bug becomes a bench visit | High | Unknown until Q22 | OTA is the production path (§7.5). N19 drives `USB_SEL` low before config is read. The console that was measured is the CH9102 on GPIO 43/44, and ROM download already worked (§3.1.1). Whether `USB_SEL` high removes that path is Q22. The mechanical switch can remove it on its own (D50) |
 | R2 | `Serial` is `HWCDC`, so all logging vanishes exactly when CAN is on | High | Medium | Mitigated three ways: the PSRAM ring is authoritative and needs no serial; the WebSocket sink gives a desk console; the log screen gives an on-panel console. Remaining question is only whether `uart_set_vprintf` can also capture the port's own output (§12 Q2) |
 | R2b | Writing to an unenumerated USB CDC blocks the logging task, turning "no console" into "hung system" | High | Medium | `tpl_log_set_serial(false)` at CAN enable (§7.6); ring writes use a 5 ms mutex timeout and drop rather than block |
 | R2c | WebSocket writes from the logging path stall on a paused client | Medium | Medium | The ring is the buffer; the drain happens on the existing WS task at 750 ms with an 8 KB/tick cap (§7.6) |
 | R2d | A log storm makes the panel unresponsive | Medium | Medium | 5 Hz on-screen rebuild, WS backpressure markers, level filters, dropped-line counter visible (§8.12, N12) |
-| R3 | RGB flush bandwidth makes the UI stutter at 800 × 480 | Medium | Medium | Partial redraw only, cached background, line buffers sized by build flag; measure in phase 5 (§13) |
+| R3 | RGB flush bandwidth makes the UI stutter at 800 × 480 | Medium | Medium | Partial redraw only. A full frame is 24 ms of active pixels (§10.3); the animated regions are about 2.5 % of the pixel clock, which is an estimate. Measure on the home screen in phase 7 |
 | R4 | LVGL 9.2 rotation silently no-ops without `LV_DRAW_TRANSFORM_USE_MATRIX` | High | Medium | Assert the macro at compile time in `tpl_ws7_display()`; a wrong screen orientation is otherwise very hard to diagnose |
 | R5 | `HAUS_CAN_TEMP_EMPTY` (`INT16_MIN`) plotted as a real temperature | High | Medium | Sentinel checked at the decoder boundary; empty slots render grey and are excluded from chart statistics |
 | R6 | History gaps interpolated, asserting data that was never measured | Medium | Medium | Gaps marked and drawn as gaps (§9.3); never bridge them |
@@ -2940,15 +3055,15 @@ written 525 000 times a year to store data that does not change within the day.
 | R9 | No PWM backlight — the panel cannot dim, unlike the CYD boards | Medium | High | **Content dimming**, analysed in §7.13: dim the UI toward the background colour and leave the backlight lit. Free, no flicker, no bus traffic. The alternative — chopping CH422G IO at 100 Hz — is rejected there on three grounds (no hardware PWM behind I²C, convex charge-transfer response, flicker at the useful frequencies). A clean hardware fix exists (move EN to a GPIO, use LEDC) but needs GPIO 4, which §7.12 also wants: **Q19** |
 | R10 | Refactoring `26_CYD_CAN_monitor` breaks project 26 | High | Medium | Extract behind a stable API; project 26 must keep building and passing (§7.3 step 5). It is the regression test |
 | R11 | Host harness diverges from the device because of `#ifdef` drift | Medium | Medium | All conditional code lives below `services/`; the harness builds the *same* app/ and ui/ sources, never a copy. A CI job builds both targets on every change |
-| R12 | Decoded background image (768 KB) plus draw buffers exhausts PSRAM/internal RAM | Medium | Medium | Static allocation, no heap; budget in §10.3; assert free heap after init in phase 1 |
+| R12 | Decoded background image (768 KB) plus draw buffers exhausts PSRAM/internal RAM | Medium | Medium | Static allocation, no heap; budget in §10.5; assert free heap after init in phase 1 |
 | R13 | NTP not yet synced at boot → clock and chart axis are wrong | Low | Medium | Gate the clock on the NTP flag; show `--:--` rather than 1970. Charts start from the first valid sample |
-| R14 | Touch calibration wrong in portrait, so zones are offset | Medium | Low | GT911 is already panel-native (§6.4), so no calibration table exists to be wrong; verified by the four corner taps in phase 6 |
+| R14 | Touch calibration wrong in portrait, so zones are offset | Medium | Low | GT911 is already panel-native (§6.4), so no calibration table exists to be wrong; verified by the four corner taps in phase 3 |
 | R15 | A sensor is unplugged, ranks shift, and the home screen shows a right number under a wrong label | High | Medium | F14 / §7.7: resolve `slot → rank → ROM → function`; rank→ROM is learned from identity frames and **expires** after 90 s; a shift is reported, never silently relabelled |
-| R16 | No water-out sensor exists, so the third zone has no honest source | Medium | **Certain** | Q9 must be resolved before phase 6. Until then the zone shows `—`, never rank 2's board temperature |
+| R16 | No water-out sensor exists, so the third zone has no measured source | Medium | **Certain** | §7.11 shows a modelled value only when a `WaterModel` is installed, and labels it. Until phase 21 supplies one, the zone shows `—`, never rank 2's board temperature. A fitted DS18B20 supersedes the model |
 | R17 | `tpl_debug_log` changes break the projects that already use it | Medium | Low | Opt-in via `USE_TPL_DEBUG_LOG`; keep `DEBUG_LOG_LINES`/`DEBUG_LOG_LINE_SIZE` working as aliases for the byte-size defaults so existing builds are unaffected |
 | R18 | **I²C contention corrupts a reading.** Four devices share GPIO 8/9 and the GT911 is polled from the LVGL read callback, so a touch poll can land in the middle of a BMP280 register burst | Medium | **High** | One bus-wide mutex, not §6.5's narrower expander lock (N13); priority order touch > expander > sensor; the touch poll reports "no finger" rather than waiting; per-device CRC (AHT20) and chip-id + calibration checks (BMP280) turn a corrupted read into a flagged invalid rather than a plausible wrong number (§7.8) |
 | R19 | **The climate sensors are absent, dead, or on the wrong header** and the fifth zone shows a plausible-looking wrong value | Low | Medium | J8-vs-H1 documented explicitly (§3.5) so the build is not wired wrong; per-device validity flags and a header badge; absent sensors degrade one screen only (N14); never a fallback to another source's value |
-| R20 | **A commanded duty has no upper bound anywhere.** `main.cpp:523-525` states the node applies "no ramping, no minimum-on/off pulse, no other validation than the permille clamp inside `pwm_out_set()`", and that clamp is only `permille > 1000` | **High** | **High** | **Not mitigable in this project** (N15). The clamp belongs in `AVR/01_heizung_temp`, where it protects every controller rather than only this one. The panel offers the full range as asked, logs every commit with old and new value, and shows only what `0x280` reports (F18/F21) — but that is honesty, not a limit. Q14 |
+| R20 | **A commanded duty can still be full-on.** `pwm_out_set()` rejects only `permille > 1000` (`pwm_out.cpp:106`). 0 and 1000 are driven as solid levels (`:121-131`). Values from 1 to 9 and from 991 to 999 are pulled into 10…990 (`:138-139`). There is no ramp and no minimum pulse | **High** | **High** | **Not mitigable in this project** (N15). Any further clamp belongs in `AVR/01_heizung_temp`, where it protects every controller. The panel offers 0…1000 as asked, logs every commit, and shows only what `0x280` reports (F18/F21). Q12 |
 | R21 | **A duty command is wrong and durable.** The value survives a power cut via the EEPROM restore point (`0x2C8`), there is no dead-man timeout by design, and nothing ramps it back | **High** | Medium | Confirmation modal naming the value and the durability (F19); nothing but the button transmits (F18, no gesture in §8.5); rate limiting and full logging (N16); the UI shows *requested* vs *in force* so a failed send is visible rather than assumed; the user can always set it back to OFF, which is one tap and the safest available action |
 | R23 | **A power cut loses up to 24 h of minute history.** The day lives in PSRAM until the midnight rollover writes it | Medium | Medium | Accepted deliberately (§7.10): a per-minute write protects 1 minute at the cost of 525 000 card writes a year. The loss renders as gaps (§9.3), the rollup carries what survived, and `0x2C8`-style honesty means nothing is invented. Q16 records it as a judgement, not a derivation |
 | R24 | **A modelled water-out temperature is read as a measurement** — by a person, or by a later contributor who wires it into a statistic | **High** | Medium | Structural, not editorial: a dedicated `TEMP_MODELLED` flag bit in the record, a dashed chart line, a permanent `MODELLED` badge, `~` prefixes on every derived value, and exclusion from all efficiency statistics (§7.11). A modelled value cannot silently become a measured one even if someone forgets which is which |
@@ -2956,7 +3071,8 @@ written 525 000 times a year to store data that does not change within the day.
 | R26 | **The SML decoder drifts.** It is lifted from project 15; if the two copies diverge, the panel and the e-ink display disagree about the household's power | Medium | Medium | Lift into `src/app/` as pure C++ (N5) and have **project 15 adopt the shared version**, so there is one implementation and project 15's build is the regression test — the same pattern as the `tpl_can_monitor` extraction (§7.3) |
 | R28 | **A card mounts, then fails**, and history stops with the strip still green | Medium | Low | A sticky *faulty* state driven by evidence — failed rollover write, CRC mismatch, free space under the floor — not by absence of activity (§8.15.1). The recorder already retries every 30 s (§9.7); a fault is what that retry loop reports |
 | R29 | **`tpl_sd` cannot mount on this board**, so `/sd/list` and `/sd/download` are dead and §6.7's "tpl_sd stays as the browser" is wrong | Low | **Certain** | Already true as built: `tpl_sd` drives a real CS GPIO and this board's CS is a CH422G bit. Storage figures are read from the recorder's own handle instead. The *browser* is the open half — **Q20** |
-| R27 | **Enabling CAN in config strands the device.** No firmware can override it, and a crash loop needs a power cycle at best | **High** | Low | A hardware strap on GPIO 4 that forces USB_SEL low at boot is the only real fix (§7.12 option A) and needs a board change — Q17. Until it exists, the recovery path depends on the unanswered CH422G power-on default (review C1), which is why that question is now on the phase-1 critical path |
+| R27 | **Enabling CAN in config strands the device**, if Q22 finds that `USB_SEL` high disconnects the CH9102 | **High** | Unknown until Q22 | N19 drives `USB_SEL` low first. A crash after step 3 of §7.12 leaves it high. The strap on GPIO 4 (Q17) is the fix no firmware bug can override, and it shares that pin with Q19. BOOT + the CH9102 already worked with the mechanical switch set correctly (§3.1.1, §7.12 option C). The expander's `0xFF` reset value is not this risk |
+| R30 | **An AHT20 on H1 shares address `0x38` with CH422G WR-IO** | **High** | **Certain** if fitted as rev 1.4 specified | Do not fit it on this bus (§7.8). BMP280 at `0x76`/`0x77` does not collide. Q24 chooses the replacement. Until then the living-room zone stays `—` |
 | R22 | Every other risk in this table gets worse because the panel can now write to the bus | Medium | **High** | R1 in particular changes character: a firmware bug that previously cost a display is now a firmware bug that can change the heater. That is why N15 forbids the panel from being an interlock, why the write path is a single button on one screen, and why the log ring records every transmit with its old and new value — the diagnosis for R1 is now a safety question, not a convenience |
 
 ## 12. Open Questions
@@ -2970,34 +3086,33 @@ Each of these changes the design, so none is silently decided above.
 | ~~Q3~~ | Which sensor rank is chamber / water-in / water-out? | **Answered**, and the framing was wrong on the first pass. Rank is *not* bound to a function. The chain is `slot → rank → sensor ID (DS18B20 ROM) → function`: rank is a position in the sorted list of *currently present* sensors, so it shifts on unplug, while the function belongs to the sensor and travels with the probe. The `AVR/01_heizung_temp` README table (rank 0 = heater element → chamber, 1 = supply side → water in, 2 = rf-nano board → board) documents the **current installation only**. Consequences recorded in §7.7: rank→ROM is learned from the `0x180+r` identity frames and expires; ROM→function is local SPIFFS config and editable, because hardcoded ROMs would make the panel work on exactly one machine. Side effect: the current installation has no return-line sensor, so there is no water-out function to bind — that became **Q9**. |
 
 | ~~Q1~~ | Is "current power" the household total from SML, or the heater's own draw from `0x2C0`? | **Answered: SML**, from `AVR/07_stromzaehler`. `ESP32/15_power_log_eink` already decodes the stream semantically with `libsml` and matches `1-0:16.7.0/255` (Stromeffektivwert, W) — so no protocol change and no new parser is needed, only a lift of `sml_publish()` into shared code (§7.4). The `0x2C0` chain in `AVR/01_heizung_temp/README.md` was derived from a resistor network since replaced, so it stays a unitless activity indicator (Q14). Transport detail: 33-frame bursts at one frame per 10 ms, plus a DLC-0 alive frame each second alternating `0x600`/`0x700` |
-| ~~Q7~~ | Should the panel also *write* to the bus? | **Answered — yes, for exactly one frame.** The panel is the controller of record for the commanded PWM duty and writes `CAN_ID_PWM_SET` (`0x240`) on demand from a confirmation button (§7.9, F18–F21). Heater and pump are one control point on the existing bidirectional `0x240`/`0x280` pair, so no protocol change is needed. Everything else about being a listener stands: no ACKs, no configuration writes, no other nodes addressed. The earlier recommendation of "no" was made when the panel had nothing useful to say with its transmit path; it does now. The safety consequences are carried as R20–R22 and N15–N16 rather than waved away |
+| ~~Q7~~ | Should the panel also *write* to the bus? | **Answered — yes, for exactly one frame.** The panel is the controller of record for the commanded PWM duty and writes `CAN_ID_PWM_SET` (`0x240`) on demand from a confirmation button (§7.9, F18–F21). Heater and pump are one control point on the existing bidirectional `0x240`/`0x280` pair, so no protocol change is needed. Everything else about being a listener stands: no ACKs, no configuration writes, no other nodes addressed. The `0x555` time broadcast in §7.2 is the existing house contract, not a second invention. The safety consequences are carried as R20–R22 and N15–N16 |
+| ~~Q2~~ | Does the Arduino core open `Serial` on `HWCDC` or `UART0`? | **Answered in hardware, pinned in the build.** §3.1.1: the connector is a CH9102 on GPIO 43/44, and no `VID 0x303A` device enumerates. §7.1 sets `ARDUINO_USB_CDC_ON_BOOT=0` and `ARDUINO_USB_MODE=0`. Phase 1 confirms the running firmware's `Serial` is UART0. Nothing in this project calls `HWCDC` or `USB.begin()` |
+| ~~Q4~~ | SPIFFS or SD for the background PNG? | **SPIFFS.** It has to be readable while the SD card is being written, and a card swap must not take the background with it (§8.3, D4). History stays on the card |
 
 ### 12.2 Open
 
 | ID | Question | Impact | How it gets answered |
 | -- | -------- | ------ | -------------------- |
-| **Q1** | Is "current power" the household total from SML, or the heater's own draw from `0x2C0`? | Chooses the `PowerSource` implementation; decides whether a semantic SML decoder has to be written | Jochen. Recommendation on record: SML primary, ADC fallback, badge in the UI |
-| **Q9** | **There is no water-out temperature on the bus.** Where does the third zone's data come from? | Decides whether the third temperature is measured | **Now partly answered:** option **(b)** is adopted for the display — derived from the commanded PWM duty, permanently labelled as modelled, excluded from every statistic (§7.11, F24, R24). The model function is **not yet known**; it is to be measured and supplied, behind a `WaterModel` interface with a null default, so nothing changes structurally when it arrives. Option (a) — a 4th DS18B20 on the return line — remains the better answer and **supersedes the model automatically** when fitted: a real sensor always wins (§7.11). Until either exists, the zone renders `—` |
-| **Q2** | Does the Arduino core open `Serial` on `HWCDC` (USB) or `UART0` for this S3 variant? | Decides whether option B of §7.6 works — i.e. whether the ring captures `Serial.println` from the template, or only `esp_log` and app-level `TPL_LOGx` | Read on hardware at the bench, phase 1. Check the `HWCDC`/`HardwareSerial` instantiation and the S3 USB-serial-JTAG default |
-| **Q4** | Are the SD and the history log allowed to share the internal SPIFFS, or must assets move to the SD? | Determines whether the background image is in SPIFFS (512 KB) or SD | Recommend SPIFFS for the PNG (it must be readable when the SD is being written to, and a card swap must not take the background with it) |
-| **Q5** | Does the current `tpl_sd` need to keep working on this board at all, given the recorder supersedes it? | Could delete ~200 lines from `tpl_sd` for this project, or keep the file browser for convenience | Recommend keeping `/sd/list` + `/sd/download` — browsing the recorded history over HTTP is genuinely useful |
-| **Q6** | Retention: 24 months at ~1 MB/month is ~24 MB — comfortable. Is more wanted? | Storage and the free-space guard threshold | Jochen; default 24 |
-| **Q7** | Should the panel also *write* to the bus? | Adds TX paths and a write policy for a shared bus | **Answered, and the answer is now yes** — see §12.1. The panel is the controller of record for the PWM duty on `0x240` (§7.9). It writes nothing else: no acknowledgements, no configuration registers, no addressing of other nodes. Revisit if a second wall panel needs clock sync, because two controllers writing one durable duty needs an arbitration rule that does not exist yet |
+| **Q9** | **There is no water-out temperature on the bus.** Where does the third zone's data come from? | Decides whether the third temperature is measured | **Partly answered:** option **(b)** is adopted for the display — derived from the commanded PWM duty, permanently labelled as modelled, excluded from every statistic (§7.11, F24, R24). The model function is **not yet known**; it is to be measured and supplied, behind a `WaterModel` interface with a null default. Option (a) — a 4th DS18B20 on the return line — remains the better answer and **supersedes the model automatically** when fitted (§7.11). Until either exists, the zone renders `—` |
+| **Q5** | Does the current `tpl_sd` need to keep working on this board at all, given the recorder supersedes it? | Could delete ~200 lines from `tpl_sd` for this project, or keep the file browser for convenience | Recommend keeping `/sd/list` + `/sd/download` — browsing the recorded history over HTTP is genuinely useful. See also Q20: `tpl_sd` cannot mount here as built |
+| **Q6** | Retention: 24 months at 1 036 800 B/month is ≈ 25 MB. Is more wanted? | Storage and the free-space guard threshold | Jochen; default 24 |
 | **Q8** | Is EEZ Studio in scope for the home screen? | Either hand-authored LVGL (faster, more control, matches project 26's current state) or generated (draggable, but cannot express the flame/pipes) | Recommend hand-authored; EEZ cannot produce the vector heater or the envelope chart |
 | **Q10** | Should the WebSocket log sink be authenticated? | `tpl_websocket` is unauthenticated on the LAN today; log content is house telemetry | Recommend accepting it on a home LAN, consistent with the existing unauthenticated `/update` OTA endpoint. If the answer is no, the change belongs in `tpl_websocket` for all projects, not here |
 | **Q11** | Should `tpl_debug_log`'s PSRAM ring be made the template default for **all** projects, or stay opt-in? | Affects every existing project's RAM footprint | Recommend staying opt-in for now, defaulting on for boards with no console once the module is proven |
-| **Q12** | **Where does the PWM clamp belong?** Nothing below 1000 permille is enforced anywhere in `AVR/01_heizung_temp`, and the panel offers the full range | Decides whether a mis-set duty can over-drive the output, and from which node it is catchable | **Jochen + the AVR firmware, not this project.** A clamp in `pwm_out_set()` or the `0x240` handler protects every controller; a clamp in the panel protects only the panel. R20 is High/High precisely because this is unanswered. Note the panel's slider will follow whatever the node ends up enforcing, because it reads the reported value back — so the answer can arrive after the panel is built |
+| **Q12** | **Where does a tighter PWM clamp belong?** `pwm_out_set()` already saturates at 1000, drives 0 and 1000 as solid levels, and pulls 1…9 and 991…999 into 10…990 (`pwm_out.cpp:106`, `:121-139`). Full-on is still legal. The panel offers 0…1000 | Decides whether 1000 permille is an acceptable command, and from which node a lower ceiling would be enforced | **Jochen + the AVR firmware, not this project.** A lower ceiling in `pwm_out_set()` protects every controller; one in the panel protects only the panel. The slider follows `0x280`, so the answer can arrive after the panel is built |
 | **Q13** | Is the H2 I²C voltage jumper (`I2C 3V3 5V`, silkscreen 默认贴 3V3) actually 3V3 on the assembled board? | Both sensors are 3.3 V-only parts; on 5 V they are destroyed | Bench, phase 1: measure the bus with H1 unplugged. Cheap to check, expensive to get wrong |
 | **Q14** | Is a `0x2C0` amp figure wanted on the wall at all? | The current chain in `AVR/01_heizung_temp/README.md` was derived from a resistor network since changed to 1k/1k/1k + 18k, so the counts no longer map to amps | Jochen. Recommend **no** until the chain is re-derived: show `0x2C0` as a unitless activity indicator, which is honest and still useful, rather than a kW or A figure that is merely plausible |
 | **Q16** | Is a **once-a-day** SD write acceptable, given it loses up to 24 h of minute history on a power cut? | Card write endurance versus recovery granularity. 1 440 writes/day versus 2 | Jochen. Recommendation on record: accept. An SD card in an unattended wall panel fails from write count long before capacity, and the loss renders as honest gaps (§9.3) rather than as fabricated data. If the answer is no, revert to per-minute appends and reinstate §9.5's asynchronous chart build |
-| **Q17** | Is a **hardware strap on GPIO 4** to force USB_SEL low acceptable — i.e. may the board be modified? | Decides whether R27 has any real mitigation. GPIO 4 is the board's only free, non-exposed GPIO, and is currently claimed by the template's `tpl_ledPin` (review A2, G3) | Jochen. A solder jumper or a 3-way switch costs nothing and is the only escape that no firmware bug can defeat. Without it, recovery from a CAN-enabled crash depends entirely on the CH422G POR default (review C1), which is still unanswered |
+| **Q17** | Is a **hardware strap on GPIO 4** to force `USB_SEL` low acceptable — i.e. may the board be modified? | Matters only if Q22 says `USB_SEL` gates the CH9102. GPIO 4 is not claimed by `tpl_ledPin` (§6.7). It is also the pin Q19 wants | Jochen. Useful only after Q22. The CH9102 path already accepted esptool with BOOT held (§3.1.1) |
 | **Q18** | Should the **CAN-enable liveness fallback** exist — drop back to USB if CAN is enabled but silent for N seconds? | Turns a silent bus into automatic USB recovery, but also silently disables the panel's main job and fights the user's stated intent | Recommend **off by default**, configurable. It is a real convenience and a real hazard; the hazard is why it cannot be the default |
-| **Q19** | **GPIO 4 is wanted by two hardware mods.** §7.12 wants it as a CAN force-USB strap; §7.13 option D wants it to drive the AP3032's EN pin through LEDC for real backlight dimming | Both are good; only one pin exists. Neither is possible without desoldering (R52 for D) | Jochen. **D is the better buy** — it removes a permanent UX regression, needs no runtime cost, and a missing CAN fallback is survivable (power cycle + BOOT, once C1 is answered) whereas no dimming is permanent. If only one: dimming wins, and the CAN strap waits |
+| **Q19** | **GPIO 4 is wanted by two hardware mods.** §7.12 wants it as a CAN force-USB strap; §7.13 option D wants it for LEDC on the AP3032 EN pin. GPIO 15 and 16 are also absent from the published pin budget and are not yet ruled in or out | Both mods are board changes. R52 has to come off for option D | Jochen. Dimming removes a permanent UX limit. The strap matters only if Q22 says the CH9102 is behind `USB_SEL`. Phase 1 looks at GPIO 15 and 16 before this is treated as a one-pin choice |
 | **Q20** | Does the SD **file browser** (`/sd/list`, `/sd/download`) survive on this board? | §6.7 rejected giving `tpl_sd` a CS hook, which leaves no browser at all | Jochen. Options: (a) move the browser into the recorder service, which owns the card anyway; (b) revisit the hook, which looks better now that `tpl_ws7_sd_select()` is a typed named accessor rather than a bare function pointer; (c) accept no browser and rely on the on-panel log SAVE (§8.12). Recommend (b) — it is the smallest change and keeps one SD implementation |
 | **Q21** | **Arduino core 3.3+ (IDF 5.3) or `framework = esp-idf`?** | §6.3/§6.4/§6.5 all need managed components, and `esp_lcd_rgb_panel` requires IDF v5.2+ — above PlatformIO's default Arduino core 2.0.17 (IDF 4.4.4), where **none** of this stack exists | Jochen, in phase 0–1. Recommend **Arduino 3.3+ with the component manager**: it clears v5.2 while keeping the Arduino-based `tpl_*` template. `esp-idf` is the fallback but needs a template audit. Until this is answered the display bring-up cannot start |
 | **Q15** | If a second wall panel is ever added, who wins? | Both would write the same durable duty with no arbitration, and "last writer wins" would make the outcome depend on which person touched a screen last | Not blocking. Answer when a second panel exists; a last-writer-wins with an explicit badge (§7.9) is probably enough for a two-panel house, but it should be a decision rather than an accident |
 | **Q22** | **What exactly does the board's mechanical UART switch switch?** §3.3 models one mux — FSUSB42UMX under CH422G IO5. The bench found a *physical* switch that silently kills the CH9102 console, which means either a second gate or the same gate with a manual override | Decides whether N19 (drive `USB_SEL` low first thing in `setup()`) is **sufficient**, or whether firmware can be defeated by a switch position the operator set months ago. Also decides the runbook wording and whether §7.12's strap (Q17) fixes anything | **Jochen, bench, phase 0.** Read the schematic against the switch's silkscreen, then verify by toggling it and watching whether `USB_SEL`/`IO5` changes state. Cheap to answer and it sits under R1, which is the project's recovery guarantee |
 | **Q23** | Is the 16 MB part **always** 16 MB, or does the board ship in variants? | §3.1.1 measured one board. The whitepaper is now written against 16 MB, and a batch with 8 MB would silently cap the OTA slots | Jochen. The `esp_lcd`/display stack does not care, but the partition table does. Record the MAC of every panel added, not just this one |
+| **Q24** | **How does a living-room humidity sensor attach?** An AHT20's only address is `0x38`, which is CH422G WR-IO. A BMP280 at `0x76` or `0x77` does not collide (§7.8, R30) | F15 cannot be built as written. Putting the AHT20 on H1 fights every expander write | Jochen. Options: a humidity part on a free address; a second I²C bus on GPIOs phase 1 confirms are free (15 and 16 are the candidates, not a decision); or drop humidity and keep the BMP280 for pressure only. Until then the zone renders `—` |
 
 ## 13. Implementation Plan
 
@@ -3006,11 +3121,11 @@ are usable by any future project; 4-8 are Deliverable B.
 
 | Phase | Content | Exit criterion |
 | ----- | ------- | -------------- |
-| **0** | This white paper; peer white paper for the board; `review.md` findings closed | Reviewed; Q1–Q15 answered or explicitly deferred with an owner |
-| **1** | `tpl_waveshare_lcd7`: CH422G bring-up, LCD reset, backlight, serial/UART verification. **Also measure CH422G IO5 at reset** (C1, now blocking for R27) and the H2 I²C bus voltage (Q13) | Panel lights, serial logs, R2 answered; the USB/CAN power-on default is a measured fact, not an assumption; H1 measures 3V3 |
+| **0** | This white paper. The rev 1.0 review is incorporated here; `docs/review.md` is not a second source | Every open question in §12 has an owner. Q21 and Q22 are answered or explicitly deferred before phase 2 |
+| **1** | `tpl_waveshare_lcd7`: CH422G bring-up, LCD reset, backlight, UART0 check. **Measure CH422G IO5 with the ESP32 held in reset**, before the driver's first write (§3.3). Measure H2 (Q13). Answer Q22 by toggling the mechanical switch. Confirm GPIO 15 and 16 against the module pinout (Q19) | Panel lights; `Serial` is UART0; project 26 still builds (`pio run -e esp32ota`) after the new `.cpp` exists; IO5's power-on level is a measurement; H1 is 3.3 V |
 | **2** | `esp_lcd_rgb_panel` + LVGL display in all four rotations, with the rotation assert (R4) | Coloured test pattern, correct in every orientation |
 | **3** | GT911 touch in portrait; corner-tap calibration test (R14) | All four corners and all three zones hit reliably |
-| **4** | Project skeleton, `platformio.ini`, own `lv_conf.h`, partitions, OTA confirmed on hardware; `Serial`/UART question answered (Q2) | OTA updates a running build over WiFi with CAN enabled |
+| **4** | Project skeleton, `platformio.ini` including `memory_type = qio_opi` and the USB flags, own `lv_conf.h`, a 16 MB partition table that includes `phy_init`, OTA confirmed on hardware | OTA updates a running build over WiFi. PSRAM size reports 8 MB |
 | **5** | `tpl_debug_log` → PSRAM byte ring, detachable serial, WebSocket sink, `/log` serving the ring, `tools/tail_ws.py` | 1 MB ring fills and wraps; `tail_ws.py` shows live records on the Mac; `tpl_log_set_serial(false)` does not hang the system |
 | **6** | `haus_state`, CAN task, `haus_can.h` decoding, **ROM-identity role resolution (§7.7)**, host harness stubs | Home screen shows live values from a replayed frame log, on macOS, no hardware; a simulated rank shift is reported, not silently relabelled |
 | **7** | Home screen: background image, clock, vector heater graphic, power readout, status strip, zones | Runs on the panel; measured against the §10.3 budget |
@@ -3019,14 +3134,14 @@ are usable by any future project; 4-8 are Deliverable B.
 | **10** | **Log screen** (§8.12): monospace windowed view, follow-at-end, level filters, SD dump | Readable with WiFi down and USB disabled; a 5 000-line burst does not make the panel unresponsive |
 | **11** | `tpl_can_monitor` extraction from project 26; gear screen | Project 26 still builds and passes; the gear opens the scope |
 | **12** | `/ui.json` loader: theme, strings, units, static-screen order, with compiled-in fallback (§4.4) | A renamed zone and a changed accent colour take effect from an HTTP edit, no rebuild; a corrupt `/ui.json` still boots the hardcoded UI |
-| **13** | **Local I²C sensors** (§7.8): bus-wide mutex, `sensorTask`, AHT20 + BMP280 with CRC and chip-id checks, climate fields in `HausState` and `Sample` | Both sensors read on H1; a pulled SDA pin degrades the living-room screen only (N14); the host harness replays a climate fixture |
+| **13** | **Local I²C sensors** (§7.8): bus-wide mutex, `sensorTask`, BMP280 at `0x76`/`0x77` with chip-id and the `0x88` calibration block. Humidity only if Q24 has a non-colliding part | A BMP280 reads on H1; an address scan does not show a device at `0x38` other than the expander's WR-IO behaviour; a pulled SDA pin degrades the living-room screen only (N14) |
 | **14** | **Living-room detail screen** (§8.13) and the fifth home-screen zone | All three quantities chart at all three ranges; a missing sensor renders `—` with the reason |
 | **15** | **PWM duty control** (§7.9, §8.6.1): TX path for `0x240`, slider, confirmation modal, `0x280` reconciliation, `PWM_SRC_*` badge | A drag sends nothing; only APPLY transmits; a duty is never shown as in force until `0x280` reports it; a conflicting writer is shown, not fought |
 | **16** | **Three-tier history store** (§7.10): L1 day buffer, L2 hour rollup, boot restore, midnight rollover with two writes | A month of week/month charts renders with the SD card **removed** after boot; a power cut mid-day loses hours, not the month |
 | **17** | **SML decode** (§7.4): lift `sml_publish()` from project 15 into `src/app/`, add `libsml`, 3-buffer reassembly with loss counters | The panel shows household watts from `1-0:16.7.0/255`; **project 15 still builds and shows the same value** (R26) |
 | **18** | **Type scale** (§8.1.1): generate the 21 px body set, resize the log screen and CAN rows, add the build-time minimum-font sweep | No `lv_font` below 21 px exists; the log screen wraps at 38 chars and shows ~26 lines; the sweep fails the build if one does |
 | **19** | **Bottom nav pane** (§8.11) and the Settings screen (§8.14) | All eight screens reachable in one tap from anywhere; zones still work as the secondary route |
-| **20** | **CAN enable switch** (§7.12): boot sequence, config persistence, settings modal, actual-state readback | With CAN off, USB enumerates and the panel is otherwise fully alive; with it on, CAN works and USB does not; toggling survives a reboot |
+| **20** | **CAN enable switch** (§7.12): boot sequence, config persistence, settings modal, actual-state readback | With CAN off, the CH9102 console stays up and CAN is idle. With CAN on, frames flow. Whether the console dies in that state is recorded against Q22, not assumed. Toggling survives a reboot |
 | **21** | **Water model** (§7.11): `WaterModel` interface, null default, `TEMP_MODELLED` flag, dashed rendering, statistic exclusion | With no model installed the zone is `—`; with one, every surface labels it and no statistic consumes it |
 | **22** | Polish: idle return, dither/glow assets, soak test | Runs 72 h without a watchdog reset, a leak, or a `heap_caps` drop over 8 KB |
 
@@ -3041,13 +3156,13 @@ there is somewhere to read the error other than a USB console that is already go
 This matters more now that the panel can write to the bus (R22): the log is the
 record of who commanded what, so it has to exist before anything commands anything.
 
-Third sequencing note: **phase 13 before phase 14, and phase 15 last.** The climate
-sensors are read-only and independent, so they could land anywhere; putting them
-before their screen keeps the UI phase coherent. The duty control goes **last on
-purpose** — it is the only feature that can change the house, so it should be built
-against a panel whose display, logging, charts and diagnostics are all already
-proven. Landing it earlier would mean debugging a UI bug and an actuator bug in the
-same session.
+Third sequencing note: **phase 13 before phase 14, and phase 15 after the
+diagnostics exist.** The climate sensors are read-only. The duty control is the
+only feature that can change the house, so it waits until the display, the log
+ring and the charts are already up (phases 5–11). It is not the last phase —
+history, SML, the type scale and the nav pane follow it — but it is the first
+phase that is allowed to transmit `0x240`. Landing it earlier would mean
+debugging a UI bug and an actuator bug in the same session.
 
 ## 14. Appendix
 
@@ -3056,7 +3171,7 @@ same session.
 | Document | Location |
 | -------- | -------- |
 | This white paper | `ESP32/28_hauszentrale/docs/whitepaper.md` |
-| Board reference, pinout, examples | `boards/WAVESHARE-ESP32-S3-Touch-LCD-7/README.md` |
+| Board reference, pinout, examples | `boards/WAVESHARE-ESP32-S3-Touch-LCD-7-7inch/`. Prefer `source/waveshare_lcd_port.h` over the README's CH422G table |
 | CYD abstraction (the pattern `tpl_waveshare_lcd7` mirrors) | `ESP32/prj_template/docs/cyd_board_abstraction.md` |
 | Board abstraction white paper | §6 here; becomes `ESP32/prj_template/docs/waveshare_lcd7_board_abstraction.md` at implementation time |
 | CAN protocol — single source of truth | `include/haus_can.h` |
@@ -3075,7 +3190,7 @@ same session.
 | - | -------- | -------------------- | --------- |
 | D1 | New `tpl_waveshare_lcd7` module | Extend `tpl_display` | Different bus, driver, touch model and peripheral control (§6.1) |
 | D2 | LVGL ≥ 9.2, matrix transform for rotation | Re-program the panel | `lv_display_set_rotation()` is the only path that avoids a second set of timings; needs 9.2+ (N1) |
-| D3 | Two line buffers in internal RAM, `DIRECT` render mode | Full-screen PSRAM buffer | PSRAM is not DMA-capable here; full-screen buffers also stall the 38 ms flush |
+| D3 | Two line buffers in internal RAM, `DIRECT` render mode | Full-screen PSRAM buffer | PSRAM is not DMA-capable here. A full frame is 24 ms of active pixels (§10.3); full-screen invalidation is what stalls, not the partial regions |
 | D4 | Background PNG in SPIFFS, decoded once to static PSRAM | Embed the raw RGB565 blob | 768 KB against a 3 MB shared app slot; PNG is ~120 KB and re-encodes cheaply |
 | D5 | Vector heater via `lv_canvas` | A bitmap with baked-in colours | The flame and pipes must react to live values; a bitmap can only go stale (§8.4) |
 | D6 | Invisible `lv_obj_t` overlay buttons as zones | Coordinate tests in the read callback | Independent of the drawing; LVGL handles press, click and focus (§8.5) |
@@ -3118,12 +3233,12 @@ same session.
 | D44 | Storage state is **evidence-based**, and *faulty* is distinct from *absent* | A single "SD ok / no SD" flag | A card that mounts and then fails to write loses history quietly, which is the exact failure the document's honesty rules exist to prevent. A sticky fault with a timestamp says when it happened (§8.15.1) |
 | D46 | `tpl_waveshare_lcd7` is built **on `esp_io_expander`**, adding only a shadow, a mutex and named setters | Hand-rolled CH422G register writes | Espressif maintains the component, the Waveshare examples already use it, and it supplies the pin map, the all-or-nothing IO0–IO7 direction control, typed `enableOC_PushPull()` / `enableOC_OpenDrain()` and `multiSetIO()`. Rev 1.3's "must not go through `esp_io_expander`" was too strong — the component is the right foundation, and the per-pin read-modify-write cost is avoided *inside* it by batching (§6.5) |
 | D47 | The CH422G bit map is taken from **the component's own documentation**, not the board README | The README's prose table | Three sources agree on IO1–IO5; the README is off by one against all three *and against its own register example*. Using the component's pin table means the numbers are the ones the library indexes by (§3.4) |
-| D48 | `USB_SEL` is treated as **power-up HIGH** (CAN mode) | Rev 1.0's "powers up low" | Three sources say otherwise: the driver's `0xFF` reset default, the wrapper's documented `begin()` behaviour, and IO5's identity. R1 becomes a firmware obligation (N19) plus a hardware escape (Q17), not a property of the chip (§3.3) |
+| D48 | The expander driver **writes** IO0–IO7 high on `reset()` / `begin()`. That is not a measured power-on level | Rev 1.0's "powers up low", and rev 1.4's reading of the same constants as silicon POR | `REG_WR_IO_DEFAULT_VAL` is the value `reset()` transmits. IO5 before that write is a phase-1 measurement. The CH9102 on GPIO 43/44 already took a ROM download (§3.1.1). Q22 decides whether CAN mode removes that path |
 | D49 | The board's **flash is 16 MB**, and the partition table is sized for it | The 8 MB quoted in the identity table | Measured with `esptool flash-id`: Winbond `4018`, 16 MB, quad, 3.3 V. An 8 MB assumption caps the two OTA slots at half the part and hides 8 MB of usable board (§3.1.1, §7.1) |
 | D50 | A **silent board is a switch position** until proven otherwise | Treating `No serial data received` as a dead board | The CH9102 enumerates, opens and returns zero bytes at every baud and every DTR/RTS combination when the switch is wrong — byte-identical to a dead chip. Five seconds of checking beats an hour of driver archaeology (§3.1.1, §7.5, Q22) |
 | D51 | USB on this board is a **UART bridge**, so R3's UART0 requirement is a hardware fact, not a hope | Assuming the S3 might expose native CDC | No Espressif USB device (`0x303A`) is enumerated at any time, including in ROM download mode; the console arrives through a CH9102 on GPIO 43/44. Only the Arduino core's port choice remains open, so Q2 shrinks but does not close (§3.1.1) |
 | D45 | Free space is shown **only when low** on the home screen, in full in Settings | A permanent capacity readout | A glanceable strip has no room for "37 GB free", but "12 MB free — floor 50 MB" is the single most useful thing to know about storage on a device that writes history (§8.15.3) |
-| D42 | CAN enable **defaults off**, driven low as the first line of `setup()` | Defaulting on, for a panel whose job is the bus | R1 has wanted this since rev 1.0. With the switch it becomes reachable at runtime, which makes the boot ordering (N19) the whole safety argument — and makes the CH422G power-on default (review C1) blocking rather than academic (R27, §7.12) |
+| D42 | CAN enable **defaults off**, and N19 drives `USB_SEL` low before config is read | Defaulting on, for a panel whose job is the bus | The driver's init write would otherwise leave IO5 high. The ordering is the part firmware controls. Whether that is what keeps the CH9102 alive is Q22 (R27, §7.12) |
 
 ### D. Terminology
 
@@ -3149,4 +3264,4 @@ same session.
 | Log screen | Full-screen console; long-press the status strip (§8.12) |
 | Column | One pixel column of a chart, holding min/mean/max for that time slice |
 | Envelope | The min–max band drawn per column, as opposed to a single mean line |
-| `USB_SEL` | CH422G **IO5** — the USB ⇄ CAN mux. **HIGH** means CAN and no USB, and HIGH is the power-on default (§3.3) |
+| `USB_SEL` | CH422G **IO5**. HIGH connects GPIO 19/20 to the CAN transceiver. The driver writes HIGH on init. The CH9102 console is GPIO 43/44 and is not the same path unless Q22 says so (§3.3) |

@@ -16,7 +16,9 @@
 #define LV_CONF_CHECK1 1
 
 /*Ovaliate LVGL version*/
+#ifndef LV_CONF_INCLUDE_SIMPLE
 #define LV_CONF_INCLUDE_SIMPLE 1
+#endif
 
 /*---------------------
  * Compiler Config
@@ -29,10 +31,10 @@
  *----------------*/
 
 /*Size of type used to store {time, period} on Animations*/
-#define LV.anim_time_max 20000
+#define LV_ANIM_TIME_MAX 20000
 
 /*Declare the type of the required argument for a custom draw end callback*/
-#define LV_DRAW_SW_ASM_CUSTOM 0
+/* #define LV_DRAW_SW_ASM_CUSTOM 0 */
 
 /*1: Use another libpng for MicroPython*/
 #define LV_USE_LIBPNG 0
@@ -86,16 +88,16 @@
 #define LV_FONT_MONTSERRAT_10 0
 #define LV_FONT_MONTSERRAT_12 0
 #define LV_FONT_MONTSERRAT_14 0
-#define LV_FONT_MONTSERRAT_16 0
+#define LV_FONT_MONTSERRAT_16 1
 #define LV_FONT_MONTSERRAT_20 0
-#define LV_FONT_MONTSERRAT_24 0
+#define LV_FONT_MONTSERRAT_24 1
 #define LV_FONT_MONTSERRAT_28 0
 #define LV_FONT_MONTSERRAT_30 0
-#define LV_FONT_MONTSERRAT_32 0
+#define LV_FONT_MONTSERRAT_32 1
 #define LV_FONT_MONTSERRAT_36 0
 #define LV_FONT_MONTSERRAT_40 0
 #define LV_FONT_MONTSERRAT_44 0
-#define LV_FONT_MONTSERRAT_48 0
+#define LV_FONT_MONTSERRAT_48 1
 #define LV_FONT_MONTSERRAT_52 0
 
 /*S21.01: Generate custom font set at 110/52/32/21/21 px with degree + level glyphs*/
@@ -158,7 +160,9 @@
 
 /*Enable POSIX-style file system (for SPIFFS)*/
 #define LV_USE_FS_POSIX 1          /*Mount point: "/"*/
-#define LV_USE_FS_STDIO "/" 1 8    /*Min cluster size: 8 sectors*/
+#define LV_USE_FS_STDIO 1          /*Min cluster size: 8 sectors*/
+#define LV_FS_STDIO_LETTER '/'   /*Use / for_stdio*/
+#define LV_FS_POSIX_LETTER '/'   /*Use / for posix*/
 
 /*Enable Windows-style file system*/
 #define LV_USE_FS_WIN32 0
@@ -225,7 +229,7 @@
 #define LV_THEME_DEFAULT 0
 
 /*Default font*/
-#define LV_FONT_DEFAULT &lv_font_montserrat_14
+#define LV_FONT_DEFAULT &lv_font_montserrat_16
 
 /*Enable scalable theme*/
 #define LV_USE_THEME_SCALABLE 1
@@ -351,7 +355,7 @@
 #define LV_USE_LABEL 1
 
 /*Use wide mode for label (long text support)*/
-#define LV_LABEL_LONG_WRAP 1       /*S15.03: LV_LABEL_LONG_WRAP (LVGL 9.x spelling)*/
+/* LV_LABEL_LONG_WRAP removed: LVGL 9.x uses lv_label_long_mode_t enum */
 #define LV_LABEL_LONG_TXT_HINT 1
 
 /*------------------

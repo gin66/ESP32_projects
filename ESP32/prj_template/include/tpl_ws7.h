@@ -2,11 +2,29 @@
 
 #include <stdint.h>
 #include <esp_err.h>
+#include <lvgl.h>
 
 #ifdef IS_WAVESHARE_LCD7
 
+#include <driver/spi_master.h>
+
 #define TPL_WS7_SCREEN_WIDTH  800
 #define TPL_WS7_SCREEN_HEIGHT 480
+
+// Logical orientation (see whitepaper §6.6). This is NOT the LVGL enum:
+//   0 = portrait 480x800 (LVGL rotation 90)   1 = landscape 800x480 (LVGL rotation 0)
+//   2 = portrait 480x800 (LVGL rotation 270)  3 = landscape 800x480 (LVGL rotation 180)
+#ifndef TPL_WS7_ROTATION
+#define TPL_WS7_ROTATION 0
+#endif
+
+#if (TPL_WS7_ROTATION == 0) || (TPL_WS7_ROTATION == 2)
+#define TPL_WS7_WIDTH  480
+#define TPL_WS7_HEIGHT 800
+#else
+#define TPL_WS7_WIDTH  800
+#define TPL_WS7_HEIGHT 480
+#endif
 
 // I2C bus for CH422G
 #define TPL_WS7_I2C_SDA       8
@@ -65,14 +83,13 @@ void tpl_ws7_i2c_unlock(void);
 esp_err_t tpl_ws7_sd_cs_enable_oc_pp(void);
 
 // SD SPI bus handle (S3.16)
-spi_bus_handle_t tpl_ws7_sd_bus(void);
+spi_host_device_t tpl_ws7_sd_bus(void);
 
 // RGB panel + LVGL display (S4)
 lv_display_t *tpl_ws7_display_init(uint8_t rotation, uint32_t *buf, size_t buf_size);
 
 // GT911 touch (S5)
 esp_err_t tpl_ws7_touch_init(void);
-void tpl_ws7_touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data, bool *pressed,
-                           int32_t width, int32_t height, lv_display_rotation_t rotation);
+void tpl_ws7_touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data);
 
 #endif // IS_WAVESHARE_LCD7

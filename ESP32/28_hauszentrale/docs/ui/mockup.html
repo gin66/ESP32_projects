@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<!-- PNGs: ./render.sh  (see README.md). Montserrat is loaded from the network; do not commit font files. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>28_hauszentrale UI draft — 480×800</title>
+<style>
+@font-face { font-family: Montserrat; font-weight: 400; font-display: swap;
+  src: url("https://cdn.jsdelivr.net/gh/JulietaUla/Montserrat@v7.200/fonts/ttf/Montserrat-Regular.ttf") format("truetype"); }
+@font-face { font-family: Montserrat; font-weight: 500; font-display: swap;
+  src: url("https://cdn.jsdelivr.net/gh/JulietaUla/Montserrat@v7.200/fonts/ttf/Montserrat-Medium.ttf") format("truetype"); }
+@font-face { font-family: Montserrat; font-weight: 600; font-display: swap;
+  src: url("https://cdn.jsdelivr.net/gh/JulietaUla/Montserrat@v7.200/fonts/ttf/Montserrat-SemiBold.ttf") format("truetype"); }
+
+:root {
+  --ink: #f3ece4;
+  --dim: #9a9086;
+  --faint: #6a625c;
+  --line: #3a342e;
+  --cold: #8aa4b8;
+  --amber: #d4924a;
+  --hot: #d4553a;
+  --accent: #e39b3a;
+  --cyan: #6fbfb8;
+  --violet: #8d7ea3;
+  --ok: #5caf6e;
+  --warn: #e39b3a;
+  --bg0: #0e0c0b;
+  --e: #ff5a5a;
+  --w: #ffb347;
+  --i: #c8c8c8;
+  --d: #6a6a6a;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 480px; height: 800px; overflow: hidden; background: #000; }
+button { font-family: inherit; color: inherit; background: none; border: 0; padding: 0; }
+.screen { display: none; width: 480px; height: 800px; position: relative; overflow: hidden;
+  color: var(--ink); font-family: Montserrat, "Avenir Next", "Helvetica Neue", Helvetica, sans-serif; font-weight: 400; }
+svg text { font-family: Montserrat, "Avenir Next", "Helvetica Neue", Helvetica, sans-serif; }
+.screen.on { display: block; }
+
+.bg { position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse 300px 240px at 50% 58%, rgba(150, 72, 32, 0.20), transparent 70%),
+    radial-gradient(ellipse 520px 800px at 50% 30%, #1b1714 0%, var(--bg0) 72%);
+}
+.bg::after { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0.05;
+  background-image: radial-gradient(rgba(255,255,255,0.7) 0.6px, transparent 0.6px);
+  background-size: 3px 3px; }
+
+.status { position: absolute; top: 0; left: 0; right: 0; height: 32px;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 12px; font-size: 21px; line-height: 1; background: rgba(0,0,0,0.28); z-index: 2; }
+.marks { display: flex; align-items: center; gap: 14px; }
+.mark { display: flex; align-items: center; gap: 5px; }
+.ring { width: 14px; height: 14px; border: 2px solid var(--ink); border-radius: 50%; }
+.dot { width: 12px; height: 12px; border-radius: 50%; background: var(--ok); }
+
+.clock { position: absolute; top: 32px; left: 0; width: 480px; height: 140px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 110px; line-height: 1; font-weight: 500; letter-spacing: -3px; z-index: 2; }
+
+.heater { position: absolute; top: 172px; left: 0; width: 480px; height: 408px; z-index: 2; }
+.t-cham { position: absolute; left: 14px; top: 86px; color: var(--cold);
+  font-size: 32px; line-height: 1; font-weight: 500; }
+.t-cham small { display: block; margin-top: 6px; font-size: 21px; font-weight: 400; }
+.pipe-labels { position: absolute; left: 0; right: 0; bottom: 16px;
+  display: flex; justify-content: space-between; align-items: flex-start; padding: 0 24px; }
+.pipe b { font-size: 32px; line-height: 1; font-weight: 500; }
+.pipe span { display: block; margin-top: 6px; font-size: 21px; color: var(--dim); font-weight: 400; }
+.pipe.in b { color: var(--amber); }
+.pipe.out b { color: var(--hot); }
+.pump { text-align: center; color: var(--ok); }
+.pump b { font-size: 32px; line-height: 1; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.pump span { display: block; margin-top: 6px; font-size: 21px; color: var(--dim); font-weight: 400; }
+.glyph { display: block; flex: none; }
+
+.band { position: absolute; left: 0; right: 0; z-index: 2;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 16px; background: rgba(0,0,0,0.22); }
+.band.living { top: 580px; height: 76px; border-top: 1px solid var(--line); }
+.band.power { top: 656px; height: 56px; border-top: 1px solid var(--line); justify-content: center; }
+.band .name { font-size: 21px; color: var(--dim); letter-spacing: 0.04em; }
+.live-vals { display: flex; align-items: center; gap: 14px; }
+.live-vals .temp { font-size: 32px; font-weight: 500; color: var(--cold); line-height: 1; }
+.live-vals .temp small { font-size: 21px; font-weight: 400; margin-left: 2px; }
+.stack { display: flex; flex-direction: column; gap: 2px; font-size: 21px; line-height: 1.05; }
+.rh { color: var(--cyan); }
+.pa { color: var(--violet); }
+.kw { font-size: 32px; font-weight: 500; line-height: 1; }
+.kw small { font-size: 21px; font-weight: 400; margin-left: 4px; }
+
+nav.pane { position: absolute; top: 712px; left: 0; width: 480px; height: 88px; z-index: 5;
+  display: flex; background: #0c0b0a; border-top: 1px solid var(--line); }
+nav.pane .tab { flex: 1; display: flex; align-items: flex-end; justify-content: center;
+  padding-bottom: 14px; position: relative; color: var(--dim); }
+nav.pane .tab.on { color: var(--ink); }
+nav.pane .tab.on::after { content: ""; position: absolute; left: 14px; right: 14px; bottom: 0;
+  height: 3px; background: var(--accent); }
+nav.pane svg { display: block; }
+
+.hdr { position: absolute; top: 0; left: 0; right: 0; height: 56px; z-index: 3;
+  display: flex; align-items: center; padding-right: 14px; background: rgba(0,0,0,0.28); }
+.back { width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; color: var(--ink); }
+.hdr h1 { margin: 0; font-size: 32px; line-height: 1; font-weight: 500; }
+.pill { margin-left: auto; font-size: 21px; line-height: 1; padding: 4px 8px;
+  border: 1px solid var(--dim); border-radius: 4px; color: var(--dim); letter-spacing: 0.04em; }
+.pill.live { color: var(--ok); border-color: var(--ok); }
+.oktext { margin-left: auto; font-size: 21px; color: var(--ok); }
+
+.big { position: absolute; top: 56px; left: 20px; height: 60px; z-index: 3;
+  font-size: 52px; line-height: 60px; font-weight: 500; }
+.big small { font-size: 21px; font-weight: 400; margin-left: 4px; }
+.big.cold { color: var(--cold); }
+.big.hot { color: var(--hot); }
+.big.empty { color: var(--faint); }
+
+.seg { position: absolute; left: 20px; width: 440px; height: 44px; z-index: 3;
+  display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg span, .seg b { flex: 1; display: flex; align-items: center; justify-content: center;
+  font-size: 21px; font-weight: 400; color: var(--dim); border-right: 1px solid var(--line); }
+.seg b { color: var(--ink); background: rgba(227, 155, 58, 0.16); font-weight: 500; }
+.seg span:last-child, .seg b:last-child { border-right: 0; }
+.range { top: 120px; }
+.series { top: 156px; }
+
+.extra { position: absolute; top: 168px; left: 20px; right: 20px; height: 28px; z-index: 3;
+  font-size: 21px; line-height: 28px; color: var(--dim); }
+.subq { position: absolute; top: 116px; left: 20px; right: 20px; height: 36px; z-index: 3;
+  display: flex; align-items: center; gap: 18px; font-size: 21px; }
+
+.chart { position: absolute; top: 200px; left: 20px; width: 440px; height: 260px; z-index: 3; }
+.stats { position: absolute; top: 468px; left: 16px; right: 16px; height: 24px; z-index: 3;
+  display: flex; justify-content: space-between; font-size: 21px; line-height: 24px; color: var(--dim); }
+.stats b { color: var(--ink); font-weight: 500; }
+.age { position: absolute; top: 494px; left: 20px; font-size: 21px; line-height: 22px; color: var(--faint); z-index: 3; }
+.sensor { position: absolute; top: 522px; left: 20px; font-size: 21px; color: var(--dim); z-index: 3; }
+
+.pwm { position: absolute; top: 496px; left: 20px; width: 440px; z-index: 3; }
+.pwm-h { height: 24px; display: flex; align-items: center; justify-content: space-between;
+  font-size: 21px; letter-spacing: 0.04em; }
+.slider { margin-top: 0; height: 36px; display: flex; align-items: center; gap: 8px; font-size: 21px; color: var(--dim); }
+.track { position: relative; flex: 1; height: 8px; border-radius: 4px; background: #3a342e; }
+.fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: #8a6238; }
+.knob { position: absolute; top: 50%; width: 28px; height: 28px; margin-left: -14px;
+  border-radius: 50%; background: var(--ink); transform: translateY(-50%); }
+.scale { display: flex; justify-content: space-between; padding: 0 46px; font-size: 21px;
+  color: var(--faint); line-height: 1; }
+.line { font-size: 21px; line-height: 22px; color: var(--dim); }
+.line em { font-style: normal; color: var(--accent); font-weight: 500; }
+.warn { margin-top: 2px; font-size: 21px; line-height: 22px; color: var(--warn); }
+.apply { position: absolute; top: 648px; left: 20px; width: 440px; height: 64px; z-index: 3;
+  border-radius: 8px; border: 1px solid var(--line); color: var(--faint);
+  font-size: 21px; letter-spacing: 0.06em; font-weight: 500; }
+.apply.go { background: var(--accent); border-color: var(--accent); color: #1a1208; }
+
+.scrim { position: absolute; inset: 0; z-index: 6; background: rgba(0,0,0,0.72);
+  display: flex; align-items: center; justify-content: center; }
+.modal { width: 408px; background: #1c1916; border: 1px solid var(--line); border-radius: 12px; padding: 22px 20px 16px; }
+.modal p { margin: 0 0 8px; font-size: 21px; line-height: 1.25; }
+.modal .actions { display: flex; gap: 12px; margin-top: 16px; }
+.modal button { flex: 1; height: 56px; border-radius: 8px; border: 1px solid var(--line);
+  font-size: 21px; font-weight: 500; }
+.modal .confirm { background: var(--accent); border-color: var(--accent); color: #1a1208; }
+
+.reason { position: absolute; top: 468px; left: 20px; width: 440px; z-index: 3;
+  font-size: 21px; line-height: 1.25; color: var(--dim); }
+.rise { position: absolute; top: 560px; left: 20px; font-size: 21px; color: var(--dim); z-index: 3; }
+
+.bars { position: absolute; top: 528px; left: 20px; width: 440px; height: 96px; z-index: 3; }
+.bars .cap { font-size: 21px; color: var(--dim); line-height: 24px; }
+.sml { margin-left: auto; font-size: 21px; color: var(--dim); border: 1px solid var(--line);
+  border-radius: 4px; padding: 2px 8px; }
+
+.set { position: absolute; top: 56px; left: 0; right: 0; bottom: 88px; z-index: 3; }
+.row { min-height: 48px; display: flex; align-items: center; justify-content: space-between;
+  padding: 0 16px; font-size: 21px; border-bottom: 1px solid #2a2622; }
+.row .v { color: var(--dim); }
+.row .edit { color: var(--dim); font-size: 21px; }
+.note { margin: 0; padding: 2px 16px 8px; font-size: 21px; line-height: 1.2; color: var(--warn); }
+.sw { width: 52px; height: 28px; border-radius: 14px; background: #3a342e; position: relative; flex: none; }
+.sw i { position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #c8bfb6; }
+.sw.on { background: #6a5438; }
+.sw.on i { left: 27px; background: var(--ink); }
+.units { padding: 8px 16px 10px; border-bottom: 1px solid #2a2622; }
+.units .h { font-size: 21px; margin-bottom: 6px; }
+.u-row { display: flex; align-items: center; justify-content: space-between; height: 36px; font-size: 21px; color: var(--dim); }
+.mini { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.mini b, .mini span { min-width: 52px; height: 30px; display: flex; align-items: center; justify-content: center;
+  font-size: 21px; font-weight: 400; color: var(--dim); border-right: 1px solid var(--line); padding: 0 6px; }
+.mini b { color: var(--ink); background: rgba(227,155,58,0.16); font-weight: 500; }
+.mini span:last-child, .mini b:last-child { border-right: 0; }
+
+.logbar { position: absolute; top: 0; left: 0; right: 0; height: 48px; z-index: 3;
+  display: flex; align-items: center; gap: 6px; padding-right: 8px; background: #141210;
+  font-size: 21px; }
+.logbar h1 { margin: 0 4px 0 0; font-size: 21px; font-weight: 500; }
+.lv { display: flex; gap: 2px; }
+.lv b { width: 22px; text-align: center; font-weight: 600; }
+.tb { height: 32px; padding: 0 6px; border: 1px solid var(--line); border-radius: 4px; font-size: 21px; color: var(--ink); }
+.log { position: absolute; top: 48px; left: 0; right: 0; bottom: 56px; z-index: 3; background: #100e0c; }
+.log pre { margin: 0; padding: 6px 8px 0; font-family: Menlo, ui-monospace, monospace;
+  font-size: 21px; line-height: 24px; white-space: pre; }
+.log .E { color: var(--e); } .log .W { color: var(--w); } .log .I { color: var(--i); }
+.log .D { color: var(--d); } .log .X { color: var(--w); font-weight: 700; }
+.foot { position: absolute; left: 0; right: 0; bottom: 0; height: 56px; z-index: 3;
+  display: flex; align-items: center; gap: 8px; padding: 0 10px;
+  background: #141210; border-top: 1px solid var(--line); font-size: 21px; color: var(--dim); }
+.foot-l { display: flex; flex-direction: column; line-height: 22px; }
+.foot .flw { margin-left: auto; font-size: 21px; color: var(--ink); border: 1px solid var(--line);
+  border-radius: 4px; padding: 2px 8px; }
+
+.can { position: absolute; top: 56px; left: 0; right: 0; bottom: 88px; z-index: 3; }
+.can .rowc { height: 50px; display: flex; align-items: center; padding: 0 12px; gap: 10px;
+  border-bottom: 1px solid #241f1c; font-size: 21px; color: #c8c0b8; }
+.can .rowc.on { color: var(--ink); box-shadow: inset 3px 0 0 var(--accent); }
+.can .id { width: 58px; color: var(--dim); flex: none; }
+.can .rowc.on .id { color: var(--ink); }
+.can .age { position: static; margin-left: auto; color: var(--faint); font-size: 21px; }
+.empty-id { color: var(--faint); }
+</style>
+</head>
+<body>
+
+<section id="home" class="screen">
+  <div class="bg"></div>
+  <header class="status">
+    <span>Mon 14 Oct</span>
+    <span class="marks"><span class="mark"><i class="ring"></i>55%</span><span class="mark"><i class="dot"></i>CAN</span><span class="mark"><i class="dot"></i>SD</span></span>
+  </header>
+  <div class="clock">08:47</div>
+  <div class="heater">
+    <svg width="480" height="408" viewBox="0 0 480 408" fill="none">
+      <rect x="108" y="8" width="264" height="250" rx="28" fill="#c4783a" opacity="0.04"/>
+      <rect x="116" y="16" width="248" height="234" rx="22" fill="#c4783a" opacity="0.05"/>
+      <rect x="124" y="24" width="232" height="214" rx="16" fill="#1a1412" stroke="#6a5e54" stroke-width="2"/>
+      <path d="M140 26 H340" stroke="#fff" stroke-opacity="0.18" stroke-width="1"/>
+      <rect x="148" y="46" width="184" height="146" rx="10" fill="url(#fire)"/>
+      <g transform="translate(240 118)" opacity="0.62">
+        <path d="M0 28 C-20 26 -24 -6 -8 -40 C-2 -14 6 -18 0 28Z" fill="#a86830"/>
+        <path d="M-4 30 C-26 22 -16 -12 0 -32 C-4 -10 4 -6 -4 30Z" fill="#e0a15a"/>
+        <path d="M8 28 C24 18 16 -18 2 -36 C8 -12 2 -4 8 28Z" fill="#f2d2a4"/>
+      </g>
+      <text x="240" y="200" text-anchor="middle" fill="#9a9086" font-size="21">Soll</text>
+      <text x="240" y="230" text-anchor="middle" fill="#f3ece4" font-size="32">60°C</text>
+      <path d="M28 300 H150 Q176 300 176 274 V238" stroke="#d4924a" stroke-width="12" stroke-linecap="round"/>
+      <path d="M28 300 H150 Q176 300 176 274 V238" stroke="#f3ece4" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 16"/>
+      <path d="M304 238 V274 Q304 300 330 300 H452" stroke="#d4553a" stroke-width="12" stroke-linecap="round"/>
+      <path d="M304 238 V274 Q304 300 330 300 H452" stroke="#f3ece4" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 16"/>
+      <defs>
+        <radialGradient id="fire" cx="50%" cy="58%" r="62%">
+          <stop offset="0%" stop-color="#4a3428"/>
+          <stop offset="70%" stop-color="#241c18"/>
+          <stop offset="100%" stop-color="#161210"/>
+        </radialGradient>
+      </defs>
+    </svg>
+    <div class="t-cham">21.4<small>°C</small></div>
+    <div class="pipe-labels">
+      <div class="pipe in">48.6<small style="font-size:21px;font-weight:400"> °C</small><span>water in</span></div>
+      <div class="pump">
+        <b><svg class="glyph" width="28" height="28" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="16" cy="16" r="11"/><circle cx="16" cy="16" r="3.2" fill="currentColor" stroke="none"/><path d="M16 5.5 V11 M16 21 V26.5 M5.5 16 H11 M21 16 H26.5" stroke-linecap="round"/></svg>on</b>
+        <span>Vpp 486</span>
+      </div>
+      <div class="pipe out">~62.1<small style="font-size:21px;font-weight:400"> °C</small><span>water out</span></div>
+    </div>
+  </div>
+  <div class="band living">
+    <div class="live-vals">
+      <svg class="glyph" width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.75" style="color:var(--cold)"><rect x="13" y="3" width="6" height="15" rx="3"/><circle cx="16" cy="24" r="5.5"/><path d="M16 8 V20"/></svg>
+      <div class="temp">21.8<small>°C</small></div>
+    </div>
+    <div class="stack"><span class="rh">47 %rh</span><span class="pa">1013 hPa</span></div>
+  </div>
+  <div class="band power">
+    <div class="live-vals">
+      <svg class="glyph" width="32" height="32" viewBox="0 0 32 32"><path fill="currentColor" d="M18 3 L8 18 H15 L13 29 L25 13 H17 Z"/></svg>
+      <div class="kw">1284<small>W</small></div>
+    </div>
+  </div>
+  <div class="nav-slot" data-tab="home"></div>
+</section>
+
+<section id="chamber" class="screen">
+  <div class="bg"></div>
+  <header class="hdr">
+    <button class="back" aria-label="Back"><svg width="28" height="28" viewBox="0 0 28 28"><path d="M17 5 L8 14 L17 23" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <h1>CHAMBER</h1>
+    <span class="pill">RESTORED</span>
+  </header>
+  <div class="big cold">21.4<small>°C</small></div>
+  <div class="seg range"><b>1 day</b><span>1 week</span><span>1 month</span></div>
+  <div class="extra">above target  0 h</div>
+  <svg class="chart" viewBox="0 0 440 260">
+    <line x1="64" y1="36" x2="420" y2="36" stroke="#9a9086" stroke-dasharray="5 6"/>
+    <text x="8" y="44" fill="#9a9086" font-size="21">60</text>
+    <text x="8" y="128" fill="#9a9086" font-size="21">40</text>
+    <text x="8" y="190" fill="#9a9086" font-size="21">20</text>
+    <line x1="64" y1="32" x2="64" y2="200" stroke="#3a342e"/>
+    <line x1="64" y1="200" x2="420" y2="200" stroke="#3a342e"/>
+    <polyline fill="none" stroke="#8aa4b8" stroke-width="3"
+      points="70,184 110,186 150,181 190,183 230,180 270,185 310,182 350,183 390,181 420,183"/>
+    <text x="64" y="232" fill="#9a9086" font-size="21">00</text>
+    <text x="140" y="232" fill="#9a9086" font-size="21">06</text>
+    <text x="220" y="232" fill="#9a9086" font-size="21">12</text>
+    <text x="300" y="232" fill="#9a9086" font-size="21">18</text>
+    <text x="384" y="232" fill="#9a9086" font-size="21">24</text>
+  </svg>
+  <div class="stats"><span>min <b>20.6</b></span><span>max <b>22.1</b></span><span>mean <b>21.3</b></span><span>now <b>21.4</b></span></div>
+  <div class="pwm">
+    <div class="pwm-h">PWM DUTY <span class="pill">RESTORED</span></div>
+    <div class="slider"><span>OFF</span><div class="track"><div class="fill" style="width:55%"></div><i class="knob" style="left:55%"></i></div><span>FULL</span></div>
+    <div class="scale"><span>0 %</span><span>100 %</span></div>
+    <div class="line">in force: 55 %  (from 0x280)</div>
+    <div class="line">requested: —</div>
+    <div class="warn">This value survives a power cut.</div>
+  </div>
+  <button class="apply">APPLY  55 %</button>
+  <div class="nav-slot" data-tab="cham"></div>
+</section>
+
+<section id="chamber-confirm" class="screen">
+  <div class="bg"></div>
+  <header class="hdr">
+    <button class="back" aria-label="Back"><svg width="28" height="28" viewBox="0 0 28 28"><path d="M17 5 L8 14 L17 23" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <h1>CHAMBER</h1>
+    <span class="pill">RESTORED</span>
+  </header>
+  <div class="big cold">21.4<small>°C</small></div>
+  <div class="seg range"><b>1 day</b><span>1 week</span><span>1 month</span></div>
+  <div class="extra">above target  0 h</div>
+  <svg class="chart" viewBox="0 0 440 260">
+    <line x1="64" y1="36" x2="420" y2="36" stroke="#9a9086" stroke-dasharray="5 6"/>
+    <text x="8" y="44" fill="#9a9086" font-size="21">60</text>
+    <text x="8" y="128" fill="#9a9086" font-size="21">40</text>
+    <text x="8" y="190" fill="#9a9086" font-size="21">20</text>
+    <line x1="64" y1="32" x2="64" y2="200" stroke="#3a342e"/>
+    <line x1="64" y1="200" x2="420" y2="200" stroke="#3a342e"/>
+    <polyline fill="none" stroke="#8aa4b8" stroke-width="3"
+      points="70,184 110,186 150,181 190,183 230,180 270,185 310,182 350,183 390,181 420,183"/>
+    <text x="64" y="232" fill="#9a9086" font-size="21">00</text>
+    <text x="140" y="232" fill="#9a9086" font-size="21">06</text>
+    <text x="220" y="232" fill="#9a9086" font-size="21">12</text>
+    <text x="300" y="232" fill="#9a9086" font-size="21">18</text>
+    <text x="384" y="232" fill="#9a9086" font-size="21">24</text>
+  </svg>
+  <div class="stats"><span>min <b>20.6</b></span><span>max <b>22.1</b></span><span>mean <b>21.3</b></span><span>now <b>21.4</b></span></div>
+  <div class="pwm">
+    <div class="pwm-h">PWM DUTY <span class="pill">RESTORED</span></div>
+    <div class="slider"><span>OFF</span><div class="track"><div class="fill" style="width:70%"></div><i class="knob" style="left:70%"></i></div><span>FULL</span></div>
+    <div class="scale"><span>0 %</span><span>100 %</span></div>
+    <div class="line">in force: 55 %  (from 0x280)</div>
+    <div class="line">requested: <em>70 %</em></div>
+    <div class="warn">This value survives a power cut.</div>
+  </div>
+  <button class="apply go">APPLY  70 %</button>
+  <div class="scrim">
+    <div class="modal">
+      <p>Set PWM duty to 70 %?</p>
+      <p>This survives a power cut.</p>
+      <div class="actions"><button>Cancel</button><button class="confirm">Confirm</button></div>
+    </div>
+  </div>
+  <div class="nav-slot" data-tab="cham"></div>
+</section>
+
+<section id="water-out" class="screen">
+  <div class="bg"></div>
+  <header class="hdr">
+    <button class="back" aria-label="Back"><svg width="28" height="28" viewBox="0 0 28 28"><path d="M17 5 L8 14 L17 23" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <h1>WATER OUT</h1>
+  </header>
+  <div class="big empty">—</div>
+  <div class="seg range"><b>1 day</b><span>1 week</span><span>1 month</span></div>
+  <svg class="chart" viewBox="0 0 440 260">
+    <line x1="64" y1="200" x2="420" y2="200" stroke="#3a342e"/>
+    <text x="200" y="130" text-anchor="middle" fill="#6a625c" font-size="52">—</text>
+  </svg>
+  <p class="reason">No return sensor on the bus. Rank 2 is the transmitter board, not water. The model is not installed.</p>
+  <div class="rise">rise —</div>
+  <div class="nav-slot" data-tab="wout"></div>
+</section>
+
+<section id="living" class="screen">
+  <div class="bg"></div>
+  <header class="hdr">
+    <button class="back" aria-label="Back"><svg width="28" height="28" viewBox="0 0 28 28"><path d="M17 5 L8 14 L17 23" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <h1>LIVING ROOM</h1>
+    <span class="oktext">I2C ok</span>
+  </header>
+  <div class="big cold">21.8<small>°C</small></div>
+  <div class="subq"><span class="rh">47 %rh</span><span class="pa">1013 hPa</span></div>
+  <div class="seg series"><b>temperature</b><span>humidity</span><span>pressure</span></div>
+  <svg class="chart" viewBox="0 0 440 260">
+    <text x="8" y="48" fill="#9a9086" font-size="21">24</text>
+    <text x="8" y="120" fill="#9a9086" font-size="21">22</text>
+    <text x="8" y="192" fill="#9a9086" font-size="21">20</text>
+    <line x1="64" y1="32" x2="64" y2="200" stroke="#3a342e"/>
+    <line x1="64" y1="200" x2="420" y2="200" stroke="#3a342e"/>
+    <polyline fill="none" stroke="#8aa4b8" stroke-width="3"
+      points="70,160 110,150 150,140 190,120 230,100 270,90 310,110 350,125 390,118 420,112"/>
+    <text x="64" y="232" fill="#9a9086" font-size="21">00</text>
+    <text x="140" y="232" fill="#9a9086" font-size="21">06</text>
+    <text x="220" y="232" fill="#9a9086" font-size="21">12</text>
+    <text x="300" y="232" fill="#9a9086" font-size="21">18</text>
+    <text x="384" y="232" fill="#9a9086" font-size="21">24</text>
+  </svg>
+  <div class="stats"><span>min <b>20.4</b></span><span>max <b>23.1</b></span><span>mean <b>21.6</b></span><span>now <b>21.8</b></span></div>
+  <div class="age">updated 34 s ago</div>
+  <div class="sensor">AHT20 · BMP280 · H1</div>
+  <div class="nav-slot" data-tab="living"></div>
+</section>
+
+<section id="power" class="screen">
+  <div class="bg"></div>
+  <header class="hdr">
+    <button class="back" aria-label="Back"><svg width="28" height="28" viewBox="0 0 28 28"><path d="M17 5 L8 14 L17 23" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <h1>POWER</h1>
+    <span class="sml">SML</span>
+  </header>
+  <div class="big">1284<small>W</small></div>
+  <div class="seg range"><b>1 day</b><span>1 week</span><span>1 month</span></div>
+  <svg class="chart" viewBox="0 0 440 260">
+    <text x="4" y="46" fill="#9a9086" font-size="21">2500</text>
+    <text x="4" y="118" fill="#9a9086" font-size="21">1200</text>
+    <text x="14" y="196" fill="#9a9086" font-size="21">0</text>
+    <line x1="64" y1="32" x2="64" y2="200" stroke="#3a342e"/>
+    <line x1="64" y1="200" x2="420" y2="200" stroke="#3a342e"/>
+    <polyline fill="none" stroke="#e39b3a" stroke-width="3"
+      points="70,168 110,160 150,150 190,155 230,140 270,100 310,70 350,90 390,120 420,112"/>
+    <text x="64" y="232" fill="#9a9086" font-size="21">00</text>
+    <text x="140" y="232" fill="#9a9086" font-size="21">06</text>
+    <text x="220" y="232" fill="#9a9086" font-size="21">12</text>
+    <text x="300" y="232" fill="#9a9086" font-size="21">18</text>
+    <text x="384" y="232" fill="#9a9086" font-size="21">24</text>
+  </svg>
+  <div class="stats"><span>min <b>420</b></span><span>max <b>2050</b></span><span>mean <b>910</b></span><span>now <b>1284</b></span></div>
+  <div class="bars">
+    <div class="cap">hourly</div>
+    <svg width="440" height="70" viewBox="0 0 440 70">
+      <g fill="#e39b3a">
+        <rect x="2" y="40" width="14" height="24" opacity="0.45"/>
+        <rect x="20" y="36" width="14" height="28" opacity="0.5"/>
+        <rect x="38" y="42" width="14" height="22" opacity="0.4"/>
+        <rect x="56" y="44" width="14" height="20" opacity="0.4"/>
+        <rect x="74" y="38" width="14" height="26" opacity="0.5"/>
+        <rect x="92" y="34" width="14" height="30" opacity="0.55"/>
+        <rect x="110" y="30" width="14" height="34" opacity="0.6"/>
+        <rect x="128" y="32" width="14" height="32" opacity="0.55"/>
+        <rect x="146" y="36" width="14" height="28" opacity="0.5"/>
+        <rect x="164" y="40" width="14" height="24" opacity="0.45"/>
+        <rect x="182" y="38" width="14" height="26" opacity="0.5"/>
+        <rect x="200" y="28" width="14" height="36" opacity="0.65"/>
+        <rect x="218" y="22" width="14" height="42" opacity="0.7"/>
+        <rect x="236" y="16" width="14" height="48" opacity="0.75"/>
+        <rect x="254" y="8" width="14" height="56" opacity="0.9"/>
+        <rect x="272" y="4" width="14" height="60" opacity="1"/>
+        <rect x="290" y="10" width="14" height="54" opacity="0.85"/>
+        <rect x="308" y="14" width="14" height="50" opacity="0.8"/>
+        <rect x="326" y="18" width="14" height="46" opacity="0.75"/>
+        <rect x="344" y="20" width="14" height="44" opacity="0.7"/>
+        <rect x="362" y="16" width="14" height="48" opacity="0.8"/>
+        <rect x="380" y="22" width="14" height="42" opacity="0.7"/>
+        <rect x="398" y="26" width="14" height="38" opacity="0.65"/>
+        <rect x="416" y="24" width="14" height="40" opacity="0.7"/>
+      </g>
+    </svg>
+  </div>
+  <div class="nav-slot" data-tab="pwr"></div>
+</section>
+
+<section id="settings" class="screen">
+  <div class="bg"></div>
+  <header class="hdr">
+    <button class="back" aria-label="Back"><svg width="28" height="28" viewBox="0 0 28 28"><path d="M17 5 L8 14 L17 23" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <h1>SETTINGS</h1>
+  </header>
+  <div class="set">
+    <div class="row">CAN BUS <i class="sw"><i></i></i></div>
+    <p class="note">Off gives back USB: no serial, no flashing.</p>
+    <p class="note">CAN data, charts and the monitor are disabled.</p>
+    <div class="row">BACKLIGHT <i class="sw on"><i></i></i></div>
+    <div class="units">
+      <div class="h">UNITS</div>
+      <div class="u-row">temperature <div class="mini"><b>C</b><span>F</span></div></div>
+      <div class="u-row">clock <div class="mini"><b>24 h</b><span>12 h</span></div></div>
+      <div class="u-row">power <div class="mini"><span>auto</span><span>kW</span><b>W</b></div></div>
+    </div>
+    <div class="row">RETENTION <span class="v">24 months</span></div>
+    <div class="row">HEATER TARGET <span class="v">60 °C</span></div>
+    <div class="row">SENSOR ROLES <span class="v">3 bound, 1 unbound <span class="edit">edit</span></span></div>
+    <div class="row">WATER MODEL <span class="v">not installed</span></div>
+    <div class="row">UI FILE <span class="v">/ui.json v1 <span class="edit">edit</span></span></div>
+    <div class="row">DIAGNOSTICS <span class="v">SAVE RING TO SD</span></div>
+  </div>
+  <div class="nav-slot" data-tab="gear"></div>
+</section>
+
+<section id="log" class="screen" style="background:#100e0c">
+  <div class="logbar">
+    <button class="back" aria-label="Back"><svg width="28" height="28" viewBox="0 0 28 28"><path d="M17 5 L8 14 L17 23" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <h1>LOG</h1>
+    <span class="lv"><b style="color:#ff5a5a">E</b><b style="color:#ffb347">W</b><b style="color:#c8c8c8">I</b><b style="color:#6a6a6a">D</b></span>
+    <span style="flex:1"></span>
+    <button class="tb">INV</button>
+    <button class="tb">CLR</button>
+    <button class="tb">SAVE</button>
+  </div>
+  <div class="log"><pre><span class="E">1234.567 E esp_lcd: panel_io:
+         timeout on data</span>
+<span class="W">1234.589 W twai: bus error,
+         REC=128</span>
+<span class="I">1234.601 I haus: 0x200 rank1 -&gt;
+         62.14 degC</span>
+<span class="X">1234.601 ! rank shift: rank 1
+         now 2876C25704E13CF9</span>
+<span class="I">1234.660 I haus: temp water-in
+         62.14 -&gt; in[1]=1</span>
+<span class="W">1235.002 W sd: flush took 412 ms</span>
+<span class="I">1235.440 I haus: 0x280 duty 550
+         src EEPROM</span>
+<span class="I">1236.010 I wifi: 192.168.1.42</span>
+<span class="D">1236.200 D lvgl: flush 24 ms</span>
+<span class="I">1238.014 I sml: 1284 W</span>
+<span class="I">1240.550 I haus: 0x200 rank0 -&gt;
+         21.40 degC</span>
+<span class="D">1242.100 D touch: debounce 40</span>
+<span class="I">1244.000 I nvs: boot count 12</span>
+<span class="D">1246.300 D ws: client idle</span>
+<span class="I">1248.010 I haus: pwm src EEPROM</span>
+<span class="W">1250.440 W sd: free 48 MB, floor
+         50 MB</span>
+<span class="I">1252.000 I haus: 0x555 time set</span>
+<span class="D">1254.200 D rgb: partial region</span></pre></div>
+  <footer class="foot">
+    <span class="foot-l"><span>1 048 576 B · 73% · up 3d</span><span>dropped 21418</span></span>
+    <span class="flw">FOLLOW</span>
+  </footer>
+</section>
+
+<section id="can" class="screen">
+  <div class="bg"></div>
+  <header class="hdr">
+    <button class="back" aria-label="Back"><svg width="28" height="28" viewBox="0 0 28 28"><path d="M17 5 L8 14 L17 23" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <h1>CAN</h1>
+    <span class="oktext">bus ok</span>
+  </header>
+  <div class="can">
+    <div class="rowc on"><span class="id">200</span><span>TEMP  21.4  62.1  31.2  —</span><span class="age">1s</span></div>
+    <div class="rowc"><span class="id">280</span><span>PWM  55%  EEPROM</span><span class="age">1s</span></div>
+    <div class="rowc"><span class="id">600</span><span>SML  1284 W</span><span class="age">2s</span></div>
+    <div class="rowc"><span class="id">555</span><span>TIME  08:47:12</span><span class="age">4s</span></div>
+    <div class="rowc"><span class="id">180</span><span>ID  2876C257…</span><span class="age">58s</span></div>
+    <div class="rowc"><span class="id">2C0</span><span>ADC  pp 412</span><span class="age">1s</span></div>
+    <div class="rowc"><span class="id">300</span><span>STATS</span><span class="age">9s</span></div>
+    <div class="rowc"><span class="id">2C8</span><span>EE  ok</span><span class="age">9s</span></div>
+    <div class="rowc"><span class="id empty-id">---</span><span>--</span><span class="age">--</span></div>
+    <div class="rowc"><span class="id empty-id">---</span><span>--</span><span class="age">--</span></div>
+    <div class="rowc"><span class="id empty-id">---</span><span>--</span><span class="age">--</span></div>
+    <div class="rowc"><span class="id empty-id">---</span><span>--</span><span class="age">--</span></div>
+    <div class="rowc"><span class="id empty-id">---</span><span>--</span><span class="age">--</span></div>
+  </div>
+  <div class="nav-slot" data-tab="gear"></div>
+</section>
+
+<script>
+const svg = {
+  home: '<svg width="32" height="32" viewBox="0 0 32 32"><path fill="currentColor" d="M16 4 L29 15 H25 V28 H19 V20 H13 V28 H7 V15 H3 Z"/></svg>',
+  homeOff: '<svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><path d="M16 5 L28 15 H25 V27 H19 V19 H13 V27 H7 V15 H4 Z"/></svg>',
+  flame: '<svg width="32" height="32" viewBox="0 0 24 24"><path fill="currentColor" d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>',
+  win: '<svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M16 5c5 7 8 11 8 16a8 8 0 0 1-16 0c0-5 3-9 8-16z"/></svg>',
+  wout: '<svg width="32" height="32" viewBox="0 0 32 32"><path fill="currentColor" d="M16 5c5 7 8 11 8 16a8 8 0 0 1-16 0c0-5 3-9 8-16z"/></svg>',
+  pwr: '<svg width="32" height="32" viewBox="0 0 32 32"><path fill="currentColor" d="M18 3 L8 18 H15 L13 29 L25 13 H17 Z"/></svg>',
+  room: '<svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="13" y="3" width="6" height="15" rx="3"/><circle cx="16" cy="24" r="5.5"/><path d="M16 8 V20"/></svg>',
+  gear: '<svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><path d="M13 3 h6 l1 4.2 a8.5 8.5 0 0 1 3.3 1.9 l4-1.6 3 5.2 -3.2 2.8 a8.5 8.5 0 0 1 0 3.8 l3.2 2.8 -3 5.2 -4-1.6 a8.5 8.5 0 0 1 -3.3 1.9 L19 29 h-6 l-1-4.2 a8.5 8.5 0 0 1 -3.3-1.9 l-4 1.6 -3-5.2 3.2-2.8 a8.5 8.5 0 0 1 0-3.8 L2.7 12.7 l3-5.2 4 1.6 a8.5 8.5 0 0 1 3.3-1.9 Z"/><circle cx="16" cy="16" r="3.2"/></svg>',
+  gearOn: '<svg width="32" height="32" viewBox="0 0 32 32" fill="currentColor"><path fill-rule="evenodd" d="M13 3 h6 l1 4.2 a8.5 8.5 0 0 1 3.3 1.9 l4-1.6 3 5.2 -3.2 2.8 a8.5 8.5 0 0 1 0 3.8 l3.2 2.8 -3 5.2 -4-1.6 a8.5 8.5 0 0 1 -3.3 1.9 L19 29 h-6 l-1-4.2 a8.5 8.5 0 0 1 -3.3-1.9 l-4 1.6 -3-5.2 3.2-2.8 a8.5 8.5 0 0 1 0-3.8 L2.7 12.7 l3-5.2 4 1.6 a8.5 8.5 0 0 1 3.3-1.9 Z M16 12.4 a3.6 3.6 0 1 0 0.01 0 Z"/></svg>'
+};
+const order = ['home','cham','win','wout','pwr','living','gear'];
+function icon(name, on) {
+  const key = {
+    home: on ? 'home' : 'homeOff',
+    cham: 'flame',
+    win: 'win',
+    wout: 'wout',
+    pwr: 'pwr',
+    living: 'room',
+    gear: on ? 'gearOn' : 'gear'
+  }[name];
+  return svg[key];
+}
+function renderNav(active) {
+  const tabs = order.map(n => `<span class="tab${n===active?' on':''}">${icon(n, n===active)}</span>`).join('');
+  return `<nav class="pane">${tabs}</nav>`;
+}
+document.querySelectorAll('.nav-slot').forEach(slot => {
+  slot.outerHTML = renderNav(slot.dataset.tab);
+});
+const which = new URLSearchParams(location.search).get('s') || 'home';
+const el = document.getElementById(which);
+if (el) el.classList.add('on');
+document.fonts.ready.then(() => {
+  document.title = document.fonts.check('500 110px Montserrat') ? 'font-ok' : 'font-missing';
+});
+</script>
+</body>
+</html>

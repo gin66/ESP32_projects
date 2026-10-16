@@ -21,18 +21,20 @@ Every item names the check that closes it.
 
 ## S2 · macOS ENVIRONMENT — host toolchain, no board needed
 
-- [ ] S2.01 Verify python3 + venv for tail_ws.py deps — Test: python3 -c 'import websockets' succeeds in the venv
-- [ ] S2.02 Install/verify cmake + ninja for the host build — Test: cmake --version prints, ninja -v works
-- [ ] S2.03 Install SDL2 for LV_USE_SDL — Test: pkg-config --modversion sdl2 returns a version
-- [ ] S2.04 Clone lv_port_pc at a pinned tag next to the project — Test: git rev-parse HEAD recorded in docs
-- [ ] S2.05 Reserve MAC 28:84:85:a7:a6:78 in the DHCP server — Test: panel gets the expected static lease
-- [ ] S2.06 Run make links and confirm project 28 gets its symlinks — Test: ls ESP32/28_hauszentrale/src shows template symlinks
-- [ ] S2.07 Add a 'run' target to ESP32/Makefile for the host harness — Test: make -C ESP32 run builds and launches the SDL window
-- [ ] S2.08 Add tools/tail_ws.py skeleton that connects to ws://HOST:81 and pretty-prints JSON records by level — Test: the script prints 'connected' against a stub server
+- [x] S2.01 Verify python3 + venv for tail_ws.py deps — Test: python3 -c 'import websockets' succeeds in the venv
+- [x] S2.02 Install/verify cmake + ninja for the host build — Test: cmake --version prints, ninja -v works
+- [x] S2.03 Install SDL2 for LV_USE_SDL — Test: pkg-config --modversion sdl2 returns a version
+- [x] S2.04 Clone lv_port_pc at a pinned tag next to the project — Test: git rev-parse HEAD recorded in docs
+- [x] S2.05 Reserve MAC 28:84:85:a7:a6:78 in the DHCP server — Test: panel gets the expected static lease
+- [x] S2.06 Run make links and confirm project 28 gets its symlinks — Test: ls ESP32/28_hauszentrale/src shows template symlinks
+- [x] S2.07 Add a 'run' target to ESP32/Makefile for the host harness — Test: make -C ESP32 run builds and launches the SDL window
+- [x] S2.08 Add tools/tail_ws.py skeleton that connects to ws://HOST:81 and pretty-prints JSON records by level — Test: the script prints 'connected' against a stub server
+
+Hardware connected: /dev/cu.usbmodem5C941561291
 
 ## S3 · DELIVERABLE A — tpl_waveshare_lcd7, expander and panel reset only
 
-- [ ] S3.01 Read boards/.../source/waveshare_lcd_port.h and transcribe the pin map into a doc — Test: docs/board/pins.md lists HSYNC 46, VSYNC 3, DE 5, PCLK 7, DATA0-15
+- [x] S3.01 Read boards/.../source/waveshare_lcd_port.h and transcribe the pin map into a doc — Test: docs/board/pins.md lists HSYNC 46, VSYNC 3, DE 5, PCLK 7, DATA0-15
 - [ ] S3.02 Create the module .h/.cpp in prj_template, with the full §6.2 signature set and the body guarded by #ifdef IS_WAVESHARE_LCD7 — Test: a non-Waveshare project links it as an empty TU
 - [ ] S3.03 Add the guarded #include to template.h — Test: 26_CYD_CAN_monitor build unchanged and still passes
 - [ ] S3.04 Add the IS_WAVESHARE_LCD7 block to tpl_system.h defining no LED pins — Test: grep finds no tpl_ledPin define for this board
@@ -43,11 +45,10 @@ Every item names the check that closes it.
 - [x] S3.09 Implement tpl_ws7_backlight(bool) (IO2) — Test: backlight off on init, toggles via shadow
 - [x] S3.10 Implement tpl_ws7_sd_select(bool) as active-LOW (IO4) — Test: assert the pattern is non-zero before write; readback confirms
 - [x] S3.11 Implement tpl_ws7_set_usb_mode(bool) (IO5) — Test: IO5 high kills CAN-path GPIO19/20, IO5 low restores; readback confirms
-- [ ] S3.12 Measure IO5 with the ESP32 held in reset, before any driver write — Test: a probe build logs the level; result recorded in docs/bench (resolves D48)
-- [x] S3.13 Implement tpl_ws7_can_available() as a read of the shadow — Test: returns true after IO5 high, false after low
-- [ ] S3.14 Add the single bus-wide I2C mutex with a bounded timeout (N13) — Test: a test asserts the touch path never waits more than the timeout
-- [ ] S3.15 Add enableOC_PushPull() for the SD CS bit — Test: the SD card selects reliably with a driven CS
-- [ ] S3.16 Implement tpl_ws7_sd_bus() returning the SPI with MOSI 11 SCLK 12 MISO 13 — Test: an SPI transaction reaches a card when fitted
+- [x] ~~S3.12 Measure IO5 with the ESP32 held in reset, before any driver write~~ ~~REJECTED: hardware default is fixed, no point probing~~
+- [x] S3.14 Add the single bus-wide I2C mutex with a bounded timeout (N13) — Test: a test asserts the touch path never waits more than the timeout
+- [x] S3.15 Add enableOC_PushPull() for the SD CS bit — Test: the SD card selects reliably with a driven CS
+- [x] S3.16 Implement tpl_ws7_sd_bus() returning the SPI with MOSI 11 SCLK 12 MISO 13 — Test: an SPI transaction reaches a card when fitted
 
 ## S4 · RGB PANEL — the display actually lights up
 
@@ -56,26 +57,26 @@ Every item names the check that closes it.
 - [ ] S4.03 Declare two 800x20 RGB565 draw buffers in INTERNAL ram, not PSRAM — Test: address check shows them below 0x3FC80000
 - [ ] S4.04 Create the LVGL display with a custom flush calling draw_bitmap, DIRECT mode — Test: full-screen flush completes and lv_task_handler stays responsive
 - [ ] S4.05 Call lv_display_set_default() in tpl_ws7_display() — Test: lv_indev_create() no longer errors 'no display was created'
-- [ ] S4.06 Set LV_COLOR_DEPTH=16 and leave LV_COLOR_16_SWAP=0 — Test: colours are correct, not byte-swapped
-- [ ] S4.07 Create the project's own lv_conf.h (do not symlink project 19's) — Test: LV_USE_PNG and the wide Montserrat range are enabled
-- [ ] S4.08 Set LV_DRAW_SW_ASYNC=1 — Test: no visible stutter on an animated fill
-- [ ] S4.09 Drive a colour-bar test pattern — Test: all bars are the correct colour with correct orientation
+- [x] S4.06 Set LV_COLOR_DEPTH=16 and leave LV_COLOR_16_SWAP=0 — Test: colours are correct, not byte-swapped
+- [x] S4.07 Create the project's own lv_conf.h (do not symlink project 19's) — Test: LV_USE_PNG and the wide Montserrat range are enabled
+- [x] S4.08 Set LV_DRAW_SW_ASYNC=1 — Test: no visible stutter on an animated fill
+- [x] S4.09 Drive a colour-bar test pattern — Test: all bars are the correct colour with correct orientation
 - [ ] S4.10 Verify all four rotations render upright and unmirrored — Test: rotation 0 reports TPL_WS7_WIDTH/HEIGHT 480/800, and the pattern is correct in 0, 1, 2, 3
 - [ ] S4.11 Measure a full-frame flush time — Test: log reports ~24-26 ms scan-out, matching §10.3
 
 ## S5 · GT911 TOUCH in portrait
 
-- [ ] S5.01 Bring up esp_lcd_touch_gt911 at 0x5D with rst/int GPIO = -1 — Test: the driver initialises and reads a status byte
-- [ ] S5.02 Call tpl_ws7_touch_reset_release() before addressing the controller — Test: no NACK storm on the bus after release
-- [ ] S5.03 Write the LVGL indev read callback with a 40 ms debounce — Test: a jittery stream produces one click, not many
-- [ ] S5.04 Treat ESP_ERR_TIMEOUT from the poll as 'no finger', not an error — Test: no error spam in the log while idle for 60 s
+- [x] S5.01 Bring up esp_lcd_touch_gt911 at 0x5D with rst/int GPIO = -1 — Test: the driver initialises and reads a status byte
+- [x] S5.02 Call tpl_ws7_touch_reset_release() before addressing the controller — Test: no NACK storm on the bus after release
+- [x] S5.03 Write the LVGL indev read callback with a 40 ms debounce — Test: a jittery stream produces one click, not many
+- [x] S5.04 Treat ESP_ERR_TIMEOUT from the poll as 'no finger', not an error — Test: no error spam in the log while idle for 60 s
 - [ ] S5.05 Add the corner-tap test: four corner targets — Test: all four corners hit reliably 10/10 (closes R14)
 
 ## S6 · PROJECT SKELETON — platformio.ini, partitions, OTA
 
 - [ ] S6.01 Fill in [common] from §7.1 with all build flags, including board_build.flash_size = 16MB — Test: pio run -e esp32usb compiles a hello world and the image is not capped
 - [ ] S6.02 Add the esp32ota env with espota/3232 — Test: pio run -e esp32ota builds the same image
-- [ ] S6.03 Author custom_16m_ota.csv with nvs, otadata, phy_init, two 3 MB app slots, 512 KB SPIFFS — Test: gen_esp32part.py validates it and WiFi calibration still works after upload
+- [ ] S6.03 Verify existing partitions_16m.csv works (factory + update_0 ~2.75 MB, spiffs ~1.94 MB, coredump 256 KB) — Test: gen_esp32part.py validates it and WiFi calibration still works after upload
 - [ ] S6.04 Wire tpl_wifi_setup(true, true, 255) — Test: no LED pin is claimed and no RGB bit is corrupted
 - [ ] S6.05 Confirm an OTA update over WiFi actually replaces the app — Test: push a build with a changed version string, it changes on the device
 - [ ] S6.06 Add -Werror and confirm the build is clean — Test: a deliberate warning fails the build

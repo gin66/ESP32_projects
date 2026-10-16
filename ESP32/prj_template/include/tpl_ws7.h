@@ -57,4 +57,22 @@ esp_err_t tpl_ws7_sd_select(bool select);
 esp_err_t tpl_ws7_set_usb_mode(bool usb);
 bool tpl_ws7_can_available(void);
 
+// I2C mutex with bounded timeout (N13)
+esp_err_t tpl_ws7_i2c_lock(uint32_t timeout_ms);
+void tpl_ws7_i2c_unlock(void);
+
+// SD card: enable open-collector push-pull mode for CS bit (S3.15)
+esp_err_t tpl_ws7_sd_cs_enable_oc_pp(void);
+
+// SD SPI bus handle (S3.16)
+spi_bus_handle_t tpl_ws7_sd_bus(void);
+
+// RGB panel + LVGL display (S4)
+lv_display_t *tpl_ws7_display_init(uint8_t rotation, uint32_t *buf, size_t buf_size);
+
+// GT911 touch (S5)
+esp_err_t tpl_ws7_touch_init(void);
+void tpl_ws7_touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data, bool *pressed,
+                           int32_t width, int32_t height, lv_display_rotation_t rotation);
+
 #endif // IS_WAVESHARE_LCD7

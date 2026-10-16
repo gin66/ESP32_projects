@@ -1,6 +1,7 @@
 # White Paper: 28_hauszentrale — House Central on the Waveshare ESP32-S3-Touch-LCD-7
 
 **Status:** COMPLETE — all sections written. Open questions in §12 remain to be answered before phase 1.
+**Revision:** 1.6 — adds the battery, charging and indicator-LED subsystem from the schematic (§3.7: CS8501 charger, `CHRG`/`STDBY` open-drain status pins wired only to their LEDs, no enable pin, VBAT uninstrumented, R31 as the one-resistor fix), R31, Q25, D52, and the reconciliation of §2.2 and §8.1
 **Revision:** 1.5 — applies the rev 1.0 review and retires `docs/review.md`. The expander map in §3.2 now matches §3.4, the new template `.cpp` is guarded, `platformio.ini` pins octal PSRAM and UART0, the flush budget is 24 ms, GPIO 2/4/17 are not aliased as LEDs, and the AHT20/CH422G address collision is recorded (Q24, R30)
 **Revision:** 1.4 — adds the bench verification of the physical board (§3.1.1: ESP32-S3 rev v0.2, **16 MB** flash correcting the 8 MB identity, MAC `28:84:85:a7:a6:78`, CH9102 USB-UART bridge, the mechanical UART switch, and the `rtc_pcf85063` / IDF 5.5.4 demo currently on the flash), the mechanical-switch constraint on §3.3 and the §7.5 runbook, D49–D51, Q22–Q23
 **Revision:** 1.3 — adds the memory map (§10.5), the three-tier history store (§7.10), the modelled water-out temperature (§7.11), the CAN enable switch (§7.12, §8.14), the 4 mm type scale (§8.1.1) and the bottom nav pane (§8.11)
@@ -132,7 +133,11 @@ precedent of `cyd_board_abstraction.md`, and §6 is replaced by a pointer.
   panel: their oversampling, filter and IIR settings stay at power-on defaults
   (§7.8). Reconfiguring them is a bench job, not a UI feature.
 - **Battery / power-budget engineering** for the PH2.0 cell connector. The board is
-  assumed mains- or USB-powered; the cell is not a product feature here.
+  assumed mains- or USB-powered; the cell is not a product feature here. The cell is
+  also **not instrumented** — the VBAT divider stops at test point TP1, so there is
+  no gauge to design a UI around (§3.7). What is *not* out of scope is the cosmetic
+  consequence: the charge and power indicators cannot be switched off in firmware,
+  so silencing them is a physical-modification decision (**Q25**, **R31**, §3.7).
 - **EEZ Studio round-tripping.** Screens are hand-authored LVGL, following the
   precedent that `26_CYD_CAN_monitor` already set when it outgrew its `.eez-project`.
 - **LVGL theme authoring as a reusable template asset.** The theme ships inside the
@@ -153,7 +158,7 @@ precedent of `cyd_board_abstraction.md`, and §6 is replaced by a pointer.
 | IO expander | CH422G. Four command addresses, not one slave: WR-OC `0x23`, WR-SET `0x24`, RD-IO `0x26`, WR-IO `0x38` |
 | CAN | TJA1051 transceiver behind an FSUSB42UMX analog switch |
 | Storage | microSD/TF slot, SPI, chip-select via CH422G |
-| Extras | RS485 (external converter board), battery connector, BOOT button |
+| Extras | RS485 (external converter board), battery connector, BOOT button, three hardwired indicator LEDs — none switchable in firmware (§3.7) |
 
 Full datasheets, schematic and community projects are catalogued in
 `boards/WAVESHARE-ESP32-S3-Touch-LCD-7-7inch/`. Pin numbers in this document are
@@ -402,6 +407,76 @@ The heater and pump duty arrives on CAN, not on H1, and `0x240` is a
 reports back. The panel writes the former and renders the latter. §7.9 covers
 the write path; the electrical meaning of the duty is the AVR's business, and
 the panel treats the value as an opaque 0…1000 permille number.
+
+### 3.7 Battery, Charging and the Three Indicator LEDs
+
+Read from the schematic's `Battery` block (`ESP32-S3-Touch-LCD-7-Sch.pdf`, sheet
+1, cell F7). This is the one subsystem on the board that the project **cannot**
+control, which is worth stating plainly because two of its three lights are
+permanently visible on a wall-mounted panel.
+
+**The circuit.** U4 is a **CS8501** single-cell Li-ion charger with a power path:
+VBUS (5 V from the USB-C) reaches `VCC` through **R30 and R44** (0.56 Ω each, in
+parallel — USB current sense), `LX` drives **L2** (4.7 µH) to the `VBAT` rail,
+`VOUT` reaches the board's 5 V through **D11**, and `BAT` goes to the PH2.0 cell.
+Charge current is set by **R64 = 1.2K on `PROG` → 580 mA**, silkscreened on the
+board as the alternatives 160 mA / 900 mA / 1000 mA. There is no firmware-visible
+control anywhere in that block: no enable pin, no configurable current, no status
+input. `VCC` is simply tied to VBUS, so the charger runs whenever the board is
+USB-powered and firmware cannot switch it off.
+
+**The LEDs.** Three indicators exist, and none of them is on a GPIO:
+
+| LED | Colour | Cathode net | Anode feed | Switchable in firmware? |
+| --- | ------ | ----------- | ---------- | ----------------------- |
+| `Led1` | green | `CHRG` (CS8501 pin 2, active-low open drain) | VBUS via **R31 4.7K** | **No** |
+| `Led2` | red | `STDBY` (CS8501 pin 4, active-low open drain) | the same R31 node | **No** |
+| `PWR1` | red | GND | **3V3** via R106 1K | **No** |
+
+The decisive evidence is a netlist count, not an inference: **`CHRG` and `STDBY`
+each appear exactly once in the extracted schematic text**, inside the CS8501's own
+pin block, and nowhere else. They connect to their LEDs and to nothing else — not
+to the ESP32, not to any CH422G output, not to a test point. `PWR1` is a 3.3 V
+rail indicator with the same freedom from control.
+
+**The battery is not even measured.** R18 (200 K, 1 %) and R19 (100 K, 1 %) form a
+VBAT divider, but the tap goes to **TP1**, a test point, and stops. No ADC pin
+reads it. So there is no battery gauge, no state-of-charge estimate, and no way for
+the panel to know why an indicator is lit. This is consistent with §2.2: the cell
+is not a product feature of this project.
+
+**Why they are lit, and whether that is a fault.** These outputs are the charger's
+status report, so *something* is expected to be lit whenever USB power is present:
+
+- a cell connected and charging → `CHRG` asserts;
+- a cell connected and full → `STDBY` asserts, solid;
+- **no cell connected** → the charger is attempting to charge a battery that is not
+  there, and a status output stays asserted indefinitely.
+
+So a permanently lit LED on a board with no cell fitted is the charger's normal
+behaviour, not a fault in the board, the antenna or the firmware. The last case is
+derived from the circuit topology; the CS8501 datasheet was not available to
+confirm it, and it is the one claim in this section that a bench check with a
+known-good cell would settle cheaply.
+
+**What can actually be done.** Physical options only, cheapest first:
+
+1. **Remove R31 (4.7K).** Both charge LEDs share its anode node, so one resistor
+   extinguishes both, the LEDs stay on the board, and charging is unaffected —
+   R31 feeds nothing else. Do not confuse it with R30/R44, which are the USB
+   current-sense resistors.
+2. Desolder `Led1` and `Led2` individually, keeping R31 (wastes a resistor).
+3. Hide them — a bezel, an enclosure, or tape. Cheapest and fully reversible.
+
+`PWR1` is a separate 3.3 V indicator and needs its own treatment: its LED or R106.
+
+**Consequence for this project.** A panel whose brief is furniture-grade hardware
+(§8.1) will have two red/green LEDs glowing next to a 7-inch display in an unlit
+living room, and **no firmware can turn them off**. That is the same class of
+regression as R9's non-dimmable backlight: a property of the board that the UI
+cannot design around, only physically remove. It is a modification decision rather
+than a feature, so it is **Q25**, carried as **R31**, and it is deliberately *not*
+treated as in-scope battery engineering under §2.2.
 
 ## 4. Requirements
 
@@ -1894,6 +1969,13 @@ temperature — a slow 6 s breathing cycle modulated by the live value. That is 
 deliberate exception to "no gratuitous motion": it is data, it is the only thing
 that moves, and it makes the panel feel alive when the house is quiet.
 
+**One light on this panel is not the UI's to control.** Restraint means nothing if
+the hardware glows on its own: the charge and power indicators are hardwired to the
+charger and cannot be switched off in firmware (§3.7, R31), and the backlight is
+binary rather than dimmable (§7.13, R9). Both are recorded as board properties to
+be removed or hidden at fitting time (**Q25**), not as things the design language
+can compensate for.
+
 #### 8.1.1 The type scale — a physical floor, not a style preference
 
 Font sizes on this panel are specified in **millimetres of cap height**, because
@@ -3074,6 +3156,7 @@ written 525 000 times a year to store data that does not change within the day.
 | R27 | **Enabling CAN in config strands the device**, if Q22 finds that `USB_SEL` high disconnects the CH9102 | **High** | Unknown until Q22 | N19 drives `USB_SEL` low first. A crash after step 3 of §7.12 leaves it high. The strap on GPIO 4 (Q17) is the fix no firmware bug can override, and it shares that pin with Q19. BOOT + the CH9102 already worked with the mechanical switch set correctly (§3.1.1, §7.12 option C). The expander's `0xFF` reset value is not this risk |
 | R30 | **An AHT20 on H1 shares address `0x38` with CH422G WR-IO** | **High** | **Certain** if fitted as rev 1.4 specified | Do not fit it on this bus (§7.8). BMP280 at `0x76`/`0x77` does not collide. Q24 chooses the replacement. Until then the living-room zone stays `—` |
 | R22 | Every other risk in this table gets worse because the panel can now write to the bus | Medium | **High** | R1 in particular changes character: a firmware bug that previously cost a display is now a firmware bug that can change the heater. That is why N15 forbids the panel from being an interlock, why the write path is a single button on one screen, and why the log ring records every transmit with its old and new value — the diagnosis for R1 is now a safety question, not a convenience |
+| R31 | **The charge and power LEDs cannot be switched off**, so a wall panel glows in an unlit room and no amount of UI work helps | Low | **Certain** | `CHRG` and `STDBY` are open-drain status pins of the CS8501 that appear once each in the netlist, wired only to their LEDs; `PWR1` is a hardwired 3V3 indicator. There is no GPIO and no expander path, and the charger has no enable pin, so this is a hardware property rather than a missing feature (§3.7). Mitigation is physical and decided once: remove **R31 (4.7K)**, which extinguishes both charge LEDs and nothing else, or hide them behind the bezel — **Q25** |
 
 ## 12. Open Questions
 
@@ -3113,6 +3196,7 @@ Each of these changes the design, so none is silently decided above.
 | **Q22** | **What exactly does the board's mechanical UART switch switch?** §3.3 models one mux — FSUSB42UMX under CH422G IO5. The bench found a *physical* switch that silently kills the CH9102 console, which means either a second gate or the same gate with a manual override | Decides whether N19 (drive `USB_SEL` low first thing in `setup()`) is **sufficient**, or whether firmware can be defeated by a switch position the operator set months ago. Also decides the runbook wording and whether §7.12's strap (Q17) fixes anything | **Jochen, bench, phase 0.** Read the schematic against the switch's silkscreen, then verify by toggling it and watching whether `USB_SEL`/`IO5` changes state. Cheap to answer and it sits under R1, which is the project's recovery guarantee |
 | **Q23** | Is the 16 MB part **always** 16 MB, or does the board ship in variants? | §3.1.1 measured one board. The whitepaper is now written against 16 MB, and a batch with 8 MB would silently cap the OTA slots | Jochen. The `esp_lcd`/display stack does not care, but the partition table does. Record the MAC of every panel added, not just this one |
 | **Q24** | **How does a living-room humidity sensor attach?** An AHT20's only address is `0x38`, which is CH422G WR-IO. A BMP280 at `0x76` or `0x77` does not collide (§7.8, R30) | F15 cannot be built as written. Putting the AHT20 on H1 fights every expander write | Jochen. Options: a humidity part on a free address; a second I²C bus on GPIOs phase 1 confirms are free (15 and 16 are the candidates, not a decision); or drop humidity and keep the BMP280 for pressure only. Until then the zone renders `—` |
+| **Q25** | **May the board be modified to silence the battery indicators** — i.e. is removing R31 (4.7K), which extinguishes both charge LEDs and nothing else, acceptable, and is it decided once for all panels? (§3.7, R31) | Cosmetic only, but permanent and it touches a wall-mounted unit. `PWR1` is a separate 3V3 indicator and needs its own decision | Jochen, at fitting time rather than in firmware. Two viable answers: **remove R31** during assembly (keeps the LEDs, one part, charging unaffected) or **hide them** in the bezel, which is reversible and free. Note the CS8501 datasheet is not in the repo, so the no-cell behaviour in §3.7 is topology-derived and unverified
 
 ## 13. Implementation Plan
 
@@ -3237,6 +3321,7 @@ debugging a UI bug and an actuator bug in the same session.
 | D49 | The board's **flash is 16 MB**, and the partition table is sized for it | The 8 MB quoted in the identity table | Measured with `esptool flash-id`: Winbond `4018`, 16 MB, quad, 3.3 V. An 8 MB assumption caps the two OTA slots at half the part and hides 8 MB of usable board (§3.1.1, §7.1) |
 | D50 | A **silent board is a switch position** until proven otherwise | Treating `No serial data received` as a dead board | The CH9102 enumerates, opens and returns zero bytes at every baud and every DTR/RTS combination when the switch is wrong — byte-identical to a dead chip. Five seconds of checking beats an hour of driver archaeology (§3.1.1, §7.5, Q22) |
 | D51 | USB on this board is a **UART bridge**, so R3's UART0 requirement is a hardware fact, not a hope | Assuming the S3 might expose native CDC | No Espressif USB device (`0x303A`) is enumerated at any time, including in ROM download mode; the console arrives through a CH9102 on GPIO 43/44. Only the Arduino core's port choice remains open, so Q2 shrinks but does not close (§3.1.1) |
+| D52 | The battery indicators are a **physical-modification item**, decided once at fitting time — not a firmware feature and not battery engineering | Adding a GPIO/expander path to switch them off; or leaving them lit as an accepted detail of the board | `CHRG` and `STDBY` are open-drain status pins of the CS8501 that appear exactly once each in the netlist, wired only to their own LEDs, and the charger has no enable pin — so there is nothing for firmware to drive, and inventing one would mean modifying hardware that Q25 has not approved. The visible consequence on a wall panel is recorded honestly as R31 rather than designed around (§3.7, §2.2)
 | D45 | Free space is shown **only when low** on the home screen, in full in Settings | A permanent capacity readout | A glanceable strip has no room for "37 GB free", but "12 MB free — floor 50 MB" is the single most useful thing to know about storage on a device that writes history (§8.15.3) |
 | D42 | CAN enable **defaults off**, and N19 drives `USB_SEL` low before config is read | Defaulting on, for a panel whose job is the bus | The driver's init write would otherwise leave IO5 high. The ordering is the part firmware controls. Whether that is what keeps the CH9102 alive is Q22 (R27, §7.12) |
 

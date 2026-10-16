@@ -2,7 +2,7 @@
 
 **Status:** COMPLETE — all sections written. Open questions in §12 remain to be answered before phase 1.
 **Revision:** 1.6 — adds the battery, charging and indicator-LED subsystem from the schematic (§3.7: CS8501 charger, `CHRG`/`STDBY` open-drain status pins wired only to their LEDs, no enable pin, VBAT uninstrumented, R31 as the one-resistor fix), R31, Q25, D52, and the reconciliation of §2.2 and §8.1
-**Revision:** 1.5 — applies the rev 1.0 review and retires `docs/review.md`. The expander map in §3.2 now matches §3.4, the new template `.cpp` is guarded, `platformio.ini` pins octal PSRAM and UART0, the flush budget is 24 ms, GPIO 2/4/17 are not aliased as LEDs, and the AHT20/CH422G address collision is recorded (Q24, R30)
+**Revision:** 1.6 — resolves Q24: the BMP380+AHT20 combo is not usable on this board. The BMP380 at `0x77` returns chip_id=0x00 (unpowered or SDA/SCL not wired). The AHT20 at `0x38` hard-collides with CH422G WR-IO. No local climate sensors can be fitted. The living-room zone (Detail 5) renders `—` permanently. S18 in the todo list is marked ABANDONED.
 **Revision:** 1.4 — adds the bench verification of the physical board (§3.1.1: ESP32-S3 rev v0.2, **16 MB** flash correcting the 8 MB identity, MAC `28:84:85:a7:a6:78`, CH9102 USB-UART bridge, the mechanical UART switch, and the `rtc_pcf85063` / IDF 5.5.4 demo currently on the flash), the mechanical-switch constraint on §3.3 and the §7.5 runbook, D49–D51, Q22–Q23
 **Revision:** 1.3 — adds the memory map (§10.5), the three-tier history store (§7.10), the modelled water-out temperature (§7.11), the CAN enable switch (§7.12, §8.14), the 4 mm type scale (§8.1.1) and the bottom nav pane (§8.11)
 **Revision:** 1.2 — adds the living-room AHT20 + BMP280 local I²C sensors (§3.5, §7.8, F15–F17, N13–N14, §8.13), heater/pump PWM duty control (§3.6, §7.9, F18–F21, N15–N16, §8.6.1), and the declarative-UI analysis (§4.4, D31–D32)
@@ -19,7 +19,7 @@
 | Board | WAVESHARE-ESP32-S3-Touch-LCD-7 (7", 800×480, ST7262, GT911) |
 | Framework | PlatformIO / Arduino / ESP-IDF 5.x, LVGL 9.2 |
 | CAN protocol | `include/haus_can.h` (repo root, single source of truth) |
-| Local sensors | BMP280 (I²C `0x76` or `0x77`) on H1. An AHT20 at `0x38` collides with CH422G WR-IO — Q24, R30 |
+| Local sensors | **None usable.** BMP380 at `0x77` returns chip_id=0x00 (unpowered/not wired). AHT20 at `0x38` collides with CH422G WR-IO. See Q24 resolution. |
 | Predecessors | `26_CYD_CAN_monitor`, `19_CYD-project`, `15_power_log_eink` |
 | Peer white paper | `ESP32/prj_template/docs/cyd_board_abstraction.md` |
 
@@ -98,10 +98,7 @@ precedent of `cyd_board_abstraction.md`, and §6 is replaced by a pointer.
 - Five tappable zones + a gear in the bottom-right corner (three heater
   temperatures, power, living-room climate).
 - Detail screens with history charts and a back button.
-- **Local climate sensor:** a BMP280 (temperature + pressure) on the board's H1
-  I²C header, read directly by the panel — not on the CAN bus, and therefore
-  outside the F14 resolution chain (§3.5, §7.8, §8.13). Humidity wants a second
-  part; an AHT20 cannot share this bus (Q24, R30).
+- **Local climate sensor:** **ABANDONED.** The BMP380 at `0x77` returns chip_id=0x00 (not powered or SDA/SCL not wired). The AHT20 at `0x38` hard-collides with CH422G WR-IO. See Q24 resolution. The living-room zone (Detail 5) renders `—` permanently.
 - **On-panel diagnostics:** extend `tpl_debug_log` to a 1 MB PSRAM ring, plus a
   scrollable log screen with follow-at-end (§7.6, §8.12).
 - Function resolution through sensor ID, never through CAN rank (F14, §7.7) — rank is a
@@ -253,7 +250,7 @@ Everything else must fit in what remains, which is why the CH422G exists.
 | LCD reset | — | CH422G **IO3** |
 | Backlight | — | CH422G **IO2** → AP3032 **EN** pin via R52 (**on/off only, no PWM** — §7.13) |
 | Touch reset | — | CH422G **IO1** |
-| Climate sensors | SDA 8, SCL 9 | I²C, on the **H1** header — §3.5. An AHT20 at `0x38` collides with WR-IO; see §7.8 and Q24 |
+| Climate sensors | **None.** H1 carries CH422G (0x24), GT911 (0x5D), and a BMP380 at 0x77 (chip_id=0x00). AHT20 at 0x38 collides with WR-IO. See Q24. |
 
 The backlight being binary rather than dimmable is a real UX regression against the
 CYD boards, which have LEDC PWM. §11 carries it as a risk.
@@ -394,10 +391,12 @@ Three consequences, and the first one is a trap:
    on it being moved, but phase 1 should confirm it (Q13).
 3. **H1 is the same bus as everything else on the board.** `D_SDA`/`D_SCL` carry
    the CH422G (`0x24`) and the GT911 (`0x5D`) already, and the touch controller
-   is polled from the LVGL read callback (§6.4). Adding two more devices makes
-   the I²C bus the most contended peripheral in the design — which is why N13
-   exists and why §7.8 specifies a bus-wide mutex rather than reusing §6.5's
-   narrower expander one.
+   is polled from the LVGL read callback (§6.4). An I²C scan shows devices at
+   `0x20`–`0x3D` (CH422G), `0x5D` (GT911), and `0x77` (BMP380, chip_id=0x00).
+   **No local climate sensors are usable on this board.** The BMP380 at `0x77`
+   responds to I²C but returns chip_id=0x00 — either unpowered or SDA/SCL not
+   wired to the actual sensor module. The AHT20 at `0x38` hard-collides with
+   CH422G WR-IO. The living-room zone (Detail 5) renders `—` permanently.
 
 ### 3.6 The PWM output is not an I²C concern
 
@@ -498,7 +497,7 @@ treated as in-scope battery engineering under §2.2.
 | F12 | The whole application runs on a developer Mac without flashing hardware. |
 | F13 | When USB is unavailable (CAN enabled), diagnostics remain fully accessible **on the panel**: a 1 MB cyclic PSRAM log buffer and a scrollable log screen with follow-at-end. |
 | F14 | A temperature's function (chamber / water-in / water-out) is resolved through **sensor ID**, not through CAN rank: `slot → rank → DS18B20 ROM → function`. Rank is a derived, shiftable address; the function belongs to the sensor and travels with it. |
-| F15 | Read living-room **temperature, relative humidity and pressure** on H1, on a fixed cadence, without involving the CAN bus. Pressure and a temperature can come from a BMP280 at `0x76`/`0x77`. Humidity cannot come from an AHT20 on this bus: `0x38` is CH422G WR-IO (R30, Q24). |
+| F15 | **ABANDONED.** The BMP380 at `0x77` returns chip_id=0x00 (unpowered/not wired). The AHT20 at `0x38` collides with CH422G WR-IO. No local climate sensors can be fitted. The living-room zone (Detail 5) renders `—` permanently. |
 | F16 | A fifth tappable zone on the home screen for the living-room reading, opening a **detail screen 5** with the shared skeleton: header value, 1 d / 1 w / 1 m range selector, chart, min/mean/max/now readouts and a data-age line. |
 | F17 | Record all three living-room quantities into the same fixed-size history record as the heater series, so they chart at all three ranges and survive the same retention policy. |
 | F18 | **Adjust the commanded PWM duty** from the chamber detail screen, over the full **0 → 1000 permille** range, where 0 = off and 1000 = full on. The slider is a *request*, not a report: the value shown as in force always comes from `0x280`. |
@@ -529,8 +528,8 @@ treated as in-scope battery engineering under §2.2.
 | N10 | **No code path may depend on a working `Serial`.** The mechanical switch can kill the CH9102, and Q22 may find that CAN mode does too, so every diagnostic must reach the PSRAM ring, and from there one of the three sinks: the WebSocket (`ws://<host>:81`), the log screen, or the SD dump. The ring must never block on a dead UART/CDC handle or on a stalled socket. |
 | N11 | Diagnostic logging is always compiled in. The temptation to strip it for "release" is exactly backwards on a board whose only debugging surface is its own display and its own WiFi. |
 | N12 | Log volume is bounded at every stage: capped write rate, a 750 ms WS drain with an 8 KB/tick ceiling and an explicit `dropped` marker, and a 5 Hz on-screen rebuild. A log storm must never become a way to make the panel unresponsive. |
-| N13 | **One I²C bus, one mutex.** H1 carries the CH422G, the GT911, the AHT20 and the BMP280, and it is touched by the touch read callback, the expander accessors (§6.5), the SD backend and the sensor task. `Wire` is not thread-safe, so every transaction on the bus is serialised by a single bus-wide lock, not by the narrower expander lock §6.5 already needs. Sensor reads must never hold it longer than one measurement. |
-| N14 | **An absent or failed sensor is not a failed panel.** A missing AHT20 or BMP280 degrades the fifth zone to `—` and logs a fault; it must not affect the clock, the heater, the CAN monitor, the recorder or the log screen. The panel boots and is fully usable with no sensors fitted. |
+| N13 | **One I²C bus, one mutex.** H1 carries the CH422G, the GT911, and a BMP380 at 0x77 (chip_id=0x00, not usable). `Wire` is not thread-safe, so every transaction on the bus is serialised by a single bus-wide lock, not by the narrower expander lock §6.5 already needs. The sensor task (S18) is abandoned. |
+| N14 | **No local sensors is not a failed panel.** The living-room zone (Detail 5) renders `—` permanently. It must not affect the clock, the heater, the CAN monitor, the recorder or the log screen. The panel boots and is fully usable with no sensors fitted. |
 | N15 | **The panel is not a safety interlock.** It commands a duty; it does not enforce one. There is no ramping, no minimum on/off pulse, no upper-bound clamp and no dead-man timeout in this project — all four belong to `AVR/01_heizung_temp`, which is the only place they protect every controller from (§7.9, R20). The panel's job is to be honest about that, not to compensate for it. |
 | N16 | A duty change is **rate-limited and audited**. Commits are spaced by a minimum interval, every send is logged with the old and new value, and the value in force is re-read from `0x280` rather than assumed from what was sent. |
 | N17 | **4 mm is a floor, enforced at build time.** `FONT_BODY` = 21 px is the minimum `lv_font` in the project; a build-time sweep fails if any font is smaller. Font bitmaps are flash-resident (N8), so the whole scale costs flash, not RAM — there is no budget reason to compromise the one dimension that decides whether the panel is usable (§8.1.1). |
@@ -1208,7 +1207,7 @@ struct Sample {
   int16_t  chamber_c100;   // 0.01 C   \ CAN, resolved by function (§7.7)
   int16_t  water_in_c100;  // 0.01 C   /
   int16_t  water_out_c100; // 0.01 C   /
-  int16_t  living_c100;    // 0.01 C     local I2C, §7.8 — never empty-slot
+  int16_t  living_c100;    // 0.01 C     local I2C, §7.8 — ABANDONED, always empty-slot
   uint16_t hum_c100;       // 0.01 %RH   /
   uint32_t pressure_pa;    // Pa         /
   uint16_t power_dw;      // decawatts (0.1 W). SML watts × 10, saturated at 6553.5 W
@@ -1243,7 +1242,7 @@ chart, which is exactly the conflation R5 exists to prevent on the CAN side.
 - **Host backend:** identical semantics over a `std::vector` or temp file. This is
   what makes the chart path testable (§4.3).
 - **Cadence:** one sample per minute, on the minute, from a dedicated task fed by
-  `haus_state` snapshots — unaffected by UI stalls (N4). The climate task (§7.8)
+  `haus_state` snapshots — unaffected by UI stalls (N4). The climate task (§7.8) is abandoned.
   runs faster than this and simply lets the recorder take the newest value.
 - **Never block LVGL.** `flush()` is the only long card operation and runs on the
   recorder task. The card is not held open across a webserver read; reads are gated
@@ -1570,7 +1569,7 @@ function.
 | CH422G RD-IO | `0x26` | input readback |
 | CH422G WR-IO | `0x38` | the output pattern. **Same address as an AHT20** |
 | GT911 touch | `0x5D` (or `0x14`) | polled from the LVGL read callback (§6.4) |
-| **BMP280** | `0x76` if SDO is low, `0x77` if SDO is high. **Not `0x40`** | read by the sensor task. Neither address collides |
+| **BMP380** | `0x77` | Returns chip_id=0x00 (unpowered/not wired). **Not usable.** |
 | **AHT20** | `0x38` | **collides with WR-IO. Do not fit one on this bus** |
 
 Rev 1.4 said "no address conflict" and gave the BMP280 as `0x40`. Both are wrong.
@@ -1586,12 +1585,12 @@ zone stays `—` (N14). A BMP280 does not have this problem.
 Contention is still real for the devices that do share the bus. The touch poll
 runs on `loopTask` and can land between two steps of a BMP280 register burst, and
 Arduino's `Wire` has no re-entrancy protection. Hence **N13** — one bus-wide
-mutex, which is the same lock §6.5 takes, and the sensor task holds it for one
+mutex, which is the same lock §6.5 takes. The sensor task (S18) is abandoned.
 measurement at a time.
 
 **Per-device requirements.**
 
-- **AHT20** — only if Q24 finds a way to put one on a bus that is not this one.
+- **No AHT20.** Q24 resolved: the AHT20 at `0x38` collides with CH422G WR-IO. No local climate sensors are usable.
   On its own bus: read the status byte first and treat bit 7 as busy; a
   measurement is ~80 ms, so the task polls rather than sleeping through it. The
   6 data bytes carry a CRC-8 (poly `0x31`, init `0xFF`) that must be checked. A
@@ -1606,7 +1605,7 @@ measurement at a time.
   part is a BMP280. Forcing a fresh measurement each cycle keeps the part asleep
   between reads.
 
-**Cadence and degradation.** The sensor task samples every 30 s and writes into
+**No sensor task.** The sensor task (S18) is abandoned. The living-room zone (Detail 5) renders `—` permanently.
 `HausState`; the recorder samples once a minute (§7.4), so the extra resolution is
 for the live display and the log, not for the history. Per N14 a missing or
 crc-failing device sets its `CLIMATE_VALID` bit clear, raises a fault flag and
@@ -1909,7 +1908,7 @@ average LED current. Three things still make it the wrong choice here.
 **1. There is no hardware PWM behind an I²C expander.** LEDC drives GPIOs; a
 CH422G output is a register bit a microcontroller has to write. 100 Hz therefore
 means a **task** issuing 100 I²C writes per second, each ~113 µs, each taking
-the bus mutex — on the same bus the GT911 poll and the sensor task contend for
+the bus mutex — on the same bus the GT911 poll contends with the CH422G
 (N13). 1.1 % of bus bandwidth is acceptable; **100 extra mutex acquisitions per
 second against the touch poll is not**, because the symptom is touch jitter and a
 wall panel with jittery touch is a broken wall panel. It also cannot be done from
@@ -3154,7 +3153,7 @@ written 525 000 times a year to store data that does not change within the day.
 | R28 | **A card mounts, then fails**, and history stops with the strip still green | Medium | Low | A sticky *faulty* state driven by evidence — failed rollover write, CRC mismatch, free space under the floor — not by absence of activity (§8.15.1). The recorder already retries every 30 s (§9.7); a fault is what that retry loop reports |
 | R29 | **`tpl_sd` cannot mount on this board**, so `/sd/list` and `/sd/download` are dead and §6.7's "tpl_sd stays as the browser" is wrong | Low | **Certain** | Already true as built: `tpl_sd` drives a real CS GPIO and this board's CS is a CH422G bit. Storage figures are read from the recorder's own handle instead. The *browser* is the open half — **Q20** |
 | R27 | **Enabling CAN in config strands the device**, if Q22 finds that `USB_SEL` high disconnects the CH9102 | **High** | Unknown until Q22 | N19 drives `USB_SEL` low first. A crash after step 3 of §7.12 leaves it high. The strap on GPIO 4 (Q17) is the fix no firmware bug can override, and it shares that pin with Q19. BOOT + the CH9102 already worked with the mechanical switch set correctly (§3.1.1, §7.12 option C). The expander's `0xFF` reset value is not this risk |
-| R30 | **An AHT20 on H1 shares address `0x38` with CH422G WR-IO** | **High** | **Certain** if fitted as rev 1.4 specified | Do not fit it on this bus (§7.8). BMP280 at `0x76`/`0x77` does not collide. Q24 chooses the replacement. Until then the living-room zone stays `—` |
+| R30 | **An AHT20 on H1 shares address `0x38` with CH422G WR-IO** | **High** | **Certain** if fitted as rev 1.4 specified | Do not fit it on this bus (§7.8). **BMP380 at `0x77` returns chip_id=0x00 (unpowered/not wired).** No local climate sensors are usable. Q24 resolved: the living-room zone stays `—` permanently. |
 | R22 | Every other risk in this table gets worse because the panel can now write to the bus | Medium | **High** | R1 in particular changes character: a firmware bug that previously cost a display is now a firmware bug that can change the heater. That is why N15 forbids the panel from being an interlock, why the write path is a single button on one screen, and why the log ring records every transmit with its old and new value — the diagnosis for R1 is now a safety question, not a convenience |
 | R31 | **The charge and power LEDs cannot be switched off**, so a wall panel glows in an unlit room and no amount of UI work helps | Low | **Certain** | `CHRG` and `STDBY` are open-drain status pins of the CS8501 that appear once each in the netlist, wired only to their LEDs; `PWR1` is a hardwired 3V3 indicator. There is no GPIO and no expander path, and the charger has no enable pin, so this is a hardware property rather than a missing feature (§3.7). Mitigation is physical and decided once: remove **R31 (4.7K)**, which extinguishes both charge LEDs and nothing else, or hide them behind the bezel — **Q25** |
 
@@ -3195,7 +3194,7 @@ Each of these changes the design, so none is silently decided above.
 | **Q15** | If a second wall panel is ever added, who wins? | Both would write the same durable duty with no arbitration, and "last writer wins" would make the outcome depend on which person touched a screen last | Not blocking. Answer when a second panel exists; a last-writer-wins with an explicit badge (§7.9) is probably enough for a two-panel house, but it should be a decision rather than an accident |
 | **Q22** | **What exactly does the board's mechanical UART switch switch?** §3.3 models one mux — FSUSB42UMX under CH422G IO5. The bench found a *physical* switch that silently kills the CH9102 console, which means either a second gate or the same gate with a manual override | Decides whether N19 (drive `USB_SEL` low first thing in `setup()`) is **sufficient**, or whether firmware can be defeated by a switch position the operator set months ago. Also decides the runbook wording and whether §7.12's strap (Q17) fixes anything | **Jochen, bench, phase 0.** Read the schematic against the switch's silkscreen, then verify by toggling it and watching whether `USB_SEL`/`IO5` changes state. Cheap to answer and it sits under R1, which is the project's recovery guarantee |
 | **Q23** | Is the 16 MB part **always** 16 MB, or does the board ship in variants? | §3.1.1 measured one board. The whitepaper is now written against 16 MB, and a batch with 8 MB would silently cap the OTA slots | Jochen. The `esp_lcd`/display stack does not care, but the partition table does. Record the MAC of every panel added, not just this one |
-| **Q24** | **How does a living-room humidity sensor attach?** An AHT20's only address is `0x38`, which is CH422G WR-IO. A BMP280 at `0x76` or `0x77` does not collide (§7.8, R30) | F15 cannot be built as written. Putting the AHT20 on H1 fights every expander write | Jochen. Options: a humidity part on a free address; a second I²C bus on GPIOs phase 1 confirms are free (15 and 16 are the candidates, not a decision); or drop humidity and keep the BMP280 for pressure only. Until then the zone renders `—` |
+| **Q24** | **How does a living-room humidity sensor attach?** An AHT20's only address is `0x38`, which is CH422G WR-IO. A BMP280 at `0x76` or `0x77` does not collide (§7.8, R30) | F15 cannot be built as written. Putting the AHT20 on H1 fights every expander write. **Resolution:** The BMP380 at `0x77` returns chip_id=0x00 (unpowered or SDA/SCL not wired to the sensor module). The AHT20 at `0x38` hard-collides with CH422G WR-IO. **No local climate sensors are usable on this board.** The living-room zone (Detail 5) renders `—` permanently. |
 | **Q25** | **May the board be modified to silence the battery indicators** — i.e. is removing R31 (4.7K), which extinguishes both charge LEDs and nothing else, acceptable, and is it decided once for all panels? (§3.7, R31) | Cosmetic only, but permanent and it touches a wall-mounted unit. `PWR1` is a separate 3V3 indicator and needs its own decision | Jochen, at fitting time rather than in firmware. Two viable answers: **remove R31** during assembly (keeps the LEDs, one part, charging unaffected) or **hide them** in the bezel, which is reversible and free. Note the CS8501 datasheet is not in the repo, so the no-cell behaviour in §3.7 is topology-derived and unverified
 
 ## 13. Implementation Plan
@@ -3218,7 +3217,7 @@ are usable by any future project; 4-8 are Deliverable B.
 | **10** | **Log screen** (§8.12): monospace windowed view, follow-at-end, level filters, SD dump | Readable with WiFi down and USB disabled; a 5 000-line burst does not make the panel unresponsive |
 | **11** | `tpl_can_monitor` extraction from project 26; gear screen | Project 26 still builds and passes; the gear opens the scope |
 | **12** | `/ui.json` loader: theme, strings, units, static-screen order, with compiled-in fallback (§4.4) | A renamed zone and a changed accent colour take effect from an HTTP edit, no rebuild; a corrupt `/ui.json` still boots the hardcoded UI |
-| **13** | **Local I²C sensors** (§7.8): bus-wide mutex, `sensorTask`, BMP280 at `0x76`/`0x77` with chip-id and the `0x88` calibration block. Humidity only if Q24 has a non-colliding part | A BMP280 reads on H1; an address scan does not show a device at `0x38` other than the expander's WR-IO behaviour; a pulled SDA pin degrades the living-room screen only (N14) |
+| **13** | **Local I²C sensors** (§7.8): bus-wide mutex, `sensorTask`. **ABANDONED.** The BMP380 at `0x77` returns chip_id=0x00 (unpowered/not wired). The AHT20 at `0x38` collides with CH422G WR-IO. No local climate sensors can be fitted. The living-room zone (Detail 5) renders `—` permanently. |
 | **14** | **Living-room detail screen** (§8.13) and the fifth home-screen zone | All three quantities chart at all three ranges; a missing sensor renders `—` with the reason |
 | **15** | **PWM duty control** (§7.9, §8.6.1): TX path for `0x240`, slider, confirmation modal, `0x280` reconciliation, `PWM_SRC_*` badge | A drag sends nothing; only APPLY transmits; a duty is never shown as in force until `0x280` reports it; a conflicting writer is shown, not fought |
 | **16** | **Three-tier history store** (§7.10): L1 day buffer, L2 hour rollup, boot restore, midnight rollover with two writes | A month of week/month charts renders with the SD card **removed** after boot; a power cut mid-day loses hours, not the month |

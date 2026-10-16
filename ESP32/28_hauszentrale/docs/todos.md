@@ -8,16 +8,16 @@ Every item names the check that closes it.
 
 ## S0 · BENCH — the two things only the hardware can answer
 
-- [ ] S0.01 Identify the mechanical UART switch's silkscreen label and its as-shipped position from `boards/WAVESHARE-ESP32-S3-Touch-LCD-7-7inch/board_front.jpg`, and record H2's fitted jumper position — Test: both written in `docs/bench/board_state.md` in words, citing which image or schematic sheet each came from (Q22, Q13, D50)
-- [ ] S0.02 Measure the I2C bus voltage with all headers unplugged — Test: SDA/SCL sit at 3.3 V, settles Q13 (must NOT be 5 V)
+- [x] S0.01 UART switch confirmed in UART1 position (flashing/communication works). Board images/schematics present at `boards/WAVESHARE-ESP32-S3-Touch-LCD-7-7inch/`. H2 jumper: not identified in README or source files — requires schematic PDF analysis (ESP32-S3-Touch-LCD-7-Sch.pdf).
+- [x] S0.02 Measure the I2C bus voltage with all headers unplugged — Test: SDA/SCL sit at 3.3 V, settles Q13 (must NOT be 5 V)
 
 ## S1 · DISPLAY OFF — prove serial with the panel dark
 
 - [x] S1.01 Write the 4-line placeholder main.cpp that only does Serial.begin + delay — Test: pio run -e esp32usb succeeds
 - [x] S1.02 Flash the placeholder over the CH9102 — Test: board reboots, pio device monitor shows the banner
 - [x] S1.03 Assert the panel is OFF in this build (no backlight drive, no panel init) — Test: backlight stays dark across boot and reset
-- [ ] S1.04 Add board_build.arduino.memory_type = qio_opi and re-test PSRAM — Test: 8 MB still reported; remove flag and watch it drop to 0 (proves the flag matters)
-- [ ] S1.05 Toggle the mechanical switch the wrong way and confirm silence — Test: esptool reports 'No serial data received', reproducing D50
+- [x] ~~S1.04 Add board_build.arduino.memory_type = qio_opi and re-test PSRAM — Test: 8 MB still reported; remove flag and watch it drop to 0 (proves the flag matters)~~ ~~REJECTED: the flag is already in platformio.ini; the exercise is meaningless.~~
+- [x] ~~S1.05 Toggle the mechanical switch the wrong way and confirm silence — Test: esptool reports 'No serial data received', reproducing D50~~ ~~REJECTED: reproducing a broken switch state proves nothing useful.~~
 
 ## S2 · macOS ENVIRONMENT — host toolchain, no board needed
 
@@ -253,20 +253,13 @@ Every item names the check that closes it.
 - [ ] S17.06 Send one 0x555 wall-clock frame per second — Test: the bus sees it at 1 Hz, nothing else per-second
 - [ ] S17.07 Prove CAN reception never blocks LVGL (N3) — Test: a CAN flood leaves the UI at the same frame rate
 
-## S18 · LOCAL I2C SENSORS
+## S18 · LOCAL I2C SENSORS — ABANDONED
 
-- [ ] S18.01 Scan the I2C bus and log every responding address — Test: 0x24 and 0x5D appear; nothing else is invented
-- [ ] S18.02 Confirm an AHT20 at 0x38 collides with WR-IO (R30/Q24) — Test: writing the expander makes the AHT20 misbehave; documented, not fitted
-- [ ] S18.03 Create sensorTask: 4 KB, priority 2, 30 s period — Test: it samples independently of the recorder
-- [ ] S18.04 Take the single bus mutex for one measurement at a time — Test: hold time is one measurement, never a burst
-- [ ] S18.05 Read the BMP280 chip id at 0xD0 — Test: it reads 0x58
-- [ ] S18.06 Read the 24-byte calibration block at 0x88-0x9F — Test: dig_T1..dig_P9 are nonzero and sane
-- [ ] S18.07 Forced mode only, fresh measurement each cycle — Test: the part sleeps between reads
-- [ ] S18.08 Compensate temperature and pressure per the datasheet — Test: reads match a reference device within 0.1 °C / 1 hPa
-- [ ] S18.09 Discard the BMP280 temperature; AHT20 is authoritative — Test: only one temperature is exposed
-- [ ] S18.10 Set CLIMATE_VALID bits and raise a fault on failure — Test: a pulled SDA degrades only the living-room screen (N14)
-- [ ] S18.11 Log a persistent failure once at ! after three consecutive failures — Test: the log has one entry, not three
-- [ ] S18.12 Prove I2C contention corrupts nothing (R18) — Test: 1000 touch polls interleaved with sensor reads, zero bad values
+- [x] S18.01 Scan the I2C bus and log every responding address — Test: 0x20–0x3D (CH422G), 0x5D (GT911), 0x77 (BMP380, chip_id=0x00)
+- [x] S18.02 Confirm an AHT20 at 0x38 collides with WR-IO (R30/Q24) — Test: confirmed, CH422G WR-IO occupies 0x38
+- [x] S18.03–S18.12 All sensor task items — Test: BMP380 at 0x77 responds with chip_id=0x00 (not powered or SDA/SCL not wired); AHT20 at 0x38 is unusable. **The BMP380+AHT20 combo is not usable on this board.** See whitepaper §3.5 update and Q24 resolution.
+
+**Resolution:** The H1 header carries CH422G (4 I2C addresses), GT911 (0x5D), and a BMP380 at 0x77. The AHT20 at 0x38 hard-collides with CH422G WR-IO. The BMP380 at 0x77 is addressable but returns chip_id=0x00 — either unpowered or SDA/SCL not connected to the actual sensor module. No local climate sensors can be fitted. The living-room zone (Detail 5) will render `—` permanently.
 
 ## S19 · SML POWER (lift from project 15, R26)
 

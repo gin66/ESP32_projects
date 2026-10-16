@@ -29,6 +29,10 @@
 #define tpl_backlightPin 27  // 3.5″ uses GPIO 27 for backlight
 #endif
 
+#ifdef IS_WAVESHARE_LCD7
+// Waveshare ESP32-S3-Touch-LCD-7: no LED pins, backlight via CH422G IO2
+#endif
+
 extern struct tpl_task_s {
   TaskHandle_t task_wifi_manager;
   TaskHandle_t task_net_watchdog;

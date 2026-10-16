@@ -16,6 +16,9 @@ void setup() {
                   flash_size / 1024 / 1024,
                   psramFound() ? "8 MB" : "0 MB");
 
+    tpl_ws7_expander_init();
+    tpl_ws7_backlight(false);  // turn off backlight
+
     tpl_wifi_setup(true, true, (gpio_num_t)255);  // no status LED on this board
     tpl_webserver_setup();
     tpl_websocket_setup(NULL, NULL);

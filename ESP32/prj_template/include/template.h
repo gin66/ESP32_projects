@@ -19,6 +19,7 @@
  * - tpl_sd: SD card support (requires USE_TPL_SD)
  * - tpl_debug_log: Debug log ring buffer (requires USE_TPL_DEBUG_LOG)
  * - tpl_display: CYD board abstraction (requires IS_ESP32_CYD_28 or IS_ESP32_CYD_35)
+ * - tpl_ws7: Waveshare ESP32-S3-Touch-LCD-7 board abstraction (requires IS_WAVESHARE_LCD7)
  *
  * Typical usage:
  * @code
@@ -49,6 +50,9 @@
 #include "tpl_net_watchdog.h"
 #include "tpl_display.h"
 #include "tpl_sd.h"
+#ifdef IS_WAVESHARE_LCD7
+#include "tpl_ws7.h"
+#endif
 #include "tpl_system.h"
 #include "tpl_telegram.h"
 #include "tpl_webserver.h"

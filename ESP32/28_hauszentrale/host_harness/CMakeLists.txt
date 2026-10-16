@@ -30,9 +30,18 @@ target_include_directories(lvgl PUBLIC
 # Our host harness executable
 add_executable(hauszentrale_host
     src/main.c
+    src/haus_ui.c
+    src/haus_gui_mock.cpp
+)
+
+target_compile_definitions(hauszentrale_host PRIVATE
+    HAUS_HOST
 )
 
 target_link_libraries(hauszentrale_host PRIVATE lvgl)
 
 # Ensure lv_conf.h is findable
 target_include_directories(hauszentrale_host PRIVATE ${CMAKE_SOURCE_DIR})
+
+# Include parent directory for haus_gui.h and haus_can.h
+target_include_directories(hauszentrale_host PRIVATE ${CMAKE_SOURCE_DIR}/../../../include)

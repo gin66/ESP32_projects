@@ -50,6 +50,8 @@
 #define LV_USE_LODEPNG 1
 #define LV_USE_RLE 0
 #define LV_USE_SVG_ANIMATION 0
+#define LV_USE_CANVAS 1
+#define LV_USE_CANVAS_FORMAT_ARGB8888 1
 
 /* Fonts — just what we need */
 #define LV_FONT_MONTSERRAT_8 1

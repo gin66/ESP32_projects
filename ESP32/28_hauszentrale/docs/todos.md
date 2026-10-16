@@ -101,16 +101,37 @@ Every item names the check that closes it.
 - [ ] S8.01 Create src/app, src/ui, src/services, src/esp32, src/host with no cross-layer includes — Test: a grep/lint check passes
 - [ ] S8.02 Define the SensorFn enum and HausState POD exactly as §10.2 — Test: static_assert on trivially-copyable
 - [ ] S8.03 Add g_state + g_state_seq with the documented owner partitioning — Test: a test bumps each owner's block independently
-- [ ] S8.04 Add the Sample struct and static_assert(sizeof(Sample)==24) — Test: the assert compiles
-- [ ] S8.05 Stand up host/CMakeLists.txt per lv_port_pc — Test: cmake configure + build produces a binary
-- [ ] S8.06 Add the HAUS_HOST build-flag switch selecting host services — Test: a test proves services/ is identical in both builds
-- [ ] S8.07 Implement the can_feed replay stub through the production haus_can.h decoder — Test: a fixture of the four heater IDs decodes
-- [ ] S8.08 Implement the in-memory recorder with the identical API — Test: charts read through the same read() path as on device
-- [ ] S8.09 Implement the settable virtual clock — Test: a month of history is generated in under a second
+- [x] S8.04 Add the Sample struct and static_assert(sizeof(Sample)==24) — Test: the assert compiles (haus_gui.h gui_sample_t)
+- [x] S8.05 Stand up host/CMakeLists.txt per lv_port_pc — Test: cmake configure + build produces a binary (commit 63bbcad)
+- [x] S8.06 Add the HAUS_HOST build-flag switch selecting host services — Test: host CMakeLists.txt defines HAUS_HOST, device does not
+- [x] S8.07 Implement the can_feed replay stub through the production haus_can.h decoder — Test: a fixture of the four heater IDs decodes (haus_gui.h + haus_gui_mock.cpp)
+- [x] S8.08 Implement the in-memory recorder with the identical API — Test: charts read through the same read() path as on device (haus_gui_mock.cpp:301-346, 30-day synthetic history)
+- [x] S8.09 Implement the settable virtual clock — Test: a month of history is generated in under a second (haus_gui_mock.cpp:37-38, g_sim_time advances 1s per gui_update_state())
 - [ ] S8.10 Launch the SDL window at 480x800 — Test: the window appears and renders the host UI
 - [ ] S8.11 Make make run build and launch the harness — Test: from repo root, make -C ESP32 run works
 - [ ] S8.12 Add a headless smoke test that drives each screen by synthetic taps — Test: CI fails on an assertion
 - [ ] S8.13 Add screenshot-diff baselines pinned to lvgl 9.2 — Test: a font bump changes the baseline and a diff fails
+
+**NOTE:** Host harness renders real screens (extends the commit 63bbcad PNG
+renderer). The data interface is `include/haus_gui.h` with two implementations:
+`src/haus_gui.cpp` (device, all stubs) and `host_harness/src/haus_gui_mock.cpp`
+(host, synthetic heater with 30-day history and a virtual clock). The harness now
+renders three screens to PNG via `host_harness/src/{main.c,haus_ui.c}`:
+`output_home.png` (S10 home: status strip, clock, cabinet+flames, pipes+flow
+dashes, living strip, power band, 7-tab nav pane), `output_chart.png`
+(S12: 1d envelope from `gui_get_history()`, readouts) and `output_detail.png`
+(S13: dashed target line, data line, readouts). Fixes required to get there:
+register a display flush callback (otherwise the 2nd `lv_refr_now()` hangs in
+`wait_for_flushing`); `lv_line_set_points()` does not copy points, so all point
+arrays must outlive the render; nav children must not re-add `NAV_Y` on top of
+the already-offset parent; mock start epoch corrected to 08:00 (1728892800);
+`gui_get_history()` now downsamples across the whole range instead of truncating.
+The built-in Montserrat fonts lack the em-dash and middle-dot glyphs, so `-` is
+used as a placeholder until the custom font set (S21) lands.
+Next: wire the detail/chart screens to their real per-detail data, add the
+remaining detail screens (water-in/out, power, living room), wire device
+`haus_gui.cpp` to CAN/SD, add the SDL window mode (S8.10) and screenshot
+baselines (S8.13).
 
 ## S9 · SENSOR RESOLUTION — slot to rank to ROM to function
 

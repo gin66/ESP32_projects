@@ -1,3 +1,6 @@
 [submodule "15_power_log_eink/SMLReader"]
 	path = ESP32/15_power_log_eink/SMLReader
 	url = https://github.com/mruettgers/SMLReader.git
+[submodule "ESP32/extern/lvgl"]
+	path = ESP32/extern/lvgl
+	url = https://github.com/lvgl/lvgl.git

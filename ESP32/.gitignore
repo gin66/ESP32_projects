@@ -1,7 +1,6 @@
 */.pio
 */.vscode
 **/*.o
-CMakeLists.txt
 private_*
 node_modules
 package-lock.json

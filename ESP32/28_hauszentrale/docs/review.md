@@ -6,6 +6,35 @@
 `ESP32/Makefile`, `ESP32/prj_template/{include,src}/`, `ESP32/26_CYD_CAN_monitor/`,
 `AGENTS.md`
 
+> **Status against rev 1.3.** This review was written against rev 1.0. Revs 1.2
+> and 1.3 added the climate sensors, PWM duty control, the declarative-UI section,
+> the memory map, the tiered history store, the CAN enable switch, the type scale
+> and the nav pane. Several findings closed along the way; everything else stands.
+>
+> | Finding | Now |
+> | ------- | --- |
+> | **B4** — `sizeof(Sample) == 12` cannot hold | ✔ Closed. The record is 24 B and the assert, §9.2, §9.5, §9.7, D7/D8 all agree. |
+> | **C4** — F5 says three zones, §8.9 delivers four | ✔ Closed. F5 now lists five, matching §8.5. |
+> | **C5** — Q7 recommends against TX while §7.2 transmits | ✔ Closed. Q7 is in §12.1 Resolved: yes, for one frame (`0x240`). |
+> | **A3** — `LV_LABEL_LONG_CLIP` is the LVGL 8 spelling | ✔ Closed, incidentally — §8.12 now names `LV_LABEL_LONG_MODE_WRAP`. |
+> | **A7** — `power_w` is `int16_t` and "scaled" | ✔ Closed. `HausState.power_dw` is `uint16_t` decawatts (§10.2). |
+> | **C2** — block CRC vs O(1) seek | ➖ Superseded. Rev 1.3 replaced the append model with a once-a-day whole-file write (§7.10), so per-block framing is moot. |
+> | **B1** — CH422G bit numbers wrong (`USB_SEL` is bit 5, not 4) | ✓ **Closed.** Corrected throughout: `USB_SEL`=IO5, `SD_CS`=IO4, `LCD_RST`=IO3, `LCD_BL`=IO2, `TP_RST`=IO1. A **third** source confirms it — Espressif's own pin table in `esp_expander_ch422g.hpp` documents IO0–IO7 and OC0–OC3 as expander pins 0–7 and 8–11. The board README's prose table is off by one against all three *and against its own register example*. D47. |
+> | **A4** — "the module must not go through `esp_io_expander`" | ✗ **Overtaken — I was too strong.** `esp_io_expander` is the right foundation: Espressif-maintained, already used by the Waveshare examples, and it supplies the pin map, the all-or-nothing IO0–IO7 direction control, typed `enableOC_PushPull()`/`enableOC_OpenDrain()`, and `multiSetIO()` for batched writes. §6.5 rewritten to build on it, adding only a cached shadow (so a setter is one write, not a read-modify-write), a mutex, and named board-meaningful setters. The two genuine traps stay as documented caveats: `write_output_reg()` skips a zero byte, and `begin()` leaves IO0–IO7 HIGH. D46. |
+> | **C1** — CH422G power-on default | ✓ **Closed by source.** Three statements agree the output register comes up **HIGH**: the driver's `REG_WR_IO_DEFAULT_VAL 0xFF`, the wrapper's documented `begin()` ("sets all IO0-7 pins to output high-level mode"), and `USB_SEL`=IO5. **The board powers up in CAN mode with USB dead.** R1 as written in rev 1.0 was wrong; §3.3 now states the correction and makes the guarantee a *firmware* obligation (N19) plus a hardware escape (Q17). D48. Bench-confirm the ROM-download escape still works in phase 1 — it now works for a different reason than rev 1.0 claimed. |
+> | **G2** — phase gates do not cover Q9–Q11 | ✓ Closed. Phase 0 now reads "Q1–Q15 answered or deferred with an owner"; rev 1.3 extends this to Q21. |
+> | **G3** — unresolved question inside the §6.7 code block | Still open. The `"if the board has one"` comment survives. |
+> | **A1/A2** — `tpl_backlightPin 2` is DATA12; `tpl_ledPin_R/G/B` includes DATA3 | ⬆ **Now urgent, and doubled.** Rev 1.3 wants GPIO 4 for the CAN force-USB strap (Q17) *and* for LEDC backlight dimming (§7.13 option D, Q19). Both compete for the one free pin, and §6.7 still claims it as `tpl_ledPin`. Three claims on one GPIO — reconcile before phase 1. |
+>
+> **New in rev 1.3, not yet reviewed here:** the 24-hour power-loss window from
+> once-a-day SD writes (R23), the modelled water-out temperature (R24), the 4 mm
+> floor's cost in information density (R25), SML decoder drift from project 15
+> (R26), and — the largest — **Q21**: none of this board's driver stack is
+> ESP-IDF core. All of it is registry components, and `esp_lcd_rgb_panel` needs
+> IDF v5.2+, while PlatformIO's default `framework = arduino` is IDF 4.4.4 where
+> *none* of it exists. §6.3 cannot start until that is settled.
+
+
 ## Summary
 
 The design reasoning is strong. Four ideas in this document are better than

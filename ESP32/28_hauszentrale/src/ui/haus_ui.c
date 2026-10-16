@@ -69,6 +69,7 @@ static lv_obj_t *s_cabinet;
 static lv_obj_t *s_fire;
 static lv_obj_t *s_flame[3];
 static lv_obj_t *s_chamber_temp;
+static lv_obj_t *s_chamber_unit;
 static lv_obj_t *s_water_in;
 static lv_obj_t *s_water_in_lbl;
 static lv_obj_t *s_pump;
@@ -76,6 +77,7 @@ static lv_obj_t *s_pump_lbl;
 static lv_obj_t *s_water_out;
 static lv_obj_t *s_water_out_lbl;
 static lv_obj_t *s_living_temp;
+static lv_obj_t *s_living_unit;
 static lv_obj_t *s_living_rh;
 static lv_obj_t *s_living_pa;
 static lv_obj_t *s_power_num;
@@ -337,8 +339,8 @@ static void build_heater(void) {
     /* Chamber temperature (left of the cabinet). */
     s_chamber_temp = label_make(lv_screen_active(), "21.4", 24, 250,
                                 &lv_font_montserrat_32, C_COLD);
-    label_make(lv_screen_active(), "°C", 24, 292, &lv_font_montserrat_16,
-               C_COLD);
+    s_chamber_unit = label_make(lv_screen_active(), "°C", 0, 0,
+                                &lv_font_montserrat_16, C_COLD);
 
     /* Pipe labels. */
     s_water_in = label_make(lv_screen_active(), "48.6 °C", 24, 508,
@@ -365,8 +367,8 @@ static void build_living(void) {
     (void)glyph;
     s_living_temp = label_make(lv_screen_active(), "21.8", 56, 596,
                                &lv_font_montserrat_32, C_COLD);
-    label_make(lv_screen_active(), "°C", 140, 632, &lv_font_montserrat_16,
-               C_COLD);
+    s_living_unit = label_make(lv_screen_active(), "°C", 0, 0,
+                               &lv_font_montserrat_16, C_COLD);
 
     s_living_rh = label_make(lv_screen_active(), "47 %rh", 300, 590,
                              &lv_font_montserrat_16, C_CYAN);
@@ -459,6 +461,10 @@ void haus_ui_update(void) {
     } else {
         txt(s_chamber_temp, "--");
     }
+    if (s_chamber_unit && s_chamber_temp) {
+        lv_obj_align_to(s_chamber_unit, s_chamber_temp,
+                        LV_ALIGN_OUT_RIGHT_BOTTOM, 4, -2);
+    }
     if (s_fire && chamber != GUI_EMPTY) {
         double c = chamber / 100.0;
         double t = (c - 20.0) / 60.0;
@@ -509,6 +515,10 @@ void haus_ui_update(void) {
         txt(s_living_temp, buf);
     } else {
         txt(s_living_temp, "--");
+    }
+    if (s_living_unit && s_living_temp) {
+        lv_obj_align_to(s_living_unit, s_living_temp,
+                        LV_ALIGN_OUT_RIGHT_BOTTOM, 4, -2);
     }
     if (state->living.humidity) {
         snprintf(buf, sizeof(buf), "%u %rh", state->living.humidity / 100);
@@ -736,9 +746,9 @@ void haus_ui_deinit(void) {
     s_status_date = s_clock = s_can_dot = s_sd_dot = NULL;
     s_cabinet = s_fire = NULL;
     memset(s_flame, 0, sizeof(s_flame));
-    s_chamber_temp = s_water_in = s_water_in_lbl = NULL;
+    s_chamber_temp = s_chamber_unit = s_water_in = s_water_in_lbl = NULL;
     s_pump = s_pump_lbl = s_water_out = s_water_out_lbl = NULL;
-    s_living_temp = s_living_rh = s_living_pa = NULL;
+    s_living_temp = s_living_unit = s_living_rh = s_living_pa = NULL;
     s_power_num = s_power_src = NULL;
     s_breath_phase = 0.0;
 }

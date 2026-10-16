@@ -164,11 +164,26 @@ static int32_t mock_sml_watts(uint32_t epoch) {
     return watts;
 }
 
-/* ─── Living room (permanently "—" on this board) ─────────────────────────── */
+/* ─── Living room (synthetic on host; no sensors on the real board) ─────────
+ *
+ *  The physical panel has no usable local sensors (whitepaper Q24), so the
+ *  device renders the living-room zone as "—". For UI design and screenshot
+ *  verification the host generates plausible values instead of a blank zone.
+ */
 
 static int16_t mock_living_temp(uint32_t epoch) {
-    (void)epoch;
-    return GUI_EMPTY;  /* No local sensors on this board. */
+    double t = 21.8 + sin(epoch * 0.0004) * 0.8;
+    return (int16_t)(t * 100.0);
+}
+
+static uint16_t mock_living_humidity(uint32_t epoch) {
+    double rh = 47.0 + sin(epoch * 0.0007) * 4.0;
+    return (uint16_t)(rh * 100.0);
+}
+
+static uint32_t mock_living_pressure(uint32_t epoch) {
+    double p = 1013.0 + sin(epoch * 0.0002) * 6.0;
+    return (uint32_t)(p * 100.0);
 }
 
 /* ─── Historical data generation ────────────────────────────────────────────
@@ -272,10 +287,10 @@ void gui_update_state(void) {
     g_state.power.valid = (watts > 0);
     g_state.power.source = GUI_PWR_SRC_SML;
 
-    /* Living room (permanently "—"). */
+    /* Living room (synthetic values for host UI verification). */
     g_state.living.temperature = mock_living_temp(g_sim_time);
-    g_state.living.humidity = 0;
-    g_state.living.pressure = 0;
+    g_state.living.humidity = mock_living_humidity(g_sim_time);
+    g_state.living.pressure = mock_living_pressure(g_sim_time);
     g_state.living.valid = (g_state.living.temperature != GUI_EMPTY);
 
     /* System. */

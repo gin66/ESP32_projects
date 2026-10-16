@@ -27,10 +27,14 @@ target_include_directories(lvgl PUBLIC
     ${LVGL_ROOT_DIR}/src/libs/lodepng
 )
 
-# Our host harness executable
+# Our host harness executable.
+#
+# src/ui/haus_ui.c is the PRODUCTIVE UI — the very file the ESP32 firmware
+# compiles (platformio build_src_filter includes <src/>). The harness never
+# carries its own copy, so the PNGs always reflect the device code.
 add_executable(hauszentrale_host
     src/main.c
-    src/haus_ui.c
+    ${CMAKE_SOURCE_DIR}/../src/ui/haus_ui.c
     src/haus_gui_mock.cpp
 )
 

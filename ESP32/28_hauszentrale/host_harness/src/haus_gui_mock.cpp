@@ -309,6 +309,7 @@ void gui_update_state(void) {
     can.can_status = GUI_STATUS_OK;
     can.duty_status = GUI_STATUS_INACTIVE;
     can.sd_status = GUI_STATUS_ERROR;
+    can.wifi_status = GUI_STATUS_OK;
     can.sd_low_space = false;
 
     /* Chamber target. */

@@ -152,14 +152,14 @@ the SDL window / smoke test / screenshot baseline path.
 - [x] S10.06 Put the background on lv_layer_bottom() — Test: redrawing the flame does not re-decode or repaint the image
 - [x] S10.07 Draw the heater cabinet outline on an lv_canvas — Test: rounded rect with the specified stroke renders
 - [x] S10.08 Draw the firebox with warmth lerped from chamber temperature — Test: the colour tracks a replayed temperature
-- [ ] S10.09 Draw 3 stacked flame arcs with a 6 s breathing cycle — Test: the animation runs and brightness tracks temperature
+- [x] S10.09 Draw 3 stacked flame arcs with a 6 s breathing cycle — Test: the animation runs and brightness tracks temperature. Implemented in `build_heater()` (three pill tongues plus core) and `haus_ui_animate()` (6 s `lv_tick_get()` phase, opacity scaled by chamber temperature).
 - [x] S10.10 Draw in/out pipes with the shared blue-amber-red ramp — Test: a 30/60 °C sweep crosses the breakpoints
 - [x] S10.11 March 6 flow dashes along each pipe, direction by flow presence — Test: dashes animate only when duty > 0
 - [x] S10.12 Render the sentinel value grey, not as an extreme colour — Test: an empty slot draws grey
 - [x] S10.13 Add the living-room strip (temp, humidity, pressure) — Test: band renders at y=580 with the 76 px height
 - [x] S10.14 Add the power band with a source badge — Test: SML shows SML, no value shows —
-- [ ] S10.15 Add the gear as the last nav-pane tab — Test: it is tappable at 68 px wide
-- [ ] S10.16 Add five invisible overlay zone buttons — Test: each zone opens its screen, zones never overlap
+- [x] S10.15 Add the gear as the last nav-pane tab — Test: it is tappable at 68 px wide. Nav is now seven 68 px tab buttons (`NAV_TABS 7`); the gear is the last slot and opens Settings.
+- [x] S10.16 Add five invisible overlay zone buttons — Test: each zone opens its screen, zones never overlap. `build_zones()` places chamber (90,220,300×200), water-in (20,440,180×120), water-out (280,440,180×120), living (0,580,480×76) and power (0,656,480×56); callbacks defer a `jump()` to the target screen.
 - [x] S10.17 Add the PRESSED feedback (12% tint, 1.04 label scale) — Test: press state is visible
 - [x] S10.18 Add the duty provenance marker to the status strip — Test: solid for PWM_SRC_CAN, hollow for EEPROM
 - [x] S10.19 Verify the whole home screen on the host harness — Test: make run shows the same layout without hardware
@@ -175,6 +175,7 @@ the SDL window / smoke test / screenshot baseline path.
 - [x] Fix the WiFi_Manager task-watchdog reset — Test: manager reconnects with non-blocking `WiFi.begin()` every 10 s and gives DHCP a 15 s grace period; no TWDT panic with `0.0.0.0`
 - [x] Space the status-strip CAN and SD indicators — Test: 16 px gap between the CAN label and the SD dot
 - [x] Place the °C unit labels at build time — Test: chamber and living-room units are aligned immediately, not left at (0,0)
+- [x] Make WiFi non-essential at runtime: connect at boot for the initial SNTP sync (refresh once an hour), keep it available afterwards for optional log/control use, drop the net-watchdog reboot path, and if the link is lost re-run `WiFi.begin()` until connected while the panel keeps operating offline. Add a WiFi symbol (no text) to the status strip — Test: pulling the AP never reboots the panel, the symbol is green when connected and grey when not, log/control work when connected, and the clock stays correct across an hour. Implemented: `-DNO_NET_WATCHDOG` and the `tpl_net_watchdog_setup()` call removed; `sntp_set_sync_interval(1 h)`; the WiFi manager keeps the existing non-blocking retry/tier loop; `CanState.wifi_status` drives an `LV_SYMBOL_WIFI` glyph (green/grey) in the status strip.
 
 ## S11 · THREE-TIER HISTORY STORE
 

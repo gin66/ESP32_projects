@@ -20,6 +20,7 @@
 #include "haus_ui.h"
 #include <esp_heap_caps.h>
 #include <esp_flash.h>
+#include <esp_sntp.h>
 #include <esp_timer.h>
 #include <lvgl.h>
 
@@ -129,14 +130,16 @@ void setup() {
         TPL_LOGE("boot", "RGB panel initialization failed");
     }
 
-    /* WiFi + webserver + websocket (standard template setup) */
+    /* WiFi + webserver + websocket (standard template setup). The panel is
+     * already running at this point; this only enables the optional network
+     * services and the initial clock sync. */
     tpl_wifi_setup(true, true, (gpio_num_t)255);  // no status LED on this board
+    sntp_set_sync_interval(60UL * 60UL * 1000UL);  // refresh once an hour
     tpl_webserver_setup();
     tpl_debug_log_register_endpoints();
     tpl_websocket_setup(NULL, NULL);
-#ifdef NET_WATCHDOG
-    tpl_net_watchdog_setup();
-#endif
+    /* No net watchdog: WiFi is optional after boot. The WiFi manager keeps
+     * retrying the link, while the panel stays fully operational offline. */
     tpl_command_setup(NULL);
 }
 

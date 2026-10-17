@@ -106,6 +106,7 @@ typedef struct {
     gui_status_t can_status;
     gui_status_t duty_status;
     gui_status_t sd_status;
+    gui_status_t wifi_status;
     bool         sd_low_space;
     int16_t      chamber_target_c;
     bool         water_modelled;

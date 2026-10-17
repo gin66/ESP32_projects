@@ -523,7 +523,7 @@ treated as in-scope battery engineering under §2.2.
 | N4 | SD writes never block the LVGL task. |
 | N5 | House-state code (decoding, formatting, chart maths) is pure C++ with **no Arduino, ESP-IDF or LVGL dependencies**, so it compiles natively on macOS. |
 | N6 | Memory budget: **heap** allocations stay under 64 KB (§10.5.3). Static PSRAM (§10.5.1) is sized at compile time and never reallocated — the 1 MB log ring, the decoded background (768 KB, §8.3), the day buffer and the rollup. The LVGL draw buffers stay in **internal** RAM, because the panel's DMA cannot cross the octal-PSRAM boundary. The chart working set is ~24 KB (§9.3), not 6 KB. |
-| N7 | The device stays reachable: WiFi/OTA/watchdog behave as in every other project. |
+| N7 | The device stays reachable: OTA and the optional log/control WebSocket behave as in every other project. WiFi is not a runtime dependency — the panel keeps operating offline, never reboots because the AP disappeared, and refreshes NTP once an hour when the link is up. |
 | N8 | Fonts and background images live in PSRAM or flash, not internal RAM. |
 | N9 | Rebuilding `platformio.ini` for a board switch requires changing exactly one `-D` flag. |
 | N10 | **No code path may depend on a working `Serial`.** The mechanical switch can kill the CH9102, and Q22 may find that CAN mode does too, so every diagnostic must reach the PSRAM ring, and from there one of the three sinks: the WebSocket (`ws://<host>:81`), the log screen, or the SD dump. The ring must never block on a dead UART/CDC handle or on a stalled socket. |
@@ -1017,7 +1017,7 @@ build_flags =
     -D LV_CONF_INCLUDE_SIMPLE
     -D CORE_DEBUG_LEVEL=1
     -D HOSTNAME=\"${common.hostname}\"
-    -D NET_WATCHDOG=\"192.168.1.1\"
+    -D NO_NET_WATCHDOG              ; WiFi is optional; never reboot on a lost AP
     -D CONFIG_SPIRAM_CACHE_WORKAROUND
     -D ARDUINO_USB_CDC_ON_BOOT=0     ; Serial is UART0, GPIO 43/44, the CH9102. §3.1.1, Q2.
     -D ARDUINO_USB_MODE=0            ; do not bring up USB-OTG CDC. GPIO 19/20 belong to TWAI.

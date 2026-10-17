@@ -31,7 +31,7 @@
 
 #define NAV_Y 712
 #define NAV_H 88
-#define NAV_TABS 6
+#define NAV_TABS 7
 
 /* ─── Palette (from docs/ui/mockup.html) ──────────────────────────────────── */
 
@@ -52,20 +52,39 @@
 
 /* ─── Bottom navigation ───────────────────────────────────────────────────── */
 
+/* Seven 68 px tabs, matching the whitepaper §8.11.1 drawing. The enum value is
+ * also the nav tab index, so a tab click is a direct screen switch. */
+enum ui_screen_id {
+    UI_SCREEN_HOME = 0,
+    UI_SCREEN_CHAMBER,
+    UI_SCREEN_WATER_IN,
+    UI_SCREEN_WATER_OUT,
+    UI_SCREEN_POWER,
+    UI_SCREEN_LIVING,
+    UI_SCREEN_SETTINGS,
+};
+
 static const char *nav_icons[NAV_TABS] = {
     LV_SYMBOL_HOME,     /* 0 home */
     LV_SYMBOL_CHARGE,   /* 1 chamber */
-    NULL,               /* 2 water: both in and out (drawn as waves) */
-    LV_SYMBOL_POWER,    /* 3 power */
-    LV_SYMBOL_EYE_OPEN, /* 4 living (monitoring/observation) */
-    LV_SYMBOL_SETTINGS, /* 5 gear */
+    NULL,               /* 2 water in (drawn as waves) */
+    NULL,               /* 3 water out (drawn as waves) */
+    LV_SYMBOL_POWER,    /* 4 power */
+    LV_SYMBOL_EYE_OPEN, /* 5 living (monitoring/observation) */
+    LV_SYMBOL_SETTINGS, /* 6 gear */
 };
+
+static int g_current_screen = UI_SCREEN_HOME;
+static int g_pending_screen = -1;
+
+static void ui_show_screen(int screen);
 
 /* Home-screen widgets (NULL when the home screen is not built). */
 static lv_obj_t *s_status_date;
 static lv_obj_t *s_clock;
 static lv_obj_t *s_can_dot;
 static lv_obj_t *s_sd_dot;
+static lv_obj_t *s_wifi_icon;
 static lv_obj_t *s_cabinet;
 static lv_obj_t *s_fire;
 static lv_obj_t *s_flame[3];
@@ -102,6 +121,7 @@ static void align_power_labels(void);
 static uint32_t s_last_can_color = 0xFFFFFFFFu;
 static uint32_t s_last_duty_color = 0xFFFFFFFFu;
 static uint32_t s_last_sd_color = 0xFFFFFFFFu;
+static uint32_t s_last_wifi_color = 0xFFFFFFFFu;
 static uint32_t s_last_fire_grad = 0xFFFFFFFFu;
 static uint8_t s_last_flame_opa[3] = {0xFF, 0xFF, 0xFF};
 static uint16_t s_last_pipe_l_color = 0xFFFFu;
@@ -184,6 +204,24 @@ static void nav_waves(lv_obj_t *nav, int cx, int y, uint32_t color) {
     }
 }
 
+static void ui_nav_job(void *arg) {
+    g_pending_screen = -1;
+    ui_show_screen((int)(intptr_t)arg);
+}
+
+/* Defer the screen swap until the current event has returned; deleting the
+ * event's target from inside its own callback is not safe in LVGL. */
+static void ui_nav_go(int screen) {
+    if (screen == g_current_screen || screen == g_pending_screen) return;
+    g_pending_screen = screen;
+    lv_async_call(ui_nav_job, (void *)(intptr_t)screen);
+}
+
+static void nav_click_cb(lv_event_t *e) {
+    int screen = (int)(intptr_t)lv_event_get_user_data(e);
+    ui_nav_go(screen);
+}
+
 static void nav_build(int active) {
     lv_obj_t *nav = lv_obj_create(lv_screen_active());
     lv_obj_set_size(nav, SCREEN_W, NAV_H);
@@ -196,24 +234,41 @@ static void nav_build(int active) {
     hline(nav, 0, C_LINE);
 
     int tab_w = SCREEN_W / NAV_TABS;
+    int x0 = (SCREEN_W - tab_w * NAV_TABS) / 2;
     for (int i = 0; i < NAV_TABS; i++) {
         uint32_t color = i == active ? C_INK : C_DIM;
+
+        /* A transparent tab-sized button gives the whole 68 px slot LVGL's
+         * press/click handling, not just the glyph. */
+        lv_obj_t *tab = lv_obj_create(nav);
+        lv_obj_set_size(tab, tab_w, NAV_H);
+        lv_obj_set_pos(tab, x0 + i * tab_w, 0);
+        lv_obj_set_style_bg_opa(tab, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(tab, 0, 0);
+        lv_obj_set_style_radius(tab, 0, 0);
+        lv_obj_set_style_pad_all(tab, 0, 0);
+        obj_set_scrollable(tab, false);
+        obj_set_clickable(tab, true);
+        lv_obj_add_event_cb(tab, nav_click_cb, LV_EVENT_CLICKED,
+                            (void *)(intptr_t)i);
+
         if (nav_icons[i] == NULL) {
-            nav_waves(nav, i * tab_w + tab_w / 2, NAV_H / 2 - 10, color);
+            nav_waves(tab, tab_w / 2, NAV_H / 2 - 10, color);
         } else {
-            lv_obj_t *icon = lv_label_create(nav);
+            lv_obj_t *icon = lv_label_create(tab);
             lv_obj_set_style_text_font(icon, &lv_font_montserrat_24, 0);
             lv_obj_set_style_text_color(icon, lv_color_hex(color), 0);
             lv_label_set_text(icon, nav_icons[i]);
             lv_obj_set_width(icon, tab_w);
             lv_obj_set_style_text_align(icon, LV_TEXT_ALIGN_CENTER, 0);
-            lv_obj_set_pos(icon, i * tab_w, NAV_H / 2 - 14);
+            lv_obj_set_pos(icon, 0, NAV_H / 2 - 14);
+            obj_set_clickable(icon, false);
         }
 
         if (i == active) {
-            lv_obj_t *rule = lv_obj_create(nav);
+            lv_obj_t *rule = lv_obj_create(tab);
             lv_obj_set_size(rule, tab_w - 28, 3);
-            lv_obj_set_pos(rule, i * tab_w + 14, NAV_H - 3);
+            lv_obj_set_pos(rule, 14, NAV_H - 3);
             lv_obj_set_style_bg_color(rule, lv_color_hex(C_ACCENT), 0);
             lv_obj_set_style_border_width(rule, 0, 0);
             lv_obj_set_style_radius(rule, 1, 0);
@@ -252,6 +307,19 @@ static void epoch_to_date(uint32_t epoch, char *out, size_t n) {
  * inserted to the left of whatever is already there, and *right is moved to the
  * mark's left edge minus the inter-mark gap. Returns the dot so callers can
  * recolour it when the state changes. */
+/* A symbol-only mark (no text label), used for the optional WiFi indicator. */
+static lv_obj_t *status_symbol_mark(int *right, const char *symbol) {
+    lv_point_t size;
+    lv_text_get_size(&size, symbol, &lv_font_montserrat_16, 0, 0,
+                     LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+
+    int x = *right - size.x;
+    lv_obj_t *l = label_make(lv_screen_active(), symbol, x, STATUS_LABEL_Y,
+                             &lv_font_montserrat_16, C_OFF);
+    *right = x - STATUS_MARK_GAP;
+    return l;
+}
+
 static lv_obj_t *status_mark(int *right, const char *text) {
     lv_point_t size;
     lv_text_get_size(&size, text, &lv_font_montserrat_16, 0, 0, LV_COORD_MAX,
@@ -295,6 +363,16 @@ static void status_dot_apply(lv_obj_t *dot, gui_status_t status,
     lv_obj_set_style_bg_color(dot, lv_color_hex(color), 0);
 }
 
+/* Same guard for a symbol label. */
+static void status_text_apply(lv_obj_t *label, gui_status_t status,
+                              uint32_t *last_color) {
+    if (!label) return;
+    uint32_t color = status_color(status);
+    if (color == *last_color) return;
+    *last_color = color;
+    lv_obj_set_style_text_color(label, lv_color_hex(color), 0);
+}
+
 /* Duty provenance keeps the hollow marker for the non-live (EEPROM) state:
  * solid = live, hollow = restored, red = fault. */
 static void duty_dot_apply(lv_obj_t *dot, gui_status_t status,
@@ -317,9 +395,11 @@ static void build_status(void) {
     s_status_date = label_make(lv_screen_active(), "--- -- ---", 12,
                                STATUS_LABEL_Y, &lv_font_montserrat_16, C_INK);
 
-    /* Right-to-left: SD, CAN, then the duty provenance marker. For the duty
-     * marker solid means live, hollow means restored EEPROM, red means fault. */
+    /* Right-to-left: WiFi symbol, SD, CAN, then the duty provenance marker.
+     * For the duty marker solid means live, hollow means restored EEPROM,
+     * red means fault. WiFi has no text label, only the glyph. */
     int right = SCREEN_W - 12;
+    s_wifi_icon = status_symbol_mark(&right, LV_SYMBOL_WIFI);
     s_sd_dot = status_mark(&right, "SD");
     s_can_dot = status_mark(&right, "CAN");
     s_duty_src = status_mark(&right, "DUTY");
@@ -586,21 +666,42 @@ static void align_power_labels(void) {
     }
 }
 
+static void zone_click_cb(lv_event_t *e) {
+    int screen = (int)(intptr_t)lv_event_get_user_data(e);
+    ui_nav_go(screen);
+}
+
 static void build_zones(void) {
-    /* Five invisible tappable zones over the heater/living area.
-     * When pressed, a 12 % tint overlay appears and labels scale to 1.04. */
+    /* Five invisible tappable zones, sized and placed per whitepaper §8.5.
+     * They never overlap: chamber ends at y=420, the water pair sits between
+     * y=440 and y=560 with a 80 px dead gap, living room is y=580..656 and
+     * power is y=656..712. */
+    static const struct {
+        int x, y, w, h;
+        int screen;
+    } zones[5] = {
+        {90, 220, 300, 200, UI_SCREEN_CHAMBER},
+        {20, 440, 180, 120, UI_SCREEN_WATER_IN},
+        {280, 440, 180, 120, UI_SCREEN_WATER_OUT},
+        {0, 580, SCREEN_W, 76, UI_SCREEN_LIVING},
+        {0, 656, SCREEN_W, 56, UI_SCREEN_POWER},
+    };
+
     for (int i = 0; i < 5; i++) {
         s_zone[i] = lv_obj_create(lv_screen_active());
-        lv_obj_set_size(s_zone[i], SCREEN_W / 5, 380);
-        lv_obj_set_pos(s_zone[i], i * (SCREEN_W / 5), 200);
-        lv_obj_set_style_bg_opa(s_zone[i], LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(s_zone[i], 0, 0);
-        /* Pressed state: 12 % white tint overlay. */
+        lv_obj_set_pos(s_zone[i], zones[i].x, zones[i].y);
+        lv_obj_set_size(s_zone[i], zones[i].w, zones[i].h);
         lv_obj_set_style_bg_color(s_zone[i], lv_color_hex(0xffffff), 0);
-        lv_obj_set_style_bg_opa(s_zone[i], 0, LV_STATE_PRESSED);
-        /* Override opa for pressed state to 12 % (32/255 ≈ 0.125). */
-        lv_obj_set_style_opa(s_zone[i], 32, LV_STATE_PRESSED);
+        lv_obj_set_style_bg_opa(s_zone[i], LV_OPA_TRANSP, 0);
+        /* Pressed state: 12 % white tint (32/255). */
+        lv_obj_set_style_bg_opa(s_zone[i], 32, LV_STATE_PRESSED);
+        lv_obj_set_style_border_width(s_zone[i], 0, 0);
+        lv_obj_set_style_radius(s_zone[i], 0, 0);
+        lv_obj_set_style_pad_all(s_zone[i], 0, 0);
+        obj_set_scrollable(s_zone[i], false);
         obj_set_clickable(s_zone[i], true);
+        lv_obj_add_event_cb(s_zone[i], zone_click_cb, LV_EVENT_CLICKED,
+                            (void *)(intptr_t)zones[i].screen);
     }
 }
 
@@ -625,6 +726,7 @@ lv_obj_t *haus_ui_init(void) {
     build_heater();
     build_living();
     build_power();
+    build_zones();
     nav_build(0);
 
     /* Paint the honest initial state immediately: the widgets above are built
@@ -658,6 +760,7 @@ void haus_ui_update(void) {
     status_dot_apply(s_can_dot, state.can.can_status, &s_last_can_color);
     duty_dot_apply(s_duty_src, state.can.duty_status, &s_last_duty_color);
     status_dot_apply(s_sd_dot, state.can.sd_status, &s_last_sd_color);
+    status_text_apply(s_wifi_icon, state.can.wifi_status, &s_last_wifi_color);
 
     /* Chamber. */
     int16_t chamber = state.can.temp_by_fn[SENSOR_FN_CHAMBER];
@@ -1075,13 +1178,56 @@ void haus_ui_deinit(void) {
     while (lv_obj_get_child_cnt(root) > 0) {
         lv_obj_delete(lv_obj_get_child(root, 0));
     }
-    s_status_date = s_clock = s_can_dot = s_sd_dot = NULL;
+    s_status_date = s_clock = s_can_dot = s_sd_dot = s_wifi_icon = NULL;
     s_cabinet = s_fire = NULL;
     memset(s_flame, 0, sizeof(s_flame));
     s_chamber_temp = s_chamber_unit = s_water_in = s_water_in_lbl = NULL;
     s_pump = s_pump_lbl = s_water_out = s_water_out_lbl = NULL;
     s_living_temp = s_living_unit = s_living_rh = s_living_pa = NULL;
     s_power_num = s_power_bolt = s_power_src = NULL;
-    s_last_can_color = s_last_sd_color = s_last_fire_grad = 0xFFFFFFFFu;
+    memset(s_zone, 0, sizeof(s_zone));
+    s_last_can_color = s_last_sd_color = s_last_wifi_color =
+        s_last_fire_grad = 0xFFFFFFFFu;
     memset(s_last_flame_opa, 0xFF, sizeof(s_last_flame_opa));
+}
+
+static void build_placeholder_screen(const char *title, int nav_index) {
+    lv_obj_t *root = lv_screen_active();
+    lv_obj_set_style_bg_color(root, lv_color_hex(C_BG), 0);
+    header_build(title, NULL, C_DIM);
+    label_make(root, "Detail screen pending (S13)", 20, 200,
+               &lv_font_montserrat_16, C_DIM);
+    nav_build(nav_index);
+}
+
+/* Jump to a screen: replace the current screen and rebuild at depth 1. */
+static void ui_show_screen(int screen) {
+    if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_SETTINGS) return;
+    g_current_screen = screen;
+
+    haus_ui_deinit();
+
+    switch (screen) {
+        case UI_SCREEN_HOME:
+            haus_ui_init();
+            break;
+        case UI_SCREEN_CHAMBER:
+            haus_ui_build_detail();
+            break;
+        case UI_SCREEN_WATER_IN:
+            build_placeholder_screen("WATER IN", UI_SCREEN_WATER_IN);
+            break;
+        case UI_SCREEN_WATER_OUT:
+            build_placeholder_screen("WATER OUT", UI_SCREEN_WATER_OUT);
+            break;
+        case UI_SCREEN_POWER:
+            build_placeholder_screen("POWER", UI_SCREEN_POWER);
+            break;
+        case UI_SCREEN_LIVING:
+            build_placeholder_screen("LIVING ROOM", UI_SCREEN_LIVING);
+            break;
+        case UI_SCREEN_SETTINGS:
+            build_placeholder_screen("SETTINGS", UI_SCREEN_SETTINGS);
+            break;
+    }
 }

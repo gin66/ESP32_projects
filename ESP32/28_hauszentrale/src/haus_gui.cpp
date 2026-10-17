@@ -13,6 +13,7 @@
 #include "haus_triple_buffer.h"
 
 #include <Arduino.h>
+#include <WiFi.h>
 #include <atomic>
 #include <time.h>
 #include <esp_heap_caps.h>
@@ -211,6 +212,14 @@ void gui_update_state(void) {
                                   : GUI_STATUS_INACTIVE;
     can.sd_status = GUI_STATUS_INACTIVE;
     can.sd_low_space = false;
+
+    /* WiFi is optional after boot: the symbol is green only while associated
+     * and holding a DHCP lease, grey otherwise. */
+    const IPAddress ip = WiFi.localIP();
+    const bool ip_valid = (ip[0] != 0 || ip[1] != 0 || ip[2] != 0 || ip[3] != 0);
+    can.wifi_status = (WiFi.status() == WL_CONNECTED && ip_valid)
+                          ? GUI_STATUS_OK
+                          : GUI_STATUS_INACTIVE;
 
     can.chamber_target_c = 6000;  /* 60 °C default */
     can.water_modelled = false;

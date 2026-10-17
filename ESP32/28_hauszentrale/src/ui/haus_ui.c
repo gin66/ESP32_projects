@@ -240,46 +240,62 @@ static void epoch_to_date(uint32_t epoch, char *out, size_t n) {
 
 /* ─── Home screen ─────────────────────────────────────────────────────────── */
 
-static void build_status(void) {
-    s_status_date = label_make(lv_screen_active(), "--- -- ---", 12, 6,
-                               &lv_font_montserrat_16, C_INK);
+#define STATUS_LABEL_Y 6
+#define STATUS_DOT_Y 10
+#define STATUS_DOT_SIZE 12
+#define STATUS_DOT_LABEL_GAP 8
+#define STATUS_MARK_GAP 8
 
-    lv_obj_t *can = label_make(lv_screen_active(), "CAN", SCREEN_W - 112, 6,
-                               &lv_font_montserrat_16, C_DIM);
-    (void)can;
-    s_can_dot = lv_obj_create(lv_screen_active());
-    lv_obj_set_size(s_can_dot, 12, 12);
-    lv_obj_set_pos(s_can_dot, SCREEN_W - 132, 10);
-    lv_obj_set_style_bg_color(s_can_dot, lv_color_hex(C_OK), 0);
-    lv_obj_set_style_radius(s_can_dot, 6, 0);
-    lv_obj_set_style_border_width(s_can_dot, 0, 0);
+/* Draw one status mark as [dot][label], right-aligned to *right. The mark is
+ * inserted to the left of whatever is already there, and *right is moved to the
+ * mark's left edge minus the inter-mark gap. Returns the dot so callers can
+ * recolour it when the state changes. */
+static lv_obj_t *status_mark(int *right, const char *text) {
+    lv_point_t size;
+    lv_text_get_size(&size, text, &lv_font_montserrat_16, 0, 0, LV_COORD_MAX,
+                     LV_TEXT_FLAG_NONE);
 
-    /* Duty provenance marker: solid circle = CAN source, hollow = EEPROM. */
-    s_duty_src = lv_obj_create(lv_screen_active());
-    lv_obj_set_size(s_duty_src, 12, 12);
-    lv_obj_set_pos(s_duty_src, SCREEN_W - 86, 10);
-    lv_obj_set_style_bg_color(s_duty_src, lv_color_hex(C_OK), 0);
-    lv_obj_set_style_border_width(s_duty_src, 0, 0);
-    lv_obj_set_style_radius(s_duty_src, 6, 0);
-
-    label_make(lv_screen_active(), "SD", SCREEN_W - 40, 6,
+    int label_x = *right - size.x;
+    label_make(lv_screen_active(), text, label_x, STATUS_LABEL_Y,
                &lv_font_montserrat_16, C_DIM);
-    s_sd_dot = lv_obj_create(lv_screen_active());
-    lv_obj_set_size(s_sd_dot, 12, 12);
-    lv_obj_set_pos(s_sd_dot, SCREEN_W - 60, 10);
-    lv_obj_set_style_bg_color(s_sd_dot, lv_color_hex(C_OK), 0);
-    lv_obj_set_style_radius(s_sd_dot, 6, 0);
-    lv_obj_set_style_border_width(s_sd_dot, 0, 0);
+
+    int dot_x = label_x - STATUS_DOT_LABEL_GAP - STATUS_DOT_SIZE;
+    lv_obj_t *dot = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(dot, STATUS_DOT_SIZE, STATUS_DOT_SIZE);
+    lv_obj_set_pos(dot, dot_x, STATUS_DOT_Y);
+    lv_obj_set_style_bg_color(dot, lv_color_hex(C_OK), 0);
+    lv_obj_set_style_radius(dot, STATUS_DOT_SIZE / 2, 0);
+    lv_obj_set_style_border_width(dot, 0, 0);
+
+    *right = dot_x - STATUS_MARK_GAP;
+    return dot;
+}
+
+static void build_status(void) {
+    s_status_date = label_make(lv_screen_active(), "--- -- ---", 12,
+                               STATUS_LABEL_Y, &lv_font_montserrat_16, C_INK);
+
+    /* Right-to-left: SD, CAN, then the duty provenance marker. For the duty
+     * marker a solid dot means CAN, hollow means EEPROM. */
+    int right = SCREEN_W - 12;
+    s_sd_dot = status_mark(&right, "SD");
+    s_can_dot = status_mark(&right, "CAN");
+    s_duty_src = status_mark(&right, "DUTY");
 }
 
 static void build_clock(void) {
     s_clock = label_make(lv_screen_active(), "--:--", 0, 0,
                          &lv_font_montserrat_48, C_INK);
-    lv_obj_align(s_clock, LV_ALIGN_TOP_MID, 0, 52);
     /* Scale 2× (512 = 2.0 in LVGL's 8.8 fixed-point).
-     * Each pixel becomes a 2×2 block — not as smooth as a custom 110 px font,
-     * but good enough and avoids generating a new font. */
+     * The 48 px font becomes ~96 px tall; centre it in the 140 px clock band
+     * (status strip is 32 px, so the band runs y=32..172, centre y=102).
+     * Transform scaling uses the top-left corner as pivot by default, which
+     * pushes a top-aligned label off centre. Pivot on the centre so the
+     * scaled text grows symmetrically, then align with LV_ALIGN_CENTER. */
     lv_obj_set_style_transform_scale(s_clock, 512, 0);
+    lv_obj_set_style_transform_pivot_x(s_clock, LV_PCT(50), 0);
+    lv_obj_set_style_transform_pivot_y(s_clock, LV_PCT(50), 0);
+    lv_obj_align(s_clock, LV_ALIGN_CENTER, 0, -298);
 }
 
 /* A flame tongue: a pill, wider at the base by stacking two pills. */

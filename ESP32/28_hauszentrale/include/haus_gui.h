@@ -104,6 +104,9 @@ typedef enum {
 /* Climate validity bits (whitepaper §7.4 / D24). */
 #define CLIMATE_VALID_AHT20 0x01
 #define CLIMATE_VALID_BMP280 0x02
+/* The SHT45 supplies the same temperature + humidity pair the AHT20 was meant
+ * to. It shares the bit so history records and UI badges keep their meaning. */
+#define CLIMATE_VALID_SHT45 CLIMATE_VALID_AHT20
 
 /* ─── Producer blocks (whitepaper §10.2) ─────────────────────────────────── */
 

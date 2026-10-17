@@ -87,7 +87,6 @@ svg text { font-family: Montserrat, "Avenir Next", "Helvetica Neue", Helvetica, 
 .live-vals .temp small { font-size: 21px; font-weight: 400; margin-left: 2px; }
 .stack { display: flex; flex-direction: column; gap: 2px; font-size: 21px; line-height: 1.05; }
 .rh { color: var(--cyan); }
-.pa { color: var(--violet); }
 .kw { font-size: 32px; font-weight: 500; line-height: 1; }
 .kw small { font-size: 21px; font-weight: 400; margin-left: 4px; }
 
@@ -271,7 +270,7 @@ nav.pane svg { display: block; }
       <svg class="glyph" width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.75" style="color:var(--cold)"><rect x="13" y="3" width="6" height="15" rx="3"/><circle cx="16" cy="24" r="5.5"/><path d="M16 8 V20"/></svg>
       <div class="temp">21.8<small>°C</small></div>
     </div>
-    <div class="stack"><span class="rh">47 %rh</span><span class="pa">1013 hPa</span></div>
+    <div class="stack"><span class="rh">47 %rh</span></div>
   </div>
   <div class="band power">
     <div class="live-vals">
@@ -405,8 +404,8 @@ nav.pane svg { display: block; }
     <span class="oktext">I2C ok</span>
   </header>
   <div class="big cold">21.8<small>°C</small></div>
-  <div class="subq"><span class="rh">47 %rh</span><span class="pa">1013 hPa</span></div>
-  <div class="seg series"><b>temperature</b><span>humidity</span><span>pressure</span></div>
+  <div class="subq"><span class="rh">47 %rh</span></div>
+  <div class="seg series"><b>temperature</b><span>humidity</span></div>
   <svg class="chart" viewBox="0 0 440 260">
     <text x="8" y="48" fill="#9a9086" font-size="21">24</text>
     <text x="8" y="120" fill="#9a9086" font-size="21">22</text>
@@ -423,7 +422,7 @@ nav.pane svg { display: block; }
   </svg>
   <div class="stats"><span>min <b>20.4</b></span><span>max <b>23.1</b></span><span>mean <b>21.6</b></span><span>now <b>21.8</b></span></div>
   <div class="age">updated 34 s ago</div>
-  <div class="sensor">AHT20 · BMP280 · H1</div>
+  <div class="sensor">SHT45 · H1</div>
   <div class="nav-slot" data-tab="living"></div>
 </section>
 

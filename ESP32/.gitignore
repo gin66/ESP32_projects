@@ -29,6 +29,7 @@ target/
 !28_hauszentrale/include/haus_gui.h
 !28_hauszentrale/include/haus_history.h
 !28_hauszentrale/include/haus_rollup.h
+!28_hauszentrale/include/haus_sht45.h
 !28_hauszentrale/include/haus_triple_buffer.h
 !28_hauszentrale/include/haus_ui.h
 .DS_Store

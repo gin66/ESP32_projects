@@ -13,6 +13,7 @@
 #include "haus_history.h"
 #include "haus_rollup.h"
 #include "haus_sd.h"
+#include "haus_sht45.h"
 #include "haus_triple_buffer.h"
 #include "tpl_debug_log.h"
 
@@ -88,12 +89,23 @@ static void read_power(int32_t *watts, uint8_t *source) {
 
 static void read_living(int16_t *temp, uint16_t *hum, uint32_t *pres,
                         uint8_t *flags) {
-  /* TODO: Read from I2C sensors (AHT20 + BMP380).
-   * On this board, no local sensors are usable — return invalid. */
-  *temp = GUI_EMPTY;
-  *hum = 0;
+  /* SHT45 on the shared I2C bus at 0x44 (does not collide with CH422G or
+   * GT911). Polling is non-blocking: the previous conversion is read and the
+   * next one is started, so the UI loop never waits for the ~8.3 ms
+   * measurement. Pressure stays unavailable (no BMP sensor fitted). */
+  int16_t t = 0;
+  uint16_t h = 0;
+  const bool ok = haus_sht45_poll(&t, &h);
+  static bool logged_first = false;
+  if (ok && !logged_first) {
+    logged_first = true;
+    TPL_LOGI("climate", "SHT45 first reading: %d.%02d C, %u.%02u %%rh", t / 100,
+             (t % 100 + 100) % 100, h / 100, h % 100);
+  }
+  *temp = ok ? t : GUI_EMPTY;
+  *hum = ok ? h : 0;
   *pres = 0;
-  *flags = 0;
+  *flags = ok ? CLIMATE_VALID_SHT45 : 0;
 }
 
 /* ─── SD history reader (called by gui_get_history) ─────────────────────────
@@ -316,8 +328,8 @@ int gui_log_save(void) {
 bool gui_can_enabled(void) { return g_can_enabled; }
 
 void gui_set_can_enabled(bool enabled) {
-    g_can_enabled = enabled;
-    TPL_LOGI("settings", "CAN %s", enabled ? "on" : "off");
+  g_can_enabled = enabled;
+  TPL_LOGI("settings", "CAN %s", enabled ? "on" : "off");
 }
 
 bool gui_water_model_available(void) {
@@ -377,7 +389,7 @@ void gui_update_state(void) {
   can.power_src = power_src;
   can.power_dw = 0;
 
-  /* Living room — no usable local sensors on this board. */
+  /* Living room — SHT45 (temperature + humidity); no pressure sensor. */
   int16_t living_temp = GUI_EMPTY;
   uint16_t living_hum = 0;
   uint32_t living_pres = 0;
@@ -387,8 +399,8 @@ void gui_update_state(void) {
   climate.hum_c100 = living_hum;
   climate.pressure_pa = living_pres;
   climate.climate_flags = climate_flags;
-  /* sensorTask (S18, abandoned) would stamp this when it reads. */
-  climate.last_update_epoch = 0;
+  climate.last_update_epoch =
+      (climate_flags & CLIMATE_VALID_SHT45) ? can.timestamp : 0;
 
   can.can_status = GUI_STATUS_INACTIVE;
   can.duty_status =

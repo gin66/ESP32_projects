@@ -142,7 +142,6 @@ static lv_obj_t *s_water_out_lbl;
 static lv_obj_t *s_living_temp;
 static lv_obj_t *s_living_unit;
 static lv_obj_t *s_living_rh;
-static lv_obj_t *s_living_pa;
 static lv_obj_t *s_power_num;
 static lv_obj_t *s_power_bolt;
 static lv_obj_t *s_power_src;
@@ -805,10 +804,8 @@ static void build_living(void) {
   lv_obj_align_to(s_living_unit, s_living_temp, LV_ALIGN_OUT_RIGHT_BOTTOM, 4,
                   -2);
 
-  s_living_rh = label_make(lv_screen_active(), "-- rh", 300, 590,
+  s_living_rh = label_make(lv_screen_active(), "-- rh", 300, 604,
                            &lv_font_montserrat_16, C_CYAN);
-  s_living_pa = label_make(lv_screen_active(), "-- hPa", 300, 616,
-                           &lv_font_montserrat_16, C_VIOLET);
 }
 
 static void build_power(void) {
@@ -1059,7 +1056,7 @@ void haus_ui_update(void) {
 
   /* Living room. */
   bool living_changed;
-  if (state.climate.climate_flags & CLIMATE_VALID_AHT20) {
+  if (state.climate.climate_flags & CLIMATE_VALID_SHT45) {
     temp_text(state.climate.living_c100, buf, sizeof(buf), false);
     living_changed = txt(s_living_temp, buf);
     lv_obj_set_style_text_color(s_living_temp, lv_color_hex(C_COLD), 0);
@@ -1073,22 +1070,13 @@ void haus_ui_update(void) {
     lv_obj_align_to(s_living_unit, s_living_temp, LV_ALIGN_OUT_RIGHT_BOTTOM, 4,
                     -2);
   }
-  if (state.climate.climate_flags & CLIMATE_VALID_AHT20) {
+  if (state.climate.climate_flags & CLIMATE_VALID_SHT45) {
     snprintf(buf, sizeof(buf), "%u rh", state.climate.hum_c100 / 100);
     txt(s_living_rh, buf);
     lv_obj_set_style_text_color(s_living_rh, lv_color_hex(C_CYAN), 0);
   } else {
     txt(s_living_rh, "-- rh");
     lv_obj_set_style_text_color(s_living_rh, lv_color_hex(0x444444), 0);
-  }
-  if (state.climate.climate_flags & CLIMATE_VALID_BMP280) {
-    snprintf(buf, sizeof(buf), "%lu hPa",
-             (unsigned long)(state.climate.pressure_pa / 100));
-    txt(s_living_pa, buf);
-    lv_obj_set_style_text_color(s_living_pa, lv_color_hex(C_VIOLET), 0);
-  } else {
-    txt(s_living_pa, "-- hPa");
-    lv_obj_set_style_text_color(s_living_pa, lv_color_hex(0x444444), 0);
   }
 
   /* Power (always watts, with the bolt glyph). */
@@ -1200,12 +1188,7 @@ void haus_ui_animate(void) {
 #define CHART_Y1 210
 
 enum ui_range { UI_RANGE_DAY = 0, UI_RANGE_WEEK, UI_RANGE_MONTH };
-enum chart_unit {
-  CHART_UNIT_TEMP = 0,
-  CHART_UNIT_RH,
-  CHART_UNIT_PRESSURE,
-  CHART_UNIT_POWER
-};
+enum chart_unit { CHART_UNIT_TEMP = 0, CHART_UNIT_RH, CHART_UNIT_POWER };
 
 typedef struct {
   int a, b;
@@ -1249,7 +1232,7 @@ static lv_obj_t *s_power_unit_lbl;
 static int s_power_bin_count;
 static int s_power_unit = -1; /* -1 auto, 0 W, 1 kW */
 static lv_obj_t *s_water_extra;
-static lv_obj_t *s_living_tab[3];
+static lv_obj_t *s_living_tab[2];
 static int g_living_series = 0;
 
 static lv_obj_t *s_log_label;
@@ -1412,10 +1395,8 @@ static void chart_cfg_for(int detail, chart_cfg_t *cfg) {
     cfg->a = 3 + g_living_series;
     cfg->use_target = 0;
     cfg->hourly_ok = 1;
-    cfg->unit = (g_living_series == 0)   ? CHART_UNIT_TEMP
-                : (g_living_series == 1) ? CHART_UNIT_RH
-                                         : CHART_UNIT_PRESSURE;
-    cfg->color_a = (g_living_series == 2) ? C_VIOLET : C_CYAN;
+    cfg->unit = (g_living_series == 0) ? CHART_UNIT_TEMP : CHART_UNIT_RH;
+    cfg->color_a = C_CYAN;
     cfg->color_b = cfg->color_a;
     break;
   default:
@@ -1627,8 +1608,6 @@ static void chart_axis(chart_cfg_t *cfg) {
   }
 
   int32_t min_span = 1000;
-  if (cfg->unit == CHART_UNIT_PRESSURE)
-    min_span = 1000;
   if (cfg->unit == CHART_UNIT_POWER)
     min_span = 10000;
   if (mx - mn < min_span) {
@@ -1658,9 +1637,6 @@ static void chart_format_value(char *buf, size_t n, int32_t v, int unit) {
     temp_text((int16_t)v, buf, n, false);
     break;
   case CHART_UNIT_RH:
-    snprintf(buf, n, "%d", v / 100);
-    break;
-  case CHART_UNIT_PRESSURE:
     snprintf(buf, n, "%d", v / 100);
     break;
   case CHART_UNIT_POWER:
@@ -1750,11 +1726,15 @@ static void chart_draw(void) {
   chart_labels(&cfg);
 
   bool any = false;
+  size_t first_any = HAUS_CHART_COLUMNS;
+  size_t last_any = 0;
   for (size_t i = 0; i < HAUS_CHART_COLUMNS; i++) {
     if (s_cols[i].n[0] || (cfg.b >= 0 && s_cols[i].n[1]) ||
         (cfg.use_target && s_target_n[i])) {
+      if (!any)
+        first_any = i;
+      last_any = i;
       any = true;
-      break;
     }
   }
   if (s_chart_nodata) {
@@ -1777,6 +1757,10 @@ static void chart_draw(void) {
                                    (HAUS_CHART_COLUMNS - 1));
     const bool gap = (c->n[0] == 0) && (cfg.b < 0 || c->n[1] == 0);
     if (gap) {
+      /* Only mark dropouts between real data. Leading and trailing empty
+       * columns are "no data yet", not a gap, and must stay clean. */
+      if (i < first_any || i > last_any)
+        continue;
       for (int k = 0; k < 3; k++)
         chart_vline(x, CHART_Y1 - 2 - k * 4, CHART_Y1 - 2 - k * 4,
                     c565(C_FAINT));
@@ -2223,21 +2207,13 @@ static void detail_value_update(void) {
     v = st.can.temp_by_fn[SENSOR_FN_WATER_OUT];
     break;
   case UI_SCREEN_LIVING:
-    if (g_living_series == 0) {
-      if (st.climate.climate_flags & CLIMATE_VALID_AHT20)
+    if (st.climate.climate_flags & CLIMATE_VALID_SHT45) {
+      if (g_living_series == 0)
         temp_text(st.climate.living_c100, buf, sizeof(buf), true);
       else
-        snprintf(buf, sizeof(buf), "--");
-    } else if (g_living_series == 1) {
-      if (st.climate.climate_flags & CLIMATE_VALID_AHT20)
         snprintf(buf, sizeof(buf), "%.1f %%rh", st.climate.hum_c100 / 100.0);
-      else
-        snprintf(buf, sizeof(buf), "--");
     } else {
-      if (st.climate.climate_flags & CLIMATE_VALID_BMP280)
-        snprintf(buf, sizeof(buf), "%.1f hPa", st.climate.pressure_pa / 100.0);
-      else
-        snprintf(buf, sizeof(buf), "--");
+      snprintf(buf, sizeof(buf), "--");
     }
     txt(s_detail_value, buf);
     return;
@@ -2279,13 +2255,8 @@ static void detail_update(void) {
   if (g_detail_screen == UI_SCREEN_LIVING) {
     HausState st;
     gui_get_state(&st);
-    const int valid = st.climate.climate_flags & 0x03;
-    if (valid == 0x03)
-      header_badge_set("I2C", C_OK);
-    else if (valid == 0x00)
-      header_badge_set("I2C", C_OFF);
-    else
-      header_badge_set("I2C", C_AMBER);
+    header_badge_set(
+        "I2C", (st.climate.climate_flags & CLIMATE_VALID_SHT45) ? C_OK : C_OFF);
   } else if (g_detail_screen == UI_SCREEN_POWER) {
     HausState st;
     gui_get_state(&st);
@@ -2329,10 +2300,10 @@ static void detail_update(void) {
 }
 
 static void living_series_set(int series) {
-  if (series < 0 || series > 2)
+  if (series < 0 || series > 1)
     return;
   g_living_series = series;
-  for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < 2; i++) {
     if (!s_living_tab[i])
       continue;
     lv_obj_set_style_text_color(s_living_tab[i],
@@ -2347,8 +2318,8 @@ static void living_series_cb(lv_event_t *e) {
 }
 
 static void living_tabs_build(int top) {
-  static const char *names[3] = {"Temp", "RH", "Pressure"};
-  for (int i = 0; i < 3; i++) {
+  static const char *names[2] = {"Temp", "RH"};
+  for (int i = 0; i < 2; i++) {
     lv_obj_t *tab = lv_obj_create(lv_screen_active());
     lv_obj_set_size(tab, 140, 30);
     lv_obj_set_pos(tab, 20 + i * 148, top);
@@ -2950,8 +2921,7 @@ static lv_obj_t *detail_build(int screen, const char *title, int nav_index,
     power_bars_build();
   } else if (screen == UI_SCREEN_LIVING) {
     living_tabs_build(168);
-    label_make(root, "AHT20 - BMP280 - H1", 20, 520, &lv_font_montserrat_16,
-               C_FAINT);
+    label_make(root, "SHT45 - H1", 20, 520, &lv_font_montserrat_16, C_FAINT);
   }
 
   s_axis_key = -1;
@@ -3170,7 +3140,7 @@ void haus_ui_deinit(void) {
   memset(s_flame, 0, sizeof(s_flame));
   s_chamber_temp = s_chamber_unit = s_water_in = s_water_in_lbl = NULL;
   s_pump = s_pump_lbl = s_water_out = s_water_out_lbl = NULL;
-  s_living_temp = s_living_unit = s_living_rh = s_living_pa = NULL;
+  s_living_temp = s_living_unit = s_living_rh = NULL;
   s_power_num = s_power_bolt = s_power_src = NULL;
   memset(s_zone, 0, sizeof(s_zone));
   s_last_can_color = s_last_sd_color = s_last_wifi_color = s_last_fire_grad =

@@ -136,6 +136,9 @@ the SDL window / smoke test / screenshot baseline path.
 
 ## S9 · SENSOR RESOLUTION — slot to rank to ROM to function
 
+**Blocked on S17** — needs a live CAN bus (identity frames) before any of this
+can be exercised. The local SHT45 path (S18b) is independent and does not wait.
+
 - [ ] S9.01 Learn rank to ROM from 0x180+r identity frames — Test: a replayed identity burst populates the map
 - [ ] S9.02 Expire the identity after 90 s — Test: with frames stopped, the slot demotes to unknown
 - [ ] S9.03 Load ROM to function from SPIFFS sensor_roles[] seeded with the three known ROMs — Test: the table loads and round-trips
@@ -304,6 +307,20 @@ the SDL window / smoke test / screenshot baseline path.
 - [x] S18.03–S18.12 All sensor task items — Test: BMP380 at 0x77 responds with chip_id=0x00 (not powered or SDA/SCL not wired); AHT20 at 0x38 is unusable. **The BMP380+AHT20 combo is not usable on this board.** See whitepaper §3.5 update and Q24 resolution.
 
 **Resolution:** The H1 header carries CH422G (4 I2C addresses), GT911 (0x5D), and a BMP380 at 0x77. The AHT20 at 0x38 hard-collides with CH422G WR-IO. The BMP380 at 0x77 is addressable but returns chip_id=0x00 — either unpowered or SDA/SCL not connected to the actual sensor module. No local climate sensors can be fitted. The living-room zone (Detail 5) will render `—` permanently.
+
+**Update 2026-10-17 — S18 reopened as S18b.** A **Sensirion SHT45** is now
+attached to the display at **0x44**, which does not collide with
+`{0x23, 0x24, 0x26, 0x38, 0x5D, 0x14}`. Temperature and humidity in the
+living-room zone are real again; pressure stays `—` (no BMP sensor).
+
+## S18b · LOCAL CLIMATE — SHT45 (reopens S18)
+
+- [x] S18b.01 Probe 0x44 and soft-reset the part at boot — Test: log shows `SHT45 ready at 0x44`
+- [x] S18b.02 High-precision measurement (0xFD) with CRC-8 per word, non-blocking (read previous result, start next) — Test: first reading logged as `23.14 C, 55.22 %rh` on the panel
+- [x] S18b.03 Every I2C transaction takes the bus-wide mutex with a 20 ms bound (N13) — Test: no touch stall while the sensor is polled
+- [x] S18b.04 Feed ClimateState and the `CLIMATE_VALID_SHT45` bit — Test: home living strip and Detail 5 show T/RH; host PNG confirms, pressure removed from the GUI and the HTML mockup
+- [ ] S18b.05 Record living temperature and humidity in L1/L2 history — Test: `SAMPLE_FLAG_CLIMATE_AHT20` is set and the 1 d chart shows the series
+- [ ] S18b.06 Re-probe every 5 s after a NACK and invalidate the badge on loss — Test: unplugging the sensor turns the living values back to `—` and replugging restores them
 
 ## S19 · SML POWER (lift from project 15, R26)
 

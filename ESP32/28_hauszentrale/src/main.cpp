@@ -18,6 +18,7 @@
 #include "haus_gui.h"
 #include "haus_history.h"
 #include "haus_sd.h"
+#include "haus_sht45.h"
 #include "haus_ui.h"
 #include "template.h"
 #include <esp_flash.h>
@@ -81,6 +82,12 @@ void setup() {
   /* CH422G expander + keep backlight off until the panel is up */
   tpl_ws7_expander_init();
   tpl_ws7_backlight(false);
+
+  /* Local climate: Sensirion SHT45 at 0x44 on the same I2C bus. Missing
+   * hardware is not fatal — the living-room zone then stays "--". */
+  if (!haus_sht45_init()) {
+    TPL_LOGW("climate", "SHT45 not found; living-room values unavailable");
+  }
 
   /* S11.00: SD bring-up through CH422G IO4 + SPI3 pins. Failure is logged
    * but never blocks the panel. */

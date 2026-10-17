@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
 
 /* ─── Geometry ────────────────────────────────────────────────────────────── */
 
@@ -80,14 +81,29 @@ static lv_obj_t *s_living_unit;
 static lv_obj_t *s_living_rh;
 static lv_obj_t *s_living_pa;
 static lv_obj_t *s_power_num;
+static lv_obj_t *s_power_bolt;
 static lv_obj_t *s_power_src;
 
-static double s_breath_phase = 0.0;
+static void align_power_labels(void);
+
+/* Last values pushed into the widget tree. Every setter below is guarded by
+ * these caches: lv_label_set_text() and lv_obj_set_style_*() invalidate the
+ * object unconditionally, even for an identical value. On the RGB panel a
+ * redundant invalidation is a visible redraw, so repeatedly refreshed screens
+ * must only touch what actually changed. */
+static uint32_t s_last_can_color = 0xFFFFFFFFu;
+static uint32_t s_last_sd_color = 0xFFFFFFFFu;
+static uint32_t s_last_fire_grad = 0xFFFFFFFFu;
+static uint8_t s_last_flame_opa[3] = {0xFF, 0xFF, 0xFF};
 
 /* ─── Small helpers ───────────────────────────────────────────────────────── */
 
-static void txt(lv_obj_t *label, const char *text) {
-    if (label && text) lv_label_set_text(label, text);
+static bool txt(lv_obj_t *label, const char *text) {
+    if (!label || !text) return false;
+    const char *cur = lv_label_get_text(label);
+    if (cur && strcmp(cur, text) == 0) return false;
+    lv_label_set_text(label, text);
+    return true;
 }
 
 /* LVGL 10 replaced the generic flag API with per-flag setters. The firmware
@@ -203,24 +219,14 @@ static const char *const MONTHS[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
 
 static void epoch_to_date(uint32_t epoch, char *out, size_t n) {
-    uint32_t days = epoch / 86400u;
-    uint32_t rem = epoch % 86400u;
-    int wd = (int)((days + 4u) % 7u); /* 1970-01-01 was a Thursday */
-
-    /* days -> civil date (Howard Hinnant's algorithm) */
-    int z = (int)days + 719468;
-    int era = (z >= 0 ? z : z - 146096) / 146097;
-    unsigned doe = (unsigned)(z - era * 146097);
-    unsigned yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    int y = (int)yoe + era * 400;
-    unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    unsigned mp = (5 * doy + 2) / 153;
-    unsigned d = doy - (153 * mp + 2) / 5 + 1;
-    unsigned m = mp < 10 ? mp + 3 : mp - 9;
-    y += (m <= 2);
-
-    (void)rem;
-    snprintf(out, n, "%s %u %s", WEEKDAYS[wd], d, MONTHS[m - 1]);
+    time_t t = (time_t)epoch;
+    struct tm tm;
+    if (!localtime_r(&t, &tm)) {
+        snprintf(out, n, "--- -- ---");
+        return;
+    }
+    snprintf(out, n, "%s %d %s", WEEKDAYS[tm.tm_wday], tm.tm_mday,
+             MONTHS[tm.tm_mon]);
 }
 
 /* ─── Home screen ─────────────────────────────────────────────────────────── */
@@ -229,12 +235,12 @@ static void build_status(void) {
     s_status_date = label_make(lv_screen_active(), "--- -- ---", 12, 6,
                                &lv_font_montserrat_16, C_INK);
 
-    lv_obj_t *can = label_make(lv_screen_active(), "CAN", SCREEN_W - 96, 6,
+    lv_obj_t *can = label_make(lv_screen_active(), "CAN", SCREEN_W - 112, 6,
                                &lv_font_montserrat_16, C_DIM);
     (void)can;
     s_can_dot = lv_obj_create(lv_screen_active());
     lv_obj_set_size(s_can_dot, 12, 12);
-    lv_obj_set_pos(s_can_dot, SCREEN_W - 116, 10);
+    lv_obj_set_pos(s_can_dot, SCREEN_W - 132, 10);
     lv_obj_set_style_bg_color(s_can_dot, lv_color_hex(C_OK), 0);
     lv_obj_set_style_radius(s_can_dot, 6, 0);
     lv_obj_set_style_border_width(s_can_dot, 0, 0);
@@ -386,23 +392,25 @@ static void build_heater(void) {
     }
 
     /* Chamber temperature (left of the cabinet). */
-    s_chamber_temp = label_make(lv_screen_active(), "21.4", 24, 250,
+    s_chamber_temp = label_make(lv_screen_active(), "--", 24, 250,
                                 &lv_font_montserrat_32, C_COLD);
     s_chamber_unit = label_make(lv_screen_active(), "°C", 0, 0,
                                 &lv_font_montserrat_16, C_COLD);
+    lv_obj_align_to(s_chamber_unit, s_chamber_temp,
+                    LV_ALIGN_OUT_RIGHT_BOTTOM, 4, -2);
 
     /* Pipe labels. */
-    s_water_in = label_make(lv_screen_active(), "48.6 °C", 24, 508,
+    s_water_in = label_make(lv_screen_active(), "--", 24, 508,
                             &lv_font_montserrat_24, C_AMBER);
     s_water_in_lbl = label_make(lv_screen_active(), "water in", 24, 540,
                                 &lv_font_montserrat_16, C_DIM);
 
-    s_pump = label_make(lv_screen_active(), "on", 220, 508,
+    s_pump = label_make(lv_screen_active(), "off", 220, 508,
                         &lv_font_montserrat_24, C_OK);
-    s_pump_lbl = label_make(lv_screen_active(), "Vpp 486", 200, 540,
+    s_pump_lbl = label_make(lv_screen_active(), "Vpp --", 200, 540,
                             &lv_font_montserrat_16, C_DIM);
 
-    s_water_out = label_make(lv_screen_active(), "~62.1 °C", 348, 508,
+    s_water_out = label_make(lv_screen_active(), "--", 348, 508,
                              &lv_font_montserrat_24, C_HOT);
     s_water_out_lbl = label_make(lv_screen_active(), "water out", 348, 540,
                                  &lv_font_montserrat_16, C_DIM);
@@ -414,37 +422,46 @@ static void build_living(void) {
     lv_obj_t *glyph = label_make(lv_screen_active(), LV_SYMBOL_TINT, 20, 600,
                                  &lv_font_montserrat_24, C_COLD);
     (void)glyph;
-    s_living_temp = label_make(lv_screen_active(), "21.8", 56, 596,
+    s_living_temp = label_make(lv_screen_active(), "--", 56, 596,
                                &lv_font_montserrat_32, C_COLD);
     s_living_unit = label_make(lv_screen_active(), "°C", 0, 0,
                                &lv_font_montserrat_16, C_COLD);
+    lv_obj_align_to(s_living_unit, s_living_temp,
+                    LV_ALIGN_OUT_RIGHT_BOTTOM, 4, -2);
 
-    s_living_rh = label_make(lv_screen_active(), "47 rh", 300, 590,
+    s_living_rh = label_make(lv_screen_active(), "-- rh", 300, 590,
                              &lv_font_montserrat_16, C_CYAN);
-    s_living_pa = label_make(lv_screen_active(), "1013 hPa", 300, 616,
+    s_living_pa = label_make(lv_screen_active(), "-- hPa", 300, 616,
                              &lv_font_montserrat_16, C_VIOLET);
 }
 
 static void build_power(void) {
     hline(lv_screen_active(), 656, C_LINE);
 
-    /* Centered row: bolt glyph + watts + unit. */
-    lv_obj_t *row = lv_obj_create(lv_screen_active());
-    lv_obj_set_size(row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(row, 0, 0);
-    lv_obj_set_style_pad_all(row, 0, 0);
-    lv_obj_set_style_pad_column(row, 10, 0);
-    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END,
-                          LV_FLEX_ALIGN_CENTER);
-    obj_set_scrollable(row, false);
+    /* Centered group: bolt glyph + watts + unit. The small labels are aligned
+     * to the vertical middle of the number rather than to its baseline, so the
+     * unit does not sit low against the 48 px digits. */
+    s_power_num = label_make(lv_screen_active(), "--", 0, 0,
+                             &lv_font_montserrat_48, C_INK);
+    lv_obj_align(s_power_num, LV_ALIGN_TOP_MID, 0, 656);
 
-    label_make(row, LV_SYMBOL_CHARGE, 0, 0, &lv_font_montserrat_32, C_ACCENT);
-    s_power_num = label_make(row, "1284", 0, 0, &lv_font_montserrat_48, C_INK);
-    s_power_src = label_make(row, "W", 0, 0, &lv_font_montserrat_16, C_DIM);
+    s_power_bolt = label_make(lv_screen_active(), LV_SYMBOL_CHARGE, 0, 0,
+                              &lv_font_montserrat_32, C_ACCENT);
+    s_power_src = label_make(lv_screen_active(), "W", 0, 0,
+                             &lv_font_montserrat_16, C_DIM);
+    align_power_labels();
+}
 
-    lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 660);
+static void align_power_labels(void) {
+    if (!s_power_num) return;
+    if (s_power_bolt) {
+        lv_obj_align_to(s_power_bolt, s_power_num, LV_ALIGN_OUT_LEFT_MID,
+                        -10, 0);
+    }
+    if (s_power_src) {
+        lv_obj_align_to(s_power_src, s_power_num, LV_ALIGN_OUT_RIGHT_MID,
+                        8, 0);
+    }
 }
 
 static void build_zones(void) {
@@ -470,6 +487,11 @@ lv_obj_t *haus_ui_init(void) {
     build_power();
     nav_build(0);
 
+    /* Paint the honest initial state immediately: the widgets above are built
+     * with placeholders, and this replaces them from gui_get_state() before the
+     * first frame is flushed. Never leave fabricated sample values on screen. */
+    haus_ui_update();
+
     return root;
 }
 
@@ -477,65 +499,48 @@ void haus_ui_update(void) {
     const gui_haus_state_t *state = gui_get_state();
     char buf[48];
 
-    s_breath_phase += 2.094;
-    if (s_breath_phase > 6.283) s_breath_phase -= 6.283;
-
     /* Status: date + clock. */
     if (state->time.synced) {
         epoch_to_date(state->time.timestamp, buf, sizeof(buf));
         txt(s_status_date, buf);
-        uint32_t t = state->time.timestamp % 86400u;
-        snprintf(buf, sizeof(buf), "%02u:%02u", (unsigned)(t / 3600),
-                 (unsigned)((t % 3600) / 60));
-        txt(s_clock, buf);
+        time_t t = (time_t)state->time.timestamp;
+        struct tm tm;
+        if (localtime_r(&t, &tm)) {
+            snprintf(buf, sizeof(buf), "%02d:%02d", tm.tm_hour, tm.tm_min);
+            txt(s_clock, buf);
+        }
     } else {
         txt(s_status_date, "--- -- ---");
         txt(s_clock, "--:--");
     }
 
-    if (s_can_dot)
-        lv_obj_set_style_bg_color(
-            s_can_dot,
-            lv_color_hex(state->system.can_available ? C_OK : C_HOT), 0);
-    if (s_sd_dot)
-        lv_obj_set_style_bg_color(
-            s_sd_dot,
-            lv_color_hex(state->system.sd_available ? C_OK : 0x444444), 0);
+    if (s_can_dot) {
+        uint32_t color = state->system.can_available ? C_OK : C_HOT;
+        if (color != s_last_can_color) {
+            s_last_can_color = color;
+            lv_obj_set_style_bg_color(s_can_dot, lv_color_hex(color), 0);
+        }
+    }
+    if (s_sd_dot) {
+        uint32_t color = state->system.sd_available ? C_OK : 0x444444;
+        if (color != s_last_sd_color) {
+            s_last_sd_color = color;
+            lv_obj_set_style_bg_color(s_sd_dot, lv_color_hex(color), 0);
+        }
+    }
 
-    /* Chamber + flame. */
+    /* Chamber. */
     int16_t chamber = state->temps.temp[0];
+    bool chamber_changed;
     if (chamber != GUI_EMPTY) {
         snprintf(buf, sizeof(buf), "%.1f", chamber / 100.0);
-        txt(s_chamber_temp, buf);
+        chamber_changed = txt(s_chamber_temp, buf);
     } else {
-        txt(s_chamber_temp, "--");
+        chamber_changed = txt(s_chamber_temp, "--");
     }
-    if (s_chamber_unit && s_chamber_temp) {
+    if (chamber_changed && s_chamber_unit && s_chamber_temp) {
         lv_obj_align_to(s_chamber_unit, s_chamber_temp,
                         LV_ALIGN_OUT_RIGHT_BOTTOM, 4, -2);
-    }
-    if (s_fire && chamber != GUI_EMPTY) {
-        double c = chamber / 100.0;
-        double t = (c - 20.0) / 60.0;
-        if (t < 0) t = 0;
-        if (t > 1) t = 1;
-        uint32_t warm = ((uint32_t)(0x30 + 0x1a * t) << 16) |
-                        ((uint32_t)(0x20 + 0x14 * t) << 8) | 0x18;
-        lv_obj_set_style_bg_grad_color(s_fire, lv_color_hex(warm), 0);
-    }
-    for (int i = 0; i < 3; i++) {
-        if (!s_flame[i]) continue;
-        if (chamber == GUI_EMPTY) {
-            lv_obj_set_style_opa(s_flame[i], LV_OPA_0, 0);
-            continue;
-        }
-        double bright = (chamber / 100.0 - 20.0) / 60.0;
-        if (bright < 0) bright = 0;
-        if (bright > 1) bright = 1;
-        double breath = 0.5 + 0.5 * sin(s_breath_phase + i * 2.094);
-        lv_obj_set_style_opa(s_flame[i],
-                             (uint8_t)(bright * (0.45 + 0.55 * breath) * 255),
-                             0);
     }
 
     /* Water in (amber) / water out (modelled, hot). */
@@ -545,13 +550,13 @@ void haus_ui_update(void) {
         snprintf(buf, sizeof(buf), "%.1f °C", win / 100.0);
         txt(s_water_in, buf);
     } else {
-        txt(s_water_in, "—");
+        txt(s_water_in, "--");
     }
     if (wout != GUI_EMPTY) {
         snprintf(buf, sizeof(buf), "~%.1f °C", wout / 100.0);
         txt(s_water_out, buf);
     } else {
-        txt(s_water_out, "—");
+        txt(s_water_out, "--");
     }
     bool flow = state->pwm.duty_permille > 0 && state->pwm.duty_permille < 1000;
     txt(s_pump, flow ? "on" : "off");
@@ -559,13 +564,14 @@ void haus_ui_update(void) {
     txt(s_pump_lbl, buf);
 
     /* Living room. */
+    bool living_changed;
     if (state->living.temperature != GUI_EMPTY) {
         snprintf(buf, sizeof(buf), "%.1f", state->living.temperature / 100.0);
-        txt(s_living_temp, buf);
+        living_changed = txt(s_living_temp, buf);
     } else {
-        txt(s_living_temp, "--");
+        living_changed = txt(s_living_temp, "--");
     }
-    if (s_living_unit && s_living_temp) {
+    if (living_changed && s_living_unit && s_living_temp) {
         lv_obj_align_to(s_living_unit, s_living_temp,
                         LV_ALIGN_OUT_RIGHT_BOTTOM, 4, -2);
     }
@@ -584,13 +590,56 @@ void haus_ui_update(void) {
     }
 
     /* Power (always watts, with the bolt glyph). */
+    bool power_changed;
     if (state->power.valid) {
         snprintf(buf, sizeof(buf), "%d", (int)state->power.watts);
-        txt(s_power_num, buf);
+        power_changed = txt(s_power_num, buf);
     } else {
-        txt(s_power_num, "—");
+        power_changed = txt(s_power_num, "--");
     }
-    (void)s_power_src; /* unit label, always "W" */
+    if (power_changed) align_power_labels();
+
+    /* The flame is time-based, so paint it once here for callers that only
+     * refresh the data (the host harness) and let the loop drive it after. */
+    haus_ui_animate();
+}
+
+void haus_ui_animate(void) {
+    const gui_haus_state_t *state = gui_get_state();
+    const int16_t chamber = state->temps.temp[0];
+
+    if (chamber == GUI_EMPTY) {
+        for (int i = 0; i < 3; i++) {
+            if (!s_flame[i]) continue;
+            if (s_last_flame_opa[i] != 0) {
+                s_last_flame_opa[i] = 0;
+                lv_obj_set_style_opa(s_flame[i], LV_OPA_0, 0);
+            }
+        }
+        return;
+    }
+
+    double t = (chamber / 100.0 - 20.0) / 60.0;
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+    uint32_t warm = ((uint32_t)(0x30 + 0x1a * t) << 16) |
+                    ((uint32_t)(0x20 + 0x14 * t) << 8) | 0x18;
+    if (s_fire && warm != s_last_fire_grad) {
+        s_last_fire_grad = warm;
+        lv_obj_set_style_bg_grad_color(s_fire, lv_color_hex(warm), 0);
+    }
+
+    /* 6 s breathing cycle, driven from the LVGL tick so the host and the
+     * device animate at the same rate. */
+    double phase = (lv_tick_get() % 6000) * (2.0 * M_PI / 6000.0);
+    for (int i = 0; i < 3; i++) {
+        if (!s_flame[i]) continue;
+        double breath = 0.5 + 0.5 * sin(phase + i * 2.094);
+        uint8_t opa = (uint8_t)(t * (0.45 + 0.55 * breath) * 255);
+        if (opa == s_last_flame_opa[i]) continue;
+        s_last_flame_opa[i] = opa;
+        lv_obj_set_style_opa(s_flame[i], opa, 0);
+    }
 }
 
 /* ─── Chart / detail header + range selector (shared) ─────────────────────── */
@@ -745,15 +794,15 @@ lv_obj_t *haus_ui_build_chart(void) {
     if (st->temps.temp[0] != GUI_EMPTY)
         snprintf(buf, sizeof(buf), "%.1f °C", st->temps.temp[0] / 100.0);
     else
-        snprintf(buf, sizeof(buf), "—");
+        snprintf(buf, sizeof(buf), "--");
     label_make(lv_screen_active(), buf, 20, 56, &lv_font_montserrat_48, C_COLD);
 
     range_build(120);
-    label_make(lv_screen_active(), "above target  0 h", 20, 172,
+    label_make(lv_screen_active(), "above target  --", 20, 172,
                &lv_font_montserrat_16, C_DIM);
     chart_build(204, false);
 
-    label_make(lv_screen_active(), "min 20.6    max 22.1    mean 21.3",
+    label_make(lv_screen_active(), "min --    max --    mean --",
                20, 476, &lv_font_montserrat_16, C_DIM);
 
     nav_build(1);
@@ -770,17 +819,19 @@ lv_obj_t *haus_ui_build_detail(void) {
     if (st->temps.temp[0] != GUI_EMPTY)
         snprintf(buf, sizeof(buf), "%.1f °C", st->temps.temp[0] / 100.0);
     else
-        snprintf(buf, sizeof(buf), "—");
+        snprintf(buf, sizeof(buf), "--");
     label_make(lv_screen_active(), buf, 20, 56, &lv_font_montserrat_48, C_COLD);
 
     range_build(120);
-    label_make(lv_screen_active(), "target 60.0 °C (dashed)", 20, 172,
+    snprintf(buf, sizeof(buf), "target %.1f °C (dashed)",
+             st->chamber_target_c / 100.0);
+    label_make(lv_screen_active(), buf, 20, 172,
                &lv_font_montserrat_16, C_ACCENT);
     chart_build(204, true);
 
-    label_make(lv_screen_active(), "min 20.6   mean 21.3   max 22.1   now 21.4",
+    label_make(lv_screen_active(), "min --   mean --   max --   now --",
                20, 476, &lv_font_montserrat_16, C_DIM);
-    label_make(lv_screen_active(), "data age 12 s", 20, 500,
+    label_make(lv_screen_active(), "data age --", 20, 500,
                &lv_font_montserrat_16, C_FAINT);
 
     nav_build(1);
@@ -798,6 +849,7 @@ void haus_ui_deinit(void) {
     s_chamber_temp = s_chamber_unit = s_water_in = s_water_in_lbl = NULL;
     s_pump = s_pump_lbl = s_water_out = s_water_out_lbl = NULL;
     s_living_temp = s_living_unit = s_living_rh = s_living_pa = NULL;
-    s_power_num = s_power_src = NULL;
-    s_breath_phase = 0.0;
+    s_power_num = s_power_bolt = s_power_src = NULL;
+    s_last_can_color = s_last_sd_color = s_last_fire_grad = 0xFFFFFFFFu;
+    memset(s_last_flame_opa, 0xFF, sizeof(s_last_flame_opa));
 }

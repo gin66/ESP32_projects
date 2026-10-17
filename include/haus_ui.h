@@ -29,6 +29,9 @@ lv_obj_t *haus_ui_init(void);
 /** Refresh the home screen from gui_get_state() (~1 Hz). */
 void haus_ui_update(void);
 
+/** Advance the flame/breathing animation (~20 Hz). */
+void haus_ui_animate(void);
+
 /** Build the chamber envelope/history screen. */
 lv_obj_t *haus_ui_build_chart(void);
 

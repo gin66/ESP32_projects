@@ -11,6 +11,8 @@
 #include "haus_gui.h"
 #include "haus_can.h"
 
+#include <Arduino.h>
+#include <time.h>
 #include <esp_heap_caps.h>
 #include <esp_task_wdt.h>
 
@@ -33,7 +35,7 @@ static uint8_t g_sensor_bound_count = 0;
 static void read_temperatures(haus_can_temperature_t *out) {
     /* TODO: Read from CAN bus 0x200 frame.
      * For now, return all GUI_EMPTY until CAN is integrated. */
-    for (int i = 0; i < GUI_MAX_SENSORS; i++) {
+    for (int i = 0; i < HAUS_CAN_MAX_SENSORS; i++) {
         out->temperature[i] = GUI_EMPTY;
     }
 }
@@ -85,37 +87,16 @@ static int read_rollup_file(gui_sample_t *samples, uint16_t max_samples,
 /* ─── Public API ──────────────────────────────────────────────────────────── */
 
 const gui_haus_state_t *gui_get_state(void) {
-    /* TODO: Actually read CAN bus, NTP, SD, I2C into g_state.
-     * For now, return a static "no data" snapshot. */
-    (void)read_temperatures;
-    (void)read_pwm;
-    (void)read_power;
-    (void)read_living;
-    (void)read_day_file;
-    (void)read_rollup_file;
-
-    static gui_haus_state_t static_state = {
-        .time = { .timestamp = 0, .synced = false },
-        .temps = { .sensor_count = 0 },
-        .pwm = { .duty_permille = 0, .frequency_hz = 0,
-                 .source = GUI_PWM_SRC_EEPROM, .active = false,
-                 .requested_permille = 0xFFFF, .has_pending = false },
-        .power = { .watts = 0, .watts_last = 0, .valid = false,
-                   .source = GUI_PWR_SRC_NONE },
-        .living = { .valid = false },
-        .system = { .can_available = false, .sd_available = false,
-                    .sd_low_space = false },
-        .chamber_target_c = 6000,  /* 60 °C default */
-        .water_modelled = false,
-        .uptime_seconds = 0,
-    };
-
-    return &static_state;
+    if (!g_state_valid) {
+        gui_update_state();
+    }
+    return &g_state;
 }
 
 int gui_get_history(const gui_history_request_t *req) {
-    /* TODO: Merge day files and rollup to fill the requested range.
-     * For now, return 0 samples. */
+    /* TODO: Merge day files and rollup to fill the requested range. */
+    (void)read_day_file;
+    (void)read_rollup_file;
     (void)req;
     return 0;
 }
@@ -141,6 +122,56 @@ bool gui_water_model_available(void) {
  */
 
 void gui_update_state(void) {
-    /* TODO: Implement real CAN/SD/NTP/I2C reads here. */
-    g_state_valid = false;
+    /* System clock. tpl_wifi_setup() starts SNTP, so time() becomes valid
+     * once the first sync has landed. Before that the UI must show --:--. */
+    const time_t now = time(nullptr);
+    g_state.time.timestamp = (now > 0) ? (uint32_t)now : 0;
+    g_state.time.synced = (now > 1700000000);  /* after 2023-11-14 */
+
+    /* Temperatures — no CAN wiring yet, so every slot is empty. */
+    haus_can_temperature_t temps;
+    read_temperatures(&temps);
+    for (int i = 0; i < 4; i++) {
+        g_state.temps.temp[i] = temps.temperature[i];
+    }
+    g_state.temps.sensor_count = 0;
+
+    /* PWM — reported-by-0x280 value; nothing received yet. */
+    haus_can_pwm_t pwm;
+    read_pwm(&pwm);
+    g_state.pwm.duty_permille = pwm.duty_permille;
+    g_state.pwm.frequency_hz = pwm.frequency_hz;
+    g_state.pwm.source = GUI_PWM_SRC_EEPROM;
+    g_state.pwm.active = false;
+    g_state.pwm.requested_permille = 0xFFFF;
+    g_state.pwm.has_pending = false;
+
+    /* Household power — no SML decode yet. */
+    int32_t watts = 0;
+    uint8_t power_src = GUI_PWR_SRC_NONE;
+    read_power(&watts, &power_src);
+    g_state.power.watts = watts;
+    g_state.power.watts_last = watts;
+    g_state.power.valid = false;
+    g_state.power.source = power_src;
+
+    /* Living room — no usable local sensors on this board. */
+    int16_t living_temp = GUI_EMPTY;
+    uint16_t living_hum = 0;
+    uint32_t living_pres = 0;
+    read_living(&living_temp, &living_hum, &living_pres);
+    g_state.living.temperature = living_temp;
+    g_state.living.humidity = living_hum;
+    g_state.living.pressure = living_pres;
+    g_state.living.valid = false;
+
+    g_state.system.can_available = false;
+    g_state.system.sd_available = false;
+    g_state.system.sd_low_space = false;
+
+    g_state.chamber_target_c = 6000;  /* 60 °C default */
+    g_state.water_modelled = false;
+    g_state.uptime_seconds = millis() / 1000;
+
+    g_state_valid = true;
 }

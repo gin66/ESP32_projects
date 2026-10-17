@@ -60,6 +60,32 @@ static void connect() {
 RTC_DATA_ATTR int rssi_roam_reconnect_count = 0;
 int tpl_wifi_get_rssi_roam_count() { return rssi_roam_reconnect_count; }
 
+/* Manager-side reconnect must never block. WiFiMulti::run() performs a full
+ * scan and then waits up to its connect timeout with no opportunity to feed the
+ * task watchdog the manager is subscribed to; with several configured networks
+ * that exceeds the default timeout and panics. Rotate through the configured
+ * networks with the non-blocking WiFi.begin() instead, one attempt every 10 s. */
+static uint8_t s_retry_net = 0;
+static uint32_t s_next_retry_ms = 0;
+static uint32_t s_connected_since_ms = 0;
+
+static void wifi_retry_step() {
+  const uint32_t now = millis();
+  if ((int32_t)(now - s_next_retry_ms) < 0) return;
+  s_next_retry_ms = now + 10000;
+
+  const struct net_s *net = &nets[s_retry_net];
+  if (!net->ssid) {
+    s_retry_net = 0;
+    net = &nets[0];
+  }
+  if (!net->ssid) return;
+
+  Serial.printf("WiFi: retry begin %s\n", net->ssid);
+  WiFi.begin(net->ssid, net->passwd);
+  s_retry_net++;
+}
+
 void TaskWifiManager(void* pvParameters) {
   const TickType_t xDelay = 100 / portTICK_PERIOD_MS;
   uint32_t last_ok_ms = millis();
@@ -77,6 +103,9 @@ void TaskWifiManager(void* pvParameters) {
 
       if (connected) {
         last_ok_ms = millis();
+        s_connected_since_ms = 0;
+        s_retry_net = 0;
+        s_next_retry_ms = 0;
 
         int rssi = WiFi.RSSI();
         if (rssi < RSSI_RECONNECT_THRESHOLD && !tpl_config.ota_ongoing) {
@@ -91,7 +120,9 @@ void TaskWifiManager(void* pvParameters) {
             WiFi.disconnect(true);
             vTaskDelay(100 / portTICK_PERIOD_MS);
             esp_task_wdt_reset();
-            connect();
+            s_retry_net = 0;
+            s_next_retry_ms = 0;
+            wifi_retry_step();
             rssi_roam_reconnect_count++;
             weak_rssi_since_ms = 0;
           }
@@ -120,10 +151,21 @@ void TaskWifiManager(void* pvParameters) {
         weak_rssi_since_ms = 0;
         uint32_t secs_disconnected = (millis() - last_ok_ms) / 1000;
 
+        /* WL_CONNECTED before DHCP finishes is normal, so do not tear the
+         * association down immediately: that is what starved DHCP and made the
+         * manager reconnect in a loop. Give it 15 s, then start over. */
         if (!has_valid_ip && status == WL_CONNECTED) {
-          Serial.println("WiFi: IP is 0.0.0.0, force disconnect");
-          WiFi.disconnect(true);
-          vTaskDelay(100 / portTICK_PERIOD_MS);
+          if (s_connected_since_ms == 0) {
+            s_connected_since_ms = millis();
+          } else if (millis() - s_connected_since_ms > 15000) {
+            Serial.println("WiFi: DHCP timeout, force disconnect");
+            WiFi.disconnect(true);
+            s_connected_since_ms = 0;
+            s_next_retry_ms = 0;
+            vTaskDelay(100 / portTICK_PERIOD_MS);
+          }
+        } else {
+          s_connected_since_ms = 0;
         }
 
         if (secs_disconnected > 120 && tpl_config.wifi_recovery_tier < 2) {
@@ -136,7 +178,9 @@ void TaskWifiManager(void* pvParameters) {
           vTaskDelay(1000 / portTICK_PERIOD_MS);
           WiFi.mode(WIFI_STA);
           esp_task_wdt_reset();
-          connect();
+          s_retry_net = 0;
+          s_next_retry_ms = 0;
+          wifi_retry_step();
         } else if (secs_disconnected > 30 &&
                    tpl_config.wifi_recovery_tier < 1) {
           Serial.printf("WiFi: Tier 1 - reconnect (disconnected %" PRIu32 "s)\n",
@@ -146,9 +190,8 @@ void TaskWifiManager(void* pvParameters) {
           esp_task_wdt_reset();
           WiFi.reconnect();
         } else if (tpl_config.wifi_recovery_tier == 0) {
-          Serial.println("WiFi: not connected, reconnect");
           esp_task_wdt_reset();
-          connect();
+          wifi_retry_step();
         }
       }
     } else {
@@ -271,6 +314,11 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
    * even been started yet. SNTP keeps running in the background, so once WiFi is
    * up the clock is set without any further action. */
   Serial.print("Retrieving time: ");
+  /* The timezone must be set regardless of whether the NTP wait below sees a
+   * sync: SNTP keeps running in the background, and the UI converts the epoch
+   * with localtime(). Without this, a late sync would be displayed as UTC. */
+  setenv("TZ", "CET-1CEST,M3.5.0/2:00,M10.5.0/3:00", 1);
+  tzset();
   configTime(0, 0, "pool.ntp.org");  // get UTC time via NTP
   const unsigned long ntp_deadline = millis() + TPL_NTP_WAIT_MS;
   time_t now = time(nullptr);
@@ -288,8 +336,6 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
   } else {
     char strftime_buf[64];
     struct tm timeinfo;
-    setenv("TZ", "CET-1CEST,M3.5.0/2:00,M10.5.0/3:00", 1);
-    tzset();
     localtime_r(&now, &timeinfo);
     strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M ", &timeinfo);
     Serial.println(strftime_buf);

@@ -4,7 +4,7 @@ Derived from `docs/whitepaper.md` rev 1.6. Order: board first, then the macOS
 environment, then Deliverable A (`tpl_waveshare_lcd7`), then the project.
 Every item names the check that closes it.
 
-278 items. Tick boxes as work lands.
+285 items. Tick boxes as work lands.
 
 ## S0 · BENCH — the two things only the hardware can answer
 
@@ -146,9 +146,9 @@ baselines (S8.13).
 
 ## S10 · HOME SCREEN
 
-- [ ] S10.01 Build the status strip: date, weekday, CAN dot, SD dot — Test: all dots render at the right positions
-- [ ] S10.02 Build the FONT_CLOCK label with HH:MM only — Test: no seconds are drawn
-- [ ] S10.03 Gate the clock on the NTP flag — Test: before sync it shows --:--, never 1970 (R13)
+- [x] S10.01 Build the status strip: date, weekday, CAN dot, SD dot — Test: all dots render at the right positions
+- [x] S10.02 Build the FONT_CLOCK label with HH:MM only — Test: no seconds are drawn
+- [x] S10.03 Gate the clock on the NTP flag — Test: before sync it shows --:--, never 1970 (R13)
 - [ ] S10.04 Load bg.png from SPIFFS and decode once into static PSRAM — Test: 768 000 bytes allocated, decoded once
 - [ ] S10.05 Fall back to a flat dark background when SPIFFS is empty — Test: removing bg.png still boots, no black rectangle
 - [ ] S10.06 Put the background on lv_layer_bottom() — Test: redrawing the flame does not re-decode or repaint the image
@@ -158,13 +158,25 @@ baselines (S8.13).
 - [ ] S10.10 Draw in/out pipes with the shared blue-amber-red ramp — Test: a 30/60 °C sweep crosses the breakpoints
 - [ ] S10.11 March 6 flow dashes along each pipe, direction by flow presence — Test: dashes animate only when duty > 0
 - [ ] S10.12 Render the sentinel value grey, not as an extreme colour — Test: an empty slot draws grey
-- [ ] S10.13 Add the living-room strip (temp, humidity, pressure) — Test: band renders at y=580 with the 76 px height
+- [x] S10.13 Add the living-room strip (temp, humidity, pressure) — Test: band renders at y=580 with the 76 px height
 - [ ] S10.14 Add the power band with a source badge — Test: SML shows SML, no value shows —
 - [ ] S10.15 Add the gear as the last nav-pane tab — Test: it is tappable at 68 px wide
 - [ ] S10.16 Add five invisible overlay zone buttons — Test: each zone opens its screen, zones never overlap
 - [ ] S10.17 Add the PRESSED feedback (12% tint, 1.04 label scale) — Test: press state is visible
 - [ ] S10.18 Add the duty provenance marker to the status strip — Test: solid for PWM_SRC_CAN, hollow for EEPROM
 - [ ] S10.19 Verify the whole home screen on the host harness — Test: make run shows the same layout without hardware
+
+## S10b · BRING-UP FIXES (2026-10-17)
+
+- [x] Stop the RGB-panel flicker/tearing — Test: data refresh throttled to 1 Hz and every label/style write is change-guarded, so identical values no longer invalidate; display is stable
+- [x] Show real local time — Test: `gui_update_state()` reads SNTP time and the UI converts with `localtime_r()`; TZ is set to CET before NTP starts, so the clock is no longer 2 h off
+- [x] Remove fabricated values from the first frame — Test: home/chart/detail widgets are built with `--` placeholders and `haus_ui_init()` paints the real state before the first flush
+- [x] Use ASCII placeholders — Test: no em dash remains, so the built-in Montserrat fonts render `--` instead of tofu rectangles
+- [x] Vertically center the power bolt and W unit — Test: both are aligned to the number's mid-line, not its baseline
+- [x] Auto-hide the touch cursor — Test: hidden at boot, shown while pressed, hidden again 1 s after release
+- [x] Fix the WiFi_Manager task-watchdog reset — Test: manager reconnects with non-blocking `WiFi.begin()` every 10 s and gives DHCP a 15 s grace period; no TWDT panic with `0.0.0.0`
+- [x] Space the status-strip CAN and SD indicators — Test: 16 px gap between the CAN label and the SD dot
+- [x] Place the °C unit labels at build time — Test: chamber and living-room units are aligned immediately, not left at (0,0)
 
 ## S11 · THREE-TIER HISTORY STORE
 

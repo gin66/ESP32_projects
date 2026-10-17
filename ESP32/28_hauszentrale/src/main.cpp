@@ -31,6 +31,13 @@ static uint32_t lv_tick_cb(void) { return (uint32_t)millis(); }
 
 static lv_display_t *s_disp = NULL;
 
+/* Calibration cursor: shown while a finger is down, hidden one second after
+ * release so it never stays on the wall panel. */
+static lv_indev_t *s_touch_indev = NULL;
+static lv_obj_t *s_touch_cursor = NULL;
+static uint32_t s_last_touch_ms = 0;
+#define TOUCH_CURSOR_HIDE_MS 1000
+
 /* ─── Rotation helper (S4.10 — kept for testing, not used by home screen) ── */
 
 static lv_display_rotation_t rot_to_lvgl(int r) {
@@ -84,14 +91,19 @@ void setup() {
             lv_indev_set_read_cb(indev, tpl_ws7_touch_read_cb);
             lv_indev_set_display(indev, s_disp);
 
-            /* Visible cursor follows the finger for calibration */
+            /* Visible cursor follows the finger; it is hidden again after a
+             * second without a press. */
             lv_obj_t *cursor = lv_obj_create(lv_layer_sys());
             lv_obj_remove_style_all(cursor);
             lv_obj_set_size(cursor, 24, 24);
             lv_obj_set_style_radius(cursor, LV_RADIUS_CIRCLE, 0);
             lv_obj_set_style_bg_color(cursor, lv_color_hex(0xFF0000), 0);
             lv_obj_set_style_bg_opa(cursor, LV_OPA_COVER, 0);
+            lv_obj_add_flag(cursor, LV_OBJ_FLAG_HIDDEN);
             lv_indev_set_cursor(indev, cursor);
+
+            s_touch_indev = indev;
+            s_touch_cursor = cursor;
         }
 
         /* ── S10: Build the home screen ─────────────────────────────── */
@@ -124,11 +136,35 @@ void setup() {
 /* ─── Loop ───────────────────────────────────────────────────────────────── */
 
 void loop() {
-    /* Update GUI data from CAN/SD/NTP (stub — returns "no data" until S9/S17) */
-    gui_update_state();
+    static uint32_t last_ui_ms = 0;
+    static uint32_t last_anim_ms = 0;
+    const uint32_t now = millis();
 
-    /* Refresh home screen from gui_get_state() */
-    haus_ui_update();
+    /* Data refresh at 1 Hz. Refreshing at loop rate invalidates every label
+     * hundreds of times per second, which the single-buffered RGB panel shows
+     * as flicker and tearing. */
+    if (now - last_ui_ms >= 1000) {
+        last_ui_ms = now;
+        gui_update_state();
+        haus_ui_update();
+    }
+
+    /* Flame breathing at 20 Hz; it only touches opacity when it changes. */
+    if (now - last_anim_ms >= 50) {
+        last_anim_ms = now;
+        haus_ui_animate();
+    }
+
+    /* Calibration cursor: visible while pressed, auto-hidden after release. */
+    if (s_touch_cursor && s_touch_indev) {
+        if (lv_indev_get_state(s_touch_indev) == LV_INDEV_STATE_PRESSED) {
+            s_last_touch_ms = now;
+            lv_obj_remove_flag(s_touch_cursor, LV_OBJ_FLAG_HIDDEN);
+        } else if (!lv_obj_has_flag(s_touch_cursor, LV_OBJ_FLAG_HIDDEN) &&
+                   (now - s_last_touch_ms) >= TOUCH_CURSOR_HIDE_MS) {
+            lv_obj_add_flag(s_touch_cursor, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
 
     /* Process LVGL tasks (display flush, input processing, animations) */
     lv_task_handler();

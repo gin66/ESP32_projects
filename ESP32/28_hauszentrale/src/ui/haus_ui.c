@@ -84,6 +84,13 @@ static lv_obj_t *s_power_num;
 static lv_obj_t *s_power_bolt;
 static lv_obj_t *s_power_src;
 
+static lv_obj_t *s_pipe_l;
+static lv_obj_t *s_pipe_r;
+static lv_obj_t *s_pipe_lu;
+static lv_obj_t *s_pipe_ru;
+static lv_obj_t *s_flow_dash[12];  /* 6 left + 6 right */
+static lv_obj_t *s_zone[5];  /* 5 invisible navigation zones */
+static lv_obj_t *s_duty_src;  /* duty provenance marker (status strip) */
 static void align_power_labels(void);
 
 /* Last values pushed into the widget tree. Every setter below is guarded by
@@ -95,6 +102,8 @@ static uint32_t s_last_can_color = 0xFFFFFFFFu;
 static uint32_t s_last_sd_color = 0xFFFFFFFFu;
 static uint32_t s_last_fire_grad = 0xFFFFFFFFu;
 static uint8_t s_last_flame_opa[3] = {0xFF, 0xFF, 0xFF};
+static uint16_t s_last_pipe_l_color = 0xFFFFu;
+static uint16_t s_last_pipe_r_color = 0xFFFFu;
 
 /* ─── Small helpers ───────────────────────────────────────────────────────── */
 
@@ -245,6 +254,14 @@ static void build_status(void) {
     lv_obj_set_style_radius(s_can_dot, 6, 0);
     lv_obj_set_style_border_width(s_can_dot, 0, 0);
 
+    /* Duty provenance marker: solid circle = CAN source, hollow = EEPROM. */
+    s_duty_src = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(s_duty_src, 12, 12);
+    lv_obj_set_pos(s_duty_src, SCREEN_W - 86, 10);
+    lv_obj_set_style_bg_color(s_duty_src, lv_color_hex(C_OK), 0);
+    lv_obj_set_style_border_width(s_duty_src, 0, 0);
+    lv_obj_set_style_radius(s_duty_src, 6, 0);
+
     label_make(lv_screen_active(), "SD", SCREEN_W - 40, 6,
                &lv_font_montserrat_16, C_DIM);
     s_sd_dot = lv_obj_create(lv_screen_active());
@@ -259,6 +276,10 @@ static void build_clock(void) {
     s_clock = label_make(lv_screen_active(), "--:--", 0, 0,
                          &lv_font_montserrat_48, C_INK);
     lv_obj_align(s_clock, LV_ALIGN_TOP_MID, 0, 52);
+    /* Scale 2× (512 = 2.0 in LVGL's 8.8 fixed-point).
+     * Each pixel becomes a 2×2 block — not as smooth as a custom 110 px font,
+     * but good enough and avoids generating a new font. */
+    lv_obj_set_style_transform_scale(s_clock, 512, 0);
 }
 
 /* A flame tongue: a pill, wider at the base by stacking two pills. */
@@ -273,16 +294,54 @@ static void build_heater(void) {
     lv_obj_set_style_border_width(glow, 0, 0);
     obj_set_clickable(glow, false);
 
-    /* Cabinet */
-    s_cabinet = lv_obj_create(lv_screen_active());
-    lv_obj_set_size(s_cabinet, 232, 214);
-    lv_obj_set_pos(s_cabinet, 124, 196);
-    lv_obj_set_style_bg_color(s_cabinet, lv_color_hex(C_PANEL), 0);
-    lv_obj_set_style_radius(s_cabinet, 16, 0);
-    lv_obj_set_style_border_width(s_cabinet, 2, 0);
-    lv_obj_set_style_border_color(s_cabinet, lv_color_hex(0x6a5e54), 0);
-    lv_obj_set_style_pad_all(s_cabinet, 0, 0);
-    obj_set_scrollable(s_cabinet, false);
+    /* Cabinet: a 232x214 lv_canvas with a rounded-rect border (2 px).
+     * Drawn once into the buffer; the update path never touches it. */
+    {
+        const int cw = 232, ch = 214;
+        const uint16_t bw = 2, r = 16;
+        s_cabinet = lv_canvas_create(lv_screen_active());
+        lv_obj_set_size(s_cabinet, cw, ch);
+        lv_obj_set_pos(s_cabinet, 124, 196);
+        lv_obj_set_style_border_width(s_cabinet, 0, 0);
+
+        /* Allocate an RGB565 buffer (2 bytes per pixel) and attach it. */
+        uint8_t *buf = (uint8_t *) lv_malloc(cw * ch * 2);
+        lv_canvas_set_buffer(s_cabinet, buf, cw, ch, LV_COLOR_FORMAT_RGB565);
+
+        uint16_t pcol = lv_color_to_u16(lv_color_hex(C_PANEL));
+        uint16_t bcol = lv_color_to_u16(lv_color_hex(0x6a5e54));
+        /* Fill with panel colour */
+        for (int i = 0; i < cw * ch; i++)
+            ((uint16_t *) buf)[i] = pcol;
+        /* Draw the rounded-rect border */
+        for (int y = 0; y < ch; y++) {
+            for (int x = 0; x < cw; x++) {
+                bool in_rect = (x < bw || x >= cw - bw ||
+                                y < bw || y >= ch - bw);
+                if (!in_rect) continue;
+                bool outside_arc = false;
+                if (x < r && y < r) {
+                    int dx = x - (r - 1), dy = y - (r - 1);
+                    if (dx * dx + dy * dy > (r - 1) * (r - 1))
+                        outside_arc = true;
+                } else if (x >= cw - r && y < r) {
+                    int dx = (x - (cw - r)) - (r - 1), dy = y - (r - 1);
+                    if (dx * dx + dy * dy > (r - 1) * (r - 1))
+                        outside_arc = true;
+                } else if (x < r && y >= ch - r) {
+                    int dx = x - (r - 1), dy = (y - (ch - r)) - (r - 1);
+                    if (dx * dx + dy * dy > (r - 1) * (r - 1))
+                        outside_arc = true;
+                } else if (x >= cw - r && y >= ch - r) {
+                    int dx = (x - (cw - r)) - (r - 1), dy = (y - (ch - r)) - (r - 1);
+                    if (dx * dx + dy * dy > (r - 1) * (r - 1))
+                        outside_arc = true;
+                }
+                if (!outside_arc)
+                    ((uint16_t *) buf)[y * cw + x] = bcol;
+            }
+        }
+    }
 
     /* Fire chamber (warm gradient) */
     s_fire = lv_obj_create(s_cabinet);
@@ -339,56 +398,61 @@ static void build_heater(void) {
                                 &lv_font_montserrat_16, C_DIM);
     lv_obj_align(soll, LV_ALIGN_BOTTOM_MID, 0, -42);
 
-    /* Pipes: left (water in, amber) and right (water out, red). */
-    lv_obj_t *pipe_l = lv_obj_create(lv_screen_active());
-    lv_obj_set_size(pipe_l, 148, 12);
-    lv_obj_set_pos(pipe_l, 28, 466);
-    lv_obj_set_style_bg_color(pipe_l, lv_color_hex(C_AMBER), 0);
-    lv_obj_set_style_radius(pipe_l, 6, 0);
-    lv_obj_set_style_border_width(pipe_l, 0, 0);
-    obj_set_clickable(pipe_l, false);
-    lv_obj_t *pipe_lu = lv_obj_create(lv_screen_active());
-    lv_obj_set_size(pipe_lu, 12, 62);
-    lv_obj_set_pos(pipe_lu, 164, 410);
-    lv_obj_set_style_bg_color(pipe_lu, lv_color_hex(C_AMBER), 0);
-    lv_obj_set_style_radius(pipe_lu, 6, 0);
-    lv_obj_set_style_border_width(pipe_lu, 0, 0);
-    obj_set_clickable(pipe_lu, false);
+    /* Pipes: left (water in) and right (water out). Colours are set by
+     * update_pipe_colours() based on the blue-amber-red temperature ramp.
+     *  < 30 °C → C_COLD (blue)
+     *  30–60 °C → C_AMBER (amber)
+     *  > 60 °C → C_HOT (red) */
+    s_pipe_l = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(s_pipe_l, 148, 12);
+    lv_obj_set_pos(s_pipe_l, 28, 466);
+    lv_obj_set_style_bg_color(s_pipe_l, lv_color_hex(C_AMBER), 0);
+    lv_obj_set_style_radius(s_pipe_l, 6, 0);
+    lv_obj_set_style_border_width(s_pipe_l, 0, 0);
+    obj_set_clickable(s_pipe_l, false);
+    s_pipe_lu = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(s_pipe_lu, 12, 62);
+    lv_obj_set_pos(s_pipe_lu, 164, 410);
+    lv_obj_set_style_bg_color(s_pipe_lu, lv_color_hex(C_AMBER), 0);
+    lv_obj_set_style_radius(s_pipe_lu, 6, 0);
+    lv_obj_set_style_border_width(s_pipe_lu, 0, 0);
+    obj_set_clickable(s_pipe_lu, false);
 
-    lv_obj_t *pipe_r = lv_obj_create(lv_screen_active());
-    lv_obj_set_size(pipe_r, 148, 12);
-    lv_obj_set_pos(pipe_r, 304, 466);
-    lv_obj_set_style_bg_color(pipe_r, lv_color_hex(C_HOT), 0);
-    lv_obj_set_style_radius(pipe_r, 6, 0);
-    lv_obj_set_style_border_width(pipe_r, 0, 0);
-    obj_set_clickable(pipe_r, false);
-    lv_obj_t *pipe_ru = lv_obj_create(lv_screen_active());
-    lv_obj_set_size(pipe_ru, 12, 62);
-    lv_obj_set_pos(pipe_ru, 304, 410);
-    lv_obj_set_style_bg_color(pipe_ru, lv_color_hex(C_HOT), 0);
-    lv_obj_set_style_radius(pipe_ru, 6, 0);
-    lv_obj_set_style_border_width(pipe_ru, 0, 0);
-    obj_set_clickable(pipe_ru, false);
+    s_pipe_r = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(s_pipe_r, 148, 12);
+    lv_obj_set_pos(s_pipe_r, 304, 466);
+    lv_obj_set_style_bg_color(s_pipe_r, lv_color_hex(C_HOT), 0);
+    lv_obj_set_style_radius(s_pipe_r, 6, 0);
+    lv_obj_set_style_border_width(s_pipe_r, 0, 0);
+    obj_set_clickable(s_pipe_r, false);
+    s_pipe_ru = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(s_pipe_ru, 12, 62);
+    lv_obj_set_pos(s_pipe_ru, 304, 410);
+    lv_obj_set_style_bg_color(s_pipe_ru, lv_color_hex(C_HOT), 0);
+    lv_obj_set_style_radius(s_pipe_ru, 6, 0);
+    lv_obj_set_style_border_width(s_pipe_ru, 0, 0);
+    obj_set_clickable(s_pipe_ru, false);
 
-    /* Flow dashes along the horizontal pipes. */
+    /* Flow dashes along the horizontal pipes.  6 dashes per pipe.
+     * Animated by update_flow_dashes() based on duty cycle. */
     for (int j = 0; j < 6; j++) {
-        lv_obj_t *d1 = lv_obj_create(lv_screen_active());
-        lv_obj_set_size(d1, 12, 4);
-        lv_obj_set_pos(d1, 40 + j * 22, 470);
-        lv_obj_set_style_bg_color(d1, lv_color_hex(C_INK), 0);
-        lv_obj_set_style_radius(d1, 2, 0);
-        lv_obj_set_style_border_width(d1, 0, 0);
-        lv_obj_set_style_opa(d1, 150, 0);
-        obj_set_clickable(d1, false);
+        s_flow_dash[j] = lv_obj_create(lv_screen_active());
+        lv_obj_set_size(s_flow_dash[j], 12, 4);
+        lv_obj_set_pos(s_flow_dash[j], 40 + j * 22, 470);
+        lv_obj_set_style_bg_color(s_flow_dash[j], lv_color_hex(C_INK), 0);
+        lv_obj_set_style_radius(s_flow_dash[j], 2, 0);
+        lv_obj_set_style_border_width(s_flow_dash[j], 0, 0);
+        lv_obj_set_style_opa(s_flow_dash[j], 150, 0);
+        obj_set_clickable(s_flow_dash[j], false);
 
-        lv_obj_t *d2 = lv_obj_create(lv_screen_active());
-        lv_obj_set_size(d2, 12, 4);
-        lv_obj_set_pos(d2, 316 + j * 22, 470);
-        lv_obj_set_style_bg_color(d2, lv_color_hex(C_INK), 0);
-        lv_obj_set_style_radius(d2, 2, 0);
-        lv_obj_set_style_border_width(d2, 0, 0);
-        lv_obj_set_style_opa(d2, 150, 0);
-        obj_set_clickable(d2, false);
+        s_flow_dash[j + 6] = lv_obj_create(lv_screen_active());
+        lv_obj_set_size(s_flow_dash[j + 6], 12, 4);
+        lv_obj_set_pos(s_flow_dash[j + 6], 316 + j * 22, 470);
+        lv_obj_set_style_bg_color(s_flow_dash[j + 6], lv_color_hex(C_INK), 0);
+        lv_obj_set_style_radius(s_flow_dash[j + 6], 2, 0);
+        lv_obj_set_style_border_width(s_flow_dash[j + 6], 0, 0);
+        lv_obj_set_style_opa(s_flow_dash[j + 6], 150, 0);
+        obj_set_clickable(s_flow_dash[j + 6], false);
     }
 
     /* Chamber temperature (left of the cabinet). */
@@ -465,20 +529,38 @@ static void align_power_labels(void) {
 }
 
 static void build_zones(void) {
-    /* Five invisible tappable zones over the heater/living area. */
+    /* Five invisible tappable zones over the heater/living area.
+     * When pressed, a 12 % tint overlay appears and labels scale to 1.04. */
     for (int i = 0; i < 5; i++) {
-        lv_obj_t *z = lv_obj_create(lv_screen_active());
-        lv_obj_set_size(z, SCREEN_W / 5, 380);
-        lv_obj_set_pos(z, i * (SCREEN_W / 5), 200);
-        lv_obj_set_style_bg_opa(z, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(z, 0, 0);
-        obj_set_clickable(z, true);
+        s_zone[i] = lv_obj_create(lv_screen_active());
+        lv_obj_set_size(s_zone[i], SCREEN_W / 5, 380);
+        lv_obj_set_pos(s_zone[i], i * (SCREEN_W / 5), 200);
+        lv_obj_set_style_bg_opa(s_zone[i], LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(s_zone[i], 0, 0);
+        /* Pressed state: 12 % white tint overlay. */
+        lv_obj_set_style_bg_color(s_zone[i], lv_color_hex(0xffffff), 0);
+        lv_obj_set_style_bg_opa(s_zone[i], 0, LV_STATE_PRESSED);
+        /* Override opa for pressed state to 12 % (32/255 ≈ 0.125). */
+        lv_obj_set_style_opa(s_zone[i], 32, LV_STATE_PRESSED);
+        obj_set_clickable(s_zone[i], true);
     }
 }
 
 lv_obj_t *haus_ui_init(void) {
+    /* Create a dark background object as the very first child of the screen.
+     * Being the first child guarantees it is painted first (bottom-most),
+     * so subsequent widgets (status, clock, heater, etc.) always sit on top
+     * of the dark background and never reveal white underneath. */
+    lv_obj_t *bg = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(bg, SCREEN_W, SCREEN_H);
+    lv_obj_set_pos(bg, 0, 0);
+    lv_obj_set_style_bg_color(bg, lv_color_hex(C_BG), 0);
+    lv_obj_set_style_border_width(bg, 0, 0);
+    lv_obj_set_style_radius(bg, 0, 0);
+    obj_set_clickable(bg, false);
+    obj_set_scrollable(bg, false);
+
     lv_obj_t *root = lv_screen_active();
-    lv_obj_set_style_bg_color(root, lv_color_hex(C_BG), 0);
 
     build_status();
     build_clock();
@@ -529,18 +611,87 @@ void haus_ui_update(void) {
         }
     }
 
+    /* Duty provenance marker: solid = CAN, hollow = EEPROM. */
+    if (s_duty_src) {
+        uint8_t src = state->pwm.source;
+        if (src == GUI_PWM_SRC_CAN) {
+            /* Solid circle: CAN source. */
+            lv_obj_set_style_bg_color(s_duty_src, lv_color_hex(C_OK), 0);
+            lv_obj_set_style_border_width(s_duty_src, 0, 0);
+        } else if (src == GUI_PWM_SRC_EEPROM) {
+            /* Hollow circle: EEPROM source (boot-restored). */
+            lv_obj_set_style_bg_color(s_duty_src, lv_color_hex(C_DIM), 0);
+            lv_obj_set_style_border_width(s_duty_src, 2, 0);
+            lv_obj_set_style_border_color(s_duty_src, lv_color_hex(C_OK), 0);
+        } else {
+            /* Unknown: grey. */
+            lv_obj_set_style_bg_color(s_duty_src, lv_color_hex(0x444444), 0);
+            lv_obj_set_style_border_width(s_duty_src, 0, 0);
+        }
+    }
+
     /* Chamber. */
     int16_t chamber = state->temps.temp[0];
     bool chamber_changed;
     if (chamber != GUI_EMPTY) {
         snprintf(buf, sizeof(buf), "%.1f", chamber / 100.0);
         chamber_changed = txt(s_chamber_temp, buf);
+        /* Render valid temperature in C_COLD (blue). */
+        lv_obj_set_style_text_color(s_chamber_temp, lv_color_hex(C_COLD), 0);
     } else {
         chamber_changed = txt(s_chamber_temp, "--");
+        /* Render sentinel in grey, never as an extreme colour. */
+        lv_obj_set_style_text_color(s_chamber_temp, lv_color_hex(0x444444), 0);
     }
     if (chamber_changed && s_chamber_unit && s_chamber_temp) {
         lv_obj_align_to(s_chamber_unit, s_chamber_temp,
                         LV_ALIGN_OUT_RIGHT_BOTTOM, 4, -2);
+    }
+
+    /* Pipes: colour follows a blue → amber → red ramp based on chamber temp.
+     *  < 30 °C (3000) → C_COLD (blue)
+     *  30–60 °C (3000–6000) → C_AMBER (amber)
+     *  > 60 °C (6000) → C_HOT (red)
+     * Only redraw when the colour actually changes. */
+    if (s_pipe_l && s_pipe_r && s_pipe_lu && s_pipe_ru) {
+        uint32_t pcol;
+        if (chamber == GUI_EMPTY) {
+            /* No data → grey */
+            pcol = 0x444444;
+        } else {
+            int32_t tc = chamber;  /* × 100 */
+            if (tc < 3000)
+                pcol = C_COLD;
+            else if (tc <= 6000)
+                pcol = C_AMBER;
+            else
+                pcol = C_HOT;
+        }
+        if (pcol != s_last_pipe_l_color) {
+            s_last_pipe_l_color = pcol;
+            lv_obj_set_style_bg_color(s_pipe_l, lv_color_hex(pcol), 0);
+            lv_obj_set_style_bg_color(s_pipe_lu, lv_color_hex(pcol), 0);
+        }
+        /* Water-out pipe follows the same ramp but uses the water-out temp.
+         * If water-out is empty, fall back to chamber colour. */
+        int16_t wout = state->temps.temp[2];
+        if (wout == GUI_EMPTY) wout = chamber;
+        if (wout == GUI_EMPTY) {
+            pcol = 0x444444;
+        } else {
+            int32_t tc = wout;
+            if (tc < 3000)
+                pcol = C_COLD;
+            else if (tc <= 6000)
+                pcol = C_AMBER;
+            else
+                pcol = C_HOT;
+        }
+        if (pcol != s_last_pipe_r_color) {
+            s_last_pipe_r_color = pcol;
+            lv_obj_set_style_bg_color(s_pipe_r, lv_color_hex(pcol), 0);
+            lv_obj_set_style_bg_color(s_pipe_ru, lv_color_hex(pcol), 0);
+        }
     }
 
     /* Water in (amber) / water out (modelled, hot). */
@@ -549,14 +700,18 @@ void haus_ui_update(void) {
     if (win != GUI_EMPTY) {
         snprintf(buf, sizeof(buf), "%.1f °C", win / 100.0);
         txt(s_water_in, buf);
+        lv_obj_set_style_text_color(s_water_in, lv_color_hex(C_AMBER), 0);
     } else {
         txt(s_water_in, "--");
+        lv_obj_set_style_text_color(s_water_in, lv_color_hex(0x444444), 0);
     }
     if (wout != GUI_EMPTY) {
         snprintf(buf, sizeof(buf), "~%.1f °C", wout / 100.0);
         txt(s_water_out, buf);
+        lv_obj_set_style_text_color(s_water_out, lv_color_hex(C_HOT), 0);
     } else {
         txt(s_water_out, "--");
+        lv_obj_set_style_text_color(s_water_out, lv_color_hex(0x444444), 0);
     }
     bool flow = state->pwm.duty_permille > 0 && state->pwm.duty_permille < 1000;
     txt(s_pump, flow ? "on" : "off");
@@ -568,8 +723,10 @@ void haus_ui_update(void) {
     if (state->living.temperature != GUI_EMPTY) {
         snprintf(buf, sizeof(buf), "%.1f", state->living.temperature / 100.0);
         living_changed = txt(s_living_temp, buf);
+        lv_obj_set_style_text_color(s_living_temp, lv_color_hex(C_COLD), 0);
     } else {
         living_changed = txt(s_living_temp, "--");
+        lv_obj_set_style_text_color(s_living_temp, lv_color_hex(0x444444), 0);
     }
     if (living_changed && s_living_unit && s_living_temp) {
         lv_obj_align_to(s_living_unit, s_living_temp,
@@ -578,15 +735,19 @@ void haus_ui_update(void) {
     if (state->living.humidity) {
         snprintf(buf, sizeof(buf), "%u rh", state->living.humidity / 100);
         txt(s_living_rh, buf);
+        lv_obj_set_style_text_color(s_living_rh, lv_color_hex(C_CYAN), 0);
     } else {
         txt(s_living_rh, "-- rh");
+        lv_obj_set_style_text_color(s_living_rh, lv_color_hex(0x444444), 0);
     }
     if (state->living.pressure) {
         snprintf(buf, sizeof(buf), "%lu hPa",
                  (unsigned long)(state->living.pressure / 100));
         txt(s_living_pa, buf);
+        lv_obj_set_style_text_color(s_living_pa, lv_color_hex(C_VIOLET), 0);
     } else {
         txt(s_living_pa, "-- hPa");
+        lv_obj_set_style_text_color(s_living_pa, lv_color_hex(0x444444), 0);
     }
 
     /* Power (always watts, with the bolt glyph). */
@@ -594,14 +755,53 @@ void haus_ui_update(void) {
     if (state->power.valid) {
         snprintf(buf, sizeof(buf), "%d", (int)state->power.watts);
         power_changed = txt(s_power_num, buf);
+        lv_obj_set_style_text_color(s_power_num, lv_color_hex(C_INK), 0);
+        /* Source badge: "SML" when SML source, "—" when no data. */
+        if (state->power.source == GUI_PWR_SRC_SML)
+            txt(s_power_src, "SML");
+        else
+            txt(s_power_src, "—");
+        lv_obj_set_style_text_color(s_power_src, lv_color_hex(C_DIM), 0);
     } else {
         power_changed = txt(s_power_num, "--");
+        lv_obj_set_style_text_color(s_power_num, lv_color_hex(0x444444), 0);
+        txt(s_power_src, "—");
+        lv_obj_set_style_text_color(s_power_src, lv_color_hex(0x444444), 0);
     }
     if (power_changed) align_power_labels();
 
     /* The flame is time-based, so paint it once here for callers that only
      * refresh the data (the host harness) and let the loop drive it after. */
     haus_ui_animate();
+
+    /* Flow dashes: animate along the pipes when duty indicates flow.
+     * Left pipe (water in) flows rightward, right pipe (water out) flows
+     * leftward. Dashes are hidden when duty = 0 or duty = 1000. */
+    if (s_flow_dash[0]) {
+        bool flowing = (state->pwm.duty_permille > 0 &&
+                        state->pwm.duty_permille < 1000);
+        /* Phase: 0–1200 ms cycle, dashes shift by 22 px per step. */
+        uint32_t phase = lv_tick_get() % 1200;
+        int offset = (int)(phase / 200) * 22;  /* 6 steps × 22 px */
+        /* Left pipe: dashes move rightward (increasing x). */
+        for (int j = 0; j < 6; j++) {
+            int x = 40 + j * 22 + (flowing ? offset : 0);
+            /* Wrap around */
+            if (flowing && x > 40 + 5 * 22 + 12)
+                x -= 6 * 22;
+            lv_obj_set_pos(s_flow_dash[j], x, 470);
+            lv_obj_set_style_opa(s_flow_dash[j], flowing ? 150 : 0, 0);
+        }
+        /* Right pipe: dashes move leftward (decreasing x). */
+        for (int j = 0; j < 6; j++) {
+            int x = 316 + j * 22 - (flowing ? offset : 0);
+            /* Wrap around */
+            if (flowing && x < 316 - 5 * 22)
+                x += 6 * 22;
+            lv_obj_set_pos(s_flow_dash[j + 6], x, 470);
+            lv_obj_set_style_opa(s_flow_dash[j + 6], flowing ? 150 : 0, 0);
+        }
+    }
 }
 
 void haus_ui_animate(void) {

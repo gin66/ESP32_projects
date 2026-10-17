@@ -77,6 +77,10 @@ void haus_history_flush_hour(uint32_t epoch_seconds);
  * number of columns restored. Call before the first frame. */
 size_t haus_history_restore(uint32_t now_epoch);
 
+/* Delete at most one expired /data_YYYYMMDD.bin per call. Returns 1 when a
+ * file was deleted, 0 when none was expired, -1 on an I/O error. */
+int haus_history_retention_step(uint32_t now_epoch, int max_months);
+
 /* Start the device recorder task. No-op on the host build. */
 void haus_history_start_recorder(void);
 
@@ -96,6 +100,8 @@ void haus_history_test_fail_writes(bool fail);
 void haus_history_test_clear_files(void);
 void haus_history_test_corrupt_day(size_t index);
 void haus_history_test_corrupt_rollup(size_t index);
+void haus_history_test_add_retention_file(uint32_t epoch);
+size_t haus_history_test_retention_files(void);
 #endif
 
 #ifdef __cplusplus

@@ -386,6 +386,45 @@ static void test_write_failure(void) {
     haus_history_test_fail_writes(false);
 }
 
+/* ─── H: retention ────────────────────────────────────────────────────────── */
+
+static void test_retention(uint32_t now) {
+    SECTION("H1  30 stale months delete one per pass, recent files stay");
+
+    CHECK(haus_history_init(), "history init failed");
+    haus_history_test_clear_files();
+
+    int year = 2020;
+    int mon = 1;
+    for (int i = 0; i < 30; i++) {
+        haus_history_test_add_retention_file(local_midnight(year, mon, 1));
+        if (++mon > 12) {
+            mon = 1;
+            year++;
+        }
+    }
+    CHECK(haus_history_test_retention_files() == 30u,
+          "retention files = %u, want 30",
+          (unsigned)haus_history_test_retention_files());
+
+    for (int i = 0; i < 30; i++) {
+        CHECK(haus_history_retention_step(now, 24) == 1,
+              "pass %d did not delete", i);
+        CHECK(haus_history_test_retention_files() == (size_t)(29 - i),
+              "files after pass %d = %u", i,
+              (unsigned)haus_history_test_retention_files());
+    }
+    CHECK(haus_history_retention_step(now, 24) == 0,
+          "empty list reported a delete");
+
+    haus_history_test_add_retention_file(local_midnight(2024, 9, 1));
+    CHECK(haus_history_retention_step(now, 24) == 0,
+          "recent file was deleted");
+    CHECK(haus_history_test_retention_files() == 1u,
+          "recent file count = %u",
+          (unsigned)haus_history_test_retention_files());
+}
+
 int main(void) {
     CHECK(sizeof(gui_sample_t) == 24u, "gui_sample_t = %u",
           (unsigned)sizeof(gui_sample_t));
@@ -409,6 +448,7 @@ int main(void) {
     test_time_edges();
     test_l2_wrap(start);
     test_write_failure();
+    test_retention(local_midnight(2024, 10, 14));
 
     if (g_failures != 0u) {
         printf("%u/%u checks FAILED\n", (unsigned)g_failures,

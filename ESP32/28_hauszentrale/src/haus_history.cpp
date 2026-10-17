@@ -40,6 +40,8 @@ static gui_sample_t s_test_day_data[HAUS_L1_SAMPLES];
 static bool s_test_day_valid = false;
 static uint32_t s_test_rollup_crc[(HAUS_L2_COLUMNS + 63) / 64];
 static uint32_t s_test_day_crc[(HAUS_L1_SAMPLES + 63) / 64];
+static uint32_t s_test_retention[128];
+static size_t s_test_retention_count = 0;
 static uint32_t s_test_day_bytes = 0;
 static uint32_t s_test_rollup_bytes = 0;
 static bool s_test_fail_writes = false;
@@ -95,6 +97,20 @@ static void l2_store(const RollupColumn *col) {
     if (!s_l2 || !col || col->t == 0) return;
     const size_t slot = (col->t / 60u) % HAUS_L2_COLUMNS;
     s_l2[slot] = *col;
+}
+
+/* Calendar-month comparison, so 24 months is 24 calendar months rather than an
+ * arbitrary number of days. */
+static bool retention_expired(uint32_t file_epoch, uint32_t now_epoch,
+                              int max_months) {
+    if (file_epoch == 0 || now_epoch < 24 * 3600u) return false;
+    time_t ft = (time_t)file_epoch;
+    time_t nt = (time_t)now_epoch;
+    struct tm f;
+    struct tm n;
+    if (!localtime_r(&ft, &f) || !localtime_r(&nt, &n)) return false;
+    const int months = (n.tm_year - f.tm_year) * 12 + (n.tm_mon - f.tm_mon);
+    return months >= max_months;
 }
 
 static uint32_t l2_newest_minute(void) {
@@ -533,6 +549,7 @@ void haus_history_test_clear_files(void) {
     memset(s_test_day_data, 0, sizeof(s_test_day_data));
     memset(s_test_rollup_crc, 0, sizeof(s_test_rollup_crc));
     memset(s_test_day_crc, 0, sizeof(s_test_day_crc));
+    s_test_retention_count = 0;
     s_test_rollup_valid = false;
     s_test_day_valid = false;
     s_test_day_bytes = 0;
@@ -550,6 +567,32 @@ void haus_history_test_corrupt_rollup(size_t index) {
     if (index < HAUS_L2_COLUMNS) {
         ((uint8_t *)&s_test_rollup_data[index])[0] ^= 0xFFu;
     }
+}
+
+void haus_history_test_add_retention_file(uint32_t epoch) {
+    if (s_test_retention_count < sizeof(s_test_retention) /
+                                      sizeof(s_test_retention[0])) {
+        s_test_retention[s_test_retention_count++] = epoch;
+    }
+}
+
+size_t haus_history_test_retention_files(void) {
+    return s_test_retention_count;
+}
+
+int haus_history_retention_step(uint32_t now_epoch, int max_months) {
+    if (s_test_retention_count == 0) return 0;
+
+    size_t oldest = 0;
+    for (size_t i = 1; i < s_test_retention_count; i++) {
+        if (s_test_retention[i] < s_test_retention[oldest]) oldest = i;
+    }
+    if (!retention_expired(s_test_retention[oldest], now_epoch, max_months)) {
+        return 0;
+    }
+
+    s_test_retention[oldest] = s_test_retention[--s_test_retention_count];
+    return 1;
 }
 
 #else  /* device */
@@ -754,6 +797,72 @@ static void restore_day_file(const char *path, uint32_t now_epoch) {
     f.close();
 }
 
+static bool parse_day_epoch(const char *name, uint32_t *out) {
+    const char *p = strstr(name, "data_");
+    if (!p) return false;
+    int year = 0;
+    int mon = 0;
+    int day = 0;
+    if (sscanf(p + 5, "%4d%2d%2d", &year, &mon, &day) != 3) return false;
+    struct tm tm;
+    memset(&tm, 0, sizeof(tm));
+    tm.tm_year = year - 1900;
+    tm.tm_mon = mon - 1;
+    tm.tm_mday = day;
+    tm.tm_isdst = -1;
+    const time_t t = mktime(&tm);
+    if (t < 0) return false;
+    *out = (uint32_t)t;
+    return true;
+}
+
+int haus_history_retention_step(uint32_t now_epoch, int max_months) {
+    if (now_epoch < 24 * 3600u || !haus_sd_is_mounted()) return 0;
+    if (!haus_sd_lock(2000)) return -1;
+
+    File dir = SD.open("/");
+    if (!dir || !dir.isDirectory()) {
+        haus_sd_unlock();
+        return -1;
+    }
+
+    uint32_t oldest_epoch = 0;
+    String oldest_name;
+    File f = dir.openNextFile();
+    while (f) {
+        if (!f.isDirectory()) {
+            String name = f.name();
+            if (name.startsWith("/")) name = name.substring(1);
+            if (name.length() == 17 && name.startsWith("data_") &&
+                name.endsWith(".bin")) {
+                uint32_t epoch = 0;
+                if (parse_day_epoch(name.c_str(), &epoch) &&
+                    (oldest_epoch == 0 || epoch < oldest_epoch)) {
+                    oldest_epoch = epoch;
+                    oldest_name = name;
+                }
+            }
+        }
+        f.close();
+        f = dir.openNextFile();
+    }
+    dir.close();
+
+    int result = 0;
+    if (oldest_epoch != 0 &&
+        retention_expired(oldest_epoch, now_epoch, max_months)) {
+        String path = "/" + oldest_name;
+        if (SD.remove(path.c_str())) {
+            result = 1;
+            TPL_LOGI("history", "retention removed %s", path.c_str());
+        } else {
+            result = -1;
+        }
+    }
+    haus_sd_unlock();
+    return result;
+}
+
 size_t haus_history_restore(uint32_t now_epoch) {
     size_t restored = 0;
 
@@ -835,6 +944,13 @@ static void recorder_task(void *arg) {
     for (;;) {
         const time_t now = time(nullptr);
         if (now > 1700000000) {
+            static uint32_t last_retention_day = 0;
+            const uint32_t today = local_day_key((uint32_t)now);
+            if (today != last_retention_day) {
+                last_retention_day = today;
+                (void)haus_history_retention_step((uint32_t)now, 24);
+            }
+
             const uint32_t minute = (uint32_t)(now / 60);
             if (minute != last_minute) {
                 last_minute = minute;

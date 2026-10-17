@@ -89,8 +89,9 @@ static void test_day(uint32_t start) {
               (unsigned)c.n[5], (int)c.sum[5]);
     }
 
-    HausState again = fresh_state(start);
-    CHECK(haus_history_sample(&again, start), "idempotent sample rejected");
+    const uint32_t last = start + (HAUS_L1_SAMPLES - 1u) * 60u;
+    HausState again = fresh_state(last);
+    CHECK(haus_history_sample(&again, last), "idempotent sample rejected");
     CHECK(haus_history_l1_count() == HAUS_L1_SAMPLES,
           "idempotent sample changed L1 count");
 }
@@ -233,6 +234,29 @@ static void test_ring_wrap(uint32_t start) {
     }
 }
 
+/* ─── D3: boot restore ────────────────────────────────────────────────────── */
+
+static void test_restore(uint32_t start, uint32_t next) {
+    SECTION("D3  SD rollup restores L2 before the clock is valid");
+
+    CHECK(haus_history_init(), "history init failed");
+    const size_t restored = haus_history_restore(0); /* before NTP */
+    CHECK(restored == (size_t)HAUS_L2_COLUMNS, "restored = %u, want %u",
+          (unsigned)restored, (unsigned)HAUS_L2_COLUMNS);
+
+    const uint32_t slot = (start / 3600u) % (uint32_t)HAUS_L2_COLUMNS;
+    const RollupColumn &c = haus_history_l2()[slot];
+    CHECK(c.t == start / 60u, "restored t = %u, want %u", (unsigned)c.t,
+          (unsigned)(start / 60u));
+    CHECK(c.n[0] == 60, "restored n[0] = %u, want 60", (unsigned)c.n[0]);
+
+    /* A second init clears L2; restore must refill it from the saved rollup. */
+    CHECK(haus_history_init(), "history init failed");
+    CHECK(haus_history_l2()[slot].t == 0, "init did not clear L2");
+    CHECK(haus_history_restore(next) == (size_t)HAUS_L2_COLUMNS,
+          "second restore failed");
+}
+
 /* ─── E: time edges ───────────────────────────────────────────────────────── */
 
 static uint32_t local_midnight(int year, int mon, int mday) {
@@ -345,6 +369,7 @@ int main(void) {
     test_stale(next);
     test_stale_recovery(next);
     test_ring_order(start, next);
+    test_restore(start, next);
     test_ring_wrap(start);
     test_time_edges();
     test_l2_wrap(start);

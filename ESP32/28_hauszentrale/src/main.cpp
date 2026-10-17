@@ -25,6 +25,7 @@
 #include <esp_sntp.h>
 #include <esp_timer.h>
 #include <lvgl.h>
+#include <time.h>
 
 /* S4.03: RGB565 draw buffer in internal RAM (not PSRAM) */
 static uint8_t s_draw_buf0[800 * 20 * 2];
@@ -92,6 +93,9 @@ void setup() {
     if (!haus_history_init()) {
         TPL_LOGW("history", "history store unavailable");
     } else {
+        /* S11.08/S11.09: restore before the first frame is ever drawn. */
+        const size_t restored = haus_history_restore((uint32_t)time(nullptr));
+        TPL_LOGI("history", "boot restore: %u columns", (unsigned)restored);
         haus_history_start_recorder();
     }
 

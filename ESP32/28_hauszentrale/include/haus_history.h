@@ -61,6 +61,10 @@ size_t haus_history_l1_count(void);
  * or hour boundary arrives without a minute-59 sample). */
 void haus_history_flush_hour(uint32_t epoch_seconds);
 
+/* Restore L2 at boot: SD /rollup.bin first, then the SPIFFS ring. Returns the
+ * number of columns restored. Call before the first frame. */
+size_t haus_history_restore(uint32_t now_epoch);
+
 /* Start the device recorder task. No-op on the host build. */
 void haus_history_start_recorder(void);
 
@@ -77,6 +81,7 @@ const char *haus_history_last_day_path(void);
 uint32_t haus_history_test_day_bytes(void);
 uint32_t haus_history_test_rollup_bytes(void);
 void haus_history_test_fail_writes(bool fail);
+void haus_history_test_clear_files(void);
 #endif
 
 #ifdef __cplusplus

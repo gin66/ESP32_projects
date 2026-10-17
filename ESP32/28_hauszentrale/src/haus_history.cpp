@@ -22,6 +22,8 @@
 static gui_sample_t s_l1_storage[HAUS_L1_SAMPLES];
 static RollupColumn s_l2_storage[HAUS_L2_COLUMNS];
 static RollupColumn s_ring_storage[HAUS_RING_HOURS];
+static RollupColumn s_test_rollup_data[HAUS_L2_COLUMNS];
+static bool s_test_rollup_valid = false;
 static uint32_t s_test_day_bytes = 0;
 static uint32_t s_test_rollup_bytes = 0;
 static bool s_test_fail_writes = false;
@@ -71,6 +73,12 @@ static bool source_stale(uint32_t now, uint32_t last_update) {
 
 static size_t ring_slot(uint32_t epoch_hour) {
     return (size_t)(epoch_hour % HAUS_RING_HOURS);
+}
+
+static void l2_store(const RollupColumn *col) {
+    if (!s_l2 || !col || col->t == 0) return;
+    const size_t slot = (col->t / 60u) % HAUS_L2_COLUMNS;
+    s_l2[slot] = *col;
 }
 
 /* Local calendar day, used for the midnight rollover. A DST change makes the
@@ -125,8 +133,14 @@ static bool sd_write_day(uint32_t epoch) {
 
 static bool sd_write_rollup(uint32_t epoch) {
 #ifdef HAUS_HOST
-    (void)epoch;
     if (s_test_fail_writes) return false;
+    const uint32_t last_hour = epoch / 3600u;
+    for (size_t i = 0; i < HAUS_L2_COLUMNS; i++) {
+        const uint32_t h = last_hour - (uint32_t)(HAUS_L2_COLUMNS - 1) +
+                           (uint32_t)i;
+        s_test_rollup_data[i] = s_l2[h % HAUS_L2_COLUMNS];
+    }
+    s_test_rollup_valid = true;
     s_test_rollup_bytes = HAUS_L2_BYTES;
     s_sd_write_count++;
     return true;
@@ -377,11 +391,39 @@ size_t haus_history_ring_load(RollupColumn *out, size_t max_columns) {
     return haus_history_ring_load_at(out, max_columns, (uint32_t)time(nullptr));
 }
 
+size_t haus_history_restore(uint32_t now_epoch) {
+    if (s_test_rollup_valid) {
+        for (size_t i = 0; i < HAUS_L2_COLUMNS; i++) {
+            l2_store(&s_test_rollup_data[i]);
+        }
+        return HAUS_L2_COLUMNS;
+    }
+
+    if (now_epoch < 24 * 3600u) return 0;
+    const uint32_t now_hour = now_epoch / 3600u;
+    const uint32_t first_hour = now_hour - (uint32_t)(HAUS_L2_COLUMNS - 1);
+    size_t restored = 0;
+    for (uint32_t i = 0; i < (uint32_t)HAUS_L2_COLUMNS; i++) {
+        const size_t slot = ring_slot(first_hour + i);
+        if (s_ring_storage[slot].t == 0) continue;
+        l2_store(&s_ring_storage[slot]);
+        restored++;
+    }
+    return restored;
+}
+
 void haus_history_start_recorder(void) {}
 
 uint32_t haus_history_test_day_bytes(void) { return s_test_day_bytes; }
 uint32_t haus_history_test_rollup_bytes(void) { return s_test_rollup_bytes; }
 void haus_history_test_fail_writes(bool fail) { s_test_fail_writes = fail; }
+void haus_history_test_clear_files(void) {
+    memset(s_test_rollup_data, 0, sizeof(s_test_rollup_data));
+    s_test_rollup_valid = false;
+    s_test_day_bytes = 0;
+    s_test_rollup_bytes = 0;
+    s_last_day_path[0] = '\0';
+}
 
 #else  /* device */
 
@@ -516,6 +558,66 @@ size_t haus_history_ring_load_at(RollupColumn *out, size_t max_columns,
 
 size_t haus_history_ring_load(RollupColumn *out, size_t max_columns) {
     return haus_history_ring_load_at(out, max_columns, (uint32_t)time(nullptr));
+}
+
+size_t haus_history_restore(uint32_t now_epoch) {
+    size_t restored = 0;
+
+    /* SD rollup first: it is a contiguous 744-column block and needs no clock. */
+    if (haus_sd_is_mounted() && haus_sd_lock(2000)) {
+        File f = SD.open("/rollup.bin", FILE_READ);
+        if (f) {
+            RollupColumn buf[16];
+            for (;;) {
+                const size_t got = f.read((uint8_t *)buf, sizeof(buf));
+                if (got == 0) break;
+                const size_t cols = got / sizeof(RollupColumn);
+                for (size_t i = 0; i < cols; i++) {
+                    if (buf[i].t != 0) {
+                        l2_store(&buf[i]);
+                        restored++;
+                    }
+                }
+                if (cols == 0 || (got % sizeof(RollupColumn)) != 0) break;
+            }
+            f.close();
+        }
+        haus_sd_unlock();
+    }
+
+    if (restored > 0) {
+        TPL_LOGI("history", "restored %u columns from SD rollup",
+                 (unsigned)restored);
+        return restored;
+    }
+
+    /* Card absent or rollup unreadable: the SPIFFS ring is the other book. */
+    if (s_ring_ready && now_epoch >= 24 * 3600u) {
+        File f = SPIFFS.open(HAUS_RING_PATH, "r");
+        if (f) {
+            const uint32_t now_hour = now_epoch / 3600u;
+            const uint32_t first_hour =
+                now_hour - (uint32_t)(HAUS_L2_COLUMNS - 1);
+            for (uint32_t i = 0; i < (uint32_t)HAUS_L2_COLUMNS; i++) {
+                const size_t slot = ring_slot(first_hour + i);
+                const size_t off =
+                    sizeof(RingHeader) + slot * sizeof(RollupColumn);
+                RollupColumn col;
+                if (!f.seek(off) ||
+                    f.readBytes((char *)&col, sizeof(col)) != sizeof(col)) {
+                    break;
+                }
+                if (col.t == 0) continue;
+                l2_store(&col);
+                restored++;
+            }
+            f.close();
+        }
+    }
+
+    TPL_LOGI("history", "restored %u columns from SPIFFS ring",
+             (unsigned)restored);
+    return restored;
 }
 
 static void recorder_task(void *arg) {

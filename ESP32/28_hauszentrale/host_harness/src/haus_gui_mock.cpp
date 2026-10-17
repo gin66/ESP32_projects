@@ -11,13 +11,14 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+
 #include "haus_can.h"
 #include "haus_gui.h"
 #include "haus_rollup.h"
 #include "haus_triple_buffer.h"
-#include <cmath>
-#include <cstdio>
-#include <cstring>
 
 /* ─── Synthetic heater model ────────────────────────────────────────────────
  *
@@ -73,10 +74,8 @@ static int16_t mock_target_temp(uint32_t epoch) {
     target = 15.0;
   }
 
-  if (target < -40.0)
-    target = -40.0;
-  if (target > 90.0)
-    target = 90.0;
+  if (target < -40.0) target = -40.0;
+  if (target > 90.0) target = 90.0;
   return (int16_t)(target * 100.0);
 }
 
@@ -87,10 +86,8 @@ static int16_t mock_chamber_temp(uint32_t epoch) {
   double noise = sin(epoch * 0.001) * 0.2 + sin(epoch * 0.0037) * 0.1;
   target += noise;
 
-  if (target < -40.0)
-    target = -40.0;
-  if (target > 90.0)
-    target = 90.0;
+  if (target < -40.0) target = -40.0;
+  if (target > 90.0) target = 90.0;
   return (int16_t)(target * 100.0);
 }
 
@@ -102,8 +99,7 @@ static int16_t mock_chamber_temp(uint32_t epoch) {
  */
 static int16_t mock_water_in_temp(uint32_t epoch) {
   int16_t chamber = mock_chamber_temp(epoch);
-  if (chamber == GUI_EMPTY)
-    return GUI_EMPTY;
+  if (chamber == GUI_EMPTY) return GUI_EMPTY;
   /* Water in is typically 5–8°C cooler than chamber output. */
   double chamber_c = chamber / 100.0;
   double water_in = chamber_c - 5.0 + sin(epoch * 0.01) * 0.5;
@@ -112,8 +108,7 @@ static int16_t mock_water_in_temp(uint32_t epoch) {
 
 static int16_t mock_water_out_temp(uint32_t epoch) {
   int16_t chamber = mock_chamber_temp(epoch);
-  if (chamber == GUI_EMPTY)
-    return GUI_EMPTY;
+  if (chamber == GUI_EMPTY) return GUI_EMPTY;
   /* Water out is typically 3–5°C hotter than chamber target. */
   double chamber_c = chamber / 100.0;
   double water_out = chamber_c + 3.0 + sin(epoch * 0.013) * 0.3;
@@ -129,8 +124,7 @@ static uint16_t mock_pwm_duty(uint32_t epoch) {
   int16_t chamber = mock_chamber_temp(epoch);
   int16_t target = mock_target_temp(epoch);
 
-  if (chamber == GUI_EMPTY)
-    return 0;
+  if (chamber == GUI_EMPTY) return 0;
 
   double chamber_c = chamber / 100.0;
   double target_c = target / 100.0;
@@ -144,10 +138,8 @@ static uint16_t mock_pwm_duty(uint32_t epoch) {
   /* Add small noise. */
   duty += sin(epoch * 0.05) * 10.0;
 
-  if (duty < 0)
-    duty = 0;
-  if (duty > 1000)
-    duty = 1000;
+  if (duty < 0) duty = 0;
+  if (duty > 1000) duty = 1000;
 
   return (uint16_t)duty;
 }
@@ -169,8 +161,7 @@ static int32_t mock_sml_watts(uint32_t epoch) {
   double noise = sin(epoch * 0.02) * 50.0 + sin(epoch * 0.07) * 30.0;
 
   int32_t watts = (int32_t)(base + boiler + noise);
-  if (watts < 0)
-    watts = 0;
+  if (watts < 0) watts = 0;
 
   return watts;
 }
@@ -212,8 +203,7 @@ static gui_sample_t g_history[MAX_HISTORY_SAMPLES];
 static bool g_history_initialized = false;
 
 static void init_history(void) {
-  if (g_history_initialized)
-    return;
+  if (g_history_initialized) return;
 
   /* Generate 30 days of synthetic data starting from 30 days ago. */
   uint32_t now = g_sim_time - (g_sim_time % 60u);
@@ -221,13 +211,11 @@ static void init_history(void) {
 
   int idx = 0;
   for (uint32_t t = start_epoch; t <= now; t += 60) {
-    if (idx >= MAX_HISTORY_SAMPLES)
-      break;
+    if (idx >= MAX_HISTORY_SAMPLES) break;
 
     int32_t watts = mock_sml_watts(t);
     uint32_t power_dw = (uint32_t)watts * 10u;
-    if (power_dw > 65535u)
-      power_dw = 65535u;
+    if (power_dw > 65535u) power_dw = 65535u;
 
     g_history[idx].epoch = t;
     g_history[idx].temp[0] = mock_chamber_temp(t);
@@ -261,29 +249,26 @@ static char g_mock_log[MOCK_LOG_BYTES];
 static bool g_mock_log_ready = false;
 
 static void init_mock_log(void) {
-  if (g_mock_log_ready)
-    return;
-  static const char *levels = "EWID";
-  static const char *tags[] = {"esp_lcd", "twai", "haus",   "sd",
+  if (g_mock_log_ready) return;
+  static const char* levels = "EWID";
+  static const char* tags[] = {"esp_lcd", "twai", "haus",   "sd",
                                "boot",    "wifi", "history"};
   size_t off = 0;
   for (int i = 0; i < 320 && off < MOCK_LOG_BYTES - 128; i++) {
     const char lv = levels[i % 4];
-    const char *tag = tags[i % 7];
+    const char* tag = tags[i % 7];
     int n = snprintf(g_mock_log + off, MOCK_LOG_BYTES - off,
                      "%d.%03d %c %s: sample record %d value %.2f degC\n",
                      1234 + i / 10, (i * 37) % 1000, lv, tag, i,
                      52.0 + (i % 17) * 0.35);
-    if (n > 0)
-      off += (size_t)n;
+    if (n > 0) off += (size_t)n;
   }
   g_mock_log_ready = true;
 }
 
-const char *gui_log_dump(int *out_len) {
+const char* gui_log_dump(int* out_len) {
   init_mock_log();
-  if (out_len)
-    *out_len = (int)strlen(g_mock_log);
+  if (out_len) *out_len = (int)strlen(g_mock_log);
   return g_mock_log;
 }
 
@@ -331,8 +316,8 @@ static bool g_can_enabled = true;
 static TripleBuffer<ClimateState> g_climate;
 
 void gui_update_state(void) {
-  CanState &can = g_can.write();
-  ClimateState &climate = g_climate.write();
+  CanState& can = g_can.write();
+  ClimateState& climate = g_climate.write();
 
   /* Update simulated time (advance ~1 second per call). */
   g_sim_time += 1;
@@ -388,9 +373,21 @@ void gui_update_state(void) {
   /* System: exercise all three indicator states in the host render. */
   can.can_status = GUI_STATUS_OK;
   can.duty_status = GUI_STATUS_INACTIVE;
-  can.sd_status = GUI_STATUS_ERROR;
+  can.sd_status = GUI_STATUS_OK;
   can.wifi_status = GUI_STATUS_OK;
   can.sd_low_space = false;
+
+  /* Storage panel: the bench card is a 59.6 GB SDHC. */
+  snprintf(can.sd_card_type, sizeof(can.sd_card_type), "SDHC");
+  can.sd_total_bytes = 64000000000ULL;
+  can.sd_used_bytes = 1180000000ULL;
+  can.sd_samples_bytes = 900000000ULL;
+  can.sd_rollup_bytes = 250000000ULL;
+  can.sd_logs_bytes = 30000000ULL;
+  can.sd_last_rollover_epoch = g_sim_time - 3600u;
+  can.sd_fault_since_epoch = 0;
+  can.sd_newest_file_epoch = g_sim_time - 86400u;
+  can.sd_writing = false;
 
   /* Chamber target. */
   can.chamber_target_c = mock_target_temp(g_sim_time);
@@ -415,19 +412,17 @@ void gui_update_state(void) {
   g_climate.publish();
 }
 
-void gui_get_state(HausState *out) {
-  if (!out)
-    return;
+void gui_get_state(HausState* out) {
+  if (!out) return;
   gui_update_state();
   out->can = g_can.acquire();
   out->climate = g_climate.acquire();
 }
 
-int gui_get_history(const gui_history_request_t *req) {
+int gui_get_history(const gui_history_request_t* req) {
   init_history();
 
-  if (!req || !req->samples || !req->out_count)
-    return -1;
+  if (!req || !req->samples || !req->out_count) return -1;
 
   *req->out_count = 0;
 
@@ -443,8 +438,7 @@ int gui_get_history(const gui_history_request_t *req) {
     }
   }
 
-  if (start_idx == -1 || end_idx == -1)
-    return 0; /* No data in range. */
+  if (start_idx == -1 || end_idx == -1) return 0; /* No data in range. */
 
   int total = end_idx - start_idx + 1;
 
@@ -469,18 +463,15 @@ int gui_get_history(const gui_history_request_t *req) {
 
 static int history_index_for(uint32_t epoch) {
   init_history();
-  if (epoch < g_history[0].epoch)
-    return -1;
+  if (epoch < g_history[0].epoch) return -1;
   const uint32_t idx = (epoch - g_history[0].epoch) / 60u;
-  if (idx >= MAX_HISTORY_SAMPLES)
-    return -1;
+  if (idx >= MAX_HISTORY_SAMPLES) return -1;
   return g_history[idx].epoch == epoch ? (int)idx : -1;
 }
 
 size_t gui_read_samples_chunk(uint32_t start_epoch, size_t first, size_t count,
-                              gui_sample_t *out) {
-  if (!out || count == 0)
-    return 0;
+                              gui_sample_t* out) {
+  if (!out || count == 0) return 0;
   const uint32_t base = start_epoch - (start_epoch % 60u);
   for (size_t i = 0; i < count; i++) {
     const uint32_t epoch = base + (uint32_t)(first + i) * 60u;
@@ -499,9 +490,8 @@ size_t gui_read_samples_chunk(uint32_t start_epoch, size_t first, size_t count,
 }
 
 size_t gui_read_rollup_chunk(uint32_t start_epoch, size_t first, size_t count,
-                             RollupColumn *out) {
-  if (!out || count == 0)
-    return 0;
+                             RollupColumn* out) {
+  if (!out || count == 0) return 0;
   const uint32_t base = start_epoch - (start_epoch % 3600u);
   for (size_t i = 0; i < count; i++) {
     const uint32_t hour = base + (uint32_t)(first + i) * 3600u;
@@ -509,39 +499,29 @@ size_t gui_read_rollup_chunk(uint32_t start_epoch, size_t first, size_t count,
     out[i].t = hour / 60u;
     for (uint32_t m = 0; m < 60; m++) {
       const int idx = history_index_for(hour + m * 60u);
-      if (idx < 0)
-        continue;
-      const gui_sample_t *s = &g_history[idx];
+      if (idx < 0) continue;
+      const gui_sample_t* s = &g_history[idx];
       if (s->temp[0] != GUI_EMPTY) {
         const int32_t v = s->temp[0];
-        if (out[i].n[0] == 0)
-          out[i].mn[0] = out[i].mx[0] = v;
-        if (v < out[i].mn[0])
-          out[i].mn[0] = v;
-        if (v > out[i].mx[0])
-          out[i].mx[0] = v;
+        if (out[i].n[0] == 0) out[i].mn[0] = out[i].mx[0] = v;
+        if (v < out[i].mn[0]) out[i].mn[0] = v;
+        if (v > out[i].mx[0]) out[i].mx[0] = v;
         out[i].sum[0] += v;
         out[i].n[0]++;
       }
       if (s->temp[1] != GUI_EMPTY) {
         const int32_t v = s->temp[1];
-        if (out[i].n[1] == 0)
-          out[i].mn[1] = out[i].mx[1] = v;
-        if (v < out[i].mn[1])
-          out[i].mn[1] = v;
-        if (v > out[i].mx[1])
-          out[i].mx[1] = v;
+        if (out[i].n[1] == 0) out[i].mn[1] = out[i].mx[1] = v;
+        if (v < out[i].mn[1]) out[i].mn[1] = v;
+        if (v > out[i].mx[1]) out[i].mx[1] = v;
         out[i].sum[1] += v;
         out[i].n[1]++;
       }
       if (s->temp[2] != GUI_EMPTY) {
         const int32_t v = s->temp[2];
-        if (out[i].n[2] == 0)
-          out[i].mn[2] = out[i].mx[2] = v;
-        if (v < out[i].mn[2])
-          out[i].mn[2] = v;
-        if (v > out[i].mx[2])
-          out[i].mx[2] = v;
+        if (out[i].n[2] == 0) out[i].mn[2] = out[i].mx[2] = v;
+        if (v < out[i].mn[2]) out[i].mn[2] = v;
+        if (v > out[i].mx[2]) out[i].mx[2] = v;
         out[i].sum[2] += v;
         out[i].n[2]++;
       }
@@ -551,9 +531,8 @@ size_t gui_read_rollup_chunk(uint32_t start_epoch, size_t first, size_t count,
 }
 
 size_t gui_read_target_samples_chunk(uint32_t start_epoch, size_t first,
-                                     size_t count, int16_t *out) {
-  if (!out || count == 0)
-    return 0;
+                                     size_t count, int16_t* out) {
+  if (!out || count == 0) return 0;
   const uint32_t base = start_epoch - (start_epoch % 60u);
   for (size_t i = 0; i < count; i++) {
     const uint32_t epoch = base + (uint32_t)(first + i) * 60u;
@@ -564,9 +543,8 @@ size_t gui_read_target_samples_chunk(uint32_t start_epoch, size_t first,
 }
 
 size_t gui_read_target_hours_chunk(uint32_t start_epoch, size_t first,
-                                   size_t count, int16_t *out) {
-  if (!out || count == 0)
-    return 0;
+                                   size_t count, int16_t* out) {
+  if (!out || count == 0) return 0;
   const uint32_t base = start_epoch - (start_epoch % 3600u);
   for (size_t i = 0; i < count; i++) {
     const uint32_t hour = base + (uint32_t)(first + i) * 3600u;
@@ -586,9 +564,8 @@ bool gui_history_has_data(uint32_t start_epoch, uint32_t end_epoch) {
          start_epoch <= g_history[MAX_HISTORY_SAMPLES - 1].epoch;
 }
 
-const gui_sensor_info_t *gui_get_sensors(uint8_t *count) {
-  if (count)
-    *count = GUI_MAX_SENSORS;
+const gui_sensor_info_t* gui_get_sensors(uint8_t* count) {
+  if (count) *count = 4; /* three bound probes + one unbound slot */
   return g_sensors;
 }
 
@@ -599,3 +576,11 @@ bool gui_water_model_available(void) {
 bool gui_can_enabled(void) { return g_can_enabled; }
 
 void gui_set_can_enabled(bool enabled) { g_can_enabled = enabled; }
+
+void gui_storage_refresh(void) {}
+
+static bool g_backlight_on = true;
+
+bool gui_backlight_on(void) { return g_backlight_on; }
+
+void gui_set_backlight(bool on) { g_backlight_on = on; }

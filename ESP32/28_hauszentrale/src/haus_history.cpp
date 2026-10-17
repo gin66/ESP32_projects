@@ -13,8 +13,8 @@
 #include <string.h>
 #include <time.h>
 
-uint32_t haus_crc32(const void *data, size_t len) {
-  const uint8_t *p = (const uint8_t *)data;
+uint32_t haus_crc32(const void* data, size_t len) {
+  const uint8_t* p = (const uint8_t*)data;
   uint32_t crc = 0xFFFFFFFFu;
   for (size_t i = 0; i < len; i++) {
     crc ^= p[i];
@@ -27,14 +27,14 @@ uint32_t haus_crc32(const void *data, size_t len) {
 
 #ifdef HAUS_HOST
 
-#define TPL_LOGI(...)                                                          \
-  do {                                                                         \
+#define TPL_LOGI(...) \
+  do {                \
   } while (0)
-#define TPL_LOGW(...)                                                          \
-  do {                                                                         \
+#define TPL_LOGW(...) \
+  do {                \
   } while (0)
-#define TPL_LOGE(...)                                                          \
-  do {                                                                         \
+#define TPL_LOGE(...) \
+  do {                \
   } while (0)
 
 static gui_sample_t s_l1_storage[HAUS_L1_SAMPLES];
@@ -77,8 +77,8 @@ static bool s_ring_ready = false;
 
 #endif /* HAUS_HOST */
 
-static gui_sample_t *s_l1 = NULL;
-static RollupColumn *s_l2 = NULL;
+static gui_sample_t* s_l1 = NULL;
+static RollupColumn* s_l2 = NULL;
 static uint32_t s_last_sample_minute = UINT32_MAX;
 static uint32_t s_last_sample_epoch = 0;
 static uint32_t s_last_day = 0;
@@ -86,14 +86,42 @@ static uint32_t s_sd_write_count = 0;
 static char s_last_day_path[32] = "";
 static uint8_t s_last_stale_mask = 0;
 
+/* Storage status cache (S23). Updated only by storage_refresh()/rollover. */
+static uint32_t s_last_rollover_epoch = 0;
+static uint32_t s_fault_since_epoch = 0;
+static uint32_t s_newest_file_epoch = 0;
+static volatile bool s_writing = false;
+static uint64_t s_tier_samples_bytes = 0;
+static uint64_t s_tier_rollup_bytes = 0;
+static uint64_t s_tier_logs_bytes = 0;
+
+uint32_t haus_history_last_rollover_epoch(void) {
+  return s_last_rollover_epoch;
+}
+uint32_t haus_history_fault_since_epoch(void) { return s_fault_since_epoch; }
+bool haus_history_writing(void) { return s_writing; }
+void haus_history_set_writing(bool writing) { s_writing = writing; }
+void haus_history_storage_get(uint64_t* samples_bytes, uint64_t* rollup_bytes,
+                              uint64_t* logs_bytes) {
+  if (samples_bytes) *samples_bytes = s_tier_samples_bytes;
+  if (rollup_bytes) *rollup_bytes = s_tier_rollup_bytes;
+  if (logs_bytes) *logs_bytes = s_tier_logs_bytes;
+}
+uint32_t haus_history_newest_file_epoch(void) { return s_newest_file_epoch; }
+
+static void note_fault(void) {
+  if (s_fault_since_epoch == 0) {
+    const time_t now = time(nullptr);
+    s_fault_since_epoch = (now > 1700000000) ? (uint32_t)now : 1;
+  }
+}
+
 /* One minute without a refresh marks a source stale in the log. */
 #define HAUS_STALE_AFTER_S 60
 
 static bool source_stale(uint32_t now, uint32_t last_update) {
-  if (last_update == 0)
-    return true;
-  if (now <= last_update)
-    return false; /* clock step back */
+  if (last_update == 0) return true;
+  if (now <= last_update) return false; /* clock step back */
   return (now - last_update) >= HAUS_STALE_AFTER_S;
 }
 
@@ -101,9 +129,8 @@ static size_t ring_slot(uint32_t epoch_hour) {
   return (size_t)(epoch_hour % HAUS_RING_HOURS);
 }
 
-static void l2_store(const RollupColumn *col) {
-  if (!s_l2 || !col || col->t == 0)
-    return;
+static void l2_store(const RollupColumn* col) {
+  if (!s_l2 || !col || col->t == 0) return;
   const size_t slot = (col->t / 60u) % HAUS_L2_COLUMNS;
   s_l2[slot] = *col;
 }
@@ -116,25 +143,21 @@ int haus_history_retention_months(uint64_t free_bytes) {
 
 static bool retention_expired(uint32_t file_epoch, uint32_t now_epoch,
                               int max_months) {
-  if (file_epoch == 0 || now_epoch < 24 * 3600u)
-    return false;
+  if (file_epoch == 0 || now_epoch < 24 * 3600u) return false;
   time_t ft = (time_t)file_epoch;
   time_t nt = (time_t)now_epoch;
   struct tm f;
   struct tm n;
-  if (!localtime_r(&ft, &f) || !localtime_r(&nt, &n))
-    return false;
+  if (!localtime_r(&ft, &f) || !localtime_r(&nt, &n)) return false;
   const int months = (n.tm_year - f.tm_year) * 12 + (n.tm_mon - f.tm_mon);
   return months >= max_months;
 }
 
 static uint32_t l2_newest_minute(void) {
   uint32_t newest = 0;
-  if (!s_l2)
-    return 0;
+  if (!s_l2) return 0;
   for (size_t i = 0; i < HAUS_L2_COLUMNS; i++) {
-    if (s_l2[i].t > newest)
-      newest = s_l2[i].t;
+    if (s_l2[i].t > newest) newest = s_l2[i].t;
   }
   return newest;
 }
@@ -145,15 +168,14 @@ static uint32_t l2_newest_minute(void) {
 static uint32_t local_day_key(uint32_t epoch) {
   time_t t = (time_t)epoch;
   struct tm tm;
-  if (!localtime_r(&t, &tm))
-    return epoch / 86400u;
+  if (!localtime_r(&t, &tm)) return epoch / 86400u;
   return ((uint32_t)(tm.tm_year + 1900) * 1000u) + (uint32_t)tm.tm_yday;
 }
 
 /* Day names come from the last sample's epoch, not from a separate
  * localtime() read, so an NTP step cannot split a day across two files (D34).
  */
-static void format_day_path(uint32_t epoch, char *out, size_t n) {
+static void format_day_path(uint32_t epoch, char* out, size_t n) {
   time_t t = (time_t)epoch;
   struct tm tm;
   if (!localtime_r(&t, &tm)) {
@@ -169,13 +191,11 @@ static bool sd_write_day(uint32_t epoch) {
   format_day_path(epoch, s_last_day_path, sizeof(s_last_day_path));
 
 #ifdef HAUS_HOST
-  if (s_test_fail_writes)
-    return false;
+  if (s_test_fail_writes) return false;
   memcpy(s_test_day_data, s_l1, HAUS_L1_BYTES);
   for (size_t base = 0; base < HAUS_L1_SAMPLES; base += HAUS_BLOCK_RECORDS) {
     size_t n = HAUS_L1_SAMPLES - base;
-    if (n > HAUS_BLOCK_RECORDS)
-      n = HAUS_BLOCK_RECORDS;
+    if (n > HAUS_BLOCK_RECORDS) n = HAUS_BLOCK_RECORDS;
     s_test_day_crc[base / HAUS_BLOCK_RECORDS] =
         haus_crc32(&s_test_day_data[base], n * sizeof(gui_sample_t));
   }
@@ -184,24 +204,21 @@ static bool sd_write_day(uint32_t epoch) {
   s_sd_write_count++;
   return true;
 #else
-  if (!haus_sd_lock(2000))
-    return false;
+  if (!haus_sd_lock(2000)) return false;
   File f = SD.open(s_last_day_path, FILE_WRITE);
   bool ok = (bool)f;
   for (size_t base = 0; ok && base < HAUS_L1_SAMPLES;
        base += HAUS_BLOCK_RECORDS) {
     size_t n = HAUS_L1_SAMPLES - base;
-    if (n > HAUS_BLOCK_RECORDS)
-      n = HAUS_BLOCK_RECORDS;
+    if (n > HAUS_BLOCK_RECORDS) n = HAUS_BLOCK_RECORDS;
     const size_t bytes = n * sizeof(gui_sample_t);
     const uint32_t crc = haus_crc32(&s_l1[base], bytes);
-    if (f.write((const uint8_t *)&s_l1[base], bytes) != bytes ||
-        f.write((const uint8_t *)&crc, sizeof(crc)) != sizeof(crc)) {
+    if (f.write((const uint8_t*)&s_l1[base], bytes) != bytes ||
+        f.write((const uint8_t*)&crc, sizeof(crc)) != sizeof(crc)) {
       ok = false;
     }
   }
-  if (f)
-    f.close();
+  if (f) f.close();
   haus_sd_unlock();
 
   if (ok) {
@@ -217,8 +234,7 @@ static bool sd_write_day(uint32_t epoch) {
 
 static bool sd_write_rollup(uint32_t epoch) {
 #ifdef HAUS_HOST
-  if (s_test_fail_writes)
-    return false;
+  if (s_test_fail_writes) return false;
   const uint32_t last_hour = epoch / 3600u;
   for (size_t i = 0; i < HAUS_L2_COLUMNS; i++) {
     const uint32_t h =
@@ -227,8 +243,7 @@ static bool sd_write_rollup(uint32_t epoch) {
   }
   for (size_t base = 0; base < HAUS_L2_COLUMNS; base += HAUS_BLOCK_RECORDS) {
     size_t n = HAUS_L2_COLUMNS - base;
-    if (n > HAUS_BLOCK_RECORDS)
-      n = HAUS_BLOCK_RECORDS;
+    if (n > HAUS_BLOCK_RECORDS) n = HAUS_BLOCK_RECORDS;
     s_test_rollup_crc[base / HAUS_BLOCK_RECORDS] =
         haus_crc32(&s_test_rollup_data[base], n * sizeof(RollupColumn));
   }
@@ -238,8 +253,7 @@ static bool sd_write_rollup(uint32_t epoch) {
   return true;
 #else
   const uint32_t last_hour = epoch / 3600u;
-  if (!haus_sd_lock(2000))
-    return false;
+  if (!haus_sd_lock(2000)) return false;
 
   File f = SD.open("/rollup.bin", FILE_WRITE);
   bool ok = (bool)f;
@@ -247,8 +261,7 @@ static bool sd_write_rollup(uint32_t epoch) {
   for (size_t base = 0; ok && base < HAUS_L2_COLUMNS;
        base += HAUS_BLOCK_RECORDS) {
     size_t n = HAUS_L2_COLUMNS - base;
-    if (n > HAUS_BLOCK_RECORDS)
-      n = HAUS_BLOCK_RECORDS;
+    if (n > HAUS_BLOCK_RECORDS) n = HAUS_BLOCK_RECORDS;
     for (size_t i = 0; i < n; i++) {
       const uint32_t h =
           last_hour - (uint32_t)(HAUS_L2_COLUMNS - 1) + (uint32_t)(base + i);
@@ -256,13 +269,12 @@ static bool sd_write_rollup(uint32_t epoch) {
     }
     const size_t bytes = n * sizeof(RollupColumn);
     const uint32_t crc = haus_crc32(block, bytes);
-    if (f.write((const uint8_t *)block, bytes) != bytes ||
-        f.write((const uint8_t *)&crc, sizeof(crc)) != sizeof(crc)) {
+    if (f.write((const uint8_t*)block, bytes) != bytes ||
+        f.write((const uint8_t*)&crc, sizeof(crc)) != sizeof(crc)) {
       ok = false;
     }
   }
-  if (f)
-    f.close();
+  if (f) f.close();
   haus_sd_unlock();
 
   if (ok) {
@@ -277,25 +289,34 @@ static bool sd_write_rollup(uint32_t epoch) {
 }
 
 static void write_daily_files(uint32_t epoch) {
-  if (epoch == 0)
-    return;
-  if (!sd_write_day(epoch)) {
+  if (epoch == 0) return;
+  s_writing = true;
+  const bool day_ok = sd_write_day(epoch);
+  if (!day_ok) {
     TPL_LOGW("history", "day file not written");
   }
-  if (!sd_write_rollup(epoch)) {
+  const bool rollup_ok = sd_write_rollup(epoch);
+  if (!rollup_ok) {
     TPL_LOGW("history", "rollup not written");
+  }
+  s_writing = false;
+
+  if (day_ok && rollup_ok) {
+    s_last_rollover_epoch = epoch;
+    s_fault_since_epoch = 0;
+    haus_history_storage_refresh();
+  } else {
+    note_fault();
   }
 }
 
-static void add_series(RollupColumn *col, int series, int32_t value) {
+static void add_series(RollupColumn* col, int series, int32_t value) {
   if (col->n[series] == 0) {
     col->mn[series] = value;
     col->mx[series] = value;
   } else {
-    if (value < col->mn[series])
-      col->mn[series] = value;
-    if (value > col->mx[series])
-      col->mx[series] = value;
+    if (value < col->mn[series]) col->mn[series] = value;
+    if (value > col->mx[series]) col->mx[series] = value;
   }
   col->sum[series] += value;
   col->n[series]++;
@@ -303,14 +324,13 @@ static void add_series(RollupColumn *col, int series, int32_t value) {
 
 /* Apply one stored minute to L2. Used by both the live recorder and the boot
  * replay, so the two paths cannot disagree about stale/valid handling. */
-static RollupColumn *apply_sample_to_l2(const gui_sample_t *s) {
-  if (!s_l2 || !s || s->epoch == 0)
-    return NULL;
+static RollupColumn* apply_sample_to_l2(const gui_sample_t* s) {
+  if (!s_l2 || !s || s->epoch == 0) return NULL;
 
   const uint32_t hour_start_sec = s->epoch - (s->epoch % 3600u);
   const uint32_t hour_start_min = hour_start_sec / 60u;
   const size_t slot = (hour_start_sec / 3600u) % HAUS_L2_COLUMNS;
-  RollupColumn *col = &s_l2[slot];
+  RollupColumn* col = &s_l2[slot];
 
   if (col->t != hour_start_min) {
     memset(col, 0, sizeof(*col));
@@ -337,15 +357,12 @@ static RollupColumn *apply_sample_to_l2(const gui_sample_t *s) {
   return col;
 }
 
-bool haus_history_sample(const HausState *state, uint32_t epoch_seconds) {
-  if (!s_l1 || !s_l2 || !state)
-    return false;
-  if (epoch_seconds < 24 * 3600)
-    return false;
+bool haus_history_sample(const HausState* state, uint32_t epoch_seconds) {
+  if (!s_l1 || !s_l2 || !state) return false;
+  if (epoch_seconds < 24 * 3600) return false;
 
   const uint32_t minute = epoch_seconds / 60;
-  if (minute == s_last_sample_minute)
-    return true;
+  if (minute == s_last_sample_minute) return true;
   s_last_sample_minute = minute;
 
   const uint32_t day = local_day_key(epoch_seconds);
@@ -360,7 +377,7 @@ bool haus_history_sample(const HausState *state, uint32_t epoch_seconds) {
   }
 
   const uint32_t minute_of_day = (epoch_seconds % 86400) / 60;
-  gui_sample_t *s = &s_l1[minute_of_day];
+  gui_sample_t* s = &s_l1[minute_of_day];
   s->epoch = epoch_seconds - (epoch_seconds % 60);
   s->temp[0] = state->can.temp_by_fn[SENSOR_FN_CHAMBER];
   s->temp[1] = state->can.temp_by_fn[SENSOR_FN_WATER_IN];
@@ -377,15 +394,12 @@ bool haus_history_sample(const HausState *state, uint32_t epoch_seconds) {
   s->target_c100 = state->can.chamber_target_c;
 
   uint32_t power_dw = state->can.valid ? (uint32_t)state->can.watts * 10u : 0u;
-  if (power_dw > 65535u)
-    power_dw = 65535u;
+  if (power_dw > 65535u) power_dw = 65535u;
   s->power_dw = (uint16_t)power_dw;
 
   s->flags = state->can.water_modelled ? SAMPLE_FLAG_MODELLED : 0x00;
-  if (living_valid)
-    s->flags |= SAMPLE_FLAG_CLIMATE_AHT20;
-  if (pressure_valid)
-    s->flags |= SAMPLE_FLAG_CLIMATE_BMP280;
+  if (living_valid) s->flags |= SAMPLE_FLAG_CLIMATE_AHT20;
+  if (pressure_valid) s->flags |= SAMPLE_FLAG_CLIMATE_BMP280;
 
   uint8_t stale = 0;
   if (s->temp[0] != HAUS_CAN_TEMP_EMPTY &&
@@ -408,8 +422,7 @@ bool haus_history_sample(const HausState *state, uint32_t epoch_seconds) {
     stale |= SAMPLE_STALE_POWER;
 
   s->stale_mask = stale;
-  if (stale != 0)
-    s->flags |= SAMPLE_FLAG_STALE;
+  if (stale != 0) s->flags |= SAMPLE_FLAG_STALE;
   if (stale != s_last_stale_mask) {
     TPL_LOGW("history", "stale mask 0x%02x -> 0x%02x",
              (unsigned)s_last_stale_mask, (unsigned)stale);
@@ -418,7 +431,7 @@ bool haus_history_sample(const HausState *state, uint32_t epoch_seconds) {
 
   /* Stale minutes stay in L1 with their mask but are never folded into the
    * hourly aggregate; a completed hour with n < 60 is visibly partial. */
-  RollupColumn *col = apply_sample_to_l2(s);
+  RollupColumn* col = apply_sample_to_l2(s);
 
   /* The hour is complete at minute 59. */
   if (col && (epoch_seconds % 3600) >= 3540) {
@@ -441,24 +454,20 @@ bool haus_history_sample(const HausState *state, uint32_t epoch_seconds) {
 }
 
 size_t haus_history_l1_count(void) {
-  if (!s_l1)
-    return 0;
+  if (!s_l1) return 0;
   size_t n = 0;
   for (size_t i = 0; i < HAUS_L1_SAMPLES; i++) {
-    if (s_l1[i].epoch != 0)
-      n++;
+    if (s_l1[i].epoch != 0) n++;
   }
   return n;
 }
 
 void haus_history_flush_hour(uint32_t epoch_seconds) {
 #ifndef HAUS_HOST
-  if (!s_ring_ready || !s_l2)
-    return;
+  if (!s_ring_ready || !s_l2) return;
   const uint32_t hour_start_sec = epoch_seconds - (epoch_seconds % 3600);
   const size_t slot = (hour_start_sec / 3600) % HAUS_L2_COLUMNS;
-  if (s_l2[slot].t != 0)
-    haus_history_ring_append(&s_l2[slot]);
+  if (s_l2[slot].t != 0) haus_history_ring_append(&s_l2[slot]);
 #else
   (void)epoch_seconds;
 #endif
@@ -466,7 +475,7 @@ void haus_history_flush_hour(uint32_t epoch_seconds) {
 
 uint32_t haus_history_sd_write_count(void) { return s_sd_write_count; }
 
-const char *haus_history_last_day_path(void) { return s_last_day_path; }
+const char* haus_history_last_day_path(void) { return s_last_day_path; }
 
 #ifdef HAUS_HOST
 
@@ -487,25 +496,21 @@ bool haus_history_init(void) {
   return true;
 }
 
-gui_sample_t *haus_history_l1(void) { return s_l1; }
-RollupColumn *haus_history_l2(void) { return s_l2; }
+gui_sample_t* haus_history_l1(void) { return s_l1; }
+RollupColumn* haus_history_l2(void) { return s_l2; }
 
-bool haus_history_ring_append(const RollupColumn *col) {
-  if (!col || col->t == 0)
-    return false;
+bool haus_history_ring_append(const RollupColumn* col) {
+  if (!col || col->t == 0) return false;
   const size_t slot = ring_slot((uint32_t)(col->t / 60));
   s_ring_storage[slot] = *col;
   return true;
 }
 
-size_t haus_history_ring_load_at(RollupColumn *out, size_t max_columns,
+size_t haus_history_ring_load_at(RollupColumn* out, size_t max_columns,
                                  uint32_t now_epoch) {
-  if (!out || max_columns == 0)
-    return 0;
-  if (now_epoch < 24 * 3600)
-    return 0;
-  if (max_columns > HAUS_RING_HOURS)
-    max_columns = HAUS_RING_HOURS;
+  if (!out || max_columns == 0) return 0;
+  if (now_epoch < 24 * 3600) return 0;
+  if (max_columns > HAUS_RING_HOURS) max_columns = HAUS_RING_HOURS;
 
   const uint32_t now_hour = now_epoch / 3600;
   const uint32_t first_hour = now_hour - (uint32_t)max_columns + 1;
@@ -513,14 +518,13 @@ size_t haus_history_ring_load_at(RollupColumn *out, size_t max_columns,
   size_t written = 0;
   for (size_t i = 0; i < max_columns; i++) {
     const size_t slot = ring_slot(first_hour + (uint32_t)i);
-    if (s_ring_storage[slot].t == 0)
-      continue;
+    if (s_ring_storage[slot].t == 0) continue;
     out[written++] = s_ring_storage[slot];
   }
   return written;
 }
 
-size_t haus_history_ring_load(RollupColumn *out, size_t max_columns) {
+size_t haus_history_ring_load(RollupColumn* out, size_t max_columns) {
   return haus_history_ring_load_at(out, max_columns, (uint32_t)time(nullptr));
 }
 
@@ -530,12 +534,10 @@ size_t haus_history_restore(uint32_t now_epoch) {
   if (s_test_rollup_valid) {
     for (size_t base = 0; base < HAUS_L2_COLUMNS; base += HAUS_BLOCK_RECORDS) {
       size_t n = HAUS_L2_COLUMNS - base;
-      if (n > HAUS_BLOCK_RECORDS)
-        n = HAUS_BLOCK_RECORDS;
+      if (n > HAUS_BLOCK_RECORDS) n = HAUS_BLOCK_RECORDS;
       const uint32_t crc =
           haus_crc32(&s_test_rollup_data[base], n * sizeof(RollupColumn));
-      if (crc != s_test_rollup_crc[base / HAUS_BLOCK_RECORDS])
-        break;
+      if (crc != s_test_rollup_crc[base / HAUS_BLOCK_RECORDS]) break;
       for (size_t i = 0; i < n; i++) {
         l2_store(&s_test_rollup_data[base + i]);
         restored++;
@@ -546,8 +548,7 @@ size_t haus_history_restore(uint32_t now_epoch) {
     const uint32_t first_hour = now_hour - (uint32_t)(HAUS_L2_COLUMNS - 1);
     for (uint32_t i = 0; i < (uint32_t)HAUS_L2_COLUMNS; i++) {
       const size_t slot = ring_slot(first_hour + i);
-      if (s_ring_storage[slot].t == 0)
-        continue;
+      if (s_ring_storage[slot].t == 0) continue;
       l2_store(&s_ring_storage[slot]);
       restored++;
     }
@@ -563,24 +564,20 @@ size_t haus_history_restore(uint32_t now_epoch) {
 
     for (size_t base = 0; base < HAUS_L1_SAMPLES; base += HAUS_BLOCK_RECORDS) {
       size_t n = HAUS_L1_SAMPLES - base;
-      if (n > HAUS_BLOCK_RECORDS)
-        n = HAUS_BLOCK_RECORDS;
+      if (n > HAUS_BLOCK_RECORDS) n = HAUS_BLOCK_RECORDS;
       const uint32_t crc =
           haus_crc32(&s_test_day_data[base], n * sizeof(gui_sample_t));
-      if (crc != s_test_day_crc[base / HAUS_BLOCK_RECORDS])
-        break;
+      if (crc != s_test_day_crc[base / HAUS_BLOCK_RECORDS]) break;
       for (size_t i = 0; i < n; i++) {
-        const gui_sample_t *s = &s_test_day_data[base + i];
-        if (s->epoch == 0)
-          continue;
+        const gui_sample_t* s = &s_test_day_data[base + i];
+        if (s->epoch == 0) continue;
         const uint32_t hour_min = (s->epoch / 3600u) * 60u;
         if (newest == 0 || hour_min >= newest + 60u) {
           (void)apply_sample_to_l2(s);
         }
         if (is_today) {
           const uint32_t mod = (s->epoch % 86400u) / 60u;
-          if (mod < HAUS_L1_SAMPLES)
-            s_l1[mod] = *s;
+          if (mod < HAUS_L1_SAMPLES) s_l1[mod] = *s;
         }
       }
     }
@@ -609,13 +606,13 @@ void haus_history_test_clear_files(void) {
 
 void haus_history_test_corrupt_day(size_t index) {
   if (index < HAUS_L1_SAMPLES) {
-    ((uint8_t *)&s_test_day_data[index])[0] ^= 0xFFu;
+    ((uint8_t*)&s_test_day_data[index])[0] ^= 0xFFu;
   }
 }
 
 void haus_history_test_corrupt_rollup(size_t index) {
   if (index < HAUS_L2_COLUMNS) {
-    ((uint8_t *)&s_test_rollup_data[index])[0] ^= 0xFFu;
+    ((uint8_t*)&s_test_rollup_data[index])[0] ^= 0xFFu;
   }
 }
 
@@ -631,16 +628,15 @@ size_t haus_history_test_retention_files(void) {
 }
 
 void haus_history_sd_watchdog(uint32_t now_ms) { (void)now_ms; }
+void haus_history_storage_refresh(void) {}
 bool haus_history_sd_fault(void) { return false; }
 
 int haus_history_retention_step(uint32_t now_epoch, int max_months) {
-  if (s_test_retention_count == 0)
-    return 0;
+  if (s_test_retention_count == 0) return 0;
 
   size_t oldest = 0;
   for (size_t i = 1; i < s_test_retention_count; i++) {
-    if (s_test_retention[i] < s_test_retention[oldest])
-      oldest = i;
+    if (s_test_retention[i] < s_test_retention[oldest]) oldest = i;
   }
   if (!retention_expired(s_test_retention[oldest], now_epoch, max_months)) {
     return 0;
@@ -658,7 +654,7 @@ static bool ring_open_or_create(void) {
   if (f) {
     RingHeader h;
     const bool size_ok = (f.size() == need);
-    const bool read_ok = (f.readBytes((char *)&h, sizeof(h)) == sizeof(h));
+    const bool read_ok = (f.readBytes((char*)&h, sizeof(h)) == sizeof(h));
     f.close();
     if (size_ok && read_ok && h.magic == RING_MAGIC &&
         h.version == RING_VERSION) {
@@ -674,7 +670,7 @@ static bool ring_open_or_create(void) {
   }
 
   RingHeader h = {.magic = RING_MAGIC, .version = RING_VERSION, .reserved = 0};
-  f.write((const uint8_t *)&h, sizeof(h));
+  f.write((const uint8_t*)&h, sizeof(h));
 
   /* SPIFFS cannot seek past EOF, so extend with zero chunks. This runs once,
    * when the ring file is first created. */
@@ -701,16 +697,16 @@ static bool ring_open_or_create(void) {
 
 bool haus_history_init(void) {
   if (!s_l1) {
-    s_l1 = (gui_sample_t *)heap_caps_malloc(HAUS_L1_BYTES, MALLOC_CAP_SPIRAM |
-                                                               MALLOC_CAP_8BIT);
+    s_l1 = (gui_sample_t*)heap_caps_malloc(HAUS_L1_BYTES,
+                                           MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   }
   if (!s_l2) {
-    s_l2 = (RollupColumn *)heap_caps_malloc(HAUS_L2_BYTES, MALLOC_CAP_SPIRAM |
-                                                               MALLOC_CAP_8BIT);
+    s_l2 = (RollupColumn*)heap_caps_malloc(HAUS_L2_BYTES,
+                                           MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   }
   if (!s_l1 || !s_l2) {
     TPL_LOGE("history", "L1/L2 PSRAM allocation failed (L1=%p L2=%p)",
-             (void *)s_l1, (void *)s_l2);
+             (void*)s_l1, (void*)s_l2);
     return false;
   }
 
@@ -728,85 +724,75 @@ bool haus_history_init(void) {
     TPL_LOGE("history", "SPIFFS hourly ring unavailable");
   } else {
     TPL_LOGI("history", "L1=%u B L2=%u B at %p/%p, ring ready",
-             (unsigned)HAUS_L1_BYTES, (unsigned)HAUS_L2_BYTES, (void *)s_l1,
-             (void *)s_l2);
+             (unsigned)HAUS_L1_BYTES, (unsigned)HAUS_L2_BYTES, (void*)s_l1,
+             (void*)s_l2);
   }
   return s_ring_ready;
 }
 
-gui_sample_t *haus_history_l1(void) { return s_l1; }
-RollupColumn *haus_history_l2(void) { return s_l2; }
+gui_sample_t* haus_history_l1(void) { return s_l1; }
+RollupColumn* haus_history_l2(void) { return s_l2; }
 
-bool haus_history_ring_append(const RollupColumn *col) {
-  if (!s_ring_ready || !col || col->t == 0)
-    return false;
+bool haus_history_ring_append(const RollupColumn* col) {
+  if (!s_ring_ready || !col || col->t == 0) return false;
 
   const size_t slot = ring_slot((uint32_t)(col->t / 60));
   const size_t off = sizeof(RingHeader) + slot * sizeof(RollupColumn);
 
   File f = SPIFFS.open(HAUS_RING_PATH, "r+");
-  if (!f)
-    return false;
+  if (!f) return false;
   const bool ok = f.seek(off) &&
-                  (f.write((const uint8_t *)col, sizeof(*col)) == sizeof(*col));
+                  (f.write((const uint8_t*)col, sizeof(*col)) == sizeof(*col));
   f.close();
   return ok;
 }
 
-size_t haus_history_ring_load_at(RollupColumn *out, size_t max_columns,
+size_t haus_history_ring_load_at(RollupColumn* out, size_t max_columns,
                                  uint32_t now_epoch) {
-  if (!s_ring_ready || !out || max_columns == 0)
-    return 0;
-  if (now_epoch < 24 * 3600)
-    return 0;
+  if (!s_ring_ready || !out || max_columns == 0) return 0;
+  if (now_epoch < 24 * 3600) return 0;
 
   const uint32_t now_hour = now_epoch / 3600;
-  if (max_columns > HAUS_RING_HOURS)
-    max_columns = HAUS_RING_HOURS;
+  if (max_columns > HAUS_RING_HOURS) max_columns = HAUS_RING_HOURS;
 
   const uint32_t first_hour = now_hour - (uint32_t)max_columns + 1;
 
   File f = SPIFFS.open(HAUS_RING_PATH, "r");
-  if (!f)
-    return 0;
+  if (!f) return 0;
 
   size_t written = 0;
   for (size_t i = 0; i < max_columns; i++) {
     const size_t slot = ring_slot(first_hour + (uint32_t)i);
     const size_t off = sizeof(RingHeader) + slot * sizeof(RollupColumn);
     RollupColumn col;
-    if (!f.seek(off) || f.readBytes((char *)&col, sizeof(col)) != sizeof(col)) {
+    if (!f.seek(off) || f.readBytes((char*)&col, sizeof(col)) != sizeof(col)) {
       break;
     }
-    if (col.t == 0)
-      continue;
+    if (col.t == 0) continue;
     out[written++] = col;
   }
   f.close();
   return written;
 }
 
-size_t haus_history_ring_load(RollupColumn *out, size_t max_columns) {
+size_t haus_history_ring_load(RollupColumn* out, size_t max_columns) {
   return haus_history_ring_load_at(out, max_columns, (uint32_t)time(nullptr));
 }
 
 /* Find the lexicographically newest /data_YYYYMMDD.bin in the SD root. */
-static bool find_newest_day_file(char *out, size_t n) {
+static bool find_newest_day_file(char* out, size_t n) {
   File dir = SD.open("/");
-  if (!dir || !dir.isDirectory())
-    return false;
+  if (!dir || !dir.isDirectory()) return false;
 
   String newest;
   File f = dir.openNextFile();
   while (f) {
     if (!f.isDirectory()) {
       String name = f.name();
-      if (name.startsWith("/"))
-        name = name.substring(1);
+      if (name.startsWith("/")) name = name.substring(1);
       if (name.length() == 17 && name.startsWith("data_") &&
           name.endsWith(".bin")) {
-        if (newest.length() == 0 || name > newest)
-          newest = name;
+        if (newest.length() == 0 || name > newest) newest = name;
       }
     }
     f.close();
@@ -814,67 +800,58 @@ static bool find_newest_day_file(char *out, size_t n) {
   }
   dir.close();
 
-  if (newest.length() == 0)
-    return false;
+  if (newest.length() == 0) return false;
   snprintf(out, n, "/%s", newest.c_str());
   return true;
 }
 
 /* Replay a day file: fold only hours newer than the rollup into L2, and copy
  * the samples into L1 when the file belongs to today's local day. */
-static void restore_day_file(const char *path, uint32_t now_epoch) {
+static void restore_day_file(const char* path, uint32_t now_epoch) {
   const uint32_t newest = l2_newest_minute();
   char today[32];
   format_day_path(now_epoch, today, sizeof(today));
   const bool is_today = (now_epoch >= 24 * 3600u) && (strcmp(path, today) == 0);
 
   File f = SD.open(path, FILE_READ);
-  if (!f)
-    return;
+  if (!f) return;
 
   static gui_sample_t block[HAUS_BLOCK_RECORDS];
   for (size_t base = 0; base < HAUS_L1_SAMPLES; base += HAUS_BLOCK_RECORDS) {
     size_t n = HAUS_L1_SAMPLES - base;
-    if (n > HAUS_BLOCK_RECORDS)
-      n = HAUS_BLOCK_RECORDS;
+    if (n > HAUS_BLOCK_RECORDS) n = HAUS_BLOCK_RECORDS;
     const size_t bytes = n * sizeof(gui_sample_t);
-    if (f.read((uint8_t *)block, bytes) != bytes)
-      break;
+    if (f.read((uint8_t*)block, bytes) != bytes) break;
     uint32_t crc = 0;
-    if (f.read((uint8_t *)&crc, sizeof(crc)) != sizeof(crc))
-      break;
+    if (f.read((uint8_t*)&crc, sizeof(crc)) != sizeof(crc)) break;
     if (crc != haus_crc32(block, bytes)) {
       TPL_LOGW("history", "day file CRC mismatch at block %u",
                (unsigned)(base / HAUS_BLOCK_RECORDS));
       break;
     }
     for (size_t i = 0; i < n; i++) {
-      const gui_sample_t *s = &block[i];
-      if (s->epoch == 0)
-        continue;
+      const gui_sample_t* s = &block[i];
+      if (s->epoch == 0) continue;
       const uint32_t hour_min = (s->epoch / 3600u) * 60u;
       if (newest == 0 || hour_min >= newest + 60u) {
         (void)apply_sample_to_l2(s);
       }
       if (is_today) {
         const uint32_t mod = (s->epoch % 86400u) / 60u;
-        if (mod < HAUS_L1_SAMPLES)
-          s_l1[mod] = *s;
+        if (mod < HAUS_L1_SAMPLES) s_l1[mod] = *s;
       }
     }
   }
   f.close();
 }
 
-static bool parse_day_epoch(const char *name, uint32_t *out) {
-  const char *p = strstr(name, "data_");
-  if (!p)
-    return false;
+static bool parse_day_epoch(const char* name, uint32_t* out) {
+  const char* p = strstr(name, "data_");
+  if (!p) return false;
   int year = 0;
   int mon = 0;
   int day = 0;
-  if (sscanf(p + 5, "%4d%2d%2d", &year, &mon, &day) != 3)
-    return false;
+  if (sscanf(p + 5, "%4d%2d%2d", &year, &mon, &day) != 3) return false;
   struct tm tm;
   memset(&tm, 0, sizeof(tm));
   tm.tm_year = year - 1900;
@@ -882,17 +859,14 @@ static bool parse_day_epoch(const char *name, uint32_t *out) {
   tm.tm_mday = day;
   tm.tm_isdst = -1;
   const time_t t = mktime(&tm);
-  if (t < 0)
-    return false;
+  if (t < 0) return false;
   *out = (uint32_t)t;
   return true;
 }
 
 int haus_history_retention_step(uint32_t now_epoch, int max_months) {
-  if (now_epoch < 24 * 3600u || !haus_sd_is_mounted())
-    return 0;
-  if (!haus_sd_lock(2000))
-    return -1;
+  if (now_epoch < 24 * 3600u || !haus_sd_is_mounted()) return 0;
+  if (!haus_sd_lock(2000)) return -1;
 
   File dir = SD.open("/");
   if (!dir || !dir.isDirectory()) {
@@ -906,8 +880,7 @@ int haus_history_retention_step(uint32_t now_epoch, int max_months) {
   while (f) {
     if (!f.isDirectory()) {
       String name = f.name();
-      if (name.startsWith("/"))
-        name = name.substring(1);
+      if (name.startsWith("/")) name = name.substring(1);
       if (name.length() == 17 && name.startsWith("data_") &&
           name.endsWith(".bin")) {
         uint32_t epoch = 0;
@@ -927,15 +900,66 @@ int haus_history_retention_step(uint32_t now_epoch, int max_months) {
   if (oldest_epoch != 0 &&
       retention_expired(oldest_epoch, now_epoch, max_months)) {
     String path = "/" + oldest_name;
+    s_writing = true;
     if (SD.remove(path.c_str())) {
       result = 1;
       TPL_LOGI("history", "retention removed %s", path.c_str());
     } else {
       result = -1;
     }
+    s_writing = false;
+    haus_history_storage_refresh();
   }
   haus_sd_unlock();
   return result;
+}
+
+void haus_history_storage_refresh(void) {
+  uint64_t samples = 0;
+  uint64_t rollup = 0;
+  uint64_t logs = 0;
+  uint32_t newest = 0;
+
+  if (!haus_sd_is_mounted() || !haus_sd_lock(2000)) {
+    s_tier_samples_bytes = 0;
+    s_tier_rollup_bytes = 0;
+    s_tier_logs_bytes = 0;
+    s_newest_file_epoch = 0;
+    return;
+  }
+
+  File dir = SD.open("/");
+  if (dir && dir.isDirectory()) {
+    File f = dir.openNextFile();
+    while (f) {
+      if (!f.isDirectory()) {
+        String name = f.name();
+        if (name.startsWith("/")) name = name.substring(1);
+        const uint64_t size = f.size();
+        if (name.length() == 17 && name.startsWith("data_") &&
+            name.endsWith(".bin")) {
+          samples += size;
+          uint32_t epoch = 0;
+          if (parse_day_epoch(name.c_str(), &epoch) && epoch > newest)
+            newest = epoch;
+        } else if (name == "rollup.bin") {
+          rollup += size;
+        } else if (name.endsWith(".txt") && name.length() >= 14 &&
+                   name.indexOf("log_") == 0) {
+          logs += size;
+        }
+      }
+      f.close();
+      f = dir.openNextFile();
+    }
+    dir.close();
+  }
+  haus_sd_unlock();
+
+  s_tier_samples_bytes = samples;
+  s_tier_rollup_bytes = rollup;
+  s_tier_logs_bytes = logs;
+  s_newest_file_epoch = newest;
 }
 
 size_t haus_history_restore(uint32_t now_epoch) {
@@ -949,14 +973,11 @@ size_t haus_history_restore(uint32_t now_epoch) {
       for (size_t base = 0; base < HAUS_L2_COLUMNS;
            base += HAUS_BLOCK_RECORDS) {
         size_t n = HAUS_L2_COLUMNS - base;
-        if (n > HAUS_BLOCK_RECORDS)
-          n = HAUS_BLOCK_RECORDS;
+        if (n > HAUS_BLOCK_RECORDS) n = HAUS_BLOCK_RECORDS;
         const size_t bytes = n * sizeof(RollupColumn);
-        if (f.read((uint8_t *)block, bytes) != bytes)
-          break;
+        if (f.read((uint8_t*)block, bytes) != bytes) break;
         uint32_t crc = 0;
-        if (f.read((uint8_t *)&crc, sizeof(crc)) != sizeof(crc))
-          break;
+        if (f.read((uint8_t*)&crc, sizeof(crc)) != sizeof(crc)) break;
         if (crc != haus_crc32(block, bytes)) {
           TPL_LOGW("history", "rollup CRC mismatch at block %u",
                    (unsigned)(base / HAUS_BLOCK_RECORDS));
@@ -997,11 +1018,10 @@ size_t haus_history_restore(uint32_t now_epoch) {
         const size_t off = sizeof(RingHeader) + slot * sizeof(RollupColumn);
         RollupColumn col;
         if (!f.seek(off) ||
-            f.readBytes((char *)&col, sizeof(col)) != sizeof(col)) {
+            f.readBytes((char*)&col, sizeof(col)) != sizeof(col)) {
           break;
         }
-        if (col.t == 0)
-          continue;
+        if (col.t == 0) continue;
         l2_store(&col);
         restored++;
       }
@@ -1018,8 +1038,7 @@ static bool s_sd_fault = false;
 
 void haus_history_sd_watchdog(uint32_t now_ms) {
   static uint32_t last_check_ms = 0;
-  if (last_check_ms != 0 && (now_ms - last_check_ms) < 30000u)
-    return;
+  if (last_check_ms != 0 && (now_ms - last_check_ms) < 30000u) return;
   last_check_ms = now_ms;
 
   if (haus_sd_is_mounted()) {
@@ -1031,6 +1050,7 @@ void haus_history_sd_watchdog(uint32_t now_ms) {
   }
 
   s_sd_fault = true;
+  note_fault();
   TPL_LOGW("sd", "card lost; retrying mount");
   if (haus_sd_mount()) {
     if (haus_sd_selftest()) {
@@ -1042,7 +1062,7 @@ void haus_history_sd_watchdog(uint32_t now_ms) {
 
 bool haus_history_sd_fault(void) { return s_sd_fault; }
 
-static void recorder_task(void *arg) {
+static void recorder_task(void* arg) {
   (void)arg;
   uint32_t last_minute = UINT32_MAX;
 

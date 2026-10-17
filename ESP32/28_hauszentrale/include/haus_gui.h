@@ -153,6 +153,19 @@ typedef struct {
   uint8_t can_fault; /* sticky until a frame is received again */
   uint8_t sd_fault;
   uint8_t i2c_fault;
+
+  /* Storage status (S23). Figures are cached; refresh on demand via
+   * gui_storage_refresh(), never from the render path. */
+  char sd_card_type[8];
+  uint64_t sd_total_bytes;
+  uint64_t sd_used_bytes;
+  uint64_t sd_samples_bytes;
+  uint64_t sd_rollup_bytes;
+  uint64_t sd_logs_bytes;
+  uint32_t sd_last_rollover_epoch;
+  uint32_t sd_fault_since_epoch;
+  uint32_t sd_newest_file_epoch;
+  bool sd_writing;
 } CanState;
 
 /* Owner: sensorTask. Written completely each cycle, published as one block. */
@@ -184,9 +197,9 @@ typedef struct {
 typedef struct {
   uint32_t start_epoch;
   uint32_t end_epoch;
-  gui_sample_t *samples;
+  gui_sample_t* samples;
   uint16_t max_samples;
-  uint16_t *out_count;
+  uint16_t* out_count;
 } gui_history_request_t;
 
 /* ─── API ───────────────────────────────────────────────────────────────── */
@@ -196,38 +209,38 @@ void gui_update_state(void);
 
 /* Copy the current merged snapshot into caller-owned memory.
  * Readers never retain a pointer into a producer block. */
-void gui_get_state(HausState *out);
+void gui_get_state(HausState* out);
 
 /* Get historical samples within [start_epoch, end_epoch].
  * Returns 0 on success, -1 on bad args. */
-int gui_get_history(const gui_history_request_t *req);
+int gui_get_history(const gui_history_request_t* req);
 
 /* Streaming chart readers. `first` is an index from start_epoch in minutes
  * (samples) or hours (rollups). Missing records are returned zeroed with their
  * expected epoch/t filled in, so the chart builder can mark them as gaps. */
 #define GUI_SERIES_TARGET 6
 size_t gui_read_samples_chunk(uint32_t start_epoch, size_t first, size_t count,
-                              gui_sample_t *out);
+                              gui_sample_t* out);
 size_t gui_read_rollup_chunk(uint32_t start_epoch, size_t first, size_t count,
-                             RollupColumn *out);
+                             RollupColumn* out);
 size_t gui_read_target_samples_chunk(uint32_t start_epoch, size_t first,
-                                     size_t count, int16_t *out);
+                                     size_t count, int16_t* out);
 size_t gui_read_target_hours_chunk(uint32_t start_epoch, size_t first,
-                                   size_t count, int16_t *out);
+                                   size_t count, int16_t* out);
 
 /* Newest stored epoch (L1 or L2) and whether any data intersects the range. */
 uint32_t gui_history_newest_epoch(void);
 bool gui_history_has_data(uint32_t start_epoch, uint32_t end_epoch);
 
 /* ─── Log ring (S15) ────────────────────────────────────────────────────── */
-const char *gui_log_dump(int *out_len);
+const char* gui_log_dump(int* out_len);
 int gui_log_length(void);
 void gui_log_clear(void);
 int gui_log_save(void);
 uint32_t gui_log_dropped(void);
 
 /* Get bound sensor list. */
-const gui_sensor_info_t *gui_get_sensors(uint8_t *count);
+const gui_sensor_info_t* gui_get_sensors(uint8_t* count);
 
 /* Water model available? */
 bool gui_water_model_available(void);
@@ -236,6 +249,13 @@ bool gui_water_model_available(void);
  * bring-up path; the UI only owns the persisted intent. */
 bool gui_can_enabled(void);
 void gui_set_can_enabled(bool enabled);
+
+/* Storage panel (S23): re-read capacity and per-tier sizes on demand. */
+void gui_storage_refresh(void);
+
+/* Backlight (binary, §8.14). */
+bool gui_backlight_on(void);
+void gui_set_backlight(bool on);
 
 /* PWM source constants */
 #define GUI_PWM_SRC_CAN 1

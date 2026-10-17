@@ -30,16 +30,16 @@
 
 /* Files are written in 64-record blocks with a trailing CRC32. */
 #define HAUS_BLOCK_RECORDS 64
-#define HAUS_DAY_FILE_BYTES                                                    \
-  (HAUS_L1_BYTES +                                                             \
+#define HAUS_DAY_FILE_BYTES \
+  (HAUS_L1_BYTES +          \
    4u * ((HAUS_L1_SAMPLES + HAUS_BLOCK_RECORDS - 1) / HAUS_BLOCK_RECORDS))
-#define HAUS_ROLLUP_FILE_BYTES                                                 \
-  (HAUS_L2_BYTES +                                                             \
+#define HAUS_ROLLUP_FILE_BYTES \
+  (HAUS_L2_BYTES +             \
    4u * ((HAUS_L2_COLUMNS + HAUS_BLOCK_RECORDS - 1) / HAUS_BLOCK_RECORDS))
 
 /* IEEE 802.3 CRC32. Exposed so the host test can corrupt and re-check blocks.
  */
-uint32_t haus_crc32(const void *data, size_t len);
+uint32_t haus_crc32(const void* data, size_t len);
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,22 +50,22 @@ extern "C" {
 bool haus_history_init(void);
 
 /* Fixed buffers. NULL until haus_history_init() succeeds. */
-gui_sample_t *haus_history_l1(void);
-RollupColumn *haus_history_l2(void);
+gui_sample_t* haus_history_l1(void);
+RollupColumn* haus_history_l2(void);
 
 /* Append a completed hour column to the SPIFFS ring. */
-bool haus_history_ring_append(const RollupColumn *col);
+bool haus_history_ring_append(const RollupColumn* col);
 
 /* Load up to max_columns newest columns into out, oldest first. Returns the
  * number written. Uses the wall clock; returns 0 before the clock is valid. */
-size_t haus_history_ring_load(RollupColumn *out, size_t max_columns);
+size_t haus_history_ring_load(RollupColumn* out, size_t max_columns);
 
 /* Same, with an explicit "now" so the rollover/ring order is testable. */
-size_t haus_history_ring_load_at(RollupColumn *out, size_t max_columns,
+size_t haus_history_ring_load_at(RollupColumn* out, size_t max_columns,
                                  uint32_t now_epoch);
 
 /* Record one minute from the merged state. Idempotent within a minute. */
-bool haus_history_sample(const HausState *state, uint32_t epoch_seconds);
+bool haus_history_sample(const HausState* state, uint32_t epoch_seconds);
 
 /* Number of valid minute entries currently in L1 (0…1440). */
 size_t haus_history_l1_count(void);
@@ -100,7 +100,21 @@ void haus_history_start_recorder(void);
 uint32_t haus_history_sd_write_count(void);
 
 /* Path of the last day file written, e.g. "/data_20241014.bin". */
-const char *haus_history_last_day_path(void);
+const char* haus_history_last_day_path(void);
+
+/* ─── Storage status (S23) ─────────────────────────────────────────────────
+ *
+ * Cached figures for the storage panel. Nothing here touches the FAT; call
+ * haus_history_storage_refresh() on demand (panel open, rollover) and read the
+ * cached values from the 1 Hz state update. */
+uint32_t haus_history_last_rollover_epoch(void);
+uint32_t haus_history_fault_since_epoch(void);
+bool haus_history_writing(void);
+void haus_history_set_writing(bool writing);
+void haus_history_storage_refresh(void);
+void haus_history_storage_get(uint64_t* samples_bytes, uint64_t* rollup_bytes,
+                              uint64_t* logs_bytes);
+uint32_t haus_history_newest_file_epoch(void);
 
 #ifdef HAUS_HOST
 /* Test-only: sizes of the last simulated day/rollup writes, and fault

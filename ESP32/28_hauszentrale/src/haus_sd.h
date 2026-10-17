@@ -36,7 +36,11 @@ void haus_sd_space_refresh(void);
 
 /* Cached capacity figures from the last refresh. Returns false when no valid
  * figures are available (card absent or never refreshed). */
-bool haus_sd_space_get(uint64_t *total_bytes, uint64_t *used_bytes);
+bool haus_sd_space_get(uint64_t* total_bytes, uint64_t* used_bytes);
+
+/* Card type string cached at mount time: "MMC", "SDSC", "SDHC", "UNKNOWN",
+ * or "ABSENT" when no card is mounted. */
+const char* haus_sd_card_type(void);
 
 /* Write, read back and delete /sd_test.txt. Returns true when the round-trip
  * matches. Call after haus_sd_mount(). */

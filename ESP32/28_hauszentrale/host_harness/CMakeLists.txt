@@ -36,6 +36,10 @@ add_executable(hauszentrale_host
     src/main.c
     ${CMAKE_SOURCE_DIR}/../src/ui/haus_ui.c
     ${CMAKE_SOURCE_DIR}/../src/ui/lv_font_haus_mono_21.c
+    ${CMAKE_SOURCE_DIR}/../src/ui/lv_font_haus_body_21.c
+    ${CMAKE_SOURCE_DIR}/../src/ui/lv_font_haus_value_32.c
+    ${CMAKE_SOURCE_DIR}/../src/ui/lv_font_haus_large_52.c
+    ${CMAKE_SOURCE_DIR}/../src/ui/lv_font_haus_value_110.c
     ${CMAKE_SOURCE_DIR}/../src/haus_chart.cpp
     src/haus_gui_mock.cpp
 )

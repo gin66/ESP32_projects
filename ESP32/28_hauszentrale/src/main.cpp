@@ -15,12 +15,6 @@
  *   7. Loop: lv_task_handler + gui_update_state + haus_ui_update
  */
 
-#include "haus_gui.h"
-#include "haus_history.h"
-#include "haus_sd.h"
-#include "haus_sht45.h"
-#include "haus_ui.h"
-#include "template.h"
 #include <esp_flash.h>
 #include <esp_heap_caps.h>
 #include <esp_sntp.h>
@@ -28,18 +22,25 @@
 #include <lvgl.h>
 #include <time.h>
 
+#include "haus_gui.h"
+#include "haus_history.h"
+#include "haus_sd.h"
+#include "haus_sht45.h"
+#include "haus_ui.h"
+#include "template.h"
+
 /* S4.03: RGB565 draw buffer in internal RAM (not PSRAM) */
 static uint8_t s_draw_buf0[800 * 20 * 2];
 
 /* LVGL 9.2 needs a millisecond tick source */
 static uint32_t lv_tick_cb(void) { return (uint32_t)millis(); }
 
-static lv_display_t *s_disp = NULL;
+static lv_display_t* s_disp = NULL;
 
 /* Calibration cursor: shown while a finger is down, hidden one second after
  * release so it never stays on the wall panel. */
-static lv_indev_t *s_touch_indev = NULL;
-static lv_obj_t *s_touch_cursor = NULL;
+static lv_indev_t* s_touch_indev = NULL;
+static lv_obj_t* s_touch_cursor = NULL;
 static uint32_t s_last_touch_ms = 0;
 #define TOUCH_CURSOR_HIDE_MS 1000
 
@@ -47,16 +48,16 @@ static uint32_t s_last_touch_ms = 0;
 
 static lv_display_rotation_t rot_to_lvgl(int r) {
   switch (r) {
-  case 0:
-    return LV_DISPLAY_ROTATION_90;
-  case 1:
-    return LV_DISPLAY_ROTATION_0;
-  case 2:
-    return LV_DISPLAY_ROTATION_270;
-  case 3:
-    return LV_DISPLAY_ROTATION_180;
-  default:
-    return LV_DISPLAY_ROTATION_90;
+    case 0:
+      return LV_DISPLAY_ROTATION_90;
+    case 1:
+      return LV_DISPLAY_ROTATION_0;
+    case 2:
+      return LV_DISPLAY_ROTATION_270;
+    case 3:
+      return LV_DISPLAY_ROTATION_180;
+    default:
+      return LV_DISPLAY_ROTATION_90;
   }
 }
 
@@ -71,7 +72,7 @@ void setup() {
   tpl_debug_log_setup();
   TPL_LOGI("boot", "28_hauszentrale starting");
 
-  tpl_system_setup(0); // no deep sleep
+  tpl_system_setup(0);  // no deep sleep
 
   size_t psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
   uint32_t flash_size = 0;
@@ -96,8 +97,9 @@ void setup() {
   } else {
     /* Double bookkeeping: losing the card costs minute detail, not the
      * hourly history, which is written independently to SPIFFS. */
-    TPL_LOGW("sd", "SD unavailable; minute history off, hourly SPIFFS "
-                   "bookkeeping continues");
+    TPL_LOGW("sd",
+             "SD unavailable; minute history off, hourly SPIFFS "
+             "bookkeeping continues");
   }
 
   /* L1/L2 plus the independent SPIFFS hourly ring. Failure here is logged,
@@ -122,21 +124,21 @@ void setup() {
   /* S4.01–S4.05: RGB panel + LVGL display */
   lv_init();
   lv_tick_set_cb(lv_tick_cb);
-  s_disp = tpl_ws7_display_init(TPL_WS7_ROTATION, (uint32_t *)s_draw_buf0,
+  s_disp = tpl_ws7_display_init(TPL_WS7_ROTATION, (uint32_t*)s_draw_buf0,
                                 sizeof(s_draw_buf0));
   if (s_disp) {
     TPL_LOGI("boot", "RGB panel + LVGL display initialized");
 
     /* S5.03: register the GT911 as the pointer input device */
     if (touch_ok) {
-      lv_indev_t *indev = lv_indev_create();
+      lv_indev_t* indev = lv_indev_create();
       lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
       lv_indev_set_read_cb(indev, tpl_ws7_touch_read_cb);
       lv_indev_set_display(indev, s_disp);
 
       /* Visible cursor follows the finger; it is hidden again after a
        * second without a press. */
-      lv_obj_t *cursor = lv_obj_create(lv_layer_sys());
+      lv_obj_t* cursor = lv_obj_create(lv_layer_sys());
       lv_obj_remove_style_all(cursor);
       lv_obj_set_size(cursor, 24, 24);
       lv_obj_set_style_radius(cursor, LV_RADIUS_CIRCLE, 0);
@@ -171,10 +173,43 @@ void setup() {
   /* WiFi + webserver + websocket (standard template setup). The panel is
    * already running at this point; this only enables the optional network
    * services and the initial clock sync. */
-  tpl_wifi_setup(true, true, (gpio_num_t)255);  // no status LED on this board
-  sntp_set_sync_interval(60UL * 60UL * 1000UL); // refresh once an hour
+  tpl_wifi_setup(true, true, (gpio_num_t)255);   // no status LED on this board
+  sntp_set_sync_interval(60UL * 60UL * 1000UL);  // refresh once an hour
   tpl_webserver_setup();
   tpl_debug_log_register_endpoints();
+  /* S23.14: /sd/status with the same figures the storage panel shows. */
+  tpl_server.on("/sd/status", HTTP_GET, []() {
+    tpl_server.sendHeader("Access-Control-Allow-Origin", "*");
+    tpl_server.sendHeader("Connection", "close");
+    gui_storage_refresh();
+    HausState st;
+    gui_get_state(&st);
+    const uint64_t total = st.can.sd_total_bytes;
+    const uint64_t used = st.can.sd_used_bytes;
+    const uint64_t free_bytes = total > used ? total - used : 0;
+    char buf[512];
+    snprintf(buf, sizeof(buf),
+             "{\"initialized\":%s,\"type\":\"%s\",\"total\":%llu,"
+             "\"used\":%llu,\"free\":%llu,\"floor\":%llu,"
+             "\"headroom\":%llu,\"samples\":%llu,\"rollup\":%llu,"
+             "\"logs\":%llu,\"last_rollover\":%lu,\"newest_file\":%lu,"
+             "\"fault_since\":%lu,\"writing\":%s}",
+             strcmp(st.can.sd_card_type, "ABSENT") == 0 ? "false" : "true",
+             st.can.sd_card_type, (unsigned long long)total,
+             (unsigned long long)used, (unsigned long long)free_bytes,
+             (unsigned long long)HAUS_FREE_FLOOR_BYTES,
+             (unsigned long long)(free_bytes > HAUS_FREE_FLOOR_BYTES
+                                      ? free_bytes - HAUS_FREE_FLOOR_BYTES
+                                      : 0),
+             (unsigned long long)st.can.sd_samples_bytes,
+             (unsigned long long)st.can.sd_rollup_bytes,
+             (unsigned long long)st.can.sd_logs_bytes,
+             (unsigned long)st.can.sd_last_rollover_epoch,
+             (unsigned long)st.can.sd_newest_file_epoch,
+             (unsigned long)st.can.sd_fault_since_epoch,
+             st.can.sd_writing ? "true" : "false");
+    tpl_server.send(200, "application/json", buf);
+  });
   tpl_websocket_setup(NULL, NULL);
   /* No net watchdog: WiFi is optional after boot. The WiFi manager keeps
    * retrying the link, while the panel stays fully operational offline. */
@@ -205,6 +240,14 @@ void loop() {
 
   if (tpl_ws7_touch_points() >= 3) {
     haus_ui_three_finger();
+  }
+
+  /* Backlight recovery: with the panel dark the settings row cannot be found,
+   * so the next touch anywhere turns the backlight back on. The tap also
+   * reaches the widget under it, which is harmless. */
+  if (s_touch_indev && !gui_backlight_on() &&
+      lv_indev_get_state(s_touch_indev) == LV_INDEV_STATE_PRESSED) {
+    gui_set_backlight(true);
   }
 
   /* Calibration cursor: visible while pressed, auto-hidden after release. */

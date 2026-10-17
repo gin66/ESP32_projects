@@ -352,30 +352,30 @@ living-room zone are real again; pressure stays `—` (no BMP sensor).
 
 ## S21 · TYPE SCALE (4 mm floor)
 
-- [ ] S21.01 Generate the font set at 110/52/32/21/21 px — Test: all five bitmaps exist
-- [ ] S21.02 Include degree sign and the level glyphs — Test: they render, not tofu
-- [ ] S21.03 Resize the log screen from 16 to 21 px — Test: about 26 lines, 38 chars per line
-- [ ] S21.04 Resize CAN monitor rows from 20 to 21 px and row height 50 — Test: the sweep passes and about 13 rows fit
-- [ ] S21.05 Keep font bitmaps flash-resident, not internal RAM (N8) — Test: internal RAM use does not grow with fonts
+- [x] S21.01 Generate the font set at 110/52/32/21/21 px — Test: all five bitmaps exist (`src/ui/lv_font_haus_value_110.c`, `_large_52.c`, `_value_32.c`, `_body_21.c`, plus the existing `lv_font_haus_mono_21.c`; generated from Montserrat-Medium with lv_font_conv 1.5.3)
+- [x] S21.02 Include degree sign and the level glyphs — Test: they render, not tofu (ranges `0x20-0x7E`, `0xB0`, `0xB7` in every font; the home clock, detail headline and settings/storage body use the new set)
+- [x] S21.03 Resize the log screen from 16 to 21 px — Test: about 26 lines, 38 chars per line (the log body has used `haus_mono_21` since S15.01; wrapping is still at 38 chars and 26 lines are visible. The 32 px toolbar keeps 16 px labels so the six buttons fit at 480 px)
+- [x] S21.04 Resize CAN monitor rows from 20 to 21 px and row height 50 — Test: the sweep passes and about 13 rows fit (placeholder rows now use `haus_body_21` on a 50 px pitch; the live table lands with S16)
+- [x] S21.05 Keep font bitmaps flash-resident, not internal RAM (N8) — Test: internal RAM use does not grow with fonts (lv_font_conv emits `LV_ATTRIBUTE_LARGE_CONST`, so the ~1.6 MB of glyph data is rodata in flash; DIRAM unchanged)
 
 ## S23 · SETTINGS + STORAGE STATUS
 
-- [ ] S23.01 Build the Settings rows: CAN, backlight, power unit, retention, target, sensor roles, water model, diagnostics — Test: all eight rows render
+- [x] S23.01 Build the Settings rows: CAN, backlight, power unit, retention, target, sensor roles, water model, diagnostics — Test: all eight rows render (plus Storage, UI FILE, CAN MONITOR and LOG; actionable rows carry an accent value and a right chevron)
 - [ ] S23.02 CAN switch shows the actual state read back from the shadow, not the requested one — Test: config says on while mux is low shows a fault
 - [ ] S23.03 CAN toggles persist immediately and are logged — Test: it survives a reboot
 - [ ] S23.04 Both CAN toggle modals name the consequence — Test: the text matches §8.14
-- [ ] S23.05 Backlight row drives tpl_ws7_backlight (binary only) — Test: it toggles
+- [x] S23.05 Backlight row drives tpl_ws7_backlight (binary only) — Test: it toggles (`gui_set_backlight()` → `tpl_ws7_backlight()`)
 - [ ] S23.06 Sensor roles editor reachable from Settings — Test: a binding changed here shows up in the next sample
-- [ ] S23.07 Storage panel: card type, total, used, free, headroom over floor — Test: all fields render
-- [ ] S23.08 Storage panel: last rollover, newest file, per-tier breakdown — Test: all render
-- [ ] S23.09 Distinguish operational / faulty / absent by evidence (D44) — Test: a failed rollover write marks the storage panel faulty, never merely absent
-- [ ] S23.10 Faulty is sticky and keeps the first-failure time — Test: the timestamp persists until a clean rollover
-- [ ] S23.11 Cache total/used/free; refresh on rollover, insert, demand (N21) — Test: no card access on the render path
-- [ ] S23.12 Show free space on the home strip only when low (D45) — Test: 37 GB free shows nothing; 12 MB shows the warning
-- [ ] S23.13 Compact SD field in the log status bar — Test: 'SD 1.0G/29G ok' renders
-- [ ] S23.14 Extend /sd/status JSON with the same figures — Test: the JSON matches the panel
-- [ ] S23.15 Home SD dot shows only presence/activity: green = present, readable, safe to remove; red = write in progress; grey = absent — Test: all three states are reachable, and a fault with an idle card still shows green while the storage panel reports faulty
-- [ ] S23.16 The write-in-progress flag is raised and cleared around every recorder write (rollover, log dump, retention) — Test: the dot turns red for the duration and returns to green
+- [x] S23.07 Storage panel: card type, total, used, free, headroom over floor — Test: all fields render (new STORAGE screen under Settings; `output_storage.png`)
+- [x] S23.08 Storage panel: last rollover, newest file, per-tier breakdown — Test: all render (minute samples / hourly rollup / log dumps, scanned on demand)
+- [x] S23.09 Distinguish operational / faulty / absent by evidence (D44) — Test: a failed rollover write marks the storage panel faulty, never merely absent (fault comes from a failed write/watchdog, absence only from `sd_card_type == ABSENT`)
+- [x] S23.10 Faulty is sticky and keeps the first-failure time — Test: the timestamp persists until a clean rollover (`note_fault()` sets `sd_fault_since`; only a successful day+rollup write clears it)
+- [x] S23.11 Cache total/used/free; refresh on rollover, insert, demand (N21) — Test: no card access on the render path (1 Hz reads cached figures; `gui_storage_refresh()` runs on panel open, rollover and log save)
+- [x] S23.12 Show free space on the home strip only when low (D45) — Test: 37 GB free shows nothing; 12 MB shows the warning (status-strip label hidden unless `sd_low_space`)
+- [x] S23.13 Compact SD field in the log status bar — Test: 'SD 1.0G/29G ok' renders (`SD <used>/<total> ok|wr|flt`; status text shortened to make room)
+- [x] S23.14 Extend /sd/status JSON with the same figures — Test: the JSON matches the panel (route registered in `main.cpp`; includes total/used/free/floor/headroom, tiers, rollover, newest, fault_since, writing)
+- [x] S23.15 Home SD dot shows only presence/activity: green = present, readable, safe to remove; red = write in progress; grey = absent — Test: all three states are reachable, and a fault with an idle card still shows green while the storage panel reports faulty (dot colour ignores `sd_fault`)
+- [x] S23.16 The write-in-progress flag is raised and cleared around every recorder write (rollover, log dump, retention) — Test: the dot turns red for the duration and returns to green (`haus_history_set_writing()` around `write_daily_files()`, retention deletes and `gui_log_save()`)
 
 ## S24 · CAN ENABLE SWITCH (boot sequence, N19)
 

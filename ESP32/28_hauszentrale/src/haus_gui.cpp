@@ -9,6 +9,19 @@
  */
 
 #include "haus_gui.h"
+
+#include <Arduino.h>
+#include <SD.h>
+#include <WiFi.h>
+#include <esp_heap_caps.h>
+#include <esp_task_wdt.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#include <time.h>
+
+#include <atomic>
+#include <cstring>
+
 #include "haus_can.h"
 #include "haus_history.h"
 #include "haus_rollup.h"
@@ -16,17 +29,7 @@
 #include "haus_sht45.h"
 #include "haus_triple_buffer.h"
 #include "tpl_debug_log.h"
-
-#include <Arduino.h>
-#include <SD.h>
-#include <WiFi.h>
-#include <atomic>
-#include <cstring>
-#include <esp_heap_caps.h>
-#include <esp_task_wdt.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/semphr.h>
-#include <time.h>
+#include "tpl_ws7.h"
 
 /* ─── Internal state ────────────────────────────────────────────────────────
  *
@@ -64,7 +67,7 @@ static bool g_can_enabled = false;
 /* ─── CAN bus readers (called by gui_update_state) ──────────────────────────
  */
 
-static void read_temperatures(haus_can_temperature_t *out) {
+static void read_temperatures(haus_can_temperature_t* out) {
   /* TODO: Read from CAN bus 0x200 frame.
    * For now, return all HAUS_CAN_TEMP_EMPTY until CAN is integrated. */
   for (int i = 0; i < HAUS_CAN_MAX_SENSORS; i++) {
@@ -72,7 +75,7 @@ static void read_temperatures(haus_can_temperature_t *out) {
   }
 }
 
-static void read_pwm(haus_can_pwm_t *out) {
+static void read_pwm(haus_can_pwm_t* out) {
   /* TODO: Read from CAN bus 0x280 frame.
    * For now, return "off" with EEPROM source. */
   out->duty_permille = 0;
@@ -80,15 +83,15 @@ static void read_pwm(haus_can_pwm_t *out) {
   out->flags = PWM_SRC_EEPROM;
 }
 
-static void read_power(int32_t *watts, uint8_t *source) {
+static void read_power(int32_t* watts, uint8_t* source) {
   /* TODO: Read from SML decoder (0x600) or ADC (0x2C0).
    * For now, return no data. */
   *watts = 0;
   *source = GUI_PWR_SRC_NONE;
 }
 
-static void read_living(int16_t *temp, uint16_t *hum, uint32_t *pres,
-                        uint8_t *flags) {
+static void read_living(int16_t* temp, uint16_t* hum, uint32_t* pres,
+                        uint8_t* flags) {
   /* SHT45 on the shared I2C bus at 0x44 (does not collide with CH422G or
    * GT911). Polling is non-blocking: the previous conversion is read and the
    * next one is started, so the UI loop never waits for the ~8.3 ms
@@ -111,33 +114,30 @@ static void read_living(int16_t *temp, uint16_t *hum, uint32_t *pres,
 /* ─── SD history reader (called by gui_get_history) ─────────────────────────
  */
 
-static int read_day_file(const char *filename, gui_sample_t *samples,
-                         uint16_t max_samples, uint16_t *out_count) {
+static int read_day_file(const char* filename, gui_sample_t* samples,
+                         uint16_t max_samples, uint16_t* out_count) {
   /* TODO: Open /data_YYYYMMDD.bin from SD, read samples into buffer.
    * For now, return 0 samples. */
   (void)filename;
   (void)max_samples;
-  if (out_count)
-    *out_count = 0;
+  if (out_count) *out_count = 0;
   return 0;
 }
 
-static int read_rollup_file(gui_sample_t *samples, uint16_t max_samples,
-                            uint16_t *out_count) {
+static int read_rollup_file(gui_sample_t* samples, uint16_t max_samples,
+                            uint16_t* out_count) {
   /* TODO: Open /rollup.bin from SD, read hourly aggregates.
    * For now, return 0 samples. */
   (void)max_samples;
-  if (out_count)
-    *out_count = 0;
+  if (out_count) *out_count = 0;
   return 0;
 }
 
 /* ─── Public API ────────────────────────────────────────────────────────────
  */
 
-void gui_get_state(HausState *out) {
-  if (!out)
-    return;
+void gui_get_state(HausState* out) {
+  if (!out) return;
   if (!g_published.load(std::memory_order_acquire)) {
     gui_update_state();
   }
@@ -149,12 +149,10 @@ void gui_get_state(HausState *out) {
   xSemaphoreGive(lock);
 }
 
-int gui_get_history(const gui_history_request_t *req) {
-  if (!req || !req->samples || !req->out_count)
-    return -1;
+int gui_get_history(const gui_history_request_t* req) {
+  if (!req || !req->samples || !req->out_count) return -1;
   *req->out_count = 0;
-  if (req->end_epoch <= req->start_epoch)
-    return 0;
+  if (req->end_epoch <= req->start_epoch) return 0;
 
   const uint32_t first = req->start_epoch - (req->start_epoch % 60u);
   const uint32_t last = req->end_epoch - (req->end_epoch % 60u);
@@ -165,20 +163,17 @@ int gui_get_history(const gui_history_request_t *req) {
   size_t written = 0;
   for (size_t i = 0; i < total && written < req->max_samples; i += step) {
     gui_sample_t s;
-    if (gui_read_samples_chunk(first, i, 1, &s) != 1)
-      break;
-    if (s.epoch != 0)
-      req->samples[written++] = s;
+    if (gui_read_samples_chunk(first, i, 1, &s) != 1) break;
+    if (s.epoch != 0) req->samples[written++] = s;
   }
   *req->out_count = (uint16_t)written;
   return 0;
 }
 
 size_t gui_read_samples_chunk(uint32_t start_epoch, size_t first, size_t count,
-                              gui_sample_t *out) {
-  gui_sample_t *l1 = haus_history_l1();
-  if (!l1 || !out || count == 0)
-    return 0;
+                              gui_sample_t* out) {
+  gui_sample_t* l1 = haus_history_l1();
+  if (!l1 || !out || count == 0) return 0;
 
   const uint32_t base = start_epoch - (start_epoch % 60u);
   for (size_t i = 0; i < count; i++) {
@@ -198,10 +193,9 @@ size_t gui_read_samples_chunk(uint32_t start_epoch, size_t first, size_t count,
 }
 
 size_t gui_read_rollup_chunk(uint32_t start_epoch, size_t first, size_t count,
-                             RollupColumn *out) {
-  RollupColumn *l2 = haus_history_l2();
-  if (!l2 || !out || count == 0)
-    return 0;
+                             RollupColumn* out) {
+  RollupColumn* l2 = haus_history_l2();
+  if (!l2 || !out || count == 0) return 0;
 
   const uint32_t base = start_epoch - (start_epoch % 3600u);
   for (size_t i = 0; i < count; i++) {
@@ -218,10 +212,9 @@ size_t gui_read_rollup_chunk(uint32_t start_epoch, size_t first, size_t count,
 }
 
 size_t gui_read_target_samples_chunk(uint32_t start_epoch, size_t first,
-                                     size_t count, int16_t *out) {
-  gui_sample_t *l1 = haus_history_l1();
-  if (!l1 || !out || count == 0)
-    return 0;
+                                     size_t count, int16_t* out) {
+  gui_sample_t* l1 = haus_history_l1();
+  if (!l1 || !out || count == 0) return 0;
 
   const uint32_t base = start_epoch - (start_epoch % 60u);
   for (size_t i = 0; i < count; i++) {
@@ -234,10 +227,9 @@ size_t gui_read_target_samples_chunk(uint32_t start_epoch, size_t first,
 }
 
 size_t gui_read_target_hours_chunk(uint32_t start_epoch, size_t first,
-                                   size_t count, int16_t *out) {
-  RollupColumn *l2 = haus_history_l2();
-  if (!l2 || !out || count == 0)
-    return 0;
+                                   size_t count, int16_t* out) {
+  RollupColumn* l2 = haus_history_l2();
+  if (!l2 || !out || count == 0) return 0;
 
   const uint32_t base = start_epoch - (start_epoch % 3600u);
   for (size_t i = 0; i < count; i++) {
@@ -251,51 +243,47 @@ size_t gui_read_target_hours_chunk(uint32_t start_epoch, size_t first,
 
 uint32_t gui_history_newest_epoch(void) {
   uint32_t newest = 0;
-  gui_sample_t *l1 = haus_history_l1();
+  gui_sample_t* l1 = haus_history_l1();
   if (l1) {
     for (size_t i = 0; i < HAUS_L1_SAMPLES; i++) {
-      if (l1[i].epoch > newest)
-        newest = l1[i].epoch;
+      if (l1[i].epoch > newest) newest = l1[i].epoch;
     }
   }
-  RollupColumn *l2 = haus_history_l2();
+  RollupColumn* l2 = haus_history_l2();
   if (l2) {
     for (size_t i = 0; i < HAUS_L2_COLUMNS; i++) {
       const uint32_t t = l2[i].t * 60u;
-      if (t > newest)
-        newest = t;
+      if (t > newest) newest = t;
     }
   }
   return newest;
 }
 
 bool gui_history_has_data(uint32_t start_epoch, uint32_t end_epoch) {
-  gui_sample_t *l1 = haus_history_l1();
+  gui_sample_t* l1 = haus_history_l1();
   if (l1) {
     for (size_t i = 0; i < HAUS_L1_SAMPLES; i++) {
-      if (l1[i].epoch >= start_epoch && l1[i].epoch <= end_epoch)
-        return true;
+      if (l1[i].epoch >= start_epoch && l1[i].epoch <= end_epoch) return true;
     }
   }
-  RollupColumn *l2 = haus_history_l2();
+  RollupColumn* l2 = haus_history_l2();
   if (l2) {
     for (size_t i = 0; i < HAUS_L2_COLUMNS; i++) {
       const uint32_t t = l2[i].t * 60u;
-      if (t >= start_epoch && t <= end_epoch)
-        return true;
+      if (t >= start_epoch && t <= end_epoch) return true;
     }
   }
   return false;
 }
 
-const gui_sensor_info_t *gui_get_sensors(uint8_t *count) {
+const gui_sensor_info_t* gui_get_sensors(uint8_t* count) {
   /* TODO: Load sensor_roles[] from SPIFFS, resolve rank → ROM → label.
    * For now, return empty. */
   (void)count;
   return NULL;
 }
 
-const char *gui_log_dump(int *out_len) { return tpl_debug_ring_dump(out_len); }
+const char* gui_log_dump(int* out_len) { return tpl_debug_ring_dump(out_len); }
 
 int gui_log_length(void) { return tpl_debug_ring_length(); }
 
@@ -306,22 +294,21 @@ uint32_t gui_log_dropped(void) {
 }
 
 int gui_log_save(void) {
-  if (!haus_sd_is_mounted())
-    return 0;
+  if (!haus_sd_is_mounted()) return 0;
   int len = 0;
-  const char *dump = tpl_debug_ring_dump(&len);
-  if (!dump || len <= 0)
-    return 0;
+  const char* dump = tpl_debug_ring_dump(&len);
+  if (!dump || len <= 0) return 0;
   char path[40];
   snprintf(path, sizeof(path), "/log_%lu.txt", (unsigned long)time(nullptr));
-  if (!haus_sd_lock(2000))
-    return 0;
+  if (!haus_sd_lock(2000)) return 0;
+  haus_history_set_writing(true);
   File f = SD.open(path, FILE_WRITE);
   const bool ok =
-      f && f.write((const uint8_t *)dump, (size_t)len) == (size_t)len;
-  if (f)
-    f.close();
+      f && f.write((const uint8_t*)dump, (size_t)len) == (size_t)len;
+  if (f) f.close();
+  haus_history_set_writing(false);
   haus_sd_unlock();
+  if (ok) haus_history_storage_refresh();
   return ok ? 1 : 0;
 }
 
@@ -330,6 +317,21 @@ bool gui_can_enabled(void) { return g_can_enabled; }
 void gui_set_can_enabled(bool enabled) {
   g_can_enabled = enabled;
   TPL_LOGI("settings", "CAN %s", enabled ? "on" : "off");
+}
+
+void gui_storage_refresh(void) {
+  haus_sd_space_refresh();
+  haus_history_storage_refresh();
+}
+
+static bool g_backlight_on = true;
+
+bool gui_backlight_on(void) { return g_backlight_on; }
+
+void gui_set_backlight(bool on) {
+  g_backlight_on = on;
+  tpl_ws7_backlight(on);
+  TPL_LOGI("settings", "backlight %s", on ? "on" : "off");
 }
 
 bool gui_water_model_available(void) {
@@ -345,8 +347,8 @@ bool gui_water_model_available(void) {
  */
 
 void gui_update_state(void) {
-  CanState &can = g_can.write();
-  ClimateState &climate = g_climate.write();
+  CanState& can = g_can.write();
+  ClimateState& climate = g_climate.write();
 
   /* System clock. tpl_wifi_setup() starts SNTP, so time() becomes valid
    * once the first sync has landed. Before that the UI must show --:--. */
@@ -407,7 +409,6 @@ void gui_update_state(void) {
       (can.pwm_src == PWM_SRC_CAN) ? GUI_STATUS_OK : GUI_STATUS_INACTIVE;
   /* SD is green when present and readable, grey when absent. Red is reserved
    * for an in-progress write (SD status semantics, §8.15.1). */
-  can.sd_status = haus_sd_is_mounted() ? GUI_STATUS_OK : GUI_STATUS_INACTIVE;
   uint64_t total_bytes = 0;
   uint64_t used_bytes = 0;
   can.sd_low_space = false;
@@ -416,6 +417,22 @@ void gui_update_state(void) {
         total_bytes > used_bytes ? total_bytes - used_bytes : 0;
     can.sd_low_space = free_bytes < (50ULL * 1024ULL * 1024ULL);
   }
+
+  /* Storage panel figures are cached; gui_storage_refresh() fills them on
+   * demand (panel open, rollover). Never scan the FAT from the 1 Hz path. */
+  snprintf(can.sd_card_type, sizeof(can.sd_card_type), "%s",
+           haus_sd_card_type());
+  can.sd_total_bytes = total_bytes;
+  can.sd_used_bytes = used_bytes;
+  haus_history_storage_get(&can.sd_samples_bytes, &can.sd_rollup_bytes,
+                           &can.sd_logs_bytes);
+  can.sd_last_rollover_epoch = haus_history_last_rollover_epoch();
+  can.sd_fault_since_epoch = haus_history_fault_since_epoch();
+  can.sd_newest_file_epoch = haus_history_newest_file_epoch();
+  can.sd_writing = haus_history_writing();
+  can.sd_status = !haus_sd_is_mounted()
+                      ? GUI_STATUS_INACTIVE
+                      : (can.sd_writing ? GUI_STATUS_ERROR : GUI_STATUS_OK);
 
   /* WiFi is optional after boot: the symbol is green only while associated
    * and holding a DHCP lease, grey otherwise. */

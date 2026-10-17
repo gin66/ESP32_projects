@@ -17,10 +17,15 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "haus_ui.h"
+
 #include "haus_chart.h"
 #include "haus_gui.h"
 
 LV_FONT_DECLARE(haus_mono_21);
+LV_FONT_DECLARE(haus_body_21);
+LV_FONT_DECLARE(haus_value_32);
+LV_FONT_DECLARE(haus_large_52);
+LV_FONT_DECLARE(haus_value_110);
 
 #include <math.h>
 #include <stdio.h>
@@ -32,7 +37,7 @@ LV_FONT_DECLARE(haus_mono_21);
 #define ui_label_set_recolor(l, en) lv_label_set_recolor((l), (en))
 #else
 #define UI_LABEL_LONG_WRAP LV_LABEL_LONG_WRAP
-static inline void ui_label_set_recolor(lv_obj_t *l, bool en) {
+static inline void ui_label_set_recolor(lv_obj_t* l, bool en) {
   (void)l;
   (void)en;
 }
@@ -79,6 +84,7 @@ enum ui_screen_id {
   UI_SCREEN_POWER,
   UI_SCREEN_LIVING,
   UI_SCREEN_SETTINGS,
+  UI_SCREEN_STORAGE,
   UI_SCREEN_CAN,
   UI_SCREEN_LOG,
 };
@@ -88,7 +94,7 @@ static const int nav_screens[NAV_TABS] = {
     UI_SCREEN_POWER, UI_SCREEN_LIVING,  UI_SCREEN_SETTINGS,
 };
 
-static const char *nav_icons[NAV_TABS] = {
+static const char* nav_icons[NAV_TABS] = {
     LV_SYMBOL_HOME,     /* home */
     NULL,               /* chamber (drawn as a thermometer) */
     NULL,               /* water (drawn as waves) */
@@ -98,11 +104,10 @@ static const char *nav_icons[NAV_TABS] = {
 };
 
 static int nav_index_for(int screen) {
-  if (screen == UI_SCREEN_WATER_OUT)
-    screen = UI_SCREEN_WATER_IN;
+  if (screen == UI_SCREEN_WATER_OUT) screen = UI_SCREEN_WATER_IN;
+  if (screen == UI_SCREEN_STORAGE) screen = UI_SCREEN_SETTINGS;
   for (int i = 0; i < NAV_TABS; i++)
-    if (nav_screens[i] == screen)
-      return i;
+    if (nav_screens[i] == screen) return i;
   return -1;
 }
 
@@ -122,37 +127,38 @@ static void power_bars_build(void);
 static void build_status_hotspot(void);
 
 /* Home-screen widgets (NULL when the home screen is not built). */
-static lv_obj_t *s_status_date;
-static lv_obj_t *s_clock;
-static lv_obj_t *s_can_dot;
-static lv_obj_t *s_sd_dot;
-static lv_obj_t *s_wifi_icon;
-static lv_obj_t *s_cabinet;
-static uint8_t *s_cabinet_buf;
-static lv_obj_t *s_fire;
-static lv_obj_t *s_flame[3];
-static lv_obj_t *s_chamber_temp;
-static lv_obj_t *s_chamber_unit;
-static lv_obj_t *s_water_in;
-static lv_obj_t *s_water_in_lbl;
-static lv_obj_t *s_pump;
-static lv_obj_t *s_pump_lbl;
-static lv_obj_t *s_water_out;
-static lv_obj_t *s_water_out_lbl;
-static lv_obj_t *s_living_temp;
-static lv_obj_t *s_living_unit;
-static lv_obj_t *s_living_rh;
-static lv_obj_t *s_power_num;
-static lv_obj_t *s_power_bolt;
-static lv_obj_t *s_power_src;
+static lv_obj_t* s_status_date;
+static lv_obj_t* s_clock;
+static lv_obj_t* s_can_dot;
+static lv_obj_t* s_sd_dot;
+static lv_obj_t* s_wifi_icon;
+static lv_obj_t* s_sd_low_lbl;
+static lv_obj_t* s_cabinet;
+static uint8_t* s_cabinet_buf;
+static lv_obj_t* s_fire;
+static lv_obj_t* s_flame[3];
+static lv_obj_t* s_chamber_temp;
+static lv_obj_t* s_chamber_unit;
+static lv_obj_t* s_water_in;
+static lv_obj_t* s_water_in_lbl;
+static lv_obj_t* s_pump;
+static lv_obj_t* s_pump_lbl;
+static lv_obj_t* s_water_out;
+static lv_obj_t* s_water_out_lbl;
+static lv_obj_t* s_living_temp;
+static lv_obj_t* s_living_unit;
+static lv_obj_t* s_living_rh;
+static lv_obj_t* s_power_num;
+static lv_obj_t* s_power_bolt;
+static lv_obj_t* s_power_src;
 
-static lv_obj_t *s_pipe_l;
-static lv_obj_t *s_pipe_r;
-static lv_obj_t *s_pipe_lu;
-static lv_obj_t *s_pipe_ru;
-static lv_obj_t *s_flow_dash[12]; /* 6 left + 6 right */
-static lv_obj_t *s_zone[5];       /* 5 invisible navigation zones */
-static lv_obj_t *s_duty_src;      /* duty provenance marker (status strip) */
+static lv_obj_t* s_pipe_l;
+static lv_obj_t* s_pipe_r;
+static lv_obj_t* s_pipe_lu;
+static lv_obj_t* s_pipe_ru;
+static lv_obj_t* s_flow_dash[12]; /* 6 left + 6 right */
+static lv_obj_t* s_zone[5];       /* 5 invisible navigation zones */
+static lv_obj_t* s_duty_src;      /* duty provenance marker (status strip) */
 static void align_power_labels(void);
 
 /* Last values pushed into the widget tree. Every setter below is guarded by
@@ -172,12 +178,10 @@ static uint16_t s_last_pipe_r_color = 0xFFFFu;
 /* ─── Small helpers ─────────────────────────────────────────────────────────
  */
 
-static bool txt(lv_obj_t *label, const char *text) {
-  if (!label || !text)
-    return false;
-  const char *cur = lv_label_get_text(label);
-  if (cur && strcmp(cur, text) == 0)
-    return false;
+static bool txt(lv_obj_t* label, const char* text) {
+  if (!label || !text) return false;
+  const char* cur = lv_label_get_text(label);
+  if (cur && strcmp(cur, text) == 0) return false;
   lv_label_set_text(label, text);
   return true;
 }
@@ -185,21 +189,21 @@ static bool txt(lv_obj_t *label, const char *text) {
 /* LVGL 10 replaced the generic flag API with per-flag setters. The firmware
  * still builds against LVGL 9.2, so keep both paths working. */
 #if LVGL_VERSION_MAJOR >= 10
-static void obj_set_clickable(lv_obj_t *o, bool en) {
+static void obj_set_clickable(lv_obj_t* o, bool en) {
   lv_obj_set_clickable(o, en);
 }
-static void obj_set_scrollable(lv_obj_t *o, bool en) {
+static void obj_set_scrollable(lv_obj_t* o, bool en) {
   lv_obj_set_scrollable(o, en);
 }
 #else
-static void obj_set_clickable(lv_obj_t *o, bool en) {
+static void obj_set_clickable(lv_obj_t* o, bool en) {
   if (en) {
     lv_obj_add_flag(o, LV_OBJ_FLAG_CLICKABLE);
   } else {
     lv_obj_clear_flag(o, LV_OBJ_FLAG_CLICKABLE);
   }
 }
-static void obj_set_scrollable(lv_obj_t *o, bool en) {
+static void obj_set_scrollable(lv_obj_t* o, bool en) {
   if (en) {
     lv_obj_add_flag(o, LV_OBJ_FLAG_SCROLLABLE);
   } else {
@@ -208,7 +212,7 @@ static void obj_set_scrollable(lv_obj_t *o, bool en) {
 }
 #endif
 
-static void obj_set_hidden(lv_obj_t *o, bool en) {
+static void obj_set_hidden(lv_obj_t* o, bool en) {
 #if LVGL_VERSION_MAJOR >= 10
   lv_obj_set_hidden(o, en);
 #else
@@ -220,16 +224,16 @@ static void obj_set_hidden(lv_obj_t *o, bool en) {
 }
 
 static void screen_lock_scroll(void) {
-  lv_obj_t *scr = lv_screen_active();
+  lv_obj_t* scr = lv_screen_active();
   obj_set_scrollable(scr, false);
   lv_obj_set_scroll_dir(scr, LV_DIR_NONE);
   lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
   lv_obj_scroll_to(scr, 0, 0, LV_ANIM_OFF);
 }
 
-static lv_obj_t *label_make(lv_obj_t *parent, const char *text, int x, int y,
-                            const lv_font_t *font, uint32_t color) {
-  lv_obj_t *l = lv_label_create(parent);
+static lv_obj_t* label_make(lv_obj_t* parent, const char* text, int x, int y,
+                            const lv_font_t* font, uint32_t color) {
+  lv_obj_t* l = lv_label_create(parent);
   lv_obj_set_pos(l, x, y);
   lv_obj_set_style_text_font(l, font, 0);
   lv_obj_set_style_text_color(l, lv_color_hex(color), 0);
@@ -237,7 +241,7 @@ static lv_obj_t *label_make(lv_obj_t *parent, const char *text, int x, int y,
   return l;
 }
 
-static void temp_text(int16_t c100, char *buf, size_t n, bool with_unit) {
+static void temp_text(int16_t c100, char* buf, size_t n, bool with_unit) {
   if (s_clock_fmt >= 2) {
     if (with_unit)
       snprintf(buf, n, "%.1f °F", c100 * 9 / 5 / 100.0 + 32.0);
@@ -252,8 +256,8 @@ static void temp_text(int16_t c100, char *buf, size_t n, bool with_unit) {
 }
 
 /* A 1-pixel separator line. */
-static void hline(lv_obj_t *parent, int y, uint32_t color) {
-  lv_obj_t *o = lv_obj_create(parent);
+static void hline(lv_obj_t* parent, int y, uint32_t color) {
+  lv_obj_t* o = lv_obj_create(parent);
   lv_obj_set_size(o, SCREEN_W, 1);
   lv_obj_set_pos(o, 0, y);
   lv_obj_set_style_bg_color(o, lv_color_hex(color), 0);
@@ -266,13 +270,13 @@ static void hline(lv_obj_t *parent, int y, uint32_t color) {
 /* Three stacked waves standing in for the water series (in and out). LVGL's
  * built-in Montserrat subset has no wave glyph, so draw it. The points array is
  * static because lv_line stores the pointer instead of copying it. */
-static void nav_waves(lv_obj_t *nav, int cx, int y, uint32_t color) {
+static void nav_waves(lv_obj_t* nav, int cx, int y, uint32_t color) {
   static const lv_point_precise_t wave_pts[] = {
       {0, 2},  {4, 0},  {8, 2},  {12, 0}, {16, 2},
       {20, 0}, {24, 2}, {28, 0}, {32, 2},
   };
   for (int r = 0; r < 3; r++) {
-    lv_obj_t *w = lv_line_create(nav);
+    lv_obj_t* w = lv_line_create(nav);
     lv_line_set_points(w, wave_pts, 9);
     lv_obj_set_pos(w, cx - 16, y + r * 7);
     lv_obj_set_style_line_width(w, 2, 0);
@@ -282,15 +286,15 @@ static void nav_waves(lv_obj_t *nav, int cx, int y, uint32_t color) {
   }
 }
 
-static void nav_thermo(lv_obj_t *nav, int cx, int y, uint32_t color) {
-  lv_obj_t *stem = lv_obj_create(nav);
+static void nav_thermo(lv_obj_t* nav, int cx, int y, uint32_t color) {
+  lv_obj_t* stem = lv_obj_create(nav);
   lv_obj_set_size(stem, 6, 18);
   lv_obj_set_pos(stem, cx - 3, y);
   lv_obj_set_style_bg_color(stem, lv_color_hex(color), 0);
   lv_obj_set_style_border_width(stem, 0, 0);
   lv_obj_set_style_radius(stem, 3, 0);
   obj_set_clickable(stem, false);
-  lv_obj_t *bulb = lv_obj_create(nav);
+  lv_obj_t* bulb = lv_obj_create(nav);
   lv_obj_set_size(bulb, 13, 13);
   lv_obj_set_pos(bulb, cx - 6, y + 15);
   lv_obj_set_style_bg_color(bulb, lv_color_hex(color), 0);
@@ -299,24 +303,24 @@ static void nav_thermo(lv_obj_t *nav, int cx, int y, uint32_t color) {
   obj_set_clickable(bulb, false);
 }
 
-static void nav_house(lv_obj_t *nav, int cx, int y, uint32_t color) {
+static void nav_house(lv_obj_t* nav, int cx, int y, uint32_t color) {
   static const lv_point_precise_t roof[] = {{0, 10}, {12, 0}, {24, 10}};
   static const lv_point_precise_t left[] = {{0, 10}, {0, 26}};
   static const lv_point_precise_t right[] = {{24, 10}, {24, 26}};
-  lv_obj_t *r = lv_line_create(nav);
+  lv_obj_t* r = lv_line_create(nav);
   lv_line_set_points(r, roof, 3);
   lv_obj_set_pos(r, cx - 12, y);
   lv_obj_set_style_line_width(r, 2, 0);
   lv_obj_set_style_line_color(r, lv_color_hex(color), 0);
   lv_obj_set_style_line_rounded(r, true, 0);
   obj_set_clickable(r, false);
-  lv_obj_t *l = lv_line_create(nav);
+  lv_obj_t* l = lv_line_create(nav);
   lv_line_set_points(l, left, 2);
   lv_obj_set_pos(l, cx - 12, y);
   lv_obj_set_style_line_width(l, 2, 0);
   lv_obj_set_style_line_color(l, lv_color_hex(color), 0);
   obj_set_clickable(l, false);
-  lv_obj_t *rr = lv_line_create(nav);
+  lv_obj_t* rr = lv_line_create(nav);
   lv_line_set_points(rr, right, 2);
   lv_obj_set_pos(rr, cx - 12, y);
   lv_obj_set_style_line_width(rr, 2, 0);
@@ -324,7 +328,7 @@ static void nav_house(lv_obj_t *nav, int cx, int y, uint32_t color) {
   obj_set_clickable(rr, false);
 }
 
-static void ui_nav_job(void *arg) {
+static void ui_nav_job(void* arg) {
   g_pending_screen = -1;
   ui_show_screen((int)(intptr_t)arg);
 }
@@ -332,34 +336,30 @@ static void ui_nav_job(void *arg) {
 /* Defer the screen swap until the current event has returned; deleting the
  * event's target from inside its own callback is not safe in LVGL. */
 static void ui_nav_go(int screen) {
-  if (screen == g_current_screen || screen == g_pending_screen)
-    return;
+  if (screen == g_current_screen || screen == g_pending_screen) return;
   g_pending_screen = screen;
-  lv_async_call(ui_nav_job, (void *)(intptr_t)screen);
+  lv_async_call(ui_nav_job, (void*)(intptr_t)screen);
 }
 
 static void ui_jump(int screen);
 static void ui_push(int screen);
 static void ui_pop(void);
 
-static void nav_click_cb(lv_event_t *e) {
+static void nav_click_cb(lv_event_t* e) {
   int screen = (int)(intptr_t)lv_event_get_user_data(e);
   ui_jump(screen);
 }
 
 static void ui_jump(int screen) {
-  if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_LOG)
-    return;
+  if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_LOG) return;
   s_depth = 1;
   s_stack[0] = screen;
   ui_nav_go(screen);
 }
 
 static void ui_push(int screen) {
-  if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_LOG)
-    return;
-  if (s_depth < UI_STACK_MAX)
-    s_stack[s_depth++] = screen;
+  if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_LOG) return;
+  if (s_depth < UI_STACK_MAX) s_stack[s_depth++] = screen;
   ui_nav_go(screen);
 }
 
@@ -374,7 +374,7 @@ static void ui_pop(void) {
 
 static void nav_build(int active_screen) {
   const int active = nav_index_for(active_screen);
-  lv_obj_t *nav = lv_obj_create(lv_screen_active());
+  lv_obj_t* nav = lv_obj_create(lv_screen_active());
   lv_obj_set_size(nav, SCREEN_W, NAV_H);
   lv_obj_set_pos(nav, 0, NAV_Y);
   lv_obj_set_style_bg_color(nav, lv_color_hex(0x0c0b0a), 0);
@@ -392,7 +392,7 @@ static void nav_build(int active_screen) {
 
     /* A transparent tab-sized button gives the whole 80 px slot LVGL's
      * press/click handling, not just the glyph. */
-    lv_obj_t *tab = lv_obj_create(nav);
+    lv_obj_t* tab = lv_obj_create(nav);
     lv_obj_set_size(tab, tab_w, NAV_H);
     lv_obj_set_pos(tab, x0 + i * tab_w, 0);
     lv_obj_set_style_bg_opa(tab, LV_OPA_TRANSP, 0);
@@ -402,7 +402,7 @@ static void nav_build(int active_screen) {
     obj_set_scrollable(tab, false);
     obj_set_clickable(tab, true);
     lv_obj_add_event_cb(tab, nav_click_cb, LV_EVENT_CLICKED,
-                        (void *)(intptr_t)screen);
+                        (void*)(intptr_t)screen);
 
     if (nav_icons[i] == NULL) {
       if (i == 1)
@@ -412,7 +412,7 @@ static void nav_build(int active_screen) {
       else
         nav_house(tab, tab_w / 2, NAV_H / 2 - 14, color);
     } else {
-      lv_obj_t *icon = lv_label_create(tab);
+      lv_obj_t* icon = lv_label_create(tab);
       lv_obj_set_style_text_font(icon, &lv_font_montserrat_24, 0);
       lv_obj_set_style_text_color(icon, lv_color_hex(color), 0);
       lv_label_set_text(icon, nav_icons[i]);
@@ -423,7 +423,7 @@ static void nav_build(int active_screen) {
     }
 
     if (i == active) {
-      lv_obj_t *rule = lv_obj_create(tab);
+      lv_obj_t* rule = lv_obj_create(tab);
       lv_obj_set_size(rule, tab_w - 28, 3);
       lv_obj_set_pos(rule, 14, NAV_H - 3);
       lv_obj_set_style_bg_color(rule, lv_color_hex(C_ACCENT), 0);
@@ -437,12 +437,12 @@ static void nav_build(int active_screen) {
 /* ─── Date helpers ──────────────────────────────────────────────────────────
  */
 
-static const char *const WEEKDAYS[] = {"Sun", "Mon", "Tue", "Wed",
+static const char* const WEEKDAYS[] = {"Sun", "Mon", "Tue", "Wed",
                                        "Thu", "Fri", "Sat"};
-static const char *const MONTHS[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+static const char* const MONTHS[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
 
-static void epoch_to_date(uint32_t epoch, char *out, size_t n) {
+static void epoch_to_date(uint32_t epoch, char* out, size_t n) {
   time_t t = (time_t)epoch;
   struct tm tm;
   if (!localtime_r(&t, &tm)) {
@@ -467,19 +467,19 @@ static void epoch_to_date(uint32_t epoch, char *out, size_t n) {
  * mark's left edge minus the inter-mark gap. Returns the dot so callers can
  * recolour it when the state changes. */
 /* A symbol-only mark (no text label), used for the optional WiFi indicator. */
-static lv_obj_t *status_symbol_mark(int *right, const char *symbol) {
+static lv_obj_t* status_symbol_mark(int* right, const char* symbol) {
   lv_point_t size;
   lv_text_get_size(&size, symbol, &lv_font_montserrat_16, 0, 0, LV_COORD_MAX,
                    LV_TEXT_FLAG_NONE);
 
   int x = *right - size.x;
-  lv_obj_t *l = label_make(lv_screen_active(), symbol, x, STATUS_LABEL_Y,
+  lv_obj_t* l = label_make(lv_screen_active(), symbol, x, STATUS_LABEL_Y,
                            &lv_font_montserrat_16, C_OFF);
   *right = x - STATUS_MARK_GAP;
   return l;
 }
 
-static lv_obj_t *status_mark(int *right, const char *text) {
+static lv_obj_t* status_mark(int* right, const char* text) {
   lv_point_t size;
   lv_text_get_size(&size, text, &lv_font_montserrat_16, 0, 0, LV_COORD_MAX,
                    LV_TEXT_FLAG_NONE);
@@ -489,7 +489,7 @@ static lv_obj_t *status_mark(int *right, const char *text) {
              &lv_font_montserrat_16, C_DIM);
 
   int dot_x = label_x - STATUS_DOT_LABEL_GAP - STATUS_DOT_SIZE;
-  lv_obj_t *dot = lv_obj_create(lv_screen_active());
+  lv_obj_t* dot = lv_obj_create(lv_screen_active());
   lv_obj_set_size(dot, STATUS_DOT_SIZE, STATUS_DOT_SIZE);
   lv_obj_set_pos(dot, dot_x, STATUS_DOT_Y);
   lv_obj_set_style_bg_color(dot, lv_color_hex(C_OK), 0);
@@ -503,48 +503,42 @@ static lv_obj_t *status_mark(int *right, const char *text) {
 /* Map an interface status to a palette colour. */
 static uint32_t status_color(gui_status_t status) {
   switch (status) {
-  case GUI_STATUS_OK:
-    return C_OK;
-  case GUI_STATUS_ERROR:
-    return C_HOT;
-  default:
-    return C_OFF;
+    case GUI_STATUS_OK:
+      return C_OK;
+    case GUI_STATUS_ERROR:
+      return C_HOT;
+    default:
+      return C_OFF;
   }
 }
 
 /* Apply a status to a strip dot, skipping the redraw when it is unchanged. */
-static void status_dot_apply(lv_obj_t *dot, gui_status_t status,
-                             uint32_t *last_color) {
-  if (!dot)
-    return;
+static void status_dot_apply(lv_obj_t* dot, gui_status_t status,
+                             uint32_t* last_color) {
+  if (!dot) return;
   uint32_t color = status_color(status);
-  if (color == *last_color)
-    return;
+  if (color == *last_color) return;
   *last_color = color;
   lv_obj_set_style_bg_color(dot, lv_color_hex(color), 0);
 }
 
 /* Same guard for a symbol label. */
-static void status_text_apply(lv_obj_t *label, gui_status_t status,
-                              uint32_t *last_color) {
-  if (!label)
-    return;
+static void status_text_apply(lv_obj_t* label, gui_status_t status,
+                              uint32_t* last_color) {
+  if (!label) return;
   uint32_t color = status_color(status);
-  if (color == *last_color)
-    return;
+  if (color == *last_color) return;
   *last_color = color;
   lv_obj_set_style_text_color(label, lv_color_hex(color), 0);
 }
 
 /* Duty provenance keeps the hollow marker for the non-live (EEPROM) state:
  * solid = live, hollow = restored, red = fault. */
-static void duty_dot_apply(lv_obj_t *dot, gui_status_t status,
-                           uint32_t *last_color) {
-  if (!dot)
-    return;
+static void duty_dot_apply(lv_obj_t* dot, gui_status_t status,
+                           uint32_t* last_color) {
+  if (!dot) return;
   uint32_t color = status_color(status);
-  if (color == *last_color)
-    return;
+  if (color == *last_color) return;
   *last_color = color;
   if (status == GUI_STATUS_INACTIVE) {
     lv_obj_set_style_bg_color(dot, lv_color_hex(C_OFF), 0);
@@ -568,35 +562,32 @@ static void build_status(void) {
   s_sd_dot = status_mark(&right, "SD");
   s_can_dot = status_mark(&right, "CAN");
   s_duty_src = status_mark(&right, "DUTY");
+  /* Free-space warning only when low (D45): hidden otherwise. */
+  s_sd_low_lbl = label_make(lv_screen_active(), "", 196, STATUS_LABEL_Y,
+                            &lv_font_montserrat_16, C_AMBER);
+  obj_set_hidden(s_sd_low_lbl, true);
 }
 
-static void clock_long_cb(lv_event_t *e) {
+static void clock_long_cb(lv_event_t* e) {
   (void)e;
   s_clock_fmt = (s_clock_fmt + 1) % 4;
   haus_ui_update();
 }
 
 static void build_clock(void) {
-  s_clock = label_make(lv_screen_active(), "--:--", 0, 0,
-                       &lv_font_montserrat_48, C_INK);
+  /* FONT_CLOCK: 110 px, 21 mm cap height (§8.1.1). */
+  s_clock =
+      label_make(lv_screen_active(), "--:--", 0, 0, &haus_value_110, C_INK);
   obj_set_clickable(s_clock, true);
   lv_obj_add_event_cb(s_clock, clock_long_cb, LV_EVENT_LONG_PRESSED, NULL);
-  /* Scale 2× (512 = 2.0 in LVGL's 8.8 fixed-point).
-   * The 48 px font becomes ~96 px tall; centre it in the 140 px clock band
-   * (status strip is 32 px, so the band runs y=32..172, centre y=102).
-   * Transform scaling uses the top-left corner as pivot by default, which
-   * pushes a top-aligned label off centre. Pivot on the centre so the
-   * scaled text grows symmetrically, then align with LV_ALIGN_CENTER. */
-  lv_obj_set_style_transform_scale(s_clock, 512, 0);
-  lv_obj_set_style_transform_pivot_x(s_clock, LV_PCT(50), 0);
-  lv_obj_set_style_transform_pivot_y(s_clock, LV_PCT(50), 0);
-  lv_obj_align(s_clock, LV_ALIGN_CENTER, 0, -298);
+  /* Centre it in the 140 px clock band (y=32..172). */
+  lv_obj_align(s_clock, LV_ALIGN_TOP_MID, 0, 30);
 }
 
 /* A flame tongue: a pill, wider at the base by stacking two pills. */
 static void build_heater(void) {
   /* Cabinet glow */
-  lv_obj_t *glow = lv_obj_create(lv_screen_active());
+  lv_obj_t* glow = lv_obj_create(lv_screen_active());
   lv_obj_set_size(glow, 248, 234);
   lv_obj_set_pos(glow, 116, 188);
   lv_obj_set_style_bg_color(glow, lv_color_hex(0xc4783a), 0);
@@ -616,40 +607,33 @@ static void build_heater(void) {
     lv_obj_set_style_border_width(s_cabinet, 0, 0);
 
     /* Allocate an RGB565 buffer (2 bytes per pixel) and attach it. */
-    uint8_t *buf = (uint8_t *)lv_malloc(cw * ch * 2);
+    uint8_t* buf = (uint8_t*)lv_malloc(cw * ch * 2);
     lv_canvas_set_buffer(s_cabinet, buf, cw, ch, LV_COLOR_FORMAT_RGB565);
 
     uint16_t pcol = lv_color_to_u16(lv_color_hex(C_PANEL));
     uint16_t bcol = lv_color_to_u16(lv_color_hex(0x6a5e54));
     /* Fill with panel colour */
-    for (int i = 0; i < cw * ch; i++)
-      ((uint16_t *)buf)[i] = pcol;
+    for (int i = 0; i < cw * ch; i++) ((uint16_t*)buf)[i] = pcol;
     /* Draw the rounded-rect border */
     for (int y = 0; y < ch; y++) {
       for (int x = 0; x < cw; x++) {
         bool in_rect = (x < bw || x >= cw - bw || y < bw || y >= ch - bw);
-        if (!in_rect)
-          continue;
+        if (!in_rect) continue;
         bool outside_arc = false;
         if (x < r && y < r) {
           int dx = x - (r - 1), dy = y - (r - 1);
-          if (dx * dx + dy * dy > (r - 1) * (r - 1))
-            outside_arc = true;
+          if (dx * dx + dy * dy > (r - 1) * (r - 1)) outside_arc = true;
         } else if (x >= cw - r && y < r) {
           int dx = (x - (cw - r)) - (r - 1), dy = y - (r - 1);
-          if (dx * dx + dy * dy > (r - 1) * (r - 1))
-            outside_arc = true;
+          if (dx * dx + dy * dy > (r - 1) * (r - 1)) outside_arc = true;
         } else if (x < r && y >= ch - r) {
           int dx = x - (r - 1), dy = (y - (ch - r)) - (r - 1);
-          if (dx * dx + dy * dy > (r - 1) * (r - 1))
-            outside_arc = true;
+          if (dx * dx + dy * dy > (r - 1) * (r - 1)) outside_arc = true;
         } else if (x >= cw - r && y >= ch - r) {
           int dx = (x - (cw - r)) - (r - 1), dy = (y - (ch - r)) - (r - 1);
-          if (dx * dx + dy * dy > (r - 1) * (r - 1))
-            outside_arc = true;
+          if (dx * dx + dy * dy > (r - 1) * (r - 1)) outside_arc = true;
         }
-        if (!outside_arc)
-          ((uint16_t *)buf)[y * cw + x] = bcol;
+        if (!outside_arc) ((uint16_t*)buf)[y * cw + x] = bcol;
       }
     }
   }
@@ -667,7 +651,7 @@ static void build_heater(void) {
   obj_set_scrollable(s_fire, false);
 
   /* Flame: a soft glow plus three tongues and a bright core. */
-  lv_obj_t *glow2 = lv_obj_create(s_fire);
+  lv_obj_t* glow2 = lv_obj_create(s_fire);
   lv_obj_set_size(glow2, 84, 92);
   lv_obj_align(glow2, LV_ALIGN_BOTTOM_MID, 0, 4);
   lv_obj_set_style_bg_color(glow2, lv_color_hex(0xc06a2a), 0);
@@ -691,7 +675,7 @@ static void build_heater(void) {
     obj_set_clickable(s_flame[i], false);
   }
   /* Bright core. */
-  lv_obj_t *core = lv_obj_create(s_fire);
+  lv_obj_t* core = lv_obj_create(s_fire);
   lv_obj_set_size(core, 16, 46);
   lv_obj_align(core, LV_ALIGN_BOTTOM_MID, 0, 6);
   lv_obj_set_style_bg_color(core, lv_color_hex(0xffe0a0), 0);
@@ -701,11 +685,11 @@ static void build_heater(void) {
   obj_set_clickable(core, false);
 
   /* Soll / target (below the fire, inside the cabinet) */
-  lv_obj_t *target =
+  lv_obj_t* target =
       label_make(s_cabinet, "60°C", 0, 0, &lv_font_montserrat_32, C_INK);
   lv_obj_align(target, LV_ALIGN_BOTTOM_MID, 0, -6);
 
-  lv_obj_t *soll =
+  lv_obj_t* soll =
       label_make(s_cabinet, "Soll", 0, 0, &lv_font_montserrat_16, C_DIM);
   lv_obj_align(soll, LV_ALIGN_BOTTOM_MID, 0, -42);
 
@@ -794,7 +778,7 @@ static void build_heater(void) {
 static void build_living(void) {
   hline(lv_screen_active(), 580, C_LINE);
 
-  lv_obj_t *glyph = label_make(lv_screen_active(), LV_SYMBOL_TINT, 20, 600,
+  lv_obj_t* glyph = label_make(lv_screen_active(), LV_SYMBOL_TINT, 20, 600,
                                &lv_font_montserrat_24, C_COLD);
   (void)glyph;
   s_living_temp = label_make(lv_screen_active(), "--", 56, 596,
@@ -826,8 +810,7 @@ static void build_power(void) {
 }
 
 static void align_power_labels(void) {
-  if (!s_power_num)
-    return;
+  if (!s_power_num) return;
   if (s_power_bolt) {
     lv_obj_align_to(s_power_bolt, s_power_num, LV_ALIGN_OUT_LEFT_MID, -10, 0);
   }
@@ -836,7 +819,7 @@ static void align_power_labels(void) {
   }
 }
 
-static void zone_click_cb(lv_event_t *e) {
+static void zone_click_cb(lv_event_t* e) {
   int screen = (int)(intptr_t)lv_event_get_user_data(e);
   ui_jump(screen);
 }
@@ -871,18 +854,18 @@ static void build_zones(void) {
     obj_set_scrollable(s_zone[i], false);
     obj_set_clickable(s_zone[i], true);
     lv_obj_add_event_cb(s_zone[i], zone_click_cb, LV_EVENT_CLICKED,
-                        (void *)(intptr_t)zones[i].screen);
+                        (void*)(intptr_t)zones[i].screen);
   }
 }
 
-lv_obj_t *haus_ui_init(void) {
+lv_obj_t* haus_ui_init(void) {
   g_current_screen = UI_SCREEN_HOME;
   screen_lock_scroll();
   /* Create a dark background object as the very first child of the screen.
    * Being the first child guarantees it is painted first (bottom-most),
    * so subsequent widgets (status, clock, heater, etc.) always sit on top
    * of the dark background and never reveal white underneath. */
-  lv_obj_t *bg = lv_obj_create(lv_screen_active());
+  lv_obj_t* bg = lv_obj_create(lv_screen_active());
   lv_obj_set_size(bg, SCREEN_W, SCREEN_H);
   lv_obj_set_pos(bg, 0, 0);
   lv_obj_set_style_bg_color(bg, lv_color_hex(C_BG), 0);
@@ -891,7 +874,7 @@ lv_obj_t *haus_ui_init(void) {
   obj_set_clickable(bg, false);
   obj_set_scrollable(bg, false);
 
-  lv_obj_t *root = lv_screen_active();
+  lv_obj_t* root = lv_screen_active();
 
   build_status();
   build_status_hotspot();
@@ -942,8 +925,7 @@ void haus_ui_update(void) {
       const bool h12 = (s_clock_fmt == 1 || s_clock_fmt == 2);
       if (h12) {
         int h = tm.tm_hour % 12;
-        if (h == 0)
-          h = 12;
+        if (h == 0) h = 12;
         snprintf(buf, sizeof(buf), "%02d:%02d %s", h, tm.tm_min,
                  tm.tm_hour < 12 ? "AM" : "PM");
       } else {
@@ -961,6 +943,22 @@ void haus_ui_update(void) {
   status_dot_apply(s_sd_dot, state.can.sd_status, &s_last_sd_color);
   status_text_apply(s_wifi_icon, state.can.wifi_status, &s_last_wifi_color);
 
+  /* Free-space warning: only when the floor is close (D45/S23.12). */
+  if (s_sd_low_lbl) {
+    if (state.can.sd_low_space) {
+      const uint64_t total = state.can.sd_total_bytes;
+      const uint64_t used = state.can.sd_used_bytes;
+      const uint64_t free_b = total > used ? total - used : 0;
+      char warn[24];
+      snprintf(warn, sizeof(warn), "%lluM FREE",
+               (unsigned long long)(free_b / (1024ULL * 1024ULL)));
+      txt(s_sd_low_lbl, warn);
+      obj_set_hidden(s_sd_low_lbl, false);
+    } else {
+      obj_set_hidden(s_sd_low_lbl, true);
+    }
+  }
+
   /* Chamber. */
   int16_t chamber = state.can.temp_by_fn[SENSOR_FN_CHAMBER];
   bool chamber_changed;
@@ -974,8 +972,7 @@ void haus_ui_update(void) {
     /* Render sentinel in grey, never as an extreme colour. */
     lv_obj_set_style_text_color(s_chamber_temp, lv_color_hex(0x444444), 0);
   }
-  if (s_chamber_unit)
-    txt(s_chamber_unit, s_clock_fmt >= 2 ? "°F" : "°C");
+  if (s_chamber_unit) txt(s_chamber_unit, s_clock_fmt >= 2 ? "°F" : "°C");
   if (chamber_changed && s_chamber_unit && s_chamber_temp) {
     lv_obj_align_to(s_chamber_unit, s_chamber_temp, LV_ALIGN_OUT_RIGHT_BOTTOM,
                     4, -2);
@@ -1008,8 +1005,7 @@ void haus_ui_update(void) {
     /* Water-out pipe follows the same ramp but uses the water-out temp.
      * If water-out is empty, fall back to chamber colour. */
     int16_t wout = state.can.temp_by_fn[SENSOR_FN_WATER_OUT];
-    if (wout == HAUS_CAN_TEMP_EMPTY)
-      wout = chamber;
+    if (wout == HAUS_CAN_TEMP_EMPTY) wout = chamber;
     if (wout == HAUS_CAN_TEMP_EMPTY) {
       pcol = 0x444444;
     } else {
@@ -1064,8 +1060,7 @@ void haus_ui_update(void) {
     living_changed = txt(s_living_temp, "--");
     lv_obj_set_style_text_color(s_living_temp, lv_color_hex(0x444444), 0);
   }
-  if (s_living_unit)
-    txt(s_living_unit, s_clock_fmt >= 2 ? "°F" : "°C");
+  if (s_living_unit) txt(s_living_unit, s_clock_fmt >= 2 ? "°F" : "°C");
   if (living_changed && s_living_unit && s_living_temp) {
     lv_obj_align_to(s_living_unit, s_living_temp, LV_ALIGN_OUT_RIGHT_BOTTOM, 4,
                     -2);
@@ -1096,8 +1091,7 @@ void haus_ui_update(void) {
     txt(s_power_src, "W");
     lv_obj_set_style_text_color(s_power_src, lv_color_hex(0x444444), 0);
   }
-  if (power_changed)
-    align_power_labels();
+  if (power_changed) align_power_labels();
 
   /* The flame is time-based, so paint it once here for callers that only
    * refresh the data (the host harness) and let the loop drive it after. */
@@ -1116,8 +1110,7 @@ void haus_ui_update(void) {
     for (int j = 0; j < 6; j++) {
       int x = 40 + j * 22 + (flowing ? offset : 0);
       /* Wrap around */
-      if (flowing && x > 40 + 5 * 22 + 12)
-        x -= 6 * 22;
+      if (flowing && x > 40 + 5 * 22 + 12) x -= 6 * 22;
       lv_obj_set_pos(s_flow_dash[j], x, 470);
       lv_obj_set_style_opa(s_flow_dash[j], flowing ? 150 : 0, 0);
     }
@@ -1125,8 +1118,7 @@ void haus_ui_update(void) {
     for (int j = 0; j < 6; j++) {
       int x = 316 + j * 22 - (flowing ? offset : 0);
       /* Wrap around */
-      if (flowing && x < 316 - 5 * 22)
-        x += 6 * 22;
+      if (flowing && x < 316 - 5 * 22) x += 6 * 22;
       lv_obj_set_pos(s_flow_dash[j + 6], x, 470);
       lv_obj_set_style_opa(s_flow_dash[j + 6], flowing ? 150 : 0, 0);
     }
@@ -1140,8 +1132,7 @@ void haus_ui_animate(void) {
 
   if (chamber == HAUS_CAN_TEMP_EMPTY) {
     for (int i = 0; i < 3; i++) {
-      if (!s_flame[i])
-        continue;
+      if (!s_flame[i]) continue;
       if (s_last_flame_opa[i] != 0) {
         s_last_flame_opa[i] = 0;
         lv_obj_set_style_opa(s_flame[i], LV_OPA_0, 0);
@@ -1151,10 +1142,8 @@ void haus_ui_animate(void) {
   }
 
   double t = (chamber / 100.0 - 20.0) / 60.0;
-  if (t < 0)
-    t = 0;
-  if (t > 1)
-    t = 1;
+  if (t < 0) t = 0;
+  if (t > 1) t = 1;
   uint32_t warm = ((uint32_t)(0x30 + 0x1a * t) << 16) |
                   ((uint32_t)(0x20 + 0x14 * t) << 8) | 0x18;
   if (s_fire && warm != s_last_fire_grad) {
@@ -1166,12 +1155,10 @@ void haus_ui_animate(void) {
    * device animate at the same rate. */
   double phase = (lv_tick_get() % 6000) * (2.0 * M_PI / 6000.0);
   for (int i = 0; i < 3; i++) {
-    if (!s_flame[i])
-      continue;
+    if (!s_flame[i]) continue;
     double breath = 0.5 + 0.5 * sin(phase + i * 2.094);
     uint8_t opa = (uint8_t)(t * (0.45 + 0.55 * breath) * 255);
-    if (opa == s_last_flame_opa[i])
-      continue;
+    if (opa == s_last_flame_opa[i]) continue;
     s_last_flame_opa[i] = opa;
     lv_obj_set_style_opa(s_flame[i], opa, 0);
   }
@@ -1207,42 +1194,43 @@ static int16_t s_target[HAUS_CHART_COLUMNS];
 static uint8_t s_target_n[HAUS_CHART_COLUMNS];
 static int32_t s_target_sum[HAUS_CHART_COLUMNS];
 
-static lv_obj_t *s_chart_canvas;
-static uint8_t *s_chart_pixels;
-static lv_obj_t *s_chart_nodata;
-static lv_obj_t *s_chart_stale;
-static lv_obj_t *s_chart_target_lbl;
-static lv_obj_t *s_chart_readout;
-static lv_obj_t *s_chart_age;
-static lv_obj_t *s_axis_lbl[5];
-static lv_obj_t *s_x_lbl[4];
-static lv_obj_t *s_scrub_line;
-static lv_obj_t *s_scrub_bubble;
-static lv_obj_t *s_scrub_text;
+static lv_obj_t* s_chart_canvas;
+static uint8_t* s_chart_pixels;
+static lv_obj_t* s_chart_nodata;
+static lv_obj_t* s_chart_stale;
+static lv_obj_t* s_chart_target_lbl;
+static lv_obj_t* s_chart_readout;
+static lv_obj_t* s_chart_age;
+static lv_obj_t* s_axis_lbl[5];
+static lv_obj_t* s_x_lbl[4];
+static lv_obj_t* s_scrub_line;
+static lv_obj_t* s_scrub_bubble;
+static lv_obj_t* s_scrub_text;
 static uint32_t s_scrub_hide_at;
-static lv_obj_t *s_range_lbl[3];
-static lv_obj_t *s_range_hl;
-static lv_obj_t *s_detail_value;
-static lv_obj_t *s_header_badge;
-static lv_obj_t *s_header_badge_lbl;
-static lv_obj_t *s_above_target;
-static lv_obj_t *s_power_bars[31];
-static lv_obj_t *s_power_bars_label;
-static lv_obj_t *s_power_unit_lbl;
+static lv_obj_t* s_range_lbl[3];
+static lv_obj_t* s_range_hl;
+static lv_obj_t* s_detail_value;
+static lv_obj_t* s_header_badge;
+static lv_obj_t* s_header_badge_lbl;
+static lv_obj_t* s_above_target;
+static lv_obj_t* s_power_bars[31];
+static lv_obj_t* s_power_bars_label;
+static lv_obj_t* s_power_unit_lbl;
 static int s_power_bin_count;
 static int s_power_unit = -1; /* -1 auto, 0 W, 1 kW */
-static lv_obj_t *s_water_extra;
-static lv_obj_t *s_living_tab[2];
+static lv_obj_t* s_water_extra;
+static lv_obj_t* s_living_tab[2];
 static int g_living_series = 0;
 
-static lv_obj_t *s_log_label;
-static lv_obj_t *s_log_container;
-static lv_obj_t *s_log_status;
-static lv_obj_t *s_log_follow;
-static lv_obj_t *s_log_follow_lbl;
-static lv_obj_t *s_log_ws;
-static lv_obj_t *s_log_level[4];
-static lv_obj_t *s_log_modal;
+static lv_obj_t* s_log_label;
+static lv_obj_t* s_log_container;
+static lv_obj_t* s_log_status;
+static lv_obj_t* s_log_sd;
+static lv_obj_t* s_log_follow;
+static lv_obj_t* s_log_follow_lbl;
+static lv_obj_t* s_log_ws;
+static lv_obj_t* s_log_level[4];
+static lv_obj_t* s_log_modal;
 static bool s_log_follow_on = true;
 static bool s_log_invert = false;
 static uint8_t s_log_level_mask = 0x0F;
@@ -1269,9 +1257,8 @@ static void chart_rebuild(void);
 static uint16_t c565(uint32_t c) { return lv_color_to_u16(lv_color_hex(c)); }
 
 static void chart_px(int x, int y, uint16_t c) {
-  if (!s_chart_pixels || x < 0 || y < 0 || x >= CHART_W || y >= CHART_H)
-    return;
-  ((uint16_t *)s_chart_pixels)[y * CHART_W + x] = c;
+  if (!s_chart_pixels || x < 0 || y < 0 || x >= CHART_W || y >= CHART_H) return;
+  ((uint16_t*)s_chart_pixels)[y * CHART_W + x] = c;
 }
 
 static uint16_t blend565(uint16_t bg, uint16_t fg, uint8_t a) {
@@ -1283,9 +1270,8 @@ static uint16_t blend565(uint16_t bg, uint16_t fg, uint8_t a) {
 }
 
 static void chart_blend_px(int x, int y, uint32_t color, uint8_t alpha) {
-  if (!s_chart_pixels || x < 0 || y < 0 || x >= CHART_W || y >= CHART_H)
-    return;
-  uint16_t *p = &((uint16_t *)s_chart_pixels)[y * CHART_W + x];
+  if (!s_chart_pixels || x < 0 || y < 0 || x >= CHART_W || y >= CHART_H) return;
+  uint16_t* p = &((uint16_t*)s_chart_pixels)[y * CHART_W + x];
   *p = blend565(*p, c565(color), alpha);
 }
 
@@ -1295,8 +1281,7 @@ static void chart_hline(int x0, int x1, int y, uint16_t c) {
     x0 = x1;
     x1 = t;
   }
-  for (int x = x0; x <= x1; x++)
-    chart_px(x, y, c);
+  for (int x = x0; x <= x1; x++) chart_px(x, y, c);
 }
 
 static void chart_vline(int x, int y0, int y1, uint16_t c) {
@@ -1305,8 +1290,7 @@ static void chart_vline(int x, int y0, int y1, uint16_t c) {
     y0 = y1;
     y1 = t;
   }
-  for (int y = y0; y <= y1; y++)
-    chart_px(x, y, c);
+  for (int y = y0; y <= y1; y++) chart_px(x, y, c);
 }
 
 static void chart_line(int x0, int y0, int x1, int y1, uint16_t c) {
@@ -1317,8 +1301,7 @@ static void chart_line(int x0, int y0, int x1, int y1, uint16_t c) {
   int err = dx + dy;
   for (;;) {
     chart_px(x0, y0, c);
-    if (x0 == x1 && y0 == y1)
-      break;
+    if (x0 == x1 && y0 == y1) break;
     const int e2 = 2 * err;
     if (e2 >= dy) {
       err += dy;
@@ -1350,75 +1333,72 @@ static void chart_dash_line(int x0, int y0, int x1, int y1, uint16_t c) {
 
 static size_t chart_col_for(uint32_t t, uint32_t t0, uint32_t t1) {
   const uint32_t span = t1 > t0 ? t1 - t0 : 1u;
-  if (t < t0)
-    t = t0;
-  if (t > t1)
-    t = t1;
+  if (t < t0) t = t0;
+  if (t > t1) t = t1;
   size_t col = (size_t)((uint64_t)(t - t0) * HAUS_CHART_COLUMNS / span);
-  if (col >= HAUS_CHART_COLUMNS)
-    col = HAUS_CHART_COLUMNS - 1;
+  if (col >= HAUS_CHART_COLUMNS) col = HAUS_CHART_COLUMNS - 1;
   return col;
 }
 
-static void chart_cfg_for(int detail, chart_cfg_t *cfg) {
+static void chart_cfg_for(int detail, chart_cfg_t* cfg) {
   memset(cfg, 0, sizeof(*cfg));
   cfg->b = -1;
   switch (detail) {
-  case UI_SCREEN_CHAMBER:
-    cfg->a = 0;
-    cfg->use_target = 1;
-    cfg->hourly_ok = 1;
-    cfg->unit = CHART_UNIT_TEMP;
-    cfg->color_a = C_COLD;
-    cfg->color_b = C_COLD;
-    break;
-  case UI_SCREEN_WATER_IN:
-  case UI_SCREEN_WATER_OUT:
-    cfg->a = 1;
-    cfg->b = 2;
-    cfg->use_target = 1;
-    cfg->hourly_ok = 1;
-    cfg->band = 1;
-    cfg->unit = CHART_UNIT_TEMP;
-    cfg->color_a = C_AMBER;
-    cfg->color_b = C_HOT;
-    break;
-  case UI_SCREEN_POWER:
-    cfg->a = 7;
-    cfg->use_target = 0;
-    cfg->hourly_ok = 0;
-    cfg->unit = CHART_UNIT_POWER;
-    cfg->color_a = C_ACCENT;
-    cfg->color_b = C_ACCENT;
-    break;
-  case UI_SCREEN_LIVING:
-    cfg->a = 3 + g_living_series;
-    cfg->use_target = 0;
-    cfg->hourly_ok = 1;
-    cfg->unit = (g_living_series == 0) ? CHART_UNIT_TEMP : CHART_UNIT_RH;
-    cfg->color_a = C_CYAN;
-    cfg->color_b = cfg->color_a;
-    break;
-  default:
-    cfg->a = 0;
-    cfg->use_target = 0;
-    cfg->hourly_ok = 1;
-    cfg->unit = CHART_UNIT_TEMP;
-    cfg->color_a = C_COLD;
-    cfg->color_b = C_COLD;
-    break;
+    case UI_SCREEN_CHAMBER:
+      cfg->a = 0;
+      cfg->use_target = 1;
+      cfg->hourly_ok = 1;
+      cfg->unit = CHART_UNIT_TEMP;
+      cfg->color_a = C_COLD;
+      cfg->color_b = C_COLD;
+      break;
+    case UI_SCREEN_WATER_IN:
+    case UI_SCREEN_WATER_OUT:
+      cfg->a = 1;
+      cfg->b = 2;
+      cfg->use_target = 1;
+      cfg->hourly_ok = 1;
+      cfg->band = 1;
+      cfg->unit = CHART_UNIT_TEMP;
+      cfg->color_a = C_AMBER;
+      cfg->color_b = C_HOT;
+      break;
+    case UI_SCREEN_POWER:
+      cfg->a = 7;
+      cfg->use_target = 0;
+      cfg->hourly_ok = 0;
+      cfg->unit = CHART_UNIT_POWER;
+      cfg->color_a = C_ACCENT;
+      cfg->color_b = C_ACCENT;
+      break;
+    case UI_SCREEN_LIVING:
+      cfg->a = 3 + g_living_series;
+      cfg->use_target = 0;
+      cfg->hourly_ok = 1;
+      cfg->unit = (g_living_series == 0) ? CHART_UNIT_TEMP : CHART_UNIT_RH;
+      cfg->color_a = C_CYAN;
+      cfg->color_b = cfg->color_a;
+      break;
+    default:
+      cfg->a = 0;
+      cfg->use_target = 0;
+      cfg->hourly_ok = 1;
+      cfg->unit = CHART_UNIT_TEMP;
+      cfg->color_a = C_COLD;
+      cfg->color_b = C_COLD;
+      break;
   }
 }
 
-static size_t chart_sample_reader(void *ctx, size_t first, size_t count,
-                                  gui_sample_t *out) {
-  const uint32_t start = *(const uint32_t *)ctx;
+static size_t chart_sample_reader(void* ctx, size_t first, size_t count,
+                                  gui_sample_t* out) {
+  const uint32_t start = *(const uint32_t*)ctx;
   return gui_read_samples_chunk(start, first, count, out);
 }
 
-static size_t chart_rollup_reader(void *ctx, size_t first, size_t count,
-                                  RollupColumn *out) {
-  const uint32_t start = *(const uint32_t *)ctx;
+static size_t chart_rollup_reader(void* ctx, size_t first, size_t count,
+                                  RollupColumn* out) {
+  const uint32_t start = *(const uint32_t*)ctx;
   return gui_read_rollup_chunk(start, first, count, out);
 }
 
@@ -1434,8 +1414,7 @@ static void chart_build_target(uint32_t t0, uint32_t t1, bool hourly) {
       const size_t n = total - first < 64 ? total - first : 64;
       gui_read_target_hours_chunk(t0, first, n, chunk);
       for (size_t i = 0; i < n; i++) {
-        if (chunk[i] == HAUS_CAN_TEMP_EMPTY || chunk[i] == GUI_EMPTY)
-          continue;
+        if (chunk[i] == HAUS_CAN_TEMP_EMPTY || chunk[i] == GUI_EMPTY) continue;
         const uint32_t t = t0 + (uint32_t)(first + i) * 3600u;
         const size_t col = chart_col_for(t, t0, t1);
         s_target_sum[col] += chunk[i];
@@ -1451,8 +1430,7 @@ static void chart_build_target(uint32_t t0, uint32_t t1, bool hourly) {
                            : HAUS_CHART_CHUNK_SAMPLES;
       gui_read_target_samples_chunk(t0, first, n, chunk);
       for (size_t i = 0; i < n; i++) {
-        if (chunk[i] == HAUS_CAN_TEMP_EMPTY || chunk[i] == GUI_EMPTY)
-          continue;
+        if (chunk[i] == HAUS_CAN_TEMP_EMPTY || chunk[i] == GUI_EMPTY) continue;
         const uint32_t t = t0 + (uint32_t)(first + i) * 60u;
         const size_t col = chart_col_for(t, t0, t1);
         s_target_sum[col] += chunk[i];
@@ -1472,10 +1450,8 @@ static void chart_build(void) {
   HausState st;
   gui_get_state(&st);
   uint32_t now = st.can.timestamp;
-  if (now == 0)
-    now = (uint32_t)time(NULL);
-  if (now == 0)
-    return;
+  if (now == 0) now = (uint32_t)time(NULL);
+  if (now == 0) return;
 
   const uint32_t span = (g_range == UI_RANGE_DAY)    ? 86400u
                         : (g_range == UI_RANGE_WEEK) ? 7u * 86400u
@@ -1489,11 +1465,11 @@ static void chart_build(void) {
 
   if (hourly) {
     const size_t total = (size_t)((t1 - t0) / 3600u) + 1u;
-    haus_chart_build_rollup(s_cols, t0, t1, chart_rollup_reader, (void *)&t0,
+    haus_chart_build_rollup(s_cols, t0, t1, chart_rollup_reader, (void*)&t0,
                             total, cfg.a, cfg.b);
   } else {
     const size_t total = (size_t)((t1 - t0) / 60u) + 1u;
-    haus_chart_build_samples(s_cols, t0, t1, chart_sample_reader, (void *)&t0,
+    haus_chart_build_samples(s_cols, t0, t1, chart_sample_reader, (void*)&t0,
                              total, cfg.a, cfg.b);
   }
 
@@ -1520,26 +1496,20 @@ static void chart_build(void) {
 
 static int chart_value_y(int32_t v) {
   const double span = s_axis_hi - s_axis_lo;
-  if (span <= 0)
-    return CHART_Y1;
+  if (span <= 0) return CHART_Y1;
   double y = CHART_Y1 - ((double)v - s_axis_lo) * (CHART_Y1 - CHART_Y0) / span;
-  if (y < CHART_Y0)
-    y = CHART_Y0;
-  if (y > CHART_Y1)
-    y = CHART_Y1;
+  if (y < CHART_Y0) y = CHART_Y0;
+  if (y > CHART_Y1) y = CHART_Y1;
   return (int)(y + 0.5);
 }
 
 static void chart_nice_axis(double lo, double hi) {
   double span = hi - lo;
-  if (span < 1.0)
-    span = 1.0;
+  if (span < 1.0) span = 1.0;
   const double raw = span / 4.0;
   double mag = 1.0;
-  while (mag * 10.0 <= raw)
-    mag *= 10.0;
-  while (mag > raw)
-    mag /= 10.0;
+  while (mag * 10.0 <= raw) mag *= 10.0;
+  while (mag > raw) mag /= 10.0;
   double step = 1.0;
   if (raw <= mag)
     step = mag;
@@ -1552,13 +1522,12 @@ static void chart_nice_axis(double lo, double hi) {
 
   lo = floor(lo / step) * step;
   hi = ceil(hi / step) * step;
-  if (hi <= lo)
-    hi = lo + step;
+  if (hi <= lo) hi = lo + step;
   s_axis_lo = lo;
   s_axis_hi = hi;
 }
 
-static void chart_axis(chart_cfg_t *cfg) {
+static void chart_axis(chart_cfg_t* cfg) {
   const int key = g_detail_screen * 16 + g_range * 4 +
                   (g_detail_screen == UI_SCREEN_LIVING ? g_living_series : 0);
   bool have = false;
@@ -1571,10 +1540,8 @@ static void chart_axis(chart_cfg_t *cfg) {
         mx = s_cols[i].mx[0];
         have = true;
       }
-      if (s_cols[i].mn[0] < mn)
-        mn = s_cols[i].mn[0];
-      if (s_cols[i].mx[0] > mx)
-        mx = s_cols[i].mx[0];
+      if (s_cols[i].mn[0] < mn) mn = s_cols[i].mn[0];
+      if (s_cols[i].mx[0] > mx) mx = s_cols[i].mx[0];
     }
     if (cfg->b >= 0 && s_cols[i].n[1]) {
       if (!have) {
@@ -1582,10 +1549,8 @@ static void chart_axis(chart_cfg_t *cfg) {
         mx = s_cols[i].mx[1];
         have = true;
       }
-      if (s_cols[i].mn[1] < mn)
-        mn = s_cols[i].mn[1];
-      if (s_cols[i].mx[1] > mx)
-        mx = s_cols[i].mx[1];
+      if (s_cols[i].mn[1] < mn) mn = s_cols[i].mn[1];
+      if (s_cols[i].mx[1] > mx) mx = s_cols[i].mx[1];
     }
     if (cfg->use_target && s_target_n[i]) {
       if (!have) {
@@ -1593,10 +1558,8 @@ static void chart_axis(chart_cfg_t *cfg) {
         mx = s_target[i];
         have = true;
       }
-      if (s_target[i] < mn)
-        mn = s_target[i];
-      if (s_target[i] > mx)
-        mx = s_target[i];
+      if (s_target[i] < mn) mn = s_target[i];
+      if (s_target[i] > mx) mx = s_target[i];
     }
   }
 
@@ -1608,8 +1571,7 @@ static void chart_axis(chart_cfg_t *cfg) {
   }
 
   int32_t min_span = 1000;
-  if (cfg->unit == CHART_UNIT_POWER)
-    min_span = 10000;
+  if (cfg->unit == CHART_UNIT_POWER) min_span = 10000;
   if (mx - mn < min_span) {
     const int32_t mid = (mn + mx) / 2;
     mn = mid - min_span / 2;
@@ -1631,27 +1593,27 @@ static void chart_axis(chart_cfg_t *cfg) {
   s_axis_key = key;
 }
 
-static void chart_format_value(char *buf, size_t n, int32_t v, int unit) {
+static void chart_format_value(char* buf, size_t n, int32_t v, int unit) {
   switch (unit) {
-  case CHART_UNIT_TEMP:
-    temp_text((int16_t)v, buf, n, false);
-    break;
-  case CHART_UNIT_RH:
-    snprintf(buf, n, "%d", v / 100);
-    break;
-  case CHART_UNIT_POWER:
-    if (v >= 10000)
-      snprintf(buf, n, "%.2f", v / 10000.0);
-    else
-      snprintf(buf, n, "%d", v / 10);
-    break;
-  default:
-    snprintf(buf, n, "%d", v);
-    break;
+    case CHART_UNIT_TEMP:
+      temp_text((int16_t)v, buf, n, false);
+      break;
+    case CHART_UNIT_RH:
+      snprintf(buf, n, "%d", v / 100);
+      break;
+    case CHART_UNIT_POWER:
+      if (v >= 10000)
+        snprintf(buf, n, "%.2f", v / 10000.0);
+      else
+        snprintf(buf, n, "%d", v / 10);
+      break;
+    default:
+      snprintf(buf, n, "%d", v);
+      break;
   }
 }
 
-static void chart_format_axis(char *buf, size_t n, int32_t v, int unit) {
+static void chart_format_axis(char* buf, size_t n, int32_t v, int unit) {
   if (unit == CHART_UNIT_POWER && s_axis_hi >= 10000) {
     snprintf(buf, n, "%.1f", v / 10000.0);
   } else {
@@ -1659,7 +1621,7 @@ static void chart_format_axis(char *buf, size_t n, int32_t v, int unit) {
   }
 }
 
-static void chart_labels(chart_cfg_t *cfg) {
+static void chart_labels(chart_cfg_t* cfg) {
   char buf[32];
   for (int i = 0; i < 5; i++) {
     const double frac = (double)i / 4.0;
@@ -1668,7 +1630,7 @@ static void chart_labels(chart_cfg_t *cfg) {
     txt(s_axis_lbl[i], buf);
   }
 
-  const char *x[4];
+  const char* x[4];
   char dayx[4][8];
   if (g_range == UI_RANGE_DAY) {
     for (int i = 0; i < 4; i++) {
@@ -1696,17 +1658,15 @@ static void chart_labels(chart_cfg_t *cfg) {
     x[2] = "-10d";
     x[3] = "now";
   }
-  for (int i = 0; i < 4; i++)
-    txt(s_x_lbl[i], x[i]);
+  for (int i = 0; i < 4; i++) txt(s_x_lbl[i], x[i]);
 }
 
 static void chart_draw(void) {
-  if (!s_chart_pixels)
-    return;
+  if (!s_chart_pixels) return;
 
   const uint16_t bg = c565(C_BG);
   for (int i = 0; i < CHART_W * CHART_H; i++)
-    ((uint16_t *)s_chart_pixels)[i] = bg;
+    ((uint16_t*)s_chart_pixels)[i] = bg;
 
   const uint16_t line = c565(C_LINE);
   for (int i = 0; i <= 4; i++) {
@@ -1731,8 +1691,7 @@ static void chart_draw(void) {
   for (size_t i = 0; i < HAUS_CHART_COLUMNS; i++) {
     if (s_cols[i].n[0] || (cfg.b >= 0 && s_cols[i].n[1]) ||
         (cfg.use_target && s_target_n[i])) {
-      if (!any)
-        first_any = i;
+      if (!any) first_any = i;
       last_any = i;
       any = true;
     }
@@ -1752,15 +1711,14 @@ static void chart_draw(void) {
   const uint16_t cb = c565(cfg.color_b);
 
   for (size_t i = 0; i < HAUS_CHART_COLUMNS; i++) {
-    const ChartColumn *c = &s_cols[i];
+    const ChartColumn* c = &s_cols[i];
     const int x = CHART_X0 + (int)((uint64_t)i * (CHART_X1 - CHART_X0) /
                                    (HAUS_CHART_COLUMNS - 1));
     const bool gap = (c->n[0] == 0) && (cfg.b < 0 || c->n[1] == 0);
     if (gap) {
       /* Only mark dropouts between real data. Leading and trailing empty
        * columns are "no data yet", not a gap, and must stay clean. */
-      if (i < first_any || i > last_any)
-        continue;
+      if (i < first_any || i > last_any) continue;
       for (int k = 0; k < 3; k++)
         chart_vline(x, CHART_Y1 - 2 - k * 4, CHART_Y1 - 2 - k * 4,
                     c565(C_FAINT));
@@ -1788,8 +1746,7 @@ static void chart_draw(void) {
         chart_vline(x, y0, y1, ca);
         chart_px(x, chart_value_y(c->sum[0] / c->n[0]), ca);
       } else {
-        for (int y = y0; y <= y1; y++)
-          chart_blend_px(x, y, cfg.color_a, 64);
+        for (int y = y0; y <= y1; y++) chart_blend_px(x, y, cfg.color_a, 64);
       }
     }
     if (cfg.b >= 0 && c->n[1]) {
@@ -1799,16 +1756,14 @@ static void chart_draw(void) {
         chart_vline(x, y0, y1, cb);
         chart_px(x, chart_value_y(c->sum[1] / c->n[1]), cb);
       } else {
-        for (int y = y0; y <= y1; y++)
-          chart_blend_px(x, y, cfg.color_b, 48);
+        for (int y = y0; y <= y1; y++) chart_blend_px(x, y, cfg.color_b, 48);
       }
     }
   }
 
   /* Mean lines. */
   for (int s = 0; s < 2; s++) {
-    if (s == 1 && cfg.b < 0)
-      break;
+    if (s == 1 && cfg.b < 0) break;
     int px = -1, py = 0;
     for (size_t i = 0; i < HAUS_CHART_COLUMNS; i++) {
       const int slot = s;
@@ -1819,8 +1774,7 @@ static void chart_draw(void) {
       const int x = CHART_X0 + (int)((uint64_t)i * (CHART_X1 - CHART_X0) /
                                      (HAUS_CHART_COLUMNS - 1));
       const int y = chart_value_y(s_cols[i].sum[slot] / s_cols[i].n[slot]);
-      if (px >= 0)
-        chart_line(px, py, x, y, s == 0 ? ca : cb);
+      if (px >= 0) chart_line(px, py, x, y, s == 0 ? ca : cb);
       px = x;
       py = y;
     }
@@ -1838,15 +1792,13 @@ static void chart_draw(void) {
       const int x = CHART_X0 + (int)((uint64_t)i * (CHART_X1 - CHART_X0) /
                                      (HAUS_CHART_COLUMNS - 1));
       const int y = chart_value_y(s_target[i]);
-      if (px >= 0)
-        chart_dash_line(px, py, x, y, ct);
+      if (px >= 0) chart_dash_line(px, py, x, y, ct);
       px = x;
       py = y;
     }
     int last = -1;
     for (size_t i = 0; i < HAUS_CHART_COLUMNS; i++)
-      if (s_target_n[i])
-        last = (int)i;
+      if (s_target_n[i]) last = (int)i;
     if (last >= 0 && s_chart_target_lbl) {
       char val[24], b[40];
       chart_format_value(val, sizeof(val), s_target[last], CHART_UNIT_TEMP);
@@ -1870,16 +1822,13 @@ static void chart_update_readouts(void) {
   bool have_now = false;
 
   for (size_t i = 0; i < HAUS_CHART_COLUMNS; i++) {
-    if (!s_cols[i].n[0])
-      continue;
+    if (!s_cols[i].n[0]) continue;
     if (n == 0) {
       mn = s_cols[i].mn[0];
       mx = s_cols[i].mx[0];
     }
-    if (s_cols[i].mn[0] < mn)
-      mn = s_cols[i].mn[0];
-    if (s_cols[i].mx[0] > mx)
-      mx = s_cols[i].mx[0];
+    if (s_cols[i].mn[0] < mn) mn = s_cols[i].mn[0];
+    if (s_cols[i].mx[0] > mx) mx = s_cols[i].mx[0];
     sum += s_cols[i].sum[0];
     n += s_cols[i].n[0];
     now = s_cols[i].sum[0] / s_cols[i].n[0];
@@ -1939,10 +1888,8 @@ static void chart_update_readouts(void) {
     const uint32_t col_s =
         (uint32_t)((s_chart_t1 - s_chart_t0) / HAUS_CHART_COLUMNS);
     for (size_t i = 0; i < HAUS_CHART_COLUMNS; i++) {
-      if (!s_cols[i].n[0] || !s_target_n[i])
-        continue;
-      if (s_cols[i].sum[0] / s_cols[i].n[0] > s_target[i])
-        above_s += col_s;
+      if (!s_cols[i].n[0] || !s_target_n[i]) continue;
+      if (s_cols[i].sum[0] / s_cols[i].n[0] > s_target[i]) above_s += col_s;
     }
     char ab[40];
     snprintf(ab, sizeof(ab), "above target %uh %02um",
@@ -1966,31 +1913,26 @@ static void chart_update_readouts(void) {
 
 static void chart_scrub_hide(void) {
   s_scrub_hide_at = 0;
-  if (s_scrub_line)
-    obj_set_hidden(s_scrub_line, true);
-  if (s_scrub_bubble)
-    obj_set_hidden(s_scrub_bubble, true);
+  if (s_scrub_line) obj_set_hidden(s_scrub_line, true);
+  if (s_scrub_bubble) obj_set_hidden(s_scrub_bubble, true);
 }
 
-static void chart_scrub_cb(lv_event_t *e) {
+static void chart_scrub_cb(lv_event_t* e) {
   const lv_event_code_t code = lv_event_get_code(e);
   if (code == LV_EVENT_RELEASED) {
     s_scrub_hide_at = lv_tick_get() + 1500;
     return;
   }
-  if (!s_scrub_line || !s_scrub_bubble || !s_scrub_text)
-    return;
+  if (!s_scrub_line || !s_scrub_bubble || !s_scrub_text) return;
 
   lv_point_t p;
   lv_indev_get_point(lv_indev_active(), &p);
-  lv_obj_t *chart = lv_event_get_user_data(e);
+  lv_obj_t* chart = lv_event_get_user_data(e);
   lv_area_t area;
   lv_obj_get_coords(chart, &area);
   int x = p.x - area.x1;
-  if (x < CHART_X0)
-    x = CHART_X0;
-  if (x > CHART_X1)
-    x = CHART_X1;
+  if (x < CHART_X0) x = CHART_X0;
+  if (x > CHART_X1) x = CHART_X1;
   const size_t col = (size_t)((x - CHART_X0) * (HAUS_CHART_COLUMNS - 1) /
                               (CHART_X1 - CHART_X0));
 
@@ -2020,7 +1962,7 @@ static void chart_scrub_cb(lv_event_t *e) {
 }
 
 static void chart_build_widgets(int top) {
-  lv_obj_t *c = lv_obj_create(lv_screen_active());
+  lv_obj_t* c = lv_obj_create(lv_screen_active());
   lv_obj_set_size(c, CHART_W, CHART_H);
   lv_obj_set_pos(c, 20, top);
   lv_obj_set_style_bg_opa(c, LV_OPA_TRANSP, 0);
@@ -2035,7 +1977,7 @@ static void chart_build_widgets(int top) {
   s_chart_canvas = lv_canvas_create(c);
   lv_obj_set_size(s_chart_canvas, CHART_W, CHART_H);
   lv_obj_set_pos(s_chart_canvas, 0, 0);
-  s_chart_pixels = (uint8_t *)lv_malloc(CHART_W * CHART_H * 2);
+  s_chart_pixels = (uint8_t*)lv_malloc(CHART_W * CHART_H * 2);
   if (s_chart_pixels) {
     lv_canvas_set_buffer(s_chart_canvas, s_chart_pixels, CHART_W, CHART_H,
                          LV_COLOR_FORMAT_RGB565);
@@ -2096,14 +2038,11 @@ static void chart_build_widgets(int top) {
 }
 
 static void range_set(int range) {
-  if (range < 0 || range > 2)
-    return;
+  if (range < 0 || range > 2) return;
   g_range = range;
-  if (s_range_hl)
-    lv_obj_set_x(s_range_hl, range * (440 / 3));
+  if (s_range_hl) lv_obj_set_x(s_range_hl, range * (440 / 3));
   for (int i = 0; i < 3; i++) {
-    if (!s_range_lbl[i])
-      continue;
+    if (!s_range_lbl[i]) continue;
     lv_obj_set_style_text_color(s_range_lbl[i],
                                 lv_color_hex(i == range ? C_INK : C_DIM), 0);
   }
@@ -2111,12 +2050,12 @@ static void range_set(int range) {
   chart_rebuild();
 }
 
-static void range_click_cb(lv_event_t *e) {
+static void range_click_cb(lv_event_t* e) {
   range_set((int)(intptr_t)lv_event_get_user_data(e));
 }
 
 static void range_build(int top) {
-  lv_obj_t *seg = lv_obj_create(lv_screen_active());
+  lv_obj_t* seg = lv_obj_create(lv_screen_active());
   lv_obj_set_size(seg, 440, 44);
   lv_obj_set_pos(seg, 20, top);
   lv_obj_set_style_bg_opa(seg, LV_OPA_TRANSP, 0);
@@ -2135,9 +2074,9 @@ static void range_build(int top) {
   lv_obj_set_style_radius(s_range_hl, 0, 0);
   obj_set_clickable(s_range_hl, false);
 
-  const char *names[3] = {"1 day", "1 week", "1 month"};
+  const char* names[3] = {"1 day", "1 week", "1 month"};
   for (int i = 0; i < 3; i++) {
-    lv_obj_t *tab = lv_obj_create(seg);
+    lv_obj_t* tab = lv_obj_create(seg);
     lv_obj_set_size(tab, 440 / 3, 44);
     lv_obj_set_pos(tab, i * (440 / 3), 0);
     lv_obj_set_style_bg_opa(tab, LV_OPA_TRANSP, 0);
@@ -2146,7 +2085,7 @@ static void range_build(int top) {
     obj_set_scrollable(tab, false);
     obj_set_clickable(tab, true);
     lv_obj_add_event_cb(tab, range_click_cb, LV_EVENT_CLICKED,
-                        (void *)(intptr_t)i);
+                        (void*)(intptr_t)i);
     s_range_lbl[i] = label_make(tab, names[i], 0, 0, &lv_font_montserrat_16,
                                 i == g_range ? C_INK : C_DIM);
     lv_obj_set_width(s_range_lbl[i], 440 / 3);
@@ -2155,12 +2094,12 @@ static void range_build(int top) {
   }
 }
 
-static void header_build(const char *title, const char *badge,
+static void header_build(const char* title, const char* badge,
                          uint32_t badge_color) {
   label_make(lv_screen_active(), title, 20, 18, &lv_font_montserrat_32, C_INK);
 
   if (badge) {
-    lv_obj_t *b = lv_obj_create(lv_screen_active());
+    lv_obj_t* b = lv_obj_create(lv_screen_active());
     lv_obj_set_size(b, LV_SIZE_CONTENT, 36);
     lv_obj_set_style_bg_opa(b, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(b, 1, 0);
@@ -2168,7 +2107,7 @@ static void header_build(const char *title, const char *badge,
     lv_obj_set_style_radius(b, 6, 0);
     lv_obj_set_style_pad_hor(b, 10, 0);
     lv_obj_set_style_pad_ver(b, 4, 0);
-    lv_obj_t *badge_lbl =
+    lv_obj_t* badge_lbl =
         label_make(b, badge, 0, 0, &lv_font_montserrat_16, badge_color);
     lv_obj_center(badge_lbl);
     lv_obj_align(b, LV_ALIGN_TOP_RIGHT, -14, 14);
@@ -2180,56 +2119,54 @@ static void header_build(const char *title, const char *badge,
   }
 }
 
-static void header_badge_set(const char *text, uint32_t color) {
-  if (!s_header_badge || !s_header_badge_lbl)
-    return;
+static void header_badge_set(const char* text, uint32_t color) {
+  if (!s_header_badge || !s_header_badge_lbl) return;
   txt(s_header_badge_lbl, text);
   lv_obj_set_style_text_color(s_header_badge_lbl, lv_color_hex(color), 0);
   lv_obj_set_style_border_color(s_header_badge, lv_color_hex(color), 0);
 }
 
 static void detail_value_update(void) {
-  if (!s_detail_value)
-    return;
+  if (!s_detail_value) return;
   HausState st;
   gui_get_state(&st);
   char buf[40];
   int16_t v = HAUS_CAN_TEMP_EMPTY;
 
   switch (g_detail_screen) {
-  case UI_SCREEN_CHAMBER:
-    v = st.can.temp_by_fn[SENSOR_FN_CHAMBER];
-    break;
-  case UI_SCREEN_WATER_IN:
-    v = st.can.temp_by_fn[SENSOR_FN_WATER_IN];
-    break;
-  case UI_SCREEN_WATER_OUT:
-    v = st.can.temp_by_fn[SENSOR_FN_WATER_OUT];
-    break;
-  case UI_SCREEN_LIVING:
-    if (st.climate.climate_flags & CLIMATE_VALID_SHT45) {
-      if (g_living_series == 0)
-        temp_text(st.climate.living_c100, buf, sizeof(buf), true);
-      else
-        snprintf(buf, sizeof(buf), "%.1f %%rh", st.climate.hum_c100 / 100.0);
-    } else {
-      snprintf(buf, sizeof(buf), "--");
-    }
-    txt(s_detail_value, buf);
-    return;
-  case UI_SCREEN_POWER:
-    if (st.can.valid) {
-      if (st.can.watts >= 1000)
-        snprintf(buf, sizeof(buf), "%.2f kW", st.can.watts / 1000.0);
-      else
-        snprintf(buf, sizeof(buf), "%d W", (int)st.can.watts);
-    } else {
-      snprintf(buf, sizeof(buf), "--");
-    }
-    txt(s_detail_value, buf);
-    return;
-  default:
-    return;
+    case UI_SCREEN_CHAMBER:
+      v = st.can.temp_by_fn[SENSOR_FN_CHAMBER];
+      break;
+    case UI_SCREEN_WATER_IN:
+      v = st.can.temp_by_fn[SENSOR_FN_WATER_IN];
+      break;
+    case UI_SCREEN_WATER_OUT:
+      v = st.can.temp_by_fn[SENSOR_FN_WATER_OUT];
+      break;
+    case UI_SCREEN_LIVING:
+      if (st.climate.climate_flags & CLIMATE_VALID_SHT45) {
+        if (g_living_series == 0)
+          temp_text(st.climate.living_c100, buf, sizeof(buf), true);
+        else
+          snprintf(buf, sizeof(buf), "%.1f %%rh", st.climate.hum_c100 / 100.0);
+      } else {
+        snprintf(buf, sizeof(buf), "--");
+      }
+      txt(s_detail_value, buf);
+      return;
+    case UI_SCREEN_POWER:
+      if (st.can.valid) {
+        if (st.can.watts >= 1000)
+          snprintf(buf, sizeof(buf), "%.2f kW", st.can.watts / 1000.0);
+        else
+          snprintf(buf, sizeof(buf), "%d W", (int)st.can.watts);
+      } else {
+        snprintf(buf, sizeof(buf), "--");
+      }
+      txt(s_detail_value, buf);
+      return;
+    default:
+      return;
   }
 
   if (v != HAUS_CAN_TEMP_EMPTY)
@@ -2240,16 +2177,14 @@ static void detail_value_update(void) {
 }
 
 static void chart_rebuild(void) {
-  if (!s_chart_canvas)
-    return;
+  if (!s_chart_canvas) return;
   chart_build();
   chart_draw();
   chart_update_readouts();
 }
 
 static void detail_update(void) {
-  if (!s_detail_value)
-    return;
+  if (!s_detail_value) return;
   detail_value_update();
 
   if (g_detail_screen == UI_SCREEN_LIVING) {
@@ -2268,8 +2203,7 @@ static void detail_update(void) {
       header_badge_set("ADC", C_AMBER);
   }
 
-  if (g_detail_screen == UI_SCREEN_POWER)
-    power_bars_update();
+  if (g_detail_screen == UI_SCREEN_POWER) power_bars_update();
 
   if (s_water_extra) {
     HausState st;
@@ -2300,12 +2234,10 @@ static void detail_update(void) {
 }
 
 static void living_series_set(int series) {
-  if (series < 0 || series > 1)
-    return;
+  if (series < 0 || series > 1) return;
   g_living_series = series;
   for (int i = 0; i < 2; i++) {
-    if (!s_living_tab[i])
-      continue;
+    if (!s_living_tab[i]) continue;
     lv_obj_set_style_text_color(s_living_tab[i],
                                 lv_color_hex(i == series ? C_INK : C_DIM), 0);
   }
@@ -2313,14 +2245,14 @@ static void living_series_set(int series) {
   chart_rebuild();
 }
 
-static void living_series_cb(lv_event_t *e) {
+static void living_series_cb(lv_event_t* e) {
   living_series_set((int)(intptr_t)lv_event_get_user_data(e));
 }
 
 static void living_tabs_build(int top) {
-  static const char *names[2] = {"Temp", "RH"};
+  static const char* names[2] = {"Temp", "RH"};
   for (int i = 0; i < 2; i++) {
-    lv_obj_t *tab = lv_obj_create(lv_screen_active());
+    lv_obj_t* tab = lv_obj_create(lv_screen_active());
     lv_obj_set_size(tab, 140, 30);
     lv_obj_set_pos(tab, 20 + i * 148, top);
     lv_obj_set_style_bg_opa(tab, i == g_living_series ? 32 : LV_OPA_TRANSP, 0);
@@ -2332,7 +2264,7 @@ static void living_tabs_build(int top) {
     obj_set_scrollable(tab, false);
     obj_set_clickable(tab, true);
     lv_obj_add_event_cb(tab, living_series_cb, LV_EVENT_CLICKED,
-                        (void *)(intptr_t)i);
+                        (void*)(intptr_t)i);
     s_living_tab[i] = label_make(tab, names[i], 0, 0, &lv_font_montserrat_16,
                                  i == g_living_series ? C_INK : C_DIM);
     lv_obj_set_width(s_living_tab[i], 140);
@@ -2343,56 +2275,52 @@ static void living_tabs_build(int top) {
 
 /* ─── Log screen (S15) ───────────────────────────────────────────────────── */
 
-static char log_level_of(const char *s, size_t n) {
+static char log_level_of(const char* s, size_t n) {
   for (size_t i = 0; i + 2 < n; i++) {
     if (s[i] == '[' && s[i + 2] == ']') {
       const char lv = s[i + 1];
-      if (lv == 'E' || lv == 'W' || lv == 'I' || lv == 'D')
-        return lv;
+      if (lv == 'E' || lv == 'W' || lv == 'I' || lv == 'D') return lv;
     }
     if (s[i] == ' ' && s[i + 2] == ' ') {
       const char lv = s[i + 1];
-      if (lv == 'E' || lv == 'W' || lv == 'I' || lv == 'D')
-        return lv;
+      if (lv == 'E' || lv == 'W' || lv == 'I' || lv == 'D') return lv;
     }
-    if (s[i] == '!' && i + 1 < n && s[i + 1] == '!')
-      return 'R';
+    if (s[i] == '!' && i + 1 < n && s[i + 1] == '!') return 'R';
   }
   return 'I';
 }
 
 static uint32_t log_color(char lv) {
   switch (lv) {
-  case 'E':
-    return 0xff5a5a;
-  case 'W':
-    return 0xffb347;
-  case 'D':
-    return 0x6a6a6a;
-  case 'R':
-    return 0xff5a5a;
-  default:
-    return 0xc8c8c8;
+    case 'E':
+      return 0xff5a5a;
+    case 'W':
+      return 0xffb347;
+    case 'D':
+      return 0x6a6a6a;
+    case 'R':
+      return 0xff5a5a;
+    default:
+      return 0xc8c8c8;
   }
 }
 
 static uint8_t log_level_bit(char lv) {
   switch (lv) {
-  case 'E':
-    return 0x01;
-  case 'W':
-    return 0x02;
-  case 'I':
-    return 0x04;
-  default:
-    return 0x08;
+    case 'E':
+      return 0x01;
+    case 'W':
+      return 0x02;
+    case 'I':
+      return 0x04;
+    default:
+      return 0x08;
   }
 }
 
 static void log_restyle_levels(void) {
   for (int i = 0; i < 4; i++) {
-    if (!s_log_level[i])
-      continue;
+    if (!s_log_level[i]) continue;
     const bool on = (s_log_level_mask & (1u << i)) != 0;
     lv_obj_set_style_bg_opa(s_log_level[i], on ? 40 : 0, 0);
     lv_obj_set_style_text_color(s_log_level[i],
@@ -2401,10 +2329,9 @@ static void log_restyle_levels(void) {
 }
 
 static void log_rebuild(void) {
-  if (!s_log_label)
-    return;
+  if (!s_log_label) return;
   int len = 0;
-  const char *dump = gui_log_dump(&len);
+  const char* dump = gui_log_dump(&len);
   if (!dump || len <= 0) {
     txt(s_log_label, "(log empty)");
     txt(s_log_status, "0 B | 0% | dropped 0 | up --");
@@ -2416,13 +2343,11 @@ static void log_rebuild(void) {
   size_t begin = 0;
   if (len > 96 * 1024) {
     begin = (size_t)len - 96 * 1024;
-    while (begin < (size_t)len && dump[begin] != '\n')
-      begin++;
-    if (begin < (size_t)len)
-      begin++;
+    while (begin < (size_t)len && dump[begin] != '\n') begin++;
+    if (begin < (size_t)len) begin++;
   }
 
-  static const char *vp[2048];
+  static const char* vp[2048];
   static uint16_t vl[2048];
   static char vlev[2048];
   int count = 0;
@@ -2430,20 +2355,17 @@ static void log_rebuild(void) {
   size_t i = begin;
   while (i < (size_t)len) {
     size_t e = i;
-    while (e < (size_t)len && dump[e] != '\n')
-      e++;
-    const char *line = dump + i;
+    while (e < (size_t)len && dump[e] != '\n') e++;
+    const char* line = dump + i;
     size_t llen = e - i;
-    if (llen && line[llen - 1] == '\r')
-      llen--;
+    if (llen && line[llen - 1] == '\r') llen--;
     if (llen > 0) {
       const char lv = log_level_of(line, llen);
       if (s_log_level_mask & log_level_bit(lv)) {
         size_t off = 0;
         while (off < llen) {
           size_t take = llen - off;
-          if (take > 38)
-            take = 38;
+          if (take > 38) take = 38;
           if (count == 2048) {
             memmove(vp, vp + 1, sizeof(vp[0]) * 2047);
             memmove(vl, vl + 1, sizeof(vl[0]) * 2047);
@@ -2470,10 +2392,8 @@ static void log_rebuild(void) {
       start = count > visible ? count - visible : 0;
     } else {
       start = count - visible - s_log_scroll;
-      if (start < 0)
-        start = 0;
-      if (start > count - visible && count > visible)
-        start = count - visible;
+      if (start < 0) start = 0;
+      if (start > count - visible && count > visible) start = count - visible;
     }
     size_t o = 0;
     for (int k = start; k < count && k < start + visible; k++) {
@@ -2481,18 +2401,15 @@ static void log_rebuild(void) {
       const uint32_t col = log_color(vlev[k]);
       int n = snprintf(s_log_recolor + o, sizeof(s_log_recolor) - o, "#%06x ",
                        (unsigned)col);
-      if (n < 0)
-        break;
+      if (n < 0) break;
       o += (size_t)n;
-      if (o + vl[k] + 4 >= sizeof(s_log_recolor))
-        break;
+      if (o + vl[k] + 4 >= sizeof(s_log_recolor)) break;
       memcpy(s_log_recolor + o, vp[k], vl[k]);
       o += vl[k];
       s_log_recolor[o++] = '#';
       s_log_recolor[o++] = '\n';
 #else
-      if (o + vl[k] + 2 >= sizeof(s_log_recolor))
-        break;
+      if (o + vl[k] + 2 >= sizeof(s_log_recolor)) break;
       memcpy(s_log_recolor + o, vp[k], vl[k]);
       o += vl[k];
       s_log_recolor[o++] = '\n';
@@ -2506,9 +2423,28 @@ static void log_rebuild(void) {
   HausState st;
   gui_get_state(&st);
   char status[96];
-  snprintf(status, sizeof(status), "%d B | %u%% | dropped %u | up %us", len,
-           pct, (unsigned)gui_log_dropped(), (unsigned)st.can.uptime_seconds);
+  snprintf(status, sizeof(status), "%dk %u%% d%u up%luh", len / 1024, pct,
+           (unsigned)gui_log_dropped(),
+           (unsigned long)(st.can.uptime_seconds / 3600u));
   txt(s_log_status, status);
+
+  /* Compact storage field (S23.13): "SD 1.0G/29G ok". */
+  if (s_log_sd) {
+    const uint64_t total = st.can.sd_total_bytes;
+    const uint64_t used = st.can.sd_used_bytes;
+    const bool present = strcmp(st.can.sd_card_type, "ABSENT") != 0;
+    char sd[40];
+    if (!present) {
+      snprintf(sd, sizeof(sd), "SD --");
+    } else {
+      const char* state = st.can.sd_writing
+                              ? "wr"
+                              : (st.can.sd_fault_since_epoch ? "flt" : "ok");
+      snprintf(sd, sizeof(sd), "SD %.1fG/%.0fG %s", (double)used / 1e9,
+               (double)total / 1e9, state);
+    }
+    txt(s_log_sd, sd);
+  }
   if (s_log_ws) {
     lv_obj_set_style_text_color(
         s_log_ws,
@@ -2516,14 +2452,14 @@ static void log_rebuild(void) {
   }
 }
 
-static void log_level_cb(lv_event_t *e) {
+static void log_level_cb(lv_event_t* e) {
   const int i = (int)(intptr_t)lv_event_get_user_data(e);
   s_log_level_mask ^= (uint8_t)(1u << i);
   log_restyle_levels();
   log_rebuild();
 }
 
-static void log_follow_cb(lv_event_t *e) {
+static void log_follow_cb(lv_event_t* e) {
   (void)e;
   s_log_follow_on = true;
   s_log_scroll = 0;
@@ -2534,11 +2470,10 @@ static void log_follow_cb(lv_event_t *e) {
   log_rebuild();
 }
 
-static void log_gesture_cb(lv_event_t *e) {
+static void log_gesture_cb(lv_event_t* e) {
   (void)e;
   const lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_active());
-  if (dir != LV_DIR_TOP && dir != LV_DIR_BOTTOM)
-    return;
+  if (dir != LV_DIR_TOP && dir != LV_DIR_BOTTOM) return;
   s_log_follow_on = false;
   if (dir == LV_DIR_TOP)
     s_log_scroll += 5;
@@ -2553,10 +2488,9 @@ static void log_gesture_cb(lv_event_t *e) {
   log_rebuild();
 }
 
-static void log_scroll_cb(lv_event_t *e) {
+static void log_scroll_cb(lv_event_t* e) {
   (void)e;
-  if (!s_log_follow_on)
-    return;
+  if (!s_log_follow_on) return;
   s_log_follow_on = false;
   if (s_log_follow_lbl) {
     txt(s_log_follow_lbl, "FOLLOW");
@@ -2565,7 +2499,7 @@ static void log_scroll_cb(lv_event_t *e) {
   log_rebuild();
 }
 
-static void log_invert_cb(lv_event_t *e) {
+static void log_invert_cb(lv_event_t* e) {
   (void)e;
   s_log_invert = !s_log_invert;
   lv_obj_set_style_bg_color(lv_screen_active(),
@@ -2582,7 +2516,7 @@ static void log_modal_close(void) {
   }
 }
 
-static void log_clear_yes_cb(lv_event_t *e) {
+static void log_clear_yes_cb(lv_event_t* e) {
   (void)e;
   gui_log_clear();
   log_modal_close();
@@ -2591,15 +2525,14 @@ static void log_clear_yes_cb(lv_event_t *e) {
   log_rebuild();
 }
 
-static void log_clear_no_cb(lv_event_t *e) {
+static void log_clear_no_cb(lv_event_t* e) {
   (void)e;
   log_modal_close();
 }
 
-static void log_clear_cb(lv_event_t *e) {
+static void log_clear_cb(lv_event_t* e) {
   (void)e;
-  if (s_log_modal)
-    return;
+  if (s_log_modal) return;
   s_log_modal = lv_obj_create(lv_screen_active());
   lv_obj_set_size(s_log_modal, SCREEN_W, SCREEN_H);
   lv_obj_set_pos(s_log_modal, 0, 0);
@@ -2608,20 +2541,20 @@ static void log_clear_cb(lv_event_t *e) {
   lv_obj_set_style_border_width(s_log_modal, 0, 0);
   obj_set_scrollable(s_log_modal, false);
 
-  lv_obj_t *panel = lv_obj_create(s_log_modal);
+  lv_obj_t* panel = lv_obj_create(s_log_modal);
   lv_obj_set_size(panel, 380, 190);
   lv_obj_center(panel);
   lv_obj_set_style_bg_color(panel, lv_color_hex(C_PANEL), 0);
   lv_obj_set_style_radius(panel, 12, 0);
   lv_obj_set_style_border_color(panel, lv_color_hex(C_LINE), 0);
   lv_obj_set_style_border_width(panel, 1, 0);
-  lv_obj_t *q = label_make(panel, "Clear the log ring?", 20, 24,
+  lv_obj_t* q = label_make(panel, "Clear the log ring?", 20, 24,
                            &lv_font_montserrat_24, C_INK);
   (void)q;
   label_make(panel, "This destroys the evidence.", 20, 64,
              &lv_font_montserrat_16, C_DIM);
 
-  lv_obj_t *yes = lv_obj_create(panel);
+  lv_obj_t* yes = lv_obj_create(panel);
   lv_obj_set_size(yes, 150, 52);
   lv_obj_set_pos(yes, 30, 112);
   lv_obj_set_style_bg_color(yes, lv_color_hex(C_HOT), 0);
@@ -2630,11 +2563,11 @@ static void log_clear_cb(lv_event_t *e) {
   lv_obj_set_style_radius(yes, 8, 0);
   obj_set_clickable(yes, true);
   lv_obj_add_event_cb(yes, log_clear_yes_cb, LV_EVENT_CLICKED, NULL);
-  lv_obj_t *yl =
+  lv_obj_t* yl =
       label_make(yes, "Confirm", 0, 0, &lv_font_montserrat_16, C_INK);
   lv_obj_center(yl);
 
-  lv_obj_t *no = lv_obj_create(panel);
+  lv_obj_t* no = lv_obj_create(panel);
   lv_obj_set_size(no, 150, 52);
   lv_obj_set_pos(no, 200, 112);
   lv_obj_set_style_bg_opa(no, 0, 0);
@@ -2643,24 +2576,24 @@ static void log_clear_cb(lv_event_t *e) {
   lv_obj_set_style_radius(no, 8, 0);
   obj_set_clickable(no, true);
   lv_obj_add_event_cb(no, log_clear_no_cb, LV_EVENT_CLICKED, NULL);
-  lv_obj_t *nl = label_make(no, "Cancel", 0, 0, &lv_font_montserrat_16, C_DIM);
+  lv_obj_t* nl = label_make(no, "Cancel", 0, 0, &lv_font_montserrat_16, C_DIM);
   lv_obj_center(nl);
 }
 
-static void log_save_cb(lv_event_t *e) {
+static void log_save_cb(lv_event_t* e) {
   (void)e;
   const int ok = gui_log_save();
   txt(s_log_status, ok ? "saved to SD" : "save failed");
 }
 
-static void log_back_cb(lv_event_t *e) {
+static void log_back_cb(lv_event_t* e) {
   (void)e;
   ui_pop();
 }
 
-static lv_obj_t *log_button(lv_obj_t *parent, int x, int y, int w, int h,
-                            const char *text, lv_event_cb_t cb, int size) {
-  lv_obj_t *b = lv_obj_create(parent);
+static lv_obj_t* log_button(lv_obj_t* parent, int x, int y, int w, int h,
+                            const char* text, lv_event_cb_t cb, int size) {
+  lv_obj_t* b = lv_obj_create(parent);
   lv_obj_set_size(b, w, h);
   lv_obj_set_pos(b, x, y);
   lv_obj_set_style_bg_opa(b, 0, 0);
@@ -2671,20 +2604,20 @@ static lv_obj_t *log_button(lv_obj_t *parent, int x, int y, int w, int h,
   obj_set_scrollable(b, false);
   obj_set_clickable(b, true);
   (void)cb;
-  lv_obj_t *l = label_make(
+  lv_obj_t* l = label_make(
       b, text, 0, 0,
       size == 24 ? &lv_font_montserrat_24 : &lv_font_montserrat_16, C_INK);
   lv_obj_center(l);
   return b;
 }
 
-lv_obj_t *haus_ui_build_log(void) {
+lv_obj_t* haus_ui_build_log(void) {
   screen_lock_scroll();
-  lv_obj_t *root = lv_screen_active();
+  lv_obj_t* root = lv_screen_active();
   lv_obj_set_style_bg_color(root, lv_color_hex(C_BG), 0);
   g_current_screen = UI_SCREEN_LOG;
 
-  lv_obj_t *bar = lv_obj_create(root);
+  lv_obj_t* bar = lv_obj_create(root);
   lv_obj_set_size(bar, SCREEN_W, 44);
   lv_obj_set_pos(bar, 0, 0);
   lv_obj_set_style_bg_color(bar, lv_color_hex(0x0c0b0a), 0);
@@ -2694,33 +2627,33 @@ lv_obj_t *haus_ui_build_log(void) {
   obj_set_scrollable(bar, false);
   hline(bar, 43, C_LINE);
 
-  lv_obj_t *back = lv_obj_create(bar);
+  lv_obj_t* back = lv_obj_create(bar);
   lv_obj_set_size(back, 44, 44);
   lv_obj_set_pos(back, 0, 0);
   lv_obj_set_style_bg_opa(back, 0, 0);
   lv_obj_set_style_border_width(back, 0, 0);
   obj_set_clickable(back, true);
   lv_obj_add_event_cb(back, log_back_cb, LV_EVENT_CLICKED, NULL);
-  lv_obj_t *bl =
+  lv_obj_t* bl =
       label_make(back, LV_SYMBOL_LEFT, 0, 0, &lv_font_montserrat_24, C_INK);
   lv_obj_center(bl);
 
   label_make(bar, "LOG", 50, 10, &lv_font_montserrat_24, C_INK);
 
-  static const char *names[4] = {"E", "W", "I", "D"};
+  static const char* names[4] = {"E", "W", "I", "D"};
   for (int i = 0; i < 4; i++) {
     s_log_level[i] =
         log_button(bar, 116 + i * 38, 6, 32, 32, names[i], log_level_cb, 16);
     lv_obj_add_event_cb(s_log_level[i], log_level_cb, LV_EVENT_CLICKED,
-                        (void *)(intptr_t)i);
+                        (void*)(intptr_t)i);
   }
   log_restyle_levels();
 
-  lv_obj_t *inv = log_button(bar, 276, 6, 50, 32, "INV", log_invert_cb, 16);
+  lv_obj_t* inv = log_button(bar, 276, 6, 50, 32, "INV", log_invert_cb, 16);
   lv_obj_add_event_cb(inv, log_invert_cb, LV_EVENT_CLICKED, NULL);
-  lv_obj_t *clr = log_button(bar, 332, 6, 50, 32, "CLR", log_clear_cb, 16);
+  lv_obj_t* clr = log_button(bar, 332, 6, 50, 32, "CLR", log_clear_cb, 16);
   lv_obj_add_event_cb(clr, log_clear_cb, LV_EVENT_CLICKED, NULL);
-  lv_obj_t *save = log_button(bar, 388, 6, 50, 32, "SAVE", log_save_cb, 16);
+  lv_obj_t* save = log_button(bar, 388, 6, 50, 32, "SAVE", log_save_cb, 16);
   lv_obj_add_event_cb(save, log_save_cb, LV_EVENT_CLICKED, NULL);
 
   s_log_container = lv_obj_create(root);
@@ -2737,7 +2670,7 @@ lv_obj_t *haus_ui_build_log(void) {
   lv_label_set_long_mode(s_log_label, UI_LABEL_LONG_WRAP);
   ui_label_set_recolor(s_log_label, true);
 
-  lv_obj_t *statusbar = lv_obj_create(root);
+  lv_obj_t* statusbar = lv_obj_create(root);
   lv_obj_set_size(statusbar, SCREEN_W, 40);
   lv_obj_set_pos(statusbar, 0, 760);
   lv_obj_set_style_bg_color(statusbar, lv_color_hex(0x0c0b0a), 0);
@@ -2747,8 +2680,10 @@ lv_obj_t *haus_ui_build_log(void) {
   hline(statusbar, 0, C_LINE);
   s_log_status =
       label_make(statusbar, "", 10, 10, &lv_font_montserrat_16, C_DIM);
+  s_log_sd =
+      label_make(statusbar, "SD --", 230, 10, &lv_font_montserrat_16, C_DIM);
   s_log_ws =
-      label_make(statusbar, "WS", 350, 10, &lv_font_montserrat_16, C_OFF);
+      label_make(statusbar, "WS", 366, 10, &lv_font_montserrat_16, C_OFF);
 
   s_log_follow =
       log_button(statusbar, 390, 4, 82, 32, "FOLLOW", log_follow_cb, 16);
@@ -2764,21 +2699,19 @@ lv_obj_t *haus_ui_build_log(void) {
 }
 
 static void log_screen_update(void) {
-  if (!s_log_label)
-    return;
-  if ((uint32_t)(lv_tick_get() - s_log_last_build) < 200u)
-    return;
+  if (!s_log_label) return;
+  if ((uint32_t)(lv_tick_get() - s_log_last_build) < 200u) return;
   s_log_last_build = lv_tick_get();
   log_rebuild();
 }
 
-static void open_log_cb(lv_event_t *e) {
+static void open_log_cb(lv_event_t* e) {
   (void)e;
   ui_push(UI_SCREEN_LOG);
 }
 
 static void build_status_hotspot(void) {
-  lv_obj_t *z = lv_obj_create(lv_screen_active());
+  lv_obj_t* z = lv_obj_create(lv_screen_active());
   lv_obj_set_size(z, SCREEN_W, 32);
   lv_obj_set_pos(z, 0, 0);
   lv_obj_set_style_bg_opa(z, 0, 0);
@@ -2796,7 +2729,7 @@ static void power_bars_build(void) {
   const int gap = 2;
   const int bw = (440 - gap * (s_power_bin_count - 1)) / s_power_bin_count;
   for (int i = 0; i < 31; i++) {
-    lv_obj_t *b = lv_obj_create(lv_screen_active());
+    lv_obj_t* b = lv_obj_create(lv_screen_active());
     lv_obj_set_size(b, bw, 100);
     lv_obj_set_pos(b, 20 + i * (bw + gap), 530);
     lv_obj_set_style_bg_color(b, lv_color_hex(C_ACCENT), 0);
@@ -2816,16 +2749,13 @@ static void power_bars_build(void) {
 }
 
 static void power_bars_update(void) {
-  if (!s_power_bars[0] || s_power_bin_count <= 0)
-    return;
+  if (!s_power_bars[0] || s_power_bin_count <= 0) return;
   int64_t sums[31] = {0};
   uint32_t ns[31] = {0};
   for (size_t i = 0; i < HAUS_CHART_COLUMNS; i++) {
-    if (!s_cols[i].n[0])
-      continue;
+    if (!s_cols[i].n[0]) continue;
     int bin = (int)(i * (size_t)s_power_bin_count / HAUS_CHART_COLUMNS);
-    if (bin >= s_power_bin_count)
-      bin = s_power_bin_count - 1;
+    if (bin >= s_power_bin_count) bin = s_power_bin_count - 1;
     sums[bin] += s_cols[i].sum[0] / s_cols[i].n[0];
     ns[bin]++;
   }
@@ -2835,22 +2765,19 @@ static void power_bars_update(void) {
       mx = (int32_t)(sums[i] / (int32_t)ns[i]);
   }
   for (int i = 0; i < s_power_bin_count; i++) {
-    if (!s_power_bars[i])
-      continue;
+    if (!s_power_bars[i]) continue;
     const int32_t v = ns[i] ? (int32_t)(sums[i] / (int32_t)ns[i]) : 0;
     int h = (int)((int64_t)v * 100 / mx);
-    if (h < 2)
-      h = 2;
+    if (h < 2) h = 2;
     lv_obj_set_height(s_power_bars[i], h);
     lv_obj_set_y(s_power_bars[i], 630 - h);
   }
 }
 
-static void power_unit_cb(lv_event_t *e) {
+static void power_unit_cb(lv_event_t* e) {
   (void)e;
   s_power_unit = (s_power_unit + 1) % 3; /* auto -> W -> kW */
-  if (s_power_unit > 1)
-    s_power_unit = -1;
+  if (s_power_unit > 1) s_power_unit = -1;
   if (s_power_unit_lbl) {
     txt(s_power_unit_lbl,
         s_power_unit < 0 ? "auto" : (s_power_unit == 0 ? "W" : "kW"));
@@ -2860,7 +2787,7 @@ static void power_unit_cb(lv_event_t *e) {
 }
 
 static void power_unit_build(void) {
-  lv_obj_t *b = lv_obj_create(lv_screen_active());
+  lv_obj_t* b = lv_obj_create(lv_screen_active());
   lv_obj_set_size(b, 60, 26);
   lv_obj_set_pos(b, 380, 170);
   lv_obj_set_style_bg_opa(b, 0, 0);
@@ -2877,12 +2804,12 @@ static void power_unit_build(void) {
 
 static void water_legend_build(int y) {
   static const struct {
-    const char *text;
+    const char* text;
     uint32_t color;
   } items[3] = {{"water in", C_CYAN}, {"water out", C_HOT}, {"Soll", C_ACCENT}};
   int x = 20;
   for (int i = 0; i < 3; i++) {
-    lv_obj_t *sw = lv_obj_create(lv_screen_active());
+    lv_obj_t* sw = lv_obj_create(lv_screen_active());
     lv_obj_set_size(sw, 12, 4);
     lv_obj_set_pos(sw, x, y + 8);
     lv_obj_set_style_bg_color(sw, lv_color_hex(items[i].color), 0);
@@ -2895,19 +2822,18 @@ static void water_legend_build(int y) {
   }
 }
 
-static lv_obj_t *detail_build(int screen, const char *title, int nav_index,
-                              const char *badge, uint32_t badge_color) {
+static lv_obj_t* detail_build(int screen, const char* title, int nav_index,
+                              const char* badge, uint32_t badge_color) {
   (void)nav_index;
   screen_lock_scroll();
-  lv_obj_t *root = lv_screen_active();
+  lv_obj_t* root = lv_screen_active();
   lv_obj_set_style_bg_color(root, lv_color_hex(C_BG), 0);
   g_detail_screen = screen;
   g_current_screen = screen;
 
   header_build(title, badge, badge_color);
 
-  s_detail_value =
-      label_make(root, "--", 20, 56, &lv_font_montserrat_48, C_INK);
+  s_detail_value = label_make(root, "--", 20, 50, &haus_large_52, C_INK);
   range_build(120);
 
   if (screen == UI_SCREEN_CHAMBER) {
@@ -2928,8 +2854,7 @@ static lv_obj_t *detail_build(int screen, const char *title, int nav_index,
   chart_build_widgets(200);
   const bool water =
       (screen == UI_SCREEN_WATER_IN || screen == UI_SCREEN_WATER_OUT);
-  if (water)
-    water_legend_build(464);
+  if (water) water_legend_build(464);
   const int ry = water ? 488 : 470;
   s_chart_readout = label_make(root, "min --   max --   mean --   now --", 20,
                                ry, &lv_font_montserrat_16, C_DIM);
@@ -2956,8 +2881,7 @@ void haus_ui_smoke_step(void) {
 #endif
 
 void haus_ui_set_range(int range) {
-  if (range < 0 || range > 2)
-    return;
+  if (range < 0 || range > 2) return;
   if (s_range_hl || s_chart_canvas) {
     range_set(range);
   } else {
@@ -2965,76 +2889,242 @@ void haus_ui_set_range(int range) {
   }
 }
 
-lv_obj_t *haus_ui_build_detail(void) {
+lv_obj_t* haus_ui_build_detail(void) {
   return detail_build(UI_SCREEN_CHAMBER, "CHAMBER", UI_SCREEN_CHAMBER,
                       "RESTORED", C_DIM);
 }
 
-lv_obj_t *haus_ui_build_water(int nav_index) {
+lv_obj_t* haus_ui_build_water(int nav_index) {
   return detail_build(nav_index == UI_SCREEN_WATER_OUT ? UI_SCREEN_WATER_OUT
                                                        : UI_SCREEN_WATER_IN,
                       "WATER", nav_index, "Soll", C_ACCENT);
 }
 
-lv_obj_t *haus_ui_build_power(void) {
+lv_obj_t* haus_ui_build_power(void) {
   return detail_build(UI_SCREEN_POWER, "POWER", UI_SCREEN_POWER, "SML", C_OK);
 }
 
-lv_obj_t *haus_ui_build_living(void) {
+lv_obj_t* haus_ui_build_living(void) {
   return detail_build(UI_SCREEN_LIVING, "LIVING ROOM", UI_SCREEN_LIVING, "I2C",
                       C_OK);
 }
 
-static lv_obj_t *s_can_switch_lbl;
-static lv_obj_t *s_can_switch;
+static lv_obj_t* s_can_switch_lbl;
+static lv_obj_t* s_can_switch;
 
 static void settings_can_visual(bool on) {
-  if (s_can_switch_lbl)
-    txt(s_can_switch_lbl, on ? "ON" : "OFF");
+  if (s_can_switch_lbl) txt(s_can_switch_lbl, on ? "ON" : "OFF");
   if (s_can_switch) {
     lv_obj_set_style_bg_color(s_can_switch, lv_color_hex(on ? C_OK : C_OFF), 0);
     lv_obj_set_style_bg_opa(s_can_switch, on ? 220 : 80, 0);
   }
 }
 
-static void settings_can_cb(lv_event_t *e) {
+static void settings_can_cb(lv_event_t* e) {
   (void)e;
   const bool on = !gui_can_enabled();
   gui_set_can_enabled(on);
   settings_can_visual(on);
 }
 
-static void settings_open_can_cb(lv_event_t *e) {
+static void settings_open_can_cb(lv_event_t* e) {
   (void)e;
   ui_push(UI_SCREEN_CAN);
 }
 
-static void settings_open_log_cb(lv_event_t *e) {
+static void settings_open_log_cb(lv_event_t* e) {
   (void)e;
   ui_push(UI_SCREEN_LOG);
 }
 
-static lv_obj_t *settings_row_button(int y, const char *title,
-                                     const char *subtitle, lv_event_cb_t cb) {
-  lv_obj_t *b = lv_obj_create(lv_screen_active());
-  lv_obj_set_size(b, 440, 56);
+/* A compact settings row: title on the left, current value on the right.
+ * FONTS: the 21 px body floor (§8.1.1). */
+static lv_obj_t* settings_value_row(int y, const char* title, const char* value,
+                                    lv_event_cb_t cb) {
+  lv_obj_t* b = lv_obj_create(lv_screen_active());
+  lv_obj_set_size(b, 440, 46);
   lv_obj_set_pos(b, 20, y);
   lv_obj_set_style_bg_opa(b, 0, 0);
   lv_obj_set_style_border_width(b, 0, 0);
+  lv_obj_set_style_border_side(b, LV_BORDER_SIDE_BOTTOM, 0);
+  lv_obj_set_style_border_color(b, lv_color_hex(C_LINE), 0);
   lv_obj_set_style_pad_all(b, 0, 0);
   obj_set_scrollable(b, false);
   obj_set_clickable(b, true);
-  lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, NULL);
-  label_make(b, title, 12, 10, &lv_font_montserrat_24, C_INK);
-  if (subtitle)
-    label_make(b, subtitle, 12, 34, &lv_font_montserrat_16, C_DIM);
-  label_make(b, LV_SYMBOL_RIGHT, 400, 18, &lv_font_montserrat_24, C_DIM);
-  return b;
+  if (cb) lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, NULL);
+  label_make(b, title, 0, 12, &haus_body_21, C_INK);
+  lv_obj_t* v =
+      label_make(b, value, 0, 12, &haus_body_21, cb ? C_ACCENT : C_DIM);
+  /* Actionable rows carry a chevron; static values do not. */
+  lv_obj_align(v, LV_ALIGN_TOP_RIGHT, cb ? -30 : 0, 12);
+  if (cb)
+    label_make(b, LV_SYMBOL_RIGHT, 426, 10, &lv_font_montserrat_16, C_DIM);
+  return v;
 }
 
-lv_obj_t *haus_ui_build_can(void) {
+/* ─── Storage helpers (S23) ─────────────────────────────────────────────── */
+
+static void fmt_bytes(uint64_t b, char* out, size_t n) {
+  if (b >= 1000000000ULL)
+    snprintf(out, n, "%.1f GB", (double)b / 1e9);
+  else if (b >= 1000000ULL)
+    snprintf(out, n, "%.0f MB", (double)b / 1e6);
+  else if (b >= 1000ULL)
+    snprintf(out, n, "%.0f kB", (double)b / 1e3);
+  else
+    snprintf(out, n, "%llu B", (unsigned long long)b);
+}
+
+static void epoch_to_datetime(uint32_t epoch, char* out, size_t n) {
+  if (epoch < 1700000000u) {
+    snprintf(out, n, "---");
+    return;
+  }
+  time_t t = (time_t)epoch;
+  struct tm tm;
+  if (!localtime_r(&t, &tm)) {
+    snprintf(out, n, "---");
+    return;
+  }
+  strftime(out, n, "%d %b %H:%M", &tm);
+}
+
+static lv_obj_t* s_backlight_lbl;
+static lv_obj_t* s_power_unit_lbl;
+static lv_obj_t* s_diag_lbl;
+static int s_settings_power_unit = -1; /* -1 auto, 0 W, 1 kW */
+
+static void settings_backlight_cb(lv_event_t* e) {
+  (void)e;
+  const bool on = !gui_backlight_on();
+  gui_set_backlight(on);
+  txt(s_backlight_lbl, on ? "ON" : "OFF");
+}
+
+static void settings_power_unit_cb(lv_event_t* e) {
+  (void)e;
+  s_settings_power_unit++;
+  if (s_settings_power_unit > 1) s_settings_power_unit = -1;
+  txt(s_power_unit_lbl, s_settings_power_unit < 0
+                            ? "auto"
+                            : (s_settings_power_unit == 0 ? "W" : "kW"));
+}
+
+static void settings_diag_cb(lv_event_t* e) {
+  (void)e;
+  txt(s_diag_lbl, gui_log_save() ? "saved" : "failed");
+}
+
+static void settings_open_storage_cb(lv_event_t* e) {
+  (void)e;
+  gui_storage_refresh();
+  ui_push(UI_SCREEN_STORAGE);
+}
+
+lv_obj_t* haus_ui_build_storage(void) {
   screen_lock_scroll();
-  lv_obj_t *root = lv_screen_active();
+  lv_obj_t* root = lv_screen_active();
+  lv_obj_set_style_bg_color(root, lv_color_hex(C_BG), 0);
+  g_current_screen = UI_SCREEN_STORAGE;
+
+  gui_storage_refresh();
+  HausState st;
+  gui_get_state(&st);
+
+  const bool mounted = (st.can.sd_card_type[0] != '\0' &&
+                        strcmp(st.can.sd_card_type, "ABSENT") != 0);
+  header_build("STORAGE", mounted ? st.can.sd_card_type : "ABSENT",
+               mounted ? C_OK : C_OFF);
+
+  const uint64_t total = st.can.sd_total_bytes;
+  const uint64_t used = st.can.sd_used_bytes;
+  const uint64_t free_b = total > used ? total - used : 0;
+  const uint64_t floor_b = 50ULL * 1024ULL * 1024ULL; /* S11.12 */
+  char a[32], b[32], c[32], line[96];
+
+  /* Used/total bar. */
+  lv_obj_t* bar = lv_obj_create(root);
+  lv_obj_set_size(bar, 440, 14);
+  lv_obj_set_pos(bar, 20, 64);
+  lv_obj_set_style_bg_color(bar, lv_color_hex(C_PANEL), 0);
+  lv_obj_set_style_border_width(bar, 0, 0);
+  lv_obj_set_style_radius(bar, 3, 0);
+  lv_obj_set_style_pad_all(bar, 0, 0);
+  obj_set_clickable(bar, false);
+  if (total > 0) {
+    int w = (int)((uint64_t)440 * used / total);
+    if (w < 2) w = 2;
+    if (w > 440) w = 440;
+    lv_obj_t* fill = lv_obj_create(bar);
+    lv_obj_set_size(fill, w, 14);
+    lv_obj_set_pos(fill, 0, 0);
+    lv_obj_set_style_bg_color(fill, lv_color_hex(C_ACCENT), 0);
+    lv_obj_set_style_border_width(fill, 0, 0);
+    lv_obj_set_style_radius(fill, 3, 0);
+    lv_obj_set_style_pad_all(fill, 0, 0);
+    obj_set_clickable(fill, false);
+  }
+
+  fmt_bytes(used, a, sizeof(a));
+  fmt_bytes(total, b, sizeof(b));
+  snprintf(line, sizeof(line), "used %s of %s", a, b);
+  label_make(root, line, 20, 88, &haus_body_21, C_INK);
+
+  fmt_bytes(free_b, a, sizeof(a));
+  fmt_bytes(floor_b, b, sizeof(b));
+  if (free_b >= floor_b) {
+    snprintf(line, sizeof(line), "free %s   floor %s", a, b);
+    label_make(root, line, 20, 116, &haus_body_21, C_DIM);
+    fmt_bytes(free_b - floor_b, c, sizeof(c));
+    snprintf(line, sizeof(line), "headroom %s", c);
+    label_make(root, line, 20, 144, &haus_body_21, C_DIM);
+  } else {
+    snprintf(line, sizeof(line), "free %s   BELOW floor %s", a, b);
+    label_make(root, line, 20, 116, &haus_body_21, C_HOT);
+  }
+
+  char when[32];
+  epoch_to_datetime(st.can.sd_last_rollover_epoch, when, sizeof(when));
+  snprintf(line, sizeof(line), "last rollover   %s", when);
+  label_make(root, line, 20, 188, &haus_body_21, C_DIM);
+
+  epoch_to_datetime(st.can.sd_newest_file_epoch, when, sizeof(when));
+  snprintf(line, sizeof(line), "newest file     %s", when);
+  label_make(root, line, 20, 216, &haus_body_21, C_DIM);
+
+  fmt_bytes(st.can.sd_samples_bytes, a, sizeof(a));
+  snprintf(line, sizeof(line), "minute samples  %s", a);
+  label_make(root, line, 20, 256, &haus_body_21, C_INK);
+
+  fmt_bytes(st.can.sd_rollup_bytes, a, sizeof(a));
+  snprintf(line, sizeof(line), "hourly rollup   %s", a);
+  label_make(root, line, 20, 284, &haus_body_21, C_INK);
+
+  fmt_bytes(st.can.sd_logs_bytes, a, sizeof(a));
+  snprintf(line, sizeof(line), "log dumps       %s", a);
+  label_make(root, line, 20, 312, &haus_body_21, C_INK);
+
+  /* Faulty is sticky and keeps the first-failure time (D44/S23.10). */
+  if (st.can.sd_fault_since_epoch) {
+    epoch_to_datetime(st.can.sd_fault_since_epoch, when, sizeof(when));
+    snprintf(line, sizeof(line), "FAULTY since %s", when);
+    label_make(root, line, 20, 356, &haus_body_21, C_HOT);
+  } else {
+    label_make(root, "no storage fault", 20, 356, &haus_body_21, C_OK);
+  }
+
+  label_make(root,
+             mounted ? "card readable   figures cached"
+                     : "no card   history stays in SPIFFS",
+             20, 392, &lv_font_montserrat_16, C_FAINT);
+
+  nav_build(UI_SCREEN_SETTINGS);
+  return root;
+}
+
+lv_obj_t* haus_ui_build_can(void) {
+  screen_lock_scroll();
+  lv_obj_t* root = lv_screen_active();
   lv_obj_set_style_bg_color(root, lv_color_hex(C_BG), 0);
   g_current_screen = UI_SCREEN_CAN;
 
@@ -3046,59 +3136,65 @@ lv_obj_t *haus_ui_build_can(void) {
   int y = 64;
   char buf[96];
   if (!on) {
-    label_make(root, "CAN is disabled in Settings.", 20, y,
-               &lv_font_montserrat_24, C_AMBER);
-    label_make(root, "USB remains available. No history, no monitor.", 20,
-               y + 34, &lv_font_montserrat_16, C_DIM);
+    label_make(root, "CAN is disabled in Settings.", 20, y, &haus_body_21,
+               C_AMBER);
+    label_make(root, "USB remains available.", 20, y + 34, &haus_body_21,
+               C_DIM);
+    label_make(root, "No history, no monitor.", 20, y + 68, &haus_body_21,
+               C_DIM);
   } else {
+    /* Rows are 50 px high with 21 px text (S21.04, §8.10). */
     snprintf(buf, sizeof(buf), "0x200 chamber      %.1f degC",
              st.can.temp_by_fn[SENSOR_FN_CHAMBER] == HAUS_CAN_TEMP_EMPTY
                  ? 0.0
                  : st.can.temp_by_fn[SENSOR_FN_CHAMBER] / 100.0);
-    label_make(root, buf, 20, y, &lv_font_montserrat_16, C_INK);
+    label_make(root, buf, 20, y, &haus_body_21, C_INK);
     snprintf(buf, sizeof(buf), "0x200 water in     %.1f degC",
              st.can.temp_by_fn[SENSOR_FN_WATER_IN] == HAUS_CAN_TEMP_EMPTY
                  ? 0.0
                  : st.can.temp_by_fn[SENSOR_FN_WATER_IN] / 100.0);
-    label_make(root, buf, 20, y + 30, &lv_font_montserrat_16, C_INK);
+    label_make(root, buf, 20, y + 50, &haus_body_21, C_INK);
     snprintf(buf, sizeof(buf), "0x200 water out    %.1f degC",
              st.can.temp_by_fn[SENSOR_FN_WATER_OUT] == HAUS_CAN_TEMP_EMPTY
                  ? 0.0
                  : st.can.temp_by_fn[SENSOR_FN_WATER_OUT] / 100.0);
-    label_make(root, buf, 20, y + 60, &lv_font_montserrat_16, C_INK);
+    label_make(root, buf, 20, y + 100, &haus_body_21, C_INK);
     snprintf(buf, sizeof(buf), "0x280 PWM          %u permille",
              st.can.pwm_permille);
-    label_make(root, buf, 20, y + 100, &lv_font_montserrat_16, C_INK);
+    label_make(root, buf, 20, y + 150, &haus_body_21, C_INK);
     snprintf(buf, sizeof(buf), "0x280 frequency    %u Hz", st.can.frequency_hz);
-    label_make(root, buf, 20, y + 130, &lv_font_montserrat_16, C_INK);
+    label_make(root, buf, 20, y + 200, &haus_body_21, C_INK);
     snprintf(buf, sizeof(buf), "bus  rx %u  tx %u  errors %u", st.can.rx_frames,
              st.can.tx_frames, st.can.bus_errors);
-    label_make(root, buf, 20, y + 170, &lv_font_montserrat_16, C_DIM);
+    label_make(root, buf, 20, y + 250, &haus_body_21, C_DIM);
     snprintf(buf, sizeof(buf), "fault %u  last frame %u ms", st.can.can_fault,
              st.can.last_frame_ms);
-    label_make(root, buf, 20, y + 198, &lv_font_montserrat_16, C_DIM);
+    label_make(root, buf, 20, y + 300, &haus_body_21, C_DIM);
   }
 
   nav_build(UI_SCREEN_SETTINGS);
   return root;
 }
 
-lv_obj_t *haus_ui_build_settings(void) {
+lv_obj_t* haus_ui_build_settings(void) {
   screen_lock_scroll();
-  lv_obj_t *root = lv_screen_active();
+  lv_obj_t* root = lv_screen_active();
   lv_obj_set_style_bg_color(root, lv_color_hex(C_BG), 0);
   g_current_screen = UI_SCREEN_SETTINGS;
   header_build("SETTINGS", NULL, C_DIM);
 
-  const bool can_on = gui_can_enabled();
-  label_make(root, "CAN BUS", 20, 62, &lv_font_montserrat_24, C_INK);
-  label_make(root, "Off hands USB back; CAN data, charts and", 20, 92,
+  HausState st;
+  gui_get_state(&st);
+  const bool can_on = st.can.can_enabled;
+
+  label_make(root, "CAN BUS", 20, 58, &haus_body_21, C_INK);
+  label_make(root, "Off hands USB back: no CAN data, no", 20, 84,
              &lv_font_montserrat_16, C_DIM);
-  label_make(root, "the monitor are disabled.", 20, 112, &lv_font_montserrat_16,
+  label_make(root, "history, no monitor.", 20, 104, &lv_font_montserrat_16,
              C_DIM);
   s_can_switch = lv_obj_create(root);
   lv_obj_set_size(s_can_switch, 82, 36);
-  lv_obj_set_pos(s_can_switch, 378, 66);
+  lv_obj_set_pos(s_can_switch, 378, 60);
   lv_obj_set_style_border_width(s_can_switch, 0, 0);
   lv_obj_set_style_radius(s_can_switch, 18, 0);
   lv_obj_set_style_pad_all(s_can_switch, 0, 0);
@@ -3110,19 +3206,51 @@ lv_obj_t *haus_ui_build_settings(void) {
   lv_obj_center(s_can_switch_lbl);
   settings_can_visual(can_on);
 
-  settings_row_button(160, "CAN MONITOR", "Live IDs and bus health",
-                      settings_open_can_cb);
-  settings_row_button(228, "LOG", "Ring, filters, save to SD",
-                      settings_open_log_cb);
+  /* Compact rows: title + current value, one tap each. A chevron marks the
+   * rows that open another screen or change a setting. */
+  const bool mounted = strcmp(st.can.sd_card_type, "ABSENT") != 0;
+  label_make(root, "tap a row with a > to open or change", 20, 122,
+             &lv_font_montserrat_16, C_FAINT);
+  int y = 148;
+  const int step = 46;
+  settings_value_row(y, "CAN MONITOR", "live IDs", settings_open_can_cb);
+  y += step;
+  settings_value_row(y, "LOG", "ring + SD save", settings_open_log_cb);
+  y += step;
+  s_backlight_lbl = settings_value_row(
+      y, "BACKLIGHT", gui_backlight_on() ? "ON" : "OFF", settings_backlight_cb);
+  y += step;
+  s_power_unit_lbl =
+      settings_value_row(y, "POWER UNIT", "auto", settings_power_unit_cb);
+  y += step;
+  settings_value_row(y, "RETENTION",
+                     st.can.sd_low_space ? "3 months" : "24 months", NULL);
+  y += step;
+  char tbuf[24];
+  snprintf(tbuf, sizeof(tbuf), "%d.%d degC", st.can.chamber_target_c / 100,
+           (st.can.chamber_target_c % 100 + 100) % 100);
+  settings_value_row(y, "HEATER TARGET", tbuf, NULL);
+  y += step;
+  uint8_t sensors = 0;
+  gui_get_sensors(&sensors);
+  char sbuf[24];
+  snprintf(sbuf, sizeof(sbuf), "%u bound", (unsigned)sensors);
+  settings_value_row(y, "SENSOR ROLES", sbuf, NULL);
+  y += step;
+  settings_value_row(
+      y, "WATER MODEL",
+      gui_water_model_available() ? "installed" : "not installed", NULL);
+  y += step;
+  settings_value_row(y, "STORAGE", mounted ? "card" : "absent",
+                     settings_open_storage_cb);
+  y += step;
+  s_diag_lbl =
+      settings_value_row(y, "DIAGNOSTICS", "SAVE RING", settings_diag_cb);
+  y += step;
+  settings_value_row(y, "UI FILE", "/ui.json v1", NULL);
 
-  label_make(root, "RETENTION      24 months", 20, 318, &lv_font_montserrat_16,
-             C_DIM);
-  label_make(root, "HEATER TARGET  55 degC", 20, 344, &lv_font_montserrat_16,
-             C_DIM);
-  label_make(root, "SENSOR ROLES   3 bound, 1 unbound", 20, 370,
-             &lv_font_montserrat_16, C_DIM);
-  label_make(root, "WATER MODEL    not installed", 20, 396,
-             &lv_font_montserrat_16, C_DIM);
+  label_make(root, "backlight off: tap anywhere to wake", 20, 668,
+             &lv_font_montserrat_16, C_FAINT);
 
   nav_build(UI_SCREEN_SETTINGS);
   return root;
@@ -3131,11 +3259,12 @@ lv_obj_t *haus_ui_build_settings(void) {
 void haus_ui_deinit(void) {
   log_modal_close();
   s_log_modal = NULL;
-  lv_obj_t *root = lv_screen_active();
+  lv_obj_t* root = lv_screen_active();
   while (lv_obj_get_child_cnt(root) > 0) {
     lv_obj_delete(lv_obj_get_child(root, 0));
   }
   s_status_date = s_clock = s_can_dot = s_sd_dot = s_wifi_icon = NULL;
+  s_sd_low_lbl = NULL;
   s_cabinet = s_fire = NULL;
   memset(s_flame, 0, sizeof(s_flame));
   s_chamber_temp = s_chamber_unit = s_water_in = s_water_in_lbl = NULL;
@@ -3168,6 +3297,7 @@ void haus_ui_deinit(void) {
   memset(s_living_tab, 0, sizeof(s_living_tab));
   s_log_label = s_log_container = s_log_status = NULL;
   s_log_follow = s_log_follow_lbl = s_log_ws = NULL;
+  s_log_sd = NULL;
   memset(s_log_level, 0, sizeof(s_log_level));
   s_axis_key = -1;
   s_chart_force = true;
@@ -3175,37 +3305,39 @@ void haus_ui_deinit(void) {
 
 /* Load a screen. The stack is managed by ui_jump/ui_push/ui_pop. */
 static void ui_show_screen(int screen) {
-  if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_LOG)
-    return;
+  if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_LOG) return;
   g_current_screen = screen;
 
   haus_ui_deinit();
 
   switch (screen) {
-  case UI_SCREEN_HOME:
-    haus_ui_init();
-    break;
-  case UI_SCREEN_CHAMBER:
-    haus_ui_build_detail();
-    break;
-  case UI_SCREEN_WATER_IN:
-  case UI_SCREEN_WATER_OUT:
-    haus_ui_build_water(screen);
-    break;
-  case UI_SCREEN_POWER:
-    haus_ui_build_power();
-    break;
-  case UI_SCREEN_LIVING:
-    haus_ui_build_living();
-    break;
-  case UI_SCREEN_SETTINGS:
-    haus_ui_build_settings();
-    break;
-  case UI_SCREEN_CAN:
-    haus_ui_build_can();
-    break;
-  case UI_SCREEN_LOG:
-    haus_ui_build_log();
-    break;
+    case UI_SCREEN_HOME:
+      haus_ui_init();
+      break;
+    case UI_SCREEN_CHAMBER:
+      haus_ui_build_detail();
+      break;
+    case UI_SCREEN_WATER_IN:
+    case UI_SCREEN_WATER_OUT:
+      haus_ui_build_water(screen);
+      break;
+    case UI_SCREEN_POWER:
+      haus_ui_build_power();
+      break;
+    case UI_SCREEN_LIVING:
+      haus_ui_build_living();
+      break;
+    case UI_SCREEN_SETTINGS:
+      haus_ui_build_settings();
+      break;
+    case UI_SCREEN_STORAGE:
+      haus_ui_build_storage();
+      break;
+    case UI_SCREEN_CAN:
+      haus_ui_build_can();
+      break;
+    case UI_SCREEN_LOG:
+      haus_ui_build_log();
+      break;
   }
 }

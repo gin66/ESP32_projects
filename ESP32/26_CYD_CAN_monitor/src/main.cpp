@@ -1195,6 +1195,13 @@ static void CANTask(void* parameter) {
     twai_read_alerts(&alerts_triggered, pdMS_TO_TICKS(100));
     twai_status_info_t twaistatus;
     twai_get_status_info(&twaistatus);
+    // A lone or failed monitor goes BUS_OFF after 32 failed transmissions;
+    // TWAI will not leave that state on its own. Kick off recovery so the
+    // bench keeps working after the peer reboots (e.g. during OTA tests).
+    if (twaistatus.state == TWAI_STATE_BUS_OFF) {
+      Serial.println("[CAN] Bus-off; initiating recovery");
+      twai_initiate_recovery();
+    }
 
     // Clear flag when bus is no longer bus-off or recovering
     if (twaistatus.state == TWAI_STATE_RUNNING) {
@@ -1473,6 +1480,46 @@ static void handle_bench_command(char* line) {
 
   if (strcmp(cmd, "help") == 0) {
     Serial.println("can <id hex> <hex data>");
+    Serial.println("flood <count>  (0x200 frames)");
+    Serial.println("stats");
+    return;
+  }
+  if (strcmp(cmd, "stats") == 0) {
+    twai_status_info_t st;
+    if (twai_get_status_info(&st) == ESP_OK) {
+      Serial.printf(
+          "[CAN] state=%u tec=%lu rec=%lu rx=%lu tx=%lu err=%lu "
+          "bus_errors=%lu rx_missed=%lu\n",
+          (unsigned)st.state, (unsigned long)st.tx_error_counter,
+          (unsigned long)st.rx_error_counter, (unsigned long)st.msgs_to_rx,
+          (unsigned long)st.msgs_to_tx, (unsigned long)st.bus_error_count,
+          (unsigned long)st.bus_error_count, (unsigned long)st.rx_missed_count);
+    }
+    return;
+  }
+  if (strcmp(cmd, "flood") == 0) {
+    char* n_s = strtok(NULL, " ");
+    const long count = n_s ? strtol(n_s, NULL, 10) : 1000;
+    uint8_t data[8] = {0};
+    twai_message_t msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.identifier = 0x200;
+    msg.data_length_code = 8;
+    msg.flags = TWAI_MSG_FLAG_NONE;
+    const uint32_t t0 = millis();
+    uint32_t sent = 0, dropped = 0;
+    for (long i = 0; i < count; i++) {
+      memcpy(msg.data, data, sizeof(data));
+      if (twai_transmit(&msg, pdMS_TO_TICKS(10)) == ESP_OK)
+        sent++;
+      else
+        dropped++;
+    }
+    const uint32_t dt = millis() - t0;
+    Serial.printf("[TX] flood %lu sent, %lu dropped in %lu ms (%lu/s)\n",
+                  (unsigned long)sent, (unsigned long)dropped,
+                  (unsigned long)dt,
+                  dt ? (unsigned long)(sent * 1000UL / dt) : 0);
     return;
   }
   if (strcmp(cmd, "can") == 0) {

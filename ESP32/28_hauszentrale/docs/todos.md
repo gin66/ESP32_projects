@@ -377,6 +377,7 @@ living-room zone are real again; pressure stays `—` (no BMP sensor).
 - [x] S23.15 Home SD dot shows only presence/activity: green = present, readable, safe to remove; red = write in progress; grey = absent — Test: all three states are reachable, and a fault with an idle card still shows green while the storage panel reports faulty (dot colour ignores `sd_fault`)
 - [x] S23.16 The write-in-progress flag is raised and cleared around every recorder write (rollover, log dump, retention) — Test: the dot turns red for the duration and returns to green (`haus_history_set_writing()` around `write_daily_files()`, retention deletes and `gui_log_save()`)
 - [ ] S23.17 Show the panel's WiFi IP in SETTINGS — Test: the address matches the DHCP lease, so the web UI can be reached when CAN has taken GPIO 19/20 and USB is gone
+- [ ] S23.18 Show the firmware version from version.h in SETTINGS — Test: the displayed version matches the binary that was flashed, so a panel in the field can be identified without USB
 
 ## S24 · CAN ENABLE SWITCH (boot sequence, N19)
 

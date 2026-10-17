@@ -163,13 +163,21 @@ esp_err_t tpl_ws7_touch_reset_release(void) {
 }
 
 esp_err_t tpl_ws7_panel_reset(void) {
-  esp_err_t err =
-      ws7_update_bit(TPL_WS7_IO_LCD_RST, false); // LOW = assert reset
+  /* Rev 1.2 (ST7262): idle high, then >= 10 ms low and >= 120 ms after
+   * release. Use the conservative 20/200 ms figures: they cost nothing on
+   * boot and cover a panel that was left in an odd state by a previous run
+   * (the reset line is shared through the CH422G, so an MCU-only reset does
+   * not otherwise recover it). */
+  esp_err_t err = ws7_update_bit(TPL_WS7_IO_LCD_RST, true);
   if (err == ESP_OK) {
     vTaskDelay(pdMS_TO_TICKS(10));
+    err = ws7_update_bit(TPL_WS7_IO_LCD_RST, false); // LOW = assert reset
+  }
+  if (err == ESP_OK) {
+    vTaskDelay(pdMS_TO_TICKS(20));
     err = ws7_update_bit(TPL_WS7_IO_LCD_RST, true); // HIGH = release
     if (err == ESP_OK) {
-      vTaskDelay(pdMS_TO_TICKS(120)); // Panel initialization time
+      vTaskDelay(pdMS_TO_TICKS(200)); // panel initialization time
     }
   }
   return err;

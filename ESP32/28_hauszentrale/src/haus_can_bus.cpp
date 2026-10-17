@@ -2,7 +2,7 @@
  * @file haus_can_bus.cpp
  * @brief TWAI driver, RX/TX task and decoders (S17).
  *
- * RX task: 4096 B stack, priority 3, 100 ms alert timeout, re-arms
+ * RX task: 6144 B stack, priority 3, 100 ms alert timeout, re-arms
  * RX_DATA | ERR_PASS | BUS_ERROR | RX_QUEUE_FULL | BUS_RECOVERED.
  *
  * TX: exactly one 0x555 wall-clock frame per second. Nothing else.
@@ -56,7 +56,14 @@ bool haus_can_bus_running(void) { return s_running; }
 
 static void decode_frame(const twai_message_t* msg) {
   const uint32_t now_ms = (uint32_t)millis();
-  const time_t now = time(nullptr);
+  /* time() takes the newlib lock and reads the RTC; at ~1000 frames/s that
+   * is pure overhead. Once per second is enough for a wall-clock update. */
+  static uint32_t last_time_ms = 0;
+  static time_t now = 0;
+  if (now_ms - last_time_ms >= 1000u) {
+    last_time_ms = now_ms;
+    now = time(nullptr);
+  }
 
   snapshot_lock();
   s_snap.rx_frames++;
@@ -159,7 +166,7 @@ static void can_task(void* arg) {
       if (alerts & TWAI_ALERT_RX_DATA) {
         twai_message_t msg;
         int drained = 0;
-        while (drained++ < 64 && twai_receive(&msg, 0) == ESP_OK)
+        while (drained++ < 32 && twai_receive(&msg, 0) == ESP_OK)
           decode_frame(&msg);
       }
       if (alerts & (TWAI_ALERT_ERR_PASS | TWAI_ALERT_BUS_ERROR)) {
@@ -179,9 +186,15 @@ static void can_task(void* arg) {
 
     /* A lone or failed node goes BUS_OFF after 32 failed transmissions. TWAI
      * does not leave that state on its own, so kick off recovery explicitly;
-     * the controller then waits for 128 × 11 recessive bits before RUNNING. */
+     * the controller then waits for 128 × 11 recessive bits before RUNNING.
+     * Poll at 10 Hz, not once per drained frame: under a flood the loop runs
+     * ~1000 times/s and the register read competes with the RGB DMA. */
+    static uint32_t last_status_ms = 0;
+    const uint32_t status_now_ms = (uint32_t)millis();
     twai_status_info_t status;
-    if (twai_get_status_info(&status) == ESP_OK) {
+    if (status_now_ms - last_status_ms >= 100u &&
+        twai_get_status_info(&status) == ESP_OK) {
+      last_status_ms = status_now_ms;
       snapshot_lock();
       const uint8_t prev = s_snap.twai_state;
       s_snap.twai_state = (uint8_t)status.state;
@@ -198,11 +211,18 @@ static void can_task(void* arg) {
       }
     }
 
-    const uint32_t now_ms = (uint32_t)millis();
+    const uint32_t now_ms = status_now_ms;
     if (now_ms - s_last_tx_ms >= 1000u) {
       s_last_tx_ms = now_ms;
       tx_timestamp();
     }
+
+    /* Under a frame flood the alert is pending again immediately, so this
+     * loop never blocks. Without a yield the idle task starves, the task
+     * watchdog reboots the panel, and the RGB DMA underruns (white stripe
+     * tearing). One tick per pass is ~1000 passes/s, far above the 960
+     * frames/s the 125 kbps bus can carry. */
+    vTaskDelay(1);
   }
 }
 
@@ -253,7 +273,7 @@ bool haus_can_bus_start(void) {
   }
   s_running = true;
 
-  if (!s_task) xTaskCreate(can_task, "canTask", 4096, NULL, 3, &s_task);
+  if (!s_task) xTaskCreate(can_task, "canTask", 6144, NULL, 3, &s_task);
 
   TPL_LOGI("can", "TWAI running at 125 kbps");
   return true;

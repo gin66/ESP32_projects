@@ -130,6 +130,9 @@ static void build_status_hotspot(void);
 static lv_obj_t* s_status_date;
 static lv_obj_t* s_clock;
 static lv_obj_t* s_can_dot;
+static lv_obj_t* s_fault_banner;
+static lv_obj_t* s_fault_banner_lbl;
+static int s_fault_banner_shown = -1;
 static lv_obj_t* s_sd_dot;
 static lv_obj_t* s_wifi_icon;
 static lv_obj_t* s_sd_low_lbl;
@@ -550,6 +553,39 @@ static void duty_dot_apply(lv_obj_t* dot, gui_status_t status,
   }
 }
 
+/* Sticky CAN bus fault banner (S17.05). Lives on the top layer so it is
+ * visible on every screen; it only clears when a good frame arrives. */
+static void build_fault_banner(void) {
+  /* Child of the home screen, not lv_layer_top(): a top layer forces an
+   * extra full-width composite per refresh, which the single-buffered RGB
+   * panel shows as high-frequency white stripe tearing. */
+  lv_obj_t* b = lv_obj_create(lv_screen_active());
+  lv_obj_set_size(b, 440, 48);
+  lv_obj_align(b, LV_ALIGN_TOP_MID, 0, 44);
+  lv_obj_set_style_bg_color(b, lv_color_hex(C_HOT), 0);
+  lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(b, 0, 0);
+  lv_obj_set_style_radius(b, 8, 0);
+  lv_obj_set_style_pad_all(b, 0, 0);
+  obj_set_clickable(b, false);
+  s_fault_banner_lbl = label_make(b, "CAN BUS FAULT", 0, 0,
+                                   &lv_font_montserrat_16, C_INK);
+  lv_obj_center(s_fault_banner_lbl);
+  s_fault_banner = b;
+  obj_set_hidden(b, true);
+}
+
+static void fault_banner_update(const HausState* st) {
+  if (!s_fault_banner) return;
+  /* Only touch the widget on a state change: an unconditional hide/show
+   * invalidates the top strip every second, which the single-buffered RGB
+   * panel shows as white tearing near the clock. */
+  const int show = st->can.can_fault ? 1 : 0;
+  if (show == s_fault_banner_shown) return;
+  s_fault_banner_shown = show;
+  obj_set_hidden(s_fault_banner, !show);
+}
+
 static void build_status(void) {
   s_status_date = label_make(lv_screen_active(), "--- -- ---", 12,
                              STATUS_LABEL_Y, &lv_font_montserrat_16, C_INK);
@@ -877,6 +913,7 @@ lv_obj_t* haus_ui_init(void) {
   lv_obj_t* root = lv_screen_active();
 
   build_status();
+  build_fault_banner();
   build_status_hotspot();
   build_clock();
   build_heater();
@@ -894,6 +931,11 @@ lv_obj_t* haus_ui_init(void) {
 }
 
 void haus_ui_update(void) {
+  {
+    static HausState banner_st;
+    gui_get_state(&banner_st);
+    fault_banner_update(&banner_st);
+  }
   if (g_current_screen == UI_SCREEN_LOG) {
     log_screen_update();
     return;
@@ -3264,6 +3306,11 @@ void haus_ui_deinit(void) {
     lv_obj_delete(lv_obj_get_child(root, 0));
   }
   s_status_date = s_clock = s_can_dot = s_sd_dot = s_wifi_icon = NULL;
+  /* The banner is a child of the screen root and was deleted with the
+   * other children above; only forget the pointers. */
+  s_fault_banner = NULL;
+  s_fault_banner_lbl = NULL;
+  s_fault_banner_shown = -1;
   s_sd_low_lbl = NULL;
   s_cabinet = s_fire = NULL;
   memset(s_flame, 0, sizeof(s_flame));

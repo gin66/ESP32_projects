@@ -68,6 +68,12 @@ static lv_display_rotation_t rot_to_lvgl(int r) {
 
 /* ─── Setup ──────────────────────────────────────────────────────────────── */
 
+/* Loop cadence diagnostics (S17.07): ui_hz is the LVGL handler rate, ui_gap_ms
+ * the longest gap between iterations in the last window (includes the 1 Hz
+ * full-frame flush). A CAN flood must not degrade either. */
+static volatile uint32_t s_ui_hz;
+static volatile uint32_t s_ui_gap_ms;
+
 void setup() {
   Serial.begin(115200);
   delay(100);
@@ -78,6 +84,10 @@ void setup() {
   TPL_LOGI("boot", "28_hauszentrale starting");
 
   tpl_system_setup(0);  // no deep sleep
+  TPL_LOGI("boot", "boot #%lu, reset %s / %s",
+           (unsigned long)tpl_config.bootCount,
+           tpl_config.reset_reason_cpu0 ? tpl_config.reset_reason_cpu0 : "?",
+           tpl_config.reset_reason_cpu1 ? tpl_config.reset_reason_cpu1 : "?");
 
   /* S26.02/S26.03: heap baseline for the 64 KB budget check. */
   const size_t heap_base = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
@@ -233,14 +243,17 @@ void setup() {
     tpl_server.sendHeader("Access-Control-Allow-Origin", "*");
     tpl_server.sendHeader("Connection", "close");
     gui_storage_refresh();
-    HausState st;
+    /* Handlers run serially on the loop task, whose stack is tight (the
+     * Arduino core creates it with 8 KB). Keep the large structs off it:
+     * with a CAN flood the call path otherwise overflows and reboots. */
+    static HausState st;
+    static haus_can_snapshot_t cs;
     gui_get_state(&st);
-    haus_can_snapshot_t cs;
     haus_can_bus_get(&cs);
     const uint64_t total = st.can.sd_total_bytes;
     const uint64_t used = st.can.sd_used_bytes;
     const uint64_t free_bytes = total > used ? total - used : 0;
-    char buf[640];
+    static char buf[768];
     snprintf(buf, sizeof(buf),
              "{\"initialized\":%s,\"type\":\"%s\",\"total\":%llu,"
              "\"used\":%llu,\"free\":%llu,\"floor\":%llu,"
@@ -250,7 +263,8 @@ void setup() {
              "\"can_running\":%s,\"mux_can\":%s,"
              "\"can_state\":%u,\"can_tec\":%lu,\"can_rec\":%lu,"
              "\"can_rx\":%lu,\"can_tx\":%lu,\"can_err\":%lu,"
-             "\"can_fault\":%s}",
+             "\"can_fault\":%s,\"ui_hz\":%lu,\"ui_gap_ms\":%lu,"
+             "\"reset\":%u,\"boot\":%lu}",
              strcmp(st.can.sd_card_type, "ABSENT") == 0 ? "false" : "true",
              st.can.sd_card_type, (unsigned long long)total,
              (unsigned long long)used, (unsigned long long)free_bytes,
@@ -270,7 +284,30 @@ void setup() {
              (unsigned)cs.twai_state, (unsigned long)cs.tx_error_counter,
              (unsigned long)cs.rx_error_counter, (unsigned long)cs.rx_frames,
              (unsigned long)cs.tx_frames, (unsigned long)cs.bus_errors,
-             cs.bus_fault ? "true" : "false");
+             cs.bus_fault ? "true" : "false", (unsigned long)s_ui_hz,
+             (unsigned long)s_ui_gap_ms, (unsigned)tpl_config.reset_reason,
+             (unsigned long)tpl_config.bootCount);
+    tpl_server.send(200, "application/json", buf);
+  });
+  /* Light CAN-only telemetry: /sd/status refreshes the SD card, which must
+   * not be hammered while the bus is under a flood (S17.07). */
+  tpl_server.on("/can", HTTP_GET, []() {
+    tpl_server.sendHeader("Access-Control-Allow-Origin", "*");
+    tpl_server.sendHeader("Connection", "close");
+    static haus_can_snapshot_t cs;
+    haus_can_bus_get(&cs);
+    static char buf[256];
+    snprintf(buf, sizeof(buf),
+             "{\"running\":%s,\"state\":%u,\"tec\":%lu,\"rec\":%lu,"
+             "\"rx\":%lu,\"tx\":%lu,\"err\":%lu,\"fault\":%s,"
+             "\"ui_hz\":%lu,\"ui_gap_ms\":%lu,\"loop_stack\":%lu}",
+             haus_can_bus_running() ? "true" : "false",
+             (unsigned)cs.twai_state, (unsigned long)cs.tx_error_counter,
+             (unsigned long)cs.rx_error_counter, (unsigned long)cs.rx_frames,
+             (unsigned long)cs.tx_frames, (unsigned long)cs.bus_errors,
+             cs.bus_fault ? "true" : "false", (unsigned long)s_ui_hz,
+             (unsigned long)s_ui_gap_ms,
+             (unsigned long)uxTaskGetStackHighWaterMark(NULL));
     tpl_server.send(200, "application/json", buf);
   });
   tpl_websocket_setup(NULL, NULL);
@@ -290,9 +327,26 @@ void setup() {
 
 void loop() {
   static uint32_t last_ui_ms = 0;
+  static uint32_t last_loop_us = 0;
+  static uint32_t loops = 0;
+  static uint32_t gap_max_ms = 0;
+  static uint32_t window_ms = 0;
   static uint32_t last_anim_ms = 0;
   static bool s_ota_backlight_off = false;
   const uint32_t now = millis();
+  const uint32_t loop_us = micros();
+  const uint32_t gap_ms =
+      last_loop_us ? (loop_us - last_loop_us) / 1000u : 0u;
+  last_loop_us = loop_us;
+  if (gap_ms > gap_max_ms) gap_max_ms = gap_ms;
+  loops++;
+  if (now - window_ms >= 1000u) {
+    window_ms = now;
+    s_ui_gap_ms = gap_max_ms;
+    s_ui_hz = loops;
+    loops = 0;
+    gap_max_ms = 0;
+  }
 
 #ifdef HAUS_CAN_BOOT_ENABLE
   /* Bench: keep the USB console for 20 s, then hand GPIO 19/20 to CAN. */

@@ -67,6 +67,17 @@
 /*Input device read periods are in milliseconds*/
 #define LV_INPUT_READ_PERIOD 10
 
+/*=========================
+ * STDLIB WRAPPER SETTINGS
+ *=========================*/
+
+/* The built-in allocator uses a fixed 64 KB pool, which cannot hold the
+ * heater canvas (232x214x2 = 99 KB) or the 2x scaled clock layer. Use the C
+ * library allocator so large blocks land in PSRAM (allocations > 4 KB). */
+#define LV_USE_STDLIB_MALLOC   LV_STDLIB_CLIB
+#define LV_USE_STDLIB_STRING   LV_STDLIB_CLIB
+#define LV_USE_STDLIB_SPRINTF  LV_STDLIB_CLIB
+
 /*-------------------
  * COLOR FORMATS
  *-----------------*/

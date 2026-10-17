@@ -784,16 +784,15 @@ void haus_ui_update(void) {
         snprintf(buf, sizeof(buf), "%d", (int)state->power.watts);
         power_changed = txt(s_power_num, buf);
         lv_obj_set_style_text_color(s_power_num, lv_color_hex(C_INK), 0);
-        /* Source badge: "SML" when SML source, "—" when no data. */
-        if (state->power.source == GUI_PWR_SRC_SML)
-            txt(s_power_src, "SML");
-        else
-            txt(s_power_src, "—");
+        /* The small label next to the number is the unit, never a source
+         * badge. Montserrat has no em dash glyph (it would render as a
+         * placeholder box), so keep it pure ASCII. */
+        txt(s_power_src, "W");
         lv_obj_set_style_text_color(s_power_src, lv_color_hex(C_DIM), 0);
     } else {
         power_changed = txt(s_power_num, "--");
         lv_obj_set_style_text_color(s_power_num, lv_color_hex(0x444444), 0);
-        txt(s_power_src, "—");
+        txt(s_power_src, "W");
         lv_obj_set_style_text_color(s_power_src, lv_color_hex(0x444444), 0);
     }
     if (power_changed) align_power_labels();

@@ -3,6 +3,7 @@
 #include "tpl_command.h"
 #include "tpl_system.h"
 #include "tpl_wifi.h"
+#include "tpl_debug_log.h"
 #include "version.h"
 #ifdef IS_ESP32CAM
 #include "tpl_esp_camera.h"
@@ -16,16 +17,14 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
                     size_t length) {
   switch (type) {
     case WStype_DISCONNECTED:
-      Serial.print("websocket disconnected: ");
-      Serial.println(num);
+      TPL_LOGI("ws", "websocket disconnected: %u", num);
+      tpl_debug_ring_ws_disconnect(num);
       break;
     case WStype_CONNECTED:
-      Serial.print("websocket connected: ");
-      Serial.println(num);
+      TPL_LOGI("ws", "websocket connected: %u", num);
       break;
     case WStype_TEXT: {
-      Serial.print("received from websocket: ");
-      Serial.println((char*)payload);
+      TPL_LOGI("ws", "received from websocket: %s", (char*)payload);
       DynamicJsonDocument json(4096);
       deserializeJson(json, (char*)payload);
       if (json.containsKey("sleep")) {
@@ -99,12 +98,12 @@ void TaskWebSocketCore0(void* pvParameters) {
 
   ws_json = new DynamicJsonDocument(4096);
   if (!ws_json) {
-    Serial.println("Failed to allocate WebSocket JSON buffer");
+    TPL_LOGI("ws", "Failed to allocate WebSocket JSON buffer");
     vTaskDelete(NULL);
     return;
   }
 
-  Serial.println("WebSocket Task started");
+  TPL_LOGI("ws", "WebSocket Task started");
   webSocket.begin();
   webSocket.onEvent(webSocketEvent);
 
@@ -115,7 +114,7 @@ void TaskWebSocketCore0(void* pvParameters) {
   for (;;) {
     if (s_reinit_requested) {
       s_reinit_requested = false;
-      Serial.println("WebSocket: reinitializing");
+      TPL_LOGI("ws", "WebSocket: reinitializing");
       webSocket.close();
       webSocket.begin();
     }
@@ -179,6 +178,20 @@ void TaskWebSocketCore0(void* pvParameters) {
 
         serializeJson(*ws_json, ws_buffer, WS_BUFLEN);
         webSocket.broadcastTXT(ws_buffer, strlen(ws_buffer));
+
+        /* S7.09/S7.10/S7.11: drain the ring per connected client. Each client
+         * has its own cursor, so a newly attached tailer gets a backlog and a
+         * slow one is told how many bytes it missed. */
+        static char ring_chunk[8192 + 64];
+        for (uint8_t num = 0; num < WEBSOCKETS_SERVER_CLIENT_MAX; num++) {
+          if (!webSocket.clientIsConnected(num)) continue;
+          uint32_t dropped = 0;
+          int n = tpl_debug_ring_ws_drain(num, ring_chunk,
+                                          sizeof(ring_chunk), &dropped);
+          if (n > 0) {
+            webSocket.sendTXT(num, ring_chunk, n);
+          }
+        }
       }
     }
 #ifdef IS_ESP32CAM

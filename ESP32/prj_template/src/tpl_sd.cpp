@@ -1,4 +1,5 @@
 #include "tpl_sd.h"
+#include "tpl_debug_log.h"
 
 #ifdef USE_TPL_SD
 
@@ -55,14 +56,14 @@ static void sd_update_status() {
 
 bool tpl_sd_setup() {
   if (!sd_init_card()) {
-    Serial.println("[SD] Card Mount Failed");
+    TPL_LOGI("sd", "[SD] Card Mount Failed");
     snprintf(tpl_sd_status, sizeof(tpl_sd_status), "SD: mount failed");
     return false;
   }
 
   uint8_t cardType = SD.cardType();
   if (cardType == CARD_NONE) {
-    Serial.println("[SD] No SD card attached");
+    TPL_LOGI("sd", "[SD] No SD card attached");
     snprintf(tpl_sd_status, sizeof(tpl_sd_status), "SD: no card");
     return false;
   }
@@ -75,7 +76,7 @@ bool tpl_sd_setup() {
   else if (cardType == CARD_SD) type_str = "SDSC";
   else if (cardType == CARD_SDHC) type_str = "SDHC";
 
-  Serial.printf("[SD] Type: %s, Size: %lluMB, Used: %lluMB\n",
+  TPL_LOGI("sd", "[SD] Type: %s, Size: %lluMB, Used: %lluMB\n",
                 type_str, SD.totalBytes() / (1024 * 1024),
                 SD.usedBytes() / (1024 * 1024));
   return true;

@@ -2,10 +2,10 @@
 
 #include <stdint.h>
 #include <esp_err.h>
-#include <lvgl.h>
 
 #ifdef IS_WAVESHARE_LCD7
 
+#include <lvgl.h>
 #include <driver/spi_master.h>
 
 #define TPL_WS7_SCREEN_WIDTH  800

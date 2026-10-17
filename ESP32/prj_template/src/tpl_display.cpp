@@ -7,6 +7,7 @@
  */
 
 #include "tpl_display.h"
+#include "tpl_debug_log.h"
 
 /* All implementation below uses CYD-specific types (TFT_eSPI,
  * XPT2046_Touchscreen, lvgl). Guard so non-CYD projects that include
@@ -54,8 +55,8 @@ void tpl_cyd_apply_inversion(void) {
 
 lv_display_t* tpl_cyd_display_init(uint8_t rotation, void* buffer,
                                    uint32_t buffer_size) {
-  Serial.println("[CYD] === tpl_cyd_display_init START ===");
-  Serial.printf("[CYD] rotation=%d, buffer=%p, buf_size=%u\n", rotation, buffer,
+  TPL_LOGI("cyd", "[CYD] === tpl_cyd_display_init START ===");
+  TPL_LOGI("cyd", "[CYD] rotation=%d, buffer=%p, buf_size=%u\n", rotation, buffer,
                 buffer_size);
   delay(50);
 
@@ -65,14 +66,14 @@ lv_display_t* tpl_cyd_display_init(uint8_t rotation, void* buffer,
   // touches the display. The global tft object has board-specific pins
   // pre-configured via user_setup_declared.h.
   // ========================================================================
-  Serial.println("[CYD] Step 1: tft.begin()");
+  TPL_LOGI("cyd", "[CYD] Step 1: tft.begin()");
   delay(50);
   extern TFT_eSPI tft;  // Declared in project code
   tft.begin();
-  Serial.println("[CYD] tft.begin() returned");
+  TPL_LOGI("cyd", "[CYD] tft.begin() returned");
   delay(50);
 
-  Serial.println("[CYD] Step 2: colour inversion handled after display init");
+  TPL_LOGI("cyd", "[CYD] Step 2: colour inversion handled after display init");
   delay(50);
 
   /* No driver rotation: LVGL creates the display in the panel's native
@@ -80,7 +81,7 @@ lv_display_t* tpl_cyd_display_init(uint8_t rotation, void* buffer,
    * which is the supported path from LVGL 9.2 on (9.1 compiles the rotation
    * of draw areas out unless LV_DRAW_TRANSFORM_USE_MATRIX is set, which is
    * how the first version of this driver ended up rendering sideways). */
-  Serial.println("[CYD] Step 3: driver stays in portrait, LVGL rotates");
+  TPL_LOGI("cyd", "[CYD] Step 3: driver stays in portrait, LVGL rotates");
   delay(50);
 
   /* Paint the whole panel once. Right after a power-on reset the ILI9341 GRAM
@@ -88,7 +89,7 @@ lv_display_t* tpl_cyd_display_init(uint8_t rotation, void* buffer,
    * so an unpainted panel shows random noise until the first redraw covers
    * it. */
   tft.fillScreen(TFT_BLACK);
-  Serial.println("[CYD] panel cleared");
+  TPL_LOGI("cyd", "[CYD] panel cleared");
   delay(50);
 
   // ========================================================================
@@ -96,7 +97,7 @@ lv_display_t* tpl_cyd_display_init(uint8_t rotation, void* buffer,
   // This creates an LVGL display object with custom flush callback that
   // delegates to the already-configured physical tft object.
   // ========================================================================
-  Serial.println("[CYD] Step 4: lv_tft_espi_create()");
+  TPL_LOGI("cyd", "[CYD] Step 4: lv_tft_espi_create()");
   delay(50);
   /* LVGL's own TFT_eSPI driver: it sets up the display in the panel's native
    * geometry, owns the flush callback, and re-applies tft->setRotation()
@@ -105,10 +106,10 @@ lv_display_t* tpl_cyd_display_init(uint8_t rotation, void* buffer,
    * guaranteed consistent because both come from the same code. */
   lv_display_t* disp = lv_tft_espi_create(CYD_SCREEN_WIDTH, CYD_SCREEN_HEIGHT,
                                           buffer, buffer_size);
-  Serial.printf("[CYD] lv_tft_espi_create returned %p\n", disp);
+  TPL_LOGI("cyd", "[CYD] lv_tft_espi_create returned %p\n", disp);
   delay(50);
   if (disp == NULL) {
-    Serial.println("[CYD] ERROR: lv_tft_espi_create returned NULL");
+    TPL_LOGI("cyd", "[CYD] ERROR: lv_tft_espi_create returned NULL");
     return NULL;
   }
 
@@ -122,7 +123,7 @@ lv_display_t* tpl_cyd_display_init(uint8_t rotation, void* buffer,
     default: lv_rotation = LV_DISPLAY_ROTATION_0;    break;
   }
   lv_display_set_rotation(disp, lv_rotation);
-  Serial.printf("[CYD] lv_display_set_rotation(%d) -> logical %dx%d\n",
+  TPL_LOGI("cyd", "[CYD] lv_display_set_rotation(%d) -> logical %dx%d\n",
                 (int)lv_rotation,
                 lv_display_get_horizontal_resolution(disp),
                 lv_display_get_vertical_resolution(disp));
@@ -135,11 +136,11 @@ lv_display_t* tpl_cyd_display_init(uint8_t rotation, void* buffer,
    * runtime so the board files stay free of driver quirks. */
   tpl_cyd_set_inversion(CYD_NEEDS_INVERSION);
   tpl_cyd_apply_inversion();
-  Serial.printf("[CYD] colour inversion %s\n",
+  TPL_LOGI("cyd", "[CYD] colour inversion %s\n",
                 tpl_cyd_get_inversion() ? "ON" : "OFF");
   delay(50);
 
-  Serial.println("[CYD] === tpl_cyd_display_init DONE ===");
+  TPL_LOGI("cyd", "[CYD] === tpl_cyd_display_init DONE ===");
   g_cyd_display_initialized = true;
   return disp;
 }
@@ -164,19 +165,18 @@ void tpl_cyd_touch_init(XPT2046_Touchscreen& touchscreen, uint8_t rotation) {
   static SPIClass tsSpi(VSPI);
   tsSpi.begin(CYD_TOUCH_CLK, CYD_TOUCH_MISO, CYD_TOUCH_MOSI);
   touchscreen.begin(tsSpi);
-  Serial.println("[CYD] 2.8\" CYD — XPT2046 touch on private SPI bus (VSPI)");
+  TPL_LOGI("cyd", "[CYD] 2.8\" CYD - XPT2046 touch on private SPI bus (VSPI)");
 #else
   // 3.5" board: shares display SPI — must be called AFTER display init
   if (!g_cyd_display_initialized) {
-    Serial.println(
-        "[CYD] ERROR: Call tpl_cyd_display_init() before "
+    TPL_LOGE("cyd", "[CYD] ERROR: Call tpl_cyd_display_init() before "
         "tpl_cyd_touch_init()");
-    Serial.println("[CYD] The 3.5\" board shares the display SPI bus.");
+    TPL_LOGI("cyd", "[CYD] The 3.5\" board shares the display SPI bus.");
     return;
   }
   // Reuse TFT_eSPI's SPI instance (shared bus)
   touchscreen.begin(TFT_eSPI::getSPIinstance());
-  Serial.println("[CYD] 3.5\" CYD — XPT2046 touch on shared display SPI");
+  TPL_LOGI("cyd", "[CYD] 3.5\" CYD - XPT2046 touch on shared display SPI");
 #endif
 
   /* XPT2046 ADC rotation. The display rotation is LVGL's job now (see

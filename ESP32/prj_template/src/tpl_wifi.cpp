@@ -1,4 +1,5 @@
 #include "tpl_wifi.h"
+#include "tpl_debug_log.h"
 
 #include <ArduinoOTA.h>
 #include <ESPmDNS.h>
@@ -81,7 +82,7 @@ static void wifi_retry_step() {
   }
   if (!net->ssid) return;
 
-  Serial.printf("WiFi: retry begin %s\n", net->ssid);
+  TPL_LOGI("wifi", "WiFi: retry begin %s\n", net->ssid);
   WiFi.begin(net->ssid, net->passwd);
   s_retry_net++;
 }
@@ -112,7 +113,7 @@ void TaskWifiManager(void* pvParameters) {
           if (weak_rssi_since_ms == 0) weak_rssi_since_ms = millis();
           if ((millis() - weak_rssi_since_ms) / 1000 >= RSSI_RECONNECT_SUSTAINED_SEC) {
             uint8_t* bssid = WiFi.BSSID();
-            Serial.printf("WiFi: weak signal %d dBm for %" PRIu32 "s (BSSID %02X:%02X:%02X:%02X:%02X:%02X ch%d), reconnecting (#%d)\n",
+            TPL_LOGI("wifi", "WiFi: weak signal %d dBm for %" PRIu32 "s (BSSID %02X:%02X:%02X:%02X:%02X:%02X ch%d), reconnecting (#%d)\n",
                           rssi, (millis() - weak_rssi_since_ms) / 1000,
                           bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5],
                           WiFi.channel(), rssi_roam_reconnect_count + 1);
@@ -131,7 +132,7 @@ void TaskWifiManager(void* pvParameters) {
         }
 
         if (tpl_config.wifi_recovery_tier != 0) {
-          Serial.printf("WiFi: recovered, tier=%d->0\n",
+          TPL_LOGI("wifi", "WiFi: recovered, tier=%d->0\n",
                         tpl_config.wifi_recovery_tier);
           tpl_config.wifi_recovery_tier = 0;
           callback_fired = false;
@@ -158,7 +159,7 @@ void TaskWifiManager(void* pvParameters) {
           if (s_connected_since_ms == 0) {
             s_connected_since_ms = millis();
           } else if (millis() - s_connected_since_ms > 15000) {
-            Serial.println("WiFi: DHCP timeout, force disconnect");
+            TPL_LOGI("wifi", "WiFi: DHCP timeout, force disconnect");
             WiFi.disconnect(true);
             s_connected_since_ms = 0;
             s_next_retry_ms = 0;
@@ -169,7 +170,7 @@ void TaskWifiManager(void* pvParameters) {
         }
 
         if (secs_disconnected > 120 && tpl_config.wifi_recovery_tier < 2) {
-          Serial.printf("WiFi: Tier 2 - stack reset (disconnected %" PRIu32 "s)\n",
+          TPL_LOGI("wifi", "WiFi: Tier 2 - stack reset (disconnected %" PRIu32 "s)\n",
                         secs_disconnected);
           WATCH(21);
           tpl_config.wifi_recovery_tier = 2;
@@ -183,7 +184,7 @@ void TaskWifiManager(void* pvParameters) {
           wifi_retry_step();
         } else if (secs_disconnected > 30 &&
                    tpl_config.wifi_recovery_tier < 1) {
-          Serial.printf("WiFi: Tier 1 - reconnect (disconnected %" PRIu32 "s)\n",
+          TPL_LOGI("wifi", "WiFi: Tier 1 - reconnect (disconnected %" PRIu32 "s)\n",
                         secs_disconnected);
           WATCH(11);
           tpl_config.wifi_recovery_tier = 1;
@@ -207,8 +208,7 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
   bool need_connect = true;
   if (last_connected_network != -1) {
     if (verbose) {
-      Serial.print("Try last connected network: ");
-      Serial.println(nets[last_connected_network].ssid);
+      TPL_LOGI("wifi", "Try last connected network: %s", nets[last_connected_network].ssid);
     }
     WiFi.begin(nets[last_connected_network].ssid,
                nets[last_connected_network].passwd);
@@ -232,10 +232,9 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
   Serial.println();
 
   if (verbose) {
-    Serial.println("WiFi connected");
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
-    Serial.println("MDNS responder started");
+    TPL_LOGI("wifi", "WiFi connected");
+    TPL_LOGI("wifi", "IP address: %s", WiFi.localIP().toString().c_str());
+    TPL_LOGI("wifi", "MDNS responder started");
     MDNS.begin(HOSTNAME);
     MDNS.addService("http", "tcp", 80);
     MDNS.addService("ws", "tcp", 81);
@@ -265,31 +264,31 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
 
           // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS
           // using SPIFFS.end()
-          Serial.println("Start updating " + type);
+          TPL_LOGI("wifi", "Start updating %s", type.c_str());
           tpl_config.ota_ongoing = true;
         })
         .onEnd([]() {
-          Serial.println("\nEnd");
+          TPL_LOGI("wifi", "\nEnd");
           tpl_config.ota_ongoing = false;
           // delay to allow OTA response to be sent before reboot
           delay(500);
         })
         .onProgress([](unsigned int progress, unsigned int total) {
           esp_task_wdt_reset();
-          Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+          TPL_LOGI("wifi", "Progress: %u%%\r", (progress / (total / 100)));
         })
         .onError([](ota_error_t error) {
-          Serial.printf("Error[%u]: ", error);
+          TPL_LOGI("wifi", "Error[%u]: ", error);
           if (error == OTA_AUTH_ERROR)
-            Serial.println("Auth Failed");
+            TPL_LOGI("wifi", "Auth Failed");
           else if (error == OTA_BEGIN_ERROR)
-            Serial.println("Begin Failed");
+            TPL_LOGI("wifi", "Begin Failed");
           else if (error == OTA_CONNECT_ERROR)
-            Serial.println("Connect Failed");
+            TPL_LOGI("wifi", "Connect Failed");
           else if (error == OTA_RECEIVE_ERROR)
-            Serial.println("Receive Failed");
+            TPL_LOGI("wifi", "Receive Failed");
           else if (error == OTA_END_ERROR)
-            Serial.println("End Failed");
+            TPL_LOGI("wifi", "End Failed");
         });
   } else {
     ArduinoOTA.onStart([]() { tpl_config.ota_ongoing = true; }).onEnd([]() {
@@ -313,7 +312,7 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
    * lease never reached setup() and never recovered — the manager task had not
    * even been started yet. SNTP keeps running in the background, so once WiFi is
    * up the clock is set without any further action. */
-  Serial.print("Retrieving time: ");
+  TPL_LOGI("wifi", "Retrieving time");
   /* configTzTime(), not configTime(): configTime(gmt=0) calls setTimeZone(0,0)
    * and overwrites TZ, so the clock would silently stay in UTC. This sets both
    * the SNTP servers and the POSIX timezone (CET/CEST, Europe/Berlin). */
@@ -328,15 +327,14 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
   Serial.println();
 
   if (now < 24 * 3600) {
-    Serial.println(
-        "WARNING: no NTP time yet (no IP?); continuing without a valid clock. "
+    TPL_LOGW("wifi", "no NTP time yet (no IP?); continuing without a valid clock. "
         "It will sync as soon as WiFi is up.");
   } else {
     char strftime_buf[64];
     struct tm timeinfo;
     localtime_r(&now, &timeinfo);
     strftime(strftime_buf, sizeof(strftime_buf), "%d.%m.%y, %H:%M ", &timeinfo);
-    Serial.println(strftime_buf);
+    TPL_LOGI("wifi", "%s", strftime_buf);
   }
 
   if (waitOTA) {

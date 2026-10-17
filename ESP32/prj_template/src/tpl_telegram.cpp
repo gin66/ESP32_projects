@@ -1,5 +1,6 @@
 #ifdef BOTtoken
 #include "tpl_telegram.h"
+#include "tpl_debug_log.h"
 
 #include <Arduino.h>
 #include <UniversalTelegramBot.h>
@@ -55,8 +56,8 @@ static int getNextBufferLen() {
 }
 
 void handleNewMessages(UniversalTelegramBot* bot, int numNewMessages) {
-  Serial.println("handleNewMessages");
-  Serial.println(String(numNewMessages));
+  TPL_LOGI("tg", "handleNewMessages");
+  TPL_LOGI("tg", "%d", numNewMessages);
 
   for (int i = 0; i < numNewMessages; i++) {
     String chat_id = bot->messages[i].chat_id;
@@ -139,7 +140,7 @@ void TaskTelegramCore1(void* pvParameters) {
       camera_fb_t* fb = NULL;
       if (jpeg_to_send == NULL) {
         // take picture if needed
-        Serial.println("take picture");
+        TPL_LOGI("tg", "take picture");
         uint32_t settle_till = millis() + 1000;
         while ((int32_t)(settle_till - millis()) > 0) {
           // let the camera adjust
@@ -157,8 +158,7 @@ void TaskTelegramCore1(void* pvParameters) {
         }
       }
       if (jpeg_to_send != NULL) {
-        Serial.print("send image in bytes=");
-        Serial.println(jpeg_len);
+        TPL_LOGI("tg", "send image in bytes=%u", (unsigned)jpeg_len);
         tpl_config.bot_communication_ongoing = true;
         bot.sendMessage(chatId, String("Send image: ") + jpeg_len +
                                     String(" from ") + String(HOSTNAME) +
@@ -167,7 +167,7 @@ void TaskTelegramCore1(void* pvParameters) {
         for (uint8_t retry = 0; retry < 5; retry++) {
           dataBytesSent = 0;
           WATCH(3001)
-          Serial.println("before sendPhotoByBinary");
+          TPL_LOGI("tg", "before sendPhotoByBinary");
           // can hang here:
           // [E][ssl_client.cpp:36] _handle_error(): [send_ssl_data():300]:
           // (-26752) SSL - Connection requires a write call Afterwards
@@ -182,12 +182,12 @@ void TaskTelegramCore1(void* pvParameters) {
           tpl_config.bot_communication_ongoing = false;
           WATCH(3002)
           if (res.length() > 0) {
-            Serial.println(res);
+            TPL_LOGI("tg", "%s", res.c_str());
             break;
           }
-          Serial.println("after sendPhotoByBinary..retry");
+          TPL_LOGI("tg", "after sendPhotoByBinary..retry");
         }
-        Serial.println("after sendPhotoByBinary");
+        TPL_LOGI("tg", "after sendPhotoByBinary");
       } else {
         bot.sendMessage(chatId, "Camera capture failed");
       }
@@ -201,8 +201,7 @@ void TaskTelegramCore1(void* pvParameters) {
     if (tpl_config.bot_send_message) {
       bot.updateToken(tpl_config.send_bot_token);
       if (tpl_config.bot_message) {
-        Serial.print("Send message: ");
-        Serial.println(tpl_config.bot_message);
+        TPL_LOGI("tg", "Send message: %s", tpl_config.bot_message);
         tpl_config.bot_communication_ongoing = true;
         bot.sendMessage(chatId, tpl_config.bot_message);
         tpl_config.bot_communication_ongoing = false;

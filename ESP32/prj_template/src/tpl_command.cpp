@@ -1,5 +1,6 @@
 #undef ARDUINOJSON_USE_LONG_LONG
 #include "tpl_command.h"
+#include "tpl_debug_log.h"
 
 #include <Arduino.h>
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
@@ -84,7 +85,7 @@ void TaskCommandCore1(void* pvParameters) {
             vTaskSuspend(tpl_tasks.task_websocket);
           }
 
-          Serial.println("Stop wifi manager");
+          TPL_LOGI("cmd", "Stop wifi manager");
           tpl_config.wifi_manager_shutdown_request = true;
           while (!tpl_config.wifi_manager_shutdown) {
             vTaskDelay(xDelay);
@@ -92,11 +93,11 @@ void TaskCommandCore1(void* pvParameters) {
           vTaskSuspend(tpl_tasks.task_wifi_manager);
 
 #ifdef IS_ESP32CAM
-          Serial.println("Psram flush");
+          TPL_LOGI("cmd", "Psram flush");
           psram_flush_cache();
 #endif
 
-          Serial.print("Wifi stop:");
+          TPL_LOGI("cmd", "Wifi stop");
           // esp32 can hang at esp_wifi_stop()
           //  => ping works, but no communication possible
           //  result of esp_wifi_stop() is not printed
@@ -114,21 +115,21 @@ void TaskCommandCore1(void* pvParameters) {
           esp_task_wdt_add(NULL);
           esp_wifi_stop();
 #ifdef IS_ESP32CAM
-          Serial.println("Prepare esp32cam for deepsleep");
+          TPL_LOGI("cmd", "Prepare esp32cam for deepsleep");
           tpl_camera_off();
-          Serial.println("Psram flush again");
+          TPL_LOGI("cmd", "Psram flush again");
           psram_flush_cache();
-          Serial.println("Psram flush complete");
+          TPL_LOGI("cmd", "Psram flush complete");
 #endif
           // adc_power_release no good, if not started. leads to abort
           //          adc_power_release();  //
           //          https://github.com/espressif/arduino-esp32/issues/2804
-          //          Serial.println("adc power released");
+          //          TPL_LOGI("cmd", "adc power released");
           uint64_t sleep = tpl_config.deepsleep_time_secs;
           sleep *= 1000000LL;
-          Serial.println("enable sleep wakeup timer");
+          TPL_LOGI("cmd", "enable sleep wakeup timer");
           esp_sleep_enable_timer_wakeup(sleep);
-          Serial.println("Enter sleep");
+          TPL_LOGI("cmd", "Enter sleep");
           esp_deep_sleep_start();
         }
         tpl_command = CmdIdle;

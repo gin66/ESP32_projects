@@ -1,4 +1,5 @@
 #include "tpl_system.h"
+#include "tpl_debug_log.h"
 
 #include <SPIFFS.h>
 #include <esp_freertos_hooks.h>
@@ -123,12 +124,12 @@ void tpl_hard_restart() {
 }
 #ifdef MAX_ON_TIME_S
 void TaskOnTimeWatchdog(void* pvParameters) {
-  Serial.println("start on time watchdog");
+  TPL_LOGI("sys", "start on time watchdog");
   const TickType_t xDelay = 1000 / portTICK_PERIOD_MS;
   for (uint8_t i = 0; i < MAX_ON_TIME_S; i++) {
     vTaskDelay(xDelay);
   }
-  Serial.println("watchdog triggered");
+  TPL_LOGI("sys", "watchdog triggered");
   // cause wdt reset in case restart does not work
   esp_task_wdt_init(1, true);
   esp_task_wdt_add(NULL);
@@ -239,7 +240,7 @@ bool tpl_write_config() {
   File f;
   unsigned int writeSize;
 
-  Serial.println("Write Configuration");
+  TPL_LOGI("sys", "Write Configuration");
   tpl_spiffs_config.need_store = false;
   f = SPIFFS.open(SPIFFS_CONFIG_FNAME, "wb");
   if (!f) {

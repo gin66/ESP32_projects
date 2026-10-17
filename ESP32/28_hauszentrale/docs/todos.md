@@ -83,19 +83,19 @@ Hardware connected: /dev/cu.usbmodem5C941561291
 
 ## S7 · LOG RING — diagnostics before any GUI or actuator work
 
-- [ ] S7.01 Extend tpl_debug_log with a 1 MB PSRAM byte ring — Test: get free heap shows 1 MB less after setup
-- [ ] S7.02 Keep DEBUG_LOG_LINES/DEBUG_LOG_LINE_SIZE working as aliases — Test: an existing project with USE_TPL_DEBUG_LOG still builds (R17)
-- [ ] S7.03 Write records as [uptime][level][tag] msg with newline termination — Test: a dumped record matches the exact format
-- [ ] S7.04 Hook uart_set_vprintf so Serial's own output is captured too — Test: Serial.println content appears in the ring
-- [ ] S7.05 Guard the ring write with a 5 ms mutex timeout that drops on failure — Test: a test forces contention and the writer returns, does not block
-- [ ] S7.06 Implement tpl_log_set_serial(bool) — Test: with serial off, logging continues and the system does not hang
-- [ ] S7.07 Verify the ring wraps and keeps the newest bytes — Test: a 1 MB flood then a marker, marker is readable, old start is gone
-- [ ] S7.08 Serve the ring over /log and /log/clear — Test: curl returns the JSON/text records
-- [ ] S7.09 Drain the ring from TaskWebSocketCore0 at 750 ms, 8 KB/tick cap — Test: no cost with zero clients attached
-- [ ] S7.10 Emit {dropped:N} when the client falls behind — Test: a paused client then reconnect shows the marker
-- [ ] S7.11 Backlog a new client to max(head-8 KB, oldest) — Test: a fresh client immediately sees recent records
-- [ ] S7.12 Confirm tail_ws.py shows live records on the Mac — Test: a message printed in the ring appears in the terminal
-- [ ] S7.13 Confirm no code path blocks on a dead Serial — Test: with USB disconnected, the panel keeps logging and stays responsive
+- [x] S7.01 Extend tpl_debug_log with a 1 MB PSRAM byte ring (opt-in via `USE_TPL_DEBUG_LOG`; falls back to a 16 KB internal ring, then the legacy line buffer, when PSRAM is absent) — Test: `heap_caps_malloc(MALLOC_CAP_SPIRAM)`, `ESP.getFreePsram()` drops by 1 MB
+- [x] S7.02 Keep DEBUG_LOG_LINES/DEBUG_LOG_LINE_SIZE working as aliases — Test: an existing project with USE_TPL_DEBUG_LOG still builds (R17)
+- [x] S7.03 Write records as [uptime][level][tag] msg with newline termination — Test: a dumped record matches the exact format
+- [x] ~~S7.04 Hook uart_set_vprintf so Serial's own output is captured too — Test: Serial.println content appears in the ring~~ ~~REJECTED: no `uart_set_vprintf` exists in ESP-IDF (4.4 or 5.x), and Arduino `Serial.print` writes the UART directly. All template/project logging now uses `TPL_LOGx`; IDF logs are captured via `esp_log_set_vprintf`.~~
+- [x] S7.05 Guard the ring write with a 5 ms mutex timeout that drops on failure — Test: a test forces contention and the writer returns, does not block
+- [x] S7.06 Implement tpl_log_set_serial(bool) — Test: with serial off, logging continues and the system does not hang
+- [x] S7.07 Verify the ring wraps and keeps the newest bytes — Test: a 1 MB flood then a marker, marker is readable, old start is gone
+- [x] S7.08 Serve the ring over /log and /log/clear — Test: curl returns the JSON/text records
+- [x] S7.09 Drain the ring from TaskWebSocketCore0 at 750 ms, 8 KB/tick cap — Test: no cost with zero clients attached
+- [x] S7.10 Emit {dropped:N} when the client falls behind — Test: a paused client then reconnect shows the marker
+- [x] S7.11 Backlog a new client to max(head-8 KB, oldest) — Test: a fresh client immediately sees recent records
+- [x] S7.12 Confirm tail_ws.py shows live records on the Mac — Test: a message printed in the ring appears in the terminal (`prj_template/tools/tail_ws.py`)
+- [x] S7.13 Confirm no code path blocks on a dead Serial — Test: with USB disconnected, the panel keeps logging and stays responsive; `tpl_log_set_serial()` gates the mirror, and UART0 writes do not wait for a host
 
 ## S8 · PURE-C++ CORE + HOST HARNESS (F12)
 

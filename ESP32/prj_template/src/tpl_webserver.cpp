@@ -1,4 +1,5 @@
 #include "tpl_webserver.h"
+#include "tpl_debug_log.h"
 
 #include <ArduinoOTA.h>
 #include <inttypes.h>
@@ -23,7 +24,7 @@ void TaskWebServerCore0(void* pvParameters) {
   for (;;) {
     if (s_reinit_requested) {
       s_reinit_requested = false;
-      Serial.println("WebServer: reinitializing");
+      TPL_LOGI("web", "WebServer: reinitializing");
       tpl_server.stop();
       tpl_server.begin();
     }
@@ -35,8 +36,7 @@ void TaskWebServerCore0(void* pvParameters) {
 void tpl_webserver_setup() {
   tpl_server.onNotFound([]() {
     tpl_server.send(404);
-    Serial.print("Not found: ");
-    Serial.println(tpl_server.uri());
+    TPL_LOGI("web", "Not found: %s", tpl_server.uri().c_str());
   });
   tpl_server.on("/allowsleep", HTTP_GET, []() {
     tpl_config.allow_deepsleep = true;
@@ -189,7 +189,7 @@ void tpl_webserver_setup() {
       []() {
         HTTPUpload& upload = tpl_server.upload();
         if (upload.status == UPLOAD_FILE_START) {
-          Serial.printf("Update: %s\n", upload.filename.c_str());
+          TPL_LOGI("web", "Update: %s\n", upload.filename.c_str());
           if (!Update.begin(
                   UPDATE_SIZE_UNKNOWN)) {  // start with max available size
             Update.printError(Serial);
@@ -203,7 +203,7 @@ void tpl_webserver_setup() {
         } else if (upload.status == UPLOAD_FILE_END) {
           if (Update.end(
                   true)) {  // true to set the size to the current progress
-            Serial.printf("Update Success: %u\nRebooting...\n",
+            TPL_LOGI("web", "Update Success: %u\nRebooting...\n",
                           upload.totalSize);
           } else {
             Update.printError(Serial);
@@ -219,9 +219,8 @@ void tpl_webserver_setup() {
                         fb->len);
       esp_camera_fb_return(fb);
     } else {
-      Serial.print("IMAGE ERROR: ");
-      Serial.println(tpl_server.uri());
-      Serial.println("Camera capture failed");
+      TPL_LOGE("web", "IMAGE ERROR: %s", tpl_server.uri().c_str());
+      TPL_LOGI("web", "Camera capture failed");
       tpl_server.send(404);
     }
   });

@@ -1,4 +1,5 @@
 #include "tpl_ws7.h"
+#include "tpl_debug_log.h"
 
 #ifdef IS_WAVESHARE_LCD7
 
@@ -387,12 +388,12 @@ esp_err_t tpl_ws7_touch_init(void) {
     if (s_touch_addr == 0) {
         ESP_LOGE(TAG, "GT911 not found on I2C (tried 0x%02X, 0x%02X)",
                  GT911_I2C_ADDR_PRIMARY, GT911_I2C_ADDR_ALT);
-        Serial.printf("[tpl_ws7] GT911 NOT FOUND (tried 0x%02X, 0x%02X)\n",
+        TPL_LOGI("ws7", "[tpl_ws7] GT911 NOT FOUND (tried 0x%02X, 0x%02X)\n",
                       GT911_I2C_ADDR_PRIMARY, GT911_I2C_ADDR_ALT);
         return ESP_FAIL;
     }
 
-    Serial.printf("[tpl_ws7] GT911 at 0x%02X\n", s_touch_addr);
+    TPL_LOGI("ws7", "[tpl_ws7] GT911 at 0x%02X\n", s_touch_addr);
     return ESP_OK;
 }
 

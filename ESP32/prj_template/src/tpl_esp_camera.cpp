@@ -1,6 +1,7 @@
 #ifdef IS_ESP32CAM
 #define FROM_TEMPLATE 1
 #include "tpl_esp_camera.h"
+#include "tpl_debug_log.h"
 
 #include <Arduino.h>
 #include <driver/gpio.h>
@@ -107,7 +108,7 @@ void tpl_camera_off() {
 void tpl_process_web_socket_cam_settings(DynamicJsonDocument* json) {
   sensor_t* sensor = esp_camera_sensor_get();
   if (sensor == NULL) {
-    Serial.println("Camera sensor not available");
+    TPL_LOGI("cam", "Camera sensor not available");
     return;
   }
 

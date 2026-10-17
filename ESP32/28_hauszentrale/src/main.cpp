@@ -55,14 +55,18 @@ static lv_display_rotation_t rot_to_lvgl(int r) {
 void setup() {
     Serial.begin(115200);
     delay(100);
-    Serial.println("28_hauszentrale S10 — home screen");
+
+    /* Diagnostics first: everything after this point reaches the PSRAM ring,
+     * the WebSocket sink and /log. */
+    tpl_debug_log_setup();
+    TPL_LOGI("boot", "28_hauszentrale starting");
 
     tpl_system_setup(0);  // no deep sleep
 
     size_t psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
     uint32_t flash_size = 0;
     esp_flash_get_size(NULL, &flash_size);
-    Serial.printf("Flash: %d MB, PSRAM: %s\n",
+    TPL_LOGI("boot", "Flash: %d MB, PSRAM: %s\n",
                   flash_size / 1024 / 1024,
                   psramFound() ? "8 MB" : "0 MB");
 
@@ -75,14 +79,14 @@ void setup() {
 
     /* S5.01–S5.05: GT911 touch initialization */
     const bool touch_ok = (tpl_ws7_touch_init() == ESP_OK);
-    Serial.printf("GT911 touch: %s\n", touch_ok ? "ready" : "NOT FOUND (touch disabled)");
+    TPL_LOGI("boot", "GT911 touch: %s\n", touch_ok ? "ready" : "NOT FOUND (touch disabled)");
 
     /* S4.01–S4.05: RGB panel + LVGL display */
     lv_init();
     lv_tick_set_cb(lv_tick_cb);
     s_disp = tpl_ws7_display_init(TPL_WS7_ROTATION, (uint32_t *)s_draw_buf0, sizeof(s_draw_buf0));
     if (s_disp) {
-        Serial.println("RGB panel + LVGL display initialized");
+        TPL_LOGI("boot", "RGB panel + LVGL display initialized");
 
         /* S5.03: register the GT911 as the pointer input device */
         if (touch_ok) {
@@ -108,24 +112,27 @@ void setup() {
 
         /* ── S10: Build the home screen ─────────────────────────────── */
         haus_ui_init();
-        Serial.println("S10: home screen built");
+        TPL_LOGI("boot", "S10: home screen built");
 
         /* Render the first full frame before lighting the panel */
         int64_t flush_start = esp_timer_get_time();
         lv_refr_now(s_disp);
         int64_t flush_us = esp_timer_get_time() - flush_start;
-        Serial.printf("S4.11: full-frame flush = %lld us (%.1f ms)\n",
+        TPL_LOGI("boot", "S4.11: full-frame flush = %lld us (%.1f ms)\n",
                       flush_us, flush_us / 1000.0);
 
         tpl_ws7_backlight(true);
-        Serial.println("S10: home screen active — data shows — (S9/S17 stubs)");
+        TPL_LOGI("boot", "S10: home screen active — data shows — (S9/S17 stubs)");
+        TPL_LOGI("boot", "home screen active, flush %lld us", flush_us);
     } else {
-        Serial.println("ERROR: RGB panel initialization failed");
+        TPL_LOGI("boot", "ERROR: RGB panel initialization failed");
+        TPL_LOGE("boot", "RGB panel initialization failed");
     }
 
     /* WiFi + webserver + websocket (standard template setup) */
     tpl_wifi_setup(true, true, (gpio_num_t)255);  // no status LED on this board
     tpl_webserver_setup();
+    tpl_debug_log_register_endpoints();
     tpl_websocket_setup(NULL, NULL);
 #ifdef NET_WATCHDOG
     tpl_net_watchdog_setup();

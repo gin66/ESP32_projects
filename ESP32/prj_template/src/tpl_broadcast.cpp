@@ -1,4 +1,5 @@
 #include "tpl_broadcast.h"
+#include "tpl_debug_log.h"
 
 #include <string.h>
 
@@ -65,7 +66,7 @@ void tpl_broadcast_setup(uint16_t udpPort, const char* broadcastAddress) {
   last_valid_ms = millis();
   last_receive_ms = millis();
   bool ok = udp.begin(port);
-  Serial.printf("Broadcast: UDP %s on port %d (broadcast=%s)\n",
+  TPL_LOGI("udp", "Broadcast: UDP %s on port %d (broadcast=%s)\n",
                 ok ? "started" : "FAILED", port,
                 broadcastAddress ? broadcastAddress : "NULL");
   tpl_wifi_register_reconnect(tpl_broadcast_reinit);
@@ -73,7 +74,7 @@ void tpl_broadcast_setup(uint16_t udpPort, const char* broadcastAddress) {
 
 void tpl_broadcast_force_reinit() {
   reinit_count++;
-  Serial.printf("Broadcast: force reinit #%d (full WiFi reconnect)\n", reinit_count);
+  TPL_LOGI("udp", "Broadcast: force reinit #%d (full WiFi reconnect)\n", reinit_count);
   udp.stop();
   WiFi.disconnect(false, false);
   delay(100);
@@ -179,7 +180,7 @@ bool tpl_broadcast_receive(void* buffer, size_t buffer_size,
   if ((now - last_reinit_ms > 10000) &&
       (last_valid_ms == 0 || now - last_valid_ms > 10000)) {
     if (consecutive_failed_reinits >= MAX_SIMPLE_REINITS) {
-      Serial.printf(
+      TPL_LOGI("udp", 
           "Broadcast: %d simple reinits failed, escalating to full WiFi "
           "reconnect\n",
           consecutive_failed_reinits);
@@ -196,7 +197,7 @@ bool tpl_broadcast_receive(void* buffer, size_t buffer_size,
 
 void tpl_broadcast_reinit(unsigned long current_ms) {
   if (port > 0) {
-    Serial.printf("Broadcast: reinitializing UDP on port %d\n", port);
+    TPL_LOGI("udp", "Broadcast: reinitializing UDP on port %d\n", port);
     udp.stop();
     udp.begin(port);
     last_reinit_ms = current_ms;

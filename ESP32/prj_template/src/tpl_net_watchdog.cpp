@@ -1,4 +1,5 @@
 #include "tpl_net_watchdog.h"
+#include "tpl_debug_log.h"
 
 #include <WiFi.h>
 #include <WiFiUdp.h>
@@ -94,7 +95,7 @@ void TaskWatchdog(void* pvParameters) {
     if (tpl_config.wifi_recovery_tier > 0) {
       if (++log_counter >= 10) {
         log_counter = 0;
-        Serial.printf("NetWatch: skipped (tier=%d)\n", tpl_config.wifi_recovery_tier);
+        TPL_LOGI("net", "NetWatch: skipped (tier=%d)\n", tpl_config.wifi_recovery_tier);
       }
       vTaskDelay(xDelay);
       continue;
@@ -125,7 +126,7 @@ void TaskWatchdog(void* pvParameters) {
 
     if (++log_counter >= 10) {
       log_counter = 0;
-      Serial.printf("NetWatch: NTP=%s DNS=%s IP=%s fail=%d tier=%d\n",
+      TPL_LOGI("net", "NetWatch: NTP=%s DNS=%s IP=%s fail=%d tier=%d\n",
         ntp_ok ? "OK" : "FAIL", dns_ok ? "OK" : (ntp_ok ? "-" : "FAIL"),
         ip.toString().c_str(), tpl_fail, tpl_config.wifi_recovery_tier);
     }
@@ -136,15 +137,15 @@ void TaskWatchdog(void* pvParameters) {
     } else {
       tpl_fail++;
       if (!has_valid_ip) {
-        Serial.printf("NetWatch: no valid IP, fail=%d\n", tpl_fail);
+        TPL_LOGI("net", "NetWatch: no valid IP, fail=%d\n", tpl_fail);
       } else if (ntp_consecutive_fails >= 3) {
-        Serial.printf("NetWatch: NTP+DNS failed, fail=%d\n", tpl_fail);
+        TPL_LOGI("net", "NetWatch: NTP+DNS failed, fail=%d\n", tpl_fail);
       } else {
-        Serial.printf("NetWatch: NTP failed (cnt=%d), fail=%d\n", ntp_consecutive_fails, tpl_fail);
+        TPL_LOGI("net", "NetWatch: NTP failed (cnt=%d), fail=%d\n", ntp_consecutive_fails, tpl_fail);
       }
 
       if (tpl_fail >= 300) {
-        Serial.println("NetWatch: 5min timeout, restarting");
+        TPL_LOGI("net", "NetWatch: 5min timeout, restarting");
         delay(100);
         ESP.restart();
       }

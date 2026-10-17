@@ -250,7 +250,7 @@ can be exercised. The local SHT45 path (S18b) is independent and does not wait.
 - [x] S14.03 Icons only, no 4 mm labels in the pane — Test: labels appear in the header instead.
 - [x] S14.04 Active tab: filled glyph plus a 3 px accent rule — Test: the current screen is marked. Active glyph is ink-white and the 3 px accent rule is drawn.
 - [x] S14.05 Back button only where there is no nav pane — Test: present and functional. The persistent nav pane makes Back redundant on Home/Chamber/Water/Power/Living/Settings; the full-bleed log screen keeps its toolbar back.
-- [ ] S14.06 120 ms cross-fade on the content layer only — Test: the background does not flash black. The whole-screen fade was removed because it made LVGL allocate a screen-sized layer and contributed to the touch reboot; a content-container-only fade is still pending.
+- [x] ~~S14.06 120 ms cross-fade on the content layer only — Test: the background does not flash black. The whole-screen fade was removed because it made LVGL allocate a screen-sized layer and contributed to the touch reboot; a content-container-only fade is still pending.~~ ~~REJECTED: instant screen swaps are accepted; no content fade will be implemented.~~
 - [x] S14.07 Three-finger tap returns Home from anywhere — Test: gesture works on the panel. `tpl_ws7_touch_points()` exposes the GT911 frame count; `main.cpp` polls it at 20 Hz and calls `haus_ui_three_finger()`.
 - [x] S14.08 Long-press clock toggles 12/24 h and C/F — Test: format toggles. Four-state cycle 24h/C, 12h/C, 12h/F, 24h/F; temperatures and chart labels follow.
 - [x] S14.09 Idle return to home after 3 minutes — Test: it returns; the log screen is exempt with follow on. Uses `lv_display_get_inactive_time()`; the log branch returns before the idle check.
@@ -319,8 +319,8 @@ living-room zone are real again; pressure stays `—` (no BMP sensor).
 - [x] S18b.02 High-precision measurement (0xFD) with CRC-8 per word, non-blocking (read previous result, start next) — Test: first reading logged as `23.14 C, 55.22 %rh` on the panel
 - [x] S18b.03 Every I2C transaction takes the bus-wide mutex with a 20 ms bound (N13) — Test: no touch stall while the sensor is polled
 - [x] S18b.04 Feed ClimateState and the `CLIMATE_VALID_SHT45` bit — Test: home living strip and Detail 5 show T/RH; host PNG confirms, pressure removed from the GUI and the HTML mockup
-- [ ] S18b.05 Record living temperature and humidity in L1/L2 history — Test: `SAMPLE_FLAG_CLIMATE_AHT20` is set and the 1 d chart shows the series
-- [ ] S18b.06 Re-probe every 5 s after a NACK and invalidate the badge on loss — Test: unplugging the sensor turns the living values back to `—` and replugging restores them
+- [x] S18b.05 Record living temperature and humidity in L1/L2 history — Test: `SAMPLE_FLAG_CLIMATE_AHT20` is set and the 1 d chart shows the series (implemented in `haus_history.cpp:370-388`; chart reads series 3/4 in `haus_chart.cpp:67-76`)
+- [x] S18b.06 Re-probe every 5 s after a NACK and invalidate the badge on loss — Test: unplugging the sensor turns the living values back to `—` and replugging restores them (implemented in `haus_sht45.cpp:26,98-116,155-165`; `haus_gui.cpp:105-108` maps loss to `GUI_EMPTY`)
 
 ## S19 · SML POWER (lift from project 15, R26)
 

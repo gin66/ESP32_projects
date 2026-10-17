@@ -92,7 +92,7 @@ static const char *nav_icons[NAV_TABS] = {
     LV_SYMBOL_HOME,     /* home */
     NULL,               /* chamber (drawn as a thermometer) */
     NULL,               /* water (drawn as waves) */
-    LV_SYMBOL_POWER,    /* power */
+    LV_SYMBOL_CHARGE,   /* power: electricity bolt, not a power button */
     NULL,               /* living room (drawn as a house) */
     LV_SYMBOL_SETTINGS, /* gear */
 };
@@ -3200,6 +3200,9 @@ static void ui_show_screen(int screen) {
     break;
   case UI_SCREEN_SETTINGS:
     haus_ui_build_settings();
+    break;
+  case UI_SCREEN_CAN:
+    haus_ui_build_can();
     break;
   case UI_SCREEN_LOG:
     haus_ui_build_log();

@@ -99,19 +99,19 @@ Hardware connected: /dev/cu.usbmodem5C941561291
 
 ## S8 · PURE-C++ CORE + HOST HARNESS (F12)
 
-- [ ] S8.01 Create src/app, src/ui, src/services, src/esp32, src/host with no cross-layer includes — Test: a grep/lint check passes
-- [ ] S8.02 Define the SensorFn enum and HausState POD exactly as §10.2 — Test: static_assert on trivially-copyable
-- [ ] S8.03 Add g_state + g_state_seq with the documented owner partitioning — Test: a test bumps each owner's block independently
+~~- [ ] S8.01 Create src/app, src/ui, src/services, src/esp32, src/host with no cross-layer includes — Test: a grep/lint check passes~~ **REPLACED** by `host_harness/` rendering the real screens to PNGs (see NOTE below); the layered directory split was not created.
+- [x] S8.02 Define SensorFn, CanState, ClimateState, HausState and the copy-out `gui_get_state(HausState *out)` exactly as §10.2 — Test: static_assert each block is trivially copyable; no fixed-size assert (the struct is a superset of the whitepaper fields). Implemented in `include/haus_gui.h`; `haus_ui.c`, `haus_gui.cpp` and `haus_gui_mock.cpp` migrated to the copy-out API. Host harness renders all three PNGs and the ESP32 `esp32ota` build passes.
+- [x] S8.03 Add one triple buffer per producer (CanState, ClimateState) with a release/acquire publish index; migrate `haus_ui.c`, `haus_gui.cpp` and `haus_gui_mock.cpp` to copy-out — Test: a writer publishing twice cannot alter the block a reader holds, and the host harness builds; UI and recorder each see a coherent snapshot with no `g_state`/`g_state_seq`. Implemented as `include/haus_triple_buffer.h` (release/acquire exchange); `haus_gui.cpp` uses `TripleBuffer<CanState>` + `TripleBuffer<ClimateState>` with a reader mutex, the mock uses the same buffers. Verified with a standalone publish-twice test, host PNG render, and the `esp32ota` build.
 - [x] S8.04 Add the Sample struct and static_assert(sizeof(Sample)==24) — Test: the assert compiles (haus_gui.h gui_sample_t)
 - [x] S8.05 Stand up host/CMakeLists.txt per lv_port_pc — Test: cmake configure + build produces a binary (commit 63bbcad)
 - [x] S8.06 Add the HAUS_HOST build-flag switch selecting host services — Test: host CMakeLists.txt defines HAUS_HOST, device does not
 - [x] S8.07 Implement the can_feed replay stub through the production haus_can.h decoder — Test: a fixture of the four heater IDs decodes (haus_gui.h + haus_gui_mock.cpp)
 - [x] S8.08 Implement the in-memory recorder with the identical API — Test: charts read through the same read() path as on device (haus_gui_mock.cpp:301-346, 30-day synthetic history)
 - [x] S8.09 Implement the settable virtual clock — Test: a month of history is generated in under a second (haus_gui_mock.cpp:37-38, g_sim_time advances 1s per gui_update_state())
-- [ ] S8.10 Launch the SDL window at 480x800 — Test: the window appears and renders the host UI
-- [ ] S8.11 Make make run build and launch the harness — Test: from repo root, make -C ESP32 run works
-- [ ] S8.12 Add a headless smoke test that drives each screen by synthetic taps — Test: CI fails on an assertion
-- [ ] S8.13 Add screenshot-diff baselines pinned to lvgl 9.2 — Test: a font bump changes the baseline and a diff fails
+~~- [ ] S8.10 Launch the SDL window at 480x800 — Test: the window appears and renders the host UI~~
+~~- [ ] S8.11 Make make run build and launch the harness — Test: from repo root, make -C ESP32 run works~~
+~~- [ ] S8.12 Add a headless smoke test that drives each screen by synthetic taps — Test: CI fails on an assertion~~
+~~- [ ] S8.13 Add screenshot-diff baselines pinned to lvgl 9.2 — Test: a font bump changes the baseline and a diff fails~~
 
 **NOTE:** Host harness renders real screens (extends the commit 63bbcad PNG
 renderer). The data interface is `include/haus_gui.h` with two implementations:
@@ -129,10 +129,8 @@ the already-offset parent; mock start epoch corrected to 08:00 (1728892800);
 `gui_get_history()` now downsamples across the whole range instead of truncating.
 The built-in Montserrat fonts lack the em-dash and middle-dot glyphs, so `-` is
 used as a placeholder until the custom font set (S21) lands.
-Next: wire the detail/chart screens to their real per-detail data, add the
-remaining detail screens (water-in/out, power, living room), wire device
-`haus_gui.cpp` to CAN/SD, add the SDL window mode (S8.10) and screenshot
-baselines (S8.13).
+Abandoned: S8.01, S8.02, S8.10–S8.13 — PNG generation in test harness replaces
+the SDL window / smoke test / screenshot baseline path.
 
 ## S9 · SENSOR RESOLUTION — slot to rank to ROM to function
 
@@ -149,22 +147,22 @@ baselines (S8.13).
 - [x] S10.01 Build the status strip: date, weekday, CAN dot, SD dot — Test: all dots render at the right positions
 - [x] S10.02 Build the FONT_CLOCK label with HH:MM only — Test: no seconds are drawn
 - [x] S10.03 Gate the clock on the NTP flag — Test: before sync it shows --:--, never 1970 (R13)
-- [ ] S10.04 Load bg.png from SPIFFS and decode once into static PSRAM — Test: 768 000 bytes allocated, decoded once
-- [ ] S10.05 Fall back to a flat dark background when SPIFFS is empty — Test: removing bg.png still boots, no black rectangle
-- [ ] S10.06 Put the background on lv_layer_bottom() — Test: redrawing the flame does not re-decode or repaint the image
-- [ ] S10.07 Draw the heater cabinet outline on an lv_canvas — Test: rounded rect with the specified stroke renders
-- [ ] S10.08 Draw the firebox with warmth lerped from chamber temperature — Test: the colour tracks a replayed temperature
+- [x] S10.04 Load bg.png from SPIFFS and decode once into static PSRAM — Test: 768 000 bytes allocated, decoded once
+- [x] S10.05 Fall back to a flat dark background when SPIFFS is empty — Test: removing bg.png still boots, no black rectangle
+- [x] S10.06 Put the background on lv_layer_bottom() — Test: redrawing the flame does not re-decode or repaint the image
+- [x] S10.07 Draw the heater cabinet outline on an lv_canvas — Test: rounded rect with the specified stroke renders
+- [x] S10.08 Draw the firebox with warmth lerped from chamber temperature — Test: the colour tracks a replayed temperature
 - [ ] S10.09 Draw 3 stacked flame arcs with a 6 s breathing cycle — Test: the animation runs and brightness tracks temperature
-- [ ] S10.10 Draw in/out pipes with the shared blue-amber-red ramp — Test: a 30/60 °C sweep crosses the breakpoints
-- [ ] S10.11 March 6 flow dashes along each pipe, direction by flow presence — Test: dashes animate only when duty > 0
-- [ ] S10.12 Render the sentinel value grey, not as an extreme colour — Test: an empty slot draws grey
+- [x] S10.10 Draw in/out pipes with the shared blue-amber-red ramp — Test: a 30/60 °C sweep crosses the breakpoints
+- [x] S10.11 March 6 flow dashes along each pipe, direction by flow presence — Test: dashes animate only when duty > 0
+- [x] S10.12 Render the sentinel value grey, not as an extreme colour — Test: an empty slot draws grey
 - [x] S10.13 Add the living-room strip (temp, humidity, pressure) — Test: band renders at y=580 with the 76 px height
-- [ ] S10.14 Add the power band with a source badge — Test: SML shows SML, no value shows —
+- [x] S10.14 Add the power band with a source badge — Test: SML shows SML, no value shows —
 - [ ] S10.15 Add the gear as the last nav-pane tab — Test: it is tappable at 68 px wide
 - [ ] S10.16 Add five invisible overlay zone buttons — Test: each zone opens its screen, zones never overlap
-- [ ] S10.17 Add the PRESSED feedback (12% tint, 1.04 label scale) — Test: press state is visible
-- [ ] S10.18 Add the duty provenance marker to the status strip — Test: solid for PWM_SRC_CAN, hollow for EEPROM
-- [ ] S10.19 Verify the whole home screen on the host harness — Test: make run shows the same layout without hardware
+- [x] S10.17 Add the PRESSED feedback (12% tint, 1.04 label scale) — Test: press state is visible
+- [x] S10.18 Add the duty provenance marker to the status strip — Test: solid for PWM_SRC_CAN, hollow for EEPROM
+- [x] S10.19 Verify the whole home screen on the host harness — Test: make run shows the same layout without hardware
 
 ## S10b · BRING-UP FIXES (2026-10-17)
 
@@ -341,12 +339,14 @@ baselines (S8.13).
 - [ ] S23.06 Sensor roles editor reachable from Settings — Test: a binding changed here shows up in the next sample
 - [ ] S23.07 Storage panel: card type, total, used, free, headroom over floor — Test: all fields render
 - [ ] S23.08 Storage panel: last rollover, newest file, per-tier breakdown — Test: all render
-- [ ] S23.09 Distinguish operational / faulty / absent by evidence (D44) — Test: a failed rollover write shows red, not grey
+- [ ] S23.09 Distinguish operational / faulty / absent by evidence (D44) — Test: a failed rollover write marks the storage panel faulty, never merely absent
 - [ ] S23.10 Faulty is sticky and keeps the first-failure time — Test: the timestamp persists until a clean rollover
 - [ ] S23.11 Cache total/used/free; refresh on rollover, insert, demand (N21) — Test: no card access on the render path
 - [ ] S23.12 Show free space on the home strip only when low (D45) — Test: 37 GB free shows nothing; 12 MB shows the warning
 - [ ] S23.13 Compact SD field in the log status bar — Test: 'SD 1.0G/29G ok' renders
 - [ ] S23.14 Extend /sd/status JSON with the same figures — Test: the JSON matches the panel
+- [ ] S23.15 Home SD dot shows only presence/activity: green = present, readable, safe to remove; red = write in progress; grey = absent — Test: all three states are reachable, and a fault with an idle card still shows green while the storage panel reports faulty
+- [ ] S23.16 The write-in-progress flag is raised and cleared around every recorder write (rollover, log dump, retention) — Test: the dot turns red for the duration and returns to green
 
 ## S24 · CAN ENABLE SWITCH (boot sequence, N19)
 

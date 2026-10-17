@@ -1,6 +1,7 @@
 # White Paper: 28_hauszentrale — House Central on the Waveshare ESP32-S3-Touch-LCD-7
 
 **Status:** COMPLETE — all sections written. Open questions in §12 remain to be answered before phase 1.
+**Revision:** 1.7 — redefines the home SD dot as a removal indicator: **green = present, readable, safe to remove; red = write in progress; grey = absent**. Faulty storage remains an evidence-based, sticky state but moves to the storage panel and log bar rather than a dot colour (§8.15.1, D44, R28).
 **Revision:** 1.6 — adds the battery, charging and indicator-LED subsystem from the schematic (§3.7: CS8501 charger, `CHRG`/`STDBY` open-drain status pins wired only to their LEDs, no enable pin, VBAT uninstrumented, R31 as the one-resistor fix), R31, Q25, D52, and the reconciliation of §2.2 and §8.1
 **Revision:** 1.6 — resolves Q24: the BMP380+AHT20 combo is not usable on this board. The BMP380 at `0x77` returns chip_id=0x00 (unpowered or SDA/SCL not wired). The AHT20 at `0x38` hard-collides with CH422G WR-IO. No local climate sensors can be fitted. The living-room zone (Detail 5) renders `—` permanently. S18 in the todo list is marked ABANDONED.
 **Revision:** 1.4 — adds the bench verification of the physical board (§3.1.1: ESP32-S3 rev v0.2, **16 MB** flash correcting the 8 MB identity, MAC `28:84:85:a7:a6:78`, CH9102 USB-UART bridge, the mechanical UART switch, and the `rtc_pcf85063` / IDF 5.5.4 demo currently on the flash), the mechanical-switch constraint on §3.3 and the §7.5 runbook, D49–D51, Q22–Q23
@@ -509,7 +510,7 @@ treated as in-scope battery engineering under §2.2.
 | F24 | A **modelled heater water-out temperature** derived from the commanded PWM duty, shown on the panel and permanently labelled as modelled — dashed chart line, `MODELLED` badge, `TEMP_MODELLED` flag in the record, excluded from every derived statistic. The model function is supplied later; until then the zone renders `—`. This is the heater return, not the living-room sensor. |
 | F25 | A user-switchable **CAN enable**, in Settings under the gear, that hands USB back when CAN is off. Defaults to **off**. Confirmed by a modal naming the consequence. |
 | F26 | History at all three ranges is served without reading the SD card after boot: the 1-day view from an in-RAM day buffer, the week and month views from an in-RAM rollup loaded once at boot. |
-| F27 | The storage state is **operational / faulty / absent**, decided by evidence — a failed rollover write, a CRC mismatch, or free space below the floor all mean *faulty*, not *absent* — and a fault is sticky with the time of first failure. |
+| F27 | The storage state is **operational / faulty / absent**, decided by evidence — a failed rollover write, a CRC mismatch, or free space below the floor all mean *faulty*, not *absent* — and a fault is sticky with the time of first failure. The home dot reflects only presence and activity: **green = present, readable, safe to remove; red = writing; grey = absent**. |
 | F28 | Settings → Storage shows card type, total, used, free, headroom over the floor, last rollover time, newest history file and a per-tier breakdown (§8.15). |
 
 ### 4.2 Non-Functional
@@ -675,13 +676,13 @@ is the trade, stated plainly rather than discovered later.
    ═══════════════► │  can_task (TWAI RX)      wifi_manager   net_watchdog │
                     │        │                                             │
                     │        ▼                                             │
-                    │   haus_state  (single writer, double reader)         │
+                    │   haus_state  (two producers, triple-buffered)       │
                     │   ───────────────────────────────────────            │
-                    │        │  snapshots                                │
+                    │        │  copy-out snapshots                        │
                     │        ▼                                             │
                     │   recorder_task ──► SD card (fixed-size records)     │
                     └────────│─────────────────────────────────────────────┘
-                             │ volatile snapshot
+                             │ HausState snapshot (copied)
                     ┌────────▼─────────── Core 1 / loop() ─────────────────┐
                     │  lv_task_handler()                                  │
                     │    └── ui::render(snapshot)                         │
@@ -695,10 +696,11 @@ is the trade, stated plainly rather than discovered later.
 
 Three decisions worth naming up front:
 
-- **A single owner of house state.** `haus_state` is written only by the CAN task
-  and read by the UI. This replaces `26_CYD_CAN_monitor`'s arrangement, where
-  decoder side-effects (counter increments, SML reassembly) ran inside the 500 ms
-  *display* loop and therefore in table order rather than bus order.
+- **Disjoint owners, immutable published blocks.** `canTask` writes `CanState`
+  and `sensorTask` writes `ClimateState`; each publishes a block that readers copy
+  (§10.2). This replaces `26_CYD_CAN_monitor`'s arrangement, where decoder
+  side-effects (counter increments, SML reassembly) ran inside the 500 ms *display*
+  loop and therefore in table order rather than bus order.
 - **Recording is decoupled from display.** The recorder samples its own state on a
   fixed cadence regardless of whether anyone is looking, so a missing or slow UI
   can never create a gap in the history.
@@ -1557,7 +1559,7 @@ where it is, and is configured by whoever plugged it in. There is no rank, no
 identity frame, no expiry, and no `sensor_roles[]` entry. Forcing it through the
 CAN resolution chain would add a failure mode (an unbound sensor rendering `—`
 forever) to a sensor that cannot have that failure. F15's data enters
-`HausState` directly, already function-identified by virtue of *being* that
+`ClimateState` directly, already function-identified by virtue of *being* that
 function.
 
 **Devices on the bus.** All four share GPIO 8/9:
@@ -1606,8 +1608,9 @@ measurement at a time.
   between reads.
 
 **No sensor task.** The sensor task (S18) is abandoned. The living-room zone (Detail 5) renders `—` permanently.
-`HausState`; the recorder samples once a minute (§7.4), so the extra resolution is
-for the live display and the log, not for the history. Per N14 a missing or
+`ClimateState` is published once a minute at most; the recorder samples once a
+minute (§7.4), so the extra resolution is for the live display and the log, not
+for the history. Per N14 a missing or
 crc-failing device sets its `CLIMATE_VALID` bit clear, raises a fault flag and
 logs — and nothing else on the panel changes. Three consecutive failures log once
 at `!`, not three times.
@@ -2090,10 +2093,12 @@ Notes:
   length than a 64 px corner nobody is sure about. It stays the quietest of the
   seven — outline glyph, not filled, no underline unless active.
 - **Status strip indicators** are small dots, not text: green CAN, amber CAN fault,
-  green SD, red SD fault, grey WiFi-off, and — only when a sensor is actually
+  **green SD (present, readable, safe to remove), red SD while a write is in
+  progress, grey SD absent**, grey WiFi-off, and — only when a sensor is actually
   missing — a grey `I²C` dot (N14). A climate sensor that is absent is not an
   error the eye should catch across the room, but it must not be silently
-  indistinguishable from a reading either.
+  indistinguishable from a reading either. The SD dot is a *removal* indicator,
+  not a health verdict; faults surface in the storage panel (§8.15.1).
 - **The duty badge lives in the status strip too.** Once a PWM command has been
   sent, a small marker appears there so that the provenance described in §7.9 is
   visible from the home screen without opening the chamber detail: solid when the
@@ -2655,18 +2660,25 @@ is not a row.
 Where the card's state lives, and what each state actually *means*. The status
 strip already carries an SD dot (§8.2); this is the surface behind it.
 
-#### 8.15.1 Three states, defined by evidence
+#### 8.15.1 Three dot states: present, writing, absent
 
 `tpl_sd` distinguishes only "not initialized", "mount failed" and "no card"
-(`tpl_sd.cpp:57-66`). That is enough for *absent* and not enough for *faulty*,
-which is the state that matters — a card that mounts and then fails to write is
-the one that loses history quietly.
+(`tpl_sd.cpp:57-66`). The home dot is deliberately narrower than the full storage
+health model: it answers one question — *may I pull the card right now?*
 
 | State | Evidence | Home strip |
 | ----- | -------- | ----------- |
-| **Operational** | mounted; the last rollover write returned success; the newest `/rollup.bin` verified against its CRC | green dot |
-| **Faulty** | any of: a rollover write failed; a CRC mismatch in `/rollup.bin` or a daily file; free space below the 50 MB floor; three consecutive failed reads | red dot |
+| **Present, idle** | mounted; the last read succeeded; no write in progress | green dot — present, readable, and safe to remove |
+| **Writing** | a recorder write is in progress (rollover, log dump, retention pass) | red dot — do not remove the card |
 | **Absent** | mount failed, or `SD.cardType() == CARD_NONE` | grey dot |
+
+**Green is a removal guarantee, not a health verdict.** A card that mounts, reads
+back, and is not being written is green even if a previous write failed. Faults are
+still tracked with the same evidence as before — a failed rollover write, a CRC
+mismatch in `/rollup.bin` or a daily file, free space below the 50 MB floor, three
+consecutive failed reads — but they are **not encoded in the dot**. They surface in
+**Settings → Storage** and the compact field on the log status bar (§8.15.3), and
+the free-space warning on the home strip when the floor is close.
 
 **Faulty is sticky and says when it happened.** It clears only after a successful
 rollover, and the storage panel keeps the timestamp of the first failure, because
@@ -2940,32 +2952,40 @@ not.
 
 ### 10.2 State hand-off
 
+Each producer owns an immutable published block; the UI reads a copy. There is no
+`g_state` and no sequence counter.
+
 ```cpp
 enum class SensorFn : uint8_t { Chamber, WaterIn, WaterOut, Board, None, COUNT };
 
-struct HausState {          // POD, trivially copyable
-  // --- CAN, by slot: what the CAN monitor screen shows ---
+struct CanState {                 // owner: canTask
+  uint32_t timestamp;
+  bool     synced;
+
   int16_t  temp_c100[HAUS_CAN_MAX_SENSORS];  // HAUS_CAN_TEMP_EMPTY == absent
   uint8_t  fn_of_slot[HAUS_CAN_MAX_SENSORS]; // SensorFn, or None
-
-  // --- CAN, by function: what the home screen and recorder consume ---
   int16_t  temp_by_fn[(uint8_t)SensorFn::COUNT];
 
-  // --- local I2C (not CAN, never slot-indexed — §7.8) ---
-  int16_t  living_c100;
-  uint16_t hum_c100;
-  uint32_t pressure_pa;
-  uint8_t  climate_flags;   // CLIMATE_VALID_AHT20 | CLIMATE_VALID_BMP280
-
-  // --- actuator (§7.9) ---
   uint16_t pwm_permille;    // reported by 0x280, never by what we sent
+  uint16_t frequency_hz;
   uint8_t  pwm_src;         // PWM_SRC_EEPROM / _CAN / _NRF / _FAULT
+  bool     active;
   uint16_t pwm_pending;     // slider position; 0xFFFF == none pending
+  uint16_t requested_permille;
+  bool     has_pending;
   uint32_t pwm_pending_since_ms;
 
-  // --- power ---
   uint16_t power_dw;        // decawatts, same unit as Sample.power_dw (§7.4)
   uint8_t  power_src;       // NONE / SML / ADC
+  int32_t  watts;
+  int32_t  watts_last;
+  bool     valid;
+
+  gui_status_t can_status, duty_status, sd_status;
+  bool         sd_low_space;
+  int16_t      chamber_target_c;
+  bool         water_modelled;
+  uint32_t     uptime_seconds;
 
   uint32_t rx_frames, tx_frames, bus_errors;
   uint32_t last_frame_ms;
@@ -2974,18 +2994,81 @@ struct HausState {          // POD, trivially copyable
   uint8_t  i2c_fault;
 };
 
-extern HausState g_state;         // written by canTask and sensorTask
-extern volatile uint32_t g_state_seq;   // bumped on every write
+struct ClimateState {             // owner: sensorTask
+  int16_t  living_c100;
+  uint16_t hum_c100;
+  uint32_t pressure_pa;
+  uint8_t  climate_flags;   // CLIMATE_VALID_AHT20 | CLIMATE_VALID_BMP280
+};
+
+struct HausState {                // read-only merged view, assembled per call
+  CanState     can;
+  ClimateState climate;
+};
+
+void gui_get_state(HausState *out);   // copy-out; caller owns the snapshot
 ```
 
-**Two writers now, so the fields are partitioned by owner** rather than shared.
-`canTask` owns everything from `temp_c100` down to `pwm_pending` and the counters;
-`sensorTask` owns only the four climate fields. Neither touches the other's block,
-so `g_state` needs no lock — but the sequence counter is bumped by both, and a
-reader that copies the struct may get one owner's values a few milliseconds apart
-from the other's. That is the same accepted trade as before and for the same
-reason: every field is independently meaningful, and the alternative — a mutex on
-the hot path of a 400 Hz display loop — is worse.
+**Why not an in-place struct with a sequence counter.** Writing the blocks in
+place and bumping `g_state_seq` only works if the reader is optimistic: copy the
+struct, re-read the counter, retry when it moved. Without that retry the counter
+does nothing, and with it a reader can spin precisely when the producer is busy.
+Two buffers do not fix it either — the block just published becomes the producer's
+next scratch buffer, so a slow reader is overwritten mid-copy. Three buffers plus
+an atomic exchange give the reader a block the writer cannot touch until it is
+returned. At ~1 Hz publishing and a ~120-byte copy, the cost is irrelevant; the
+guarantee is not.
+
+```cpp
+template <typename T> struct TripleBuffer {
+  T slot[3];
+  std::atomic<uint8_t> middle{0};
+  uint8_t write_slot = 1;
+  uint8_t read_slot  = 2;
+
+  T &write() { return slot[write_slot]; }          // producer's private slot
+
+  void publish() {                                  // producer, ~1 Hz
+    write_slot = middle.exchange(write_slot, std::memory_order_release);
+  }
+
+  const T &acquire() {                              // reader, ~2 Hz
+    read_slot = middle.exchange(read_slot, std::memory_order_acquire);
+    return slot[read_slot];
+  }
+};
+
+static TripleBuffer<CanState>     g_can;
+static TripleBuffer<ClimateState> g_climate;
+```
+
+The producer writes **every field it owns** into `write()` each cycle (no
+read-modify-write of the scratch slot), then calls `publish()`. The reader calls
+`acquire()` and gets a slot the writer will not touch until the next exchange puts
+it back into the middle. The index is the only shared word; the release store and
+acquire load make the field writes happen-before the reader's copy. It must not be
+a plain `volatile`.
+
+`gui_get_state()` merges the two current blocks into caller memory:
+
+```cpp
+void gui_get_state(HausState *out) {
+  xSemaphoreTake(g_snapshot_read_mutex, portMAX_DELAY);  // readers only
+  out->can     = g_can.acquire();
+  out->climate = g_climate.acquire();
+  xSemaphoreGive(g_snapshot_read_mutex);
+}
+```
+
+The mutex serialises readers (the UI task and the recorder), because the
+triple-buffer exchange assumes one reader at a time. Producers never take it, so a
+slow reader cannot delay `canTask` or `sensorTask`, and the display path never
+blocks a producer. Readers must copy out; they never retain a pointer into a slot.
+
+Merging is the same accepted trade as before: `can` and `climate` may be a few
+milliseconds apart, and every field is independently meaningful. Within one
+producer the block is coherent — the CAN screen cannot show temperatures from one
+frame and duty from another.
 
 **`pwm_permille` and `pwm_pending` are deliberately different fields.** The first
 is what the AVR says; the second is where the slider is. Collapsing them into one
@@ -3150,7 +3233,7 @@ written 525 000 times a year to store data that does not change within the day.
 | R24 | **A modelled water-out temperature is read as a measurement** — by a person, or by a later contributor who wires it into a statistic | **High** | Medium | Structural, not editorial: a dedicated `TEMP_MODELLED` flag bit in the record, a dashed chart line, a permanent `MODELLED` badge, `~` prefixes on every derived value, and exclusion from all efficiency statistics (§7.11). A modelled value cannot silently become a measured one even if someone forgets which is which |
 | R25 | **The 4 mm floor makes the panel less informative** — 26 log lines instead of 44, 38 characters instead of 50, 13 CAN rows instead of 16 | Low | **Certain** | Accepted (§8.1.1). The requirement is readability without glasses, and density was never the goal. Mitigated where it is cheap: soft wrapping rather than clipping, and the visible dropped-line counter so the loss of text is diagnosable rather than mysterious |
 | R26 | **The SML decoder drifts.** It is lifted from project 15; if the two copies diverge, the panel and the e-ink display disagree about the household's power | Medium | Medium | Lift into `src/app/` as pure C++ (N5) and have **project 15 adopt the shared version**, so there is one implementation and project 15's build is the regression test — the same pattern as the `tpl_can_monitor` extraction (§7.3) |
-| R28 | **A card mounts, then fails**, and history stops with the strip still green | Medium | Low | A sticky *faulty* state driven by evidence — failed rollover write, CRC mismatch, free space under the floor — not by absence of activity (§8.15.1). The recorder already retries every 30 s (§9.7); a fault is what that retry loop reports |
+| R28 | **A card mounts, then fails**, and history stops while the strip dot is green because green now means "idle and removable", not "healthy" | Medium | Low | A sticky *faulty* state driven by evidence — failed rollover write, CRC mismatch, free space under the floor — not by absence of activity (§8.15.1). It is reported in Settings → Storage and the log status bar, not inferred from the dot. The recorder already retries every 30 s (§9.7); a fault is what that retry loop reports. The free-space warning still appears on the home strip when the floor is close |
 | R29 | **`tpl_sd` cannot mount on this board**, so `/sd/list` and `/sd/download` are dead and §6.7's "tpl_sd stays as the browser" is wrong | Low | **Certain** | Already true as built: `tpl_sd` drives a real CS GPIO and this board's CS is a CH422G bit. Storage figures are read from the recorder's own handle instead. The *browser* is the open half — **Q20** |
 | R27 | **Enabling CAN in config strands the device**, if Q22 finds that `USB_SEL` high disconnects the CH9102 | **High** | Unknown until Q22 | N19 drives `USB_SEL` low first. A crash after step 3 of §7.12 leaves it high. The strap on GPIO 4 (Q17) is the fix no firmware bug can override, and it shares that pin with Q19. BOOT + the CH9102 already worked with the mechanical switch set correctly (§3.1.1, §7.12 option C). The expander's `0xFF` reset value is not this risk |
 | R30 | **An AHT20 on H1 shares address `0x38` with CH422G WR-IO** | **High** | **Certain** if fitted as rev 1.4 specified | Do not fit it on this bus (§7.8). **BMP380 at `0x77` returns chip_id=0x00 (unpowered/not wired).** No local climate sensors are usable. Q24 resolved: the living-room zone stays `—` permanently. |
@@ -3280,7 +3363,7 @@ debugging a UI bug and an actuator bug in the same session.
 | D7 | Fixed-size records, now 24 B | Text CSV, as `15_power_log_eink` uses | Enables `seek()` — a month window is a seek, not a scan (§7.4, §9.5) |
 | D8 | Streaming downsample to a per-pixel envelope | Cache the whole month in PSRAM | Bounds RAM at ~24 KB instead of ~1 MB, and keeps N6 true (R12) |
 | D9 | Gap markers rather than interpolation | Connecting points across a dropout | Asserting measurements that were never taken is the failure mode a history view must not have (R6) |
-| D10 | `AppState` snapshot + sequence counter | Direct global reads from the UI | Makes the threading contract explicit and keeps the host build honest (N5, §10.2) |
+| D10 | `HausState` copy-out + one triple buffer per producer (atomic publish index) | In-place `g_state` with a sequence counter, or direct global reads | Each reader gets a coherent block the writer cannot overwrite; no retry loop, no writer lock. Makes the threading contract explicit and keeps the host build honest (N5, §10.2) |
 | D11 | Recorder owns writes, `tpl_sd` owns reads, flush-barrier between | Extend `tpl_sd` with a write path | `tpl_sd` is read-only by design and its CS model does not fit the CH422G (§6.7, R7) |
 | D12 | Hand-authored LVGL for all screens | EEZ Studio | EEZ cannot express the vector heater or an envelope chart, and project 26 already left it (Q8) |
 | D13 | Extend the existing `tpl_debug_log` | A new project-local logging module | It already exists, is opt-in, and is the natural home; extending it fixes it for every future console-less board (§7.6) |
@@ -3313,7 +3396,7 @@ debugging a UI bug and an actuator bug in the same session.
 | D40 | Log screen is **full-bleed, no pane** | Pane everywhere for consistency | The 88 px buys eight more lines on the one screen where density is the point. The one deliberate exception to the navigation model, and the reason Back stays in its toolbar |
 | D41 | Modelled water-out is **shown, permanently labelled** | `—` until a real sensor exists (rev 1.2) | The probes are slow, so a model is more useful than nothing — but only if it can never be mistaken for a measurement. Hence the flag bit, the dashed line, the badge, and exclusion from every statistic (§7.11, R24). A real sensor supersedes it automatically |
 | D43 | Backlight dimming is **content-side**, not PWM on the expander | Chopping CH422G IO at 100 Hz | A CH422G output has no hardware PWM behind it, so it costs 100 I²C writes/s against the touch poll; the response is convex charge-transfer with a brightness floor; and the frequencies that dim well are the ones that flicker (§7.13). A clean LEDC fix exists but needs GPIO 4 (Q19) |
-| D44 | Storage state is **evidence-based**, and *faulty* is distinct from *absent* | A single "SD ok / no SD" flag | A card that mounts and then fails to write loses history quietly, which is the exact failure the document's honesty rules exist to prevent. A sticky fault with a timestamp says when it happened (§8.15.1) |
+| D44 | Storage state is **evidence-based**, and *faulty* is distinct from *absent*; the home dot separately shows **present/removable (green), writing (red), absent (grey)** | A single "SD ok / no SD" flag, or using one dot colour for both health and activity | A card that mounts and then fails to write loses history quietly, which is the exact failure the document's honesty rules exist to prevent. A sticky fault with a timestamp says when it happened, while the dot answers the only question that needs a glance: whether the card can be pulled. Red-for-writing is a removal warning, not a fault colour (§8.15.1) |
 | D46 | `tpl_waveshare_lcd7` is built **on `esp_io_expander`**, adding only a shadow, a mutex and named setters | Hand-rolled CH422G register writes | Espressif maintains the component, the Waveshare examples already use it, and it supplies the pin map, the all-or-nothing IO0–IO7 direction control, typed `enableOC_PushPull()` / `enableOC_OpenDrain()` and `multiSetIO()`. Rev 1.3's "must not go through `esp_io_expander`" was too strong — the component is the right foundation, and the per-pin read-modify-write cost is avoided *inside* it by batching (§6.5) |
 | D47 | The CH422G bit map is taken from **the component's own documentation**, not the board README | The README's prose table | Three sources agree on IO1–IO5; the README is off by one against all three *and against its own register example*. Using the component's pin table means the numbers are the ones the library indexes by (§3.4) |
 | D48 | The expander driver **writes** IO0–IO7 high on `reset()` / `begin()`. That is not a measured power-on level | Rev 1.0's "powers up low", and rev 1.4's reading of the same constants as silicon POR | `REG_WR_IO_DEFAULT_VAL` is the value `reset()` transmits. IO5 before that write is a phase-1 measurement. The CH9102 on GPIO 43/44 already took a ROM download (§3.1.1). Q22 decides whether CAN mode removes that path |
@@ -3341,7 +3424,7 @@ debugging a UI bug and an actuator bug in the same session.
 | Rollover | The midnight write of the day's samples and the rollup. Two SD writes per day, and the boundary of the 24-hour loss window |
 | Nav pane | The persistent 88 px bar at the bottom of every screen except the log screen (§8.11) |
 | 4 mm floor | 21 px on this panel. The smallest glyph the project will render, anywhere (§8.1.1) |
-| Faulty (storage) | Mounted, but a rollover write failed, a CRC did not verify, or free space fell under the floor. Sticky, with a timestamp. Not the same as *absent* (§8.15.1) |
+| Faulty (storage) | Mounted, but a rollover write failed, a CRC did not verify, or free space fell under the floor. Sticky, with a timestamp. Not the same as *absent* (§8.15.1). Shown in the storage panel and log bar, not as a home-dot colour — there the dot is green (present/removable), red (writing) or grey (absent) |
 | Floor (storage) | 50 MB free, below which retention drops to 3 months and the SD dot turns amber (§9.7) |
 | Sensor ID | The DS18B20 ROM. Unique and permanent; a temperature's function belongs to it |
 | Rank | Derived position in the sorted list of *present* sensors. A transient address that shifts on unplug |

@@ -12,6 +12,8 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "haus_gui.h"
+#include "haus_can.h"
+#include "haus_triple_buffer.h"
 #include <cmath>
 #include <cstring>
 #include <cstdio>
@@ -247,72 +249,95 @@ static gui_sensor_info_t g_sensors[GUI_MAX_SENSORS] = {
 
 /* ─── State snapshot ──────────────────────────────────────────────────────── */
 
-static gui_haus_state_t g_state;
+static TripleBuffer<CanState> g_can;
+static TripleBuffer<ClimateState> g_climate;
 
 void gui_update_state(void) {
+    CanState &can = g_can.write();
+    ClimateState &climate = g_climate.write();
+
     /* Update simulated time (advance ~1 second per call). */
     g_sim_time += 1;
 
-    /* Populate state from mock functions. */
-    g_state.time.timestamp = g_sim_time;
-    g_state.time.synced = true;
+    /* Populate the CAN producer block from mock functions. */
+    can.timestamp = g_sim_time;
+    can.synced = true;
 
     /* Temperatures. */
-    g_state.temps.temp[0] = mock_chamber_temp(g_sim_time);
-    g_state.temps.temp[1] = mock_water_in_temp(g_sim_time);
-    g_state.temps.temp[2] = mock_water_out_temp(g_sim_time);
-    g_state.temps.temp[3] = GUI_EMPTY;
+    can.temp_c100[0] = mock_chamber_temp(g_sim_time);
+    can.temp_c100[1] = mock_water_in_temp(g_sim_time);
+    can.temp_c100[2] = mock_water_out_temp(g_sim_time);
+    can.temp_c100[3] = HAUS_CAN_TEMP_EMPTY;
+    can.fn_of_slot[0] = SENSOR_FN_CHAMBER;
+    can.fn_of_slot[1] = SENSOR_FN_WATER_IN;
+    can.fn_of_slot[2] = SENSOR_FN_WATER_OUT;
+    can.fn_of_slot[3] = SENSOR_FN_NONE;
 
-    /* Count valid sensors. */
-    g_state.temps.sensor_count = 0;
-    for (int i = 0; i < 3; i++) {
-        if (g_state.temps.temp[i] != GUI_EMPTY) {
-            g_state.temps.sensor_count++;
-        }
+    for (int i = 0; i < SENSOR_FN_COUNT; i++) {
+        can.temp_by_fn[i] = HAUS_CAN_TEMP_EMPTY;
     }
+    can.temp_by_fn[SENSOR_FN_CHAMBER] = can.temp_c100[0];
+    can.temp_by_fn[SENSOR_FN_WATER_IN] = can.temp_c100[1];
+    can.temp_by_fn[SENSOR_FN_WATER_OUT] = can.temp_c100[2];
 
     /* PWM. */
     uint16_t duty = mock_pwm_duty(g_sim_time);
-    g_state.pwm.duty_permille = duty;
-    g_state.pwm.frequency_hz = 20000;  /* 20 kHz */
-    g_state.pwm.source = GUI_PWM_SRC_CAN;
-    g_state.pwm.active = (duty > 0 && duty < 1000);
-    g_state.pwm.requested_permille = 0xFFFF;
-    g_state.pwm.has_pending = false;
+    can.pwm_permille = duty;
+    can.frequency_hz = 20000;  /* 20 kHz */
+    can.pwm_src = PWM_SRC_CAN;
+    can.active = (duty > 0 && duty < 1000);
+    can.pwm_pending = 0xFFFF;
+    can.requested_permille = 0xFFFF;
+    can.has_pending = false;
+    can.pwm_pending_since_ms = 0;
 
     /* Power. */
     int32_t watts = mock_sml_watts(g_sim_time);
-    g_state.power.watts = watts;
-    g_state.power.watts_last = mock_sml_watts(g_sim_time - 60);
-    g_state.power.valid = (watts > 0);
-    g_state.power.source = GUI_PWR_SRC_SML;
+    can.watts = watts;
+    can.watts_last = mock_sml_watts(g_sim_time - 60);
+    can.valid = (watts > 0);
+    can.power_src = GUI_PWR_SRC_SML;
+    can.power_dw = (uint16_t)(watts * 10 > 65535 ? 65535 : watts * 10);
 
     /* Living room (synthetic values for host UI verification). */
-    g_state.living.temperature = mock_living_temp(g_sim_time);
-    g_state.living.humidity = mock_living_humidity(g_sim_time);
-    g_state.living.pressure = mock_living_pressure(g_sim_time);
-    g_state.living.valid = (g_state.living.temperature != GUI_EMPTY);
+    climate.living_c100 = mock_living_temp(g_sim_time);
+    climate.hum_c100 = mock_living_humidity(g_sim_time);
+    climate.pressure_pa = mock_living_pressure(g_sim_time);
+    climate.climate_flags = CLIMATE_VALID_AHT20 | CLIMATE_VALID_BMP280;
 
-    /* System. */
     /* System: exercise all three indicator states in the host render. */
-    g_state.system.can_status = GUI_STATUS_OK;
-    g_state.system.duty_status = GUI_STATUS_INACTIVE;
-    g_state.system.sd_status = GUI_STATUS_ERROR;
-    g_state.system.sd_low_space = false;
+    can.can_status = GUI_STATUS_OK;
+    can.duty_status = GUI_STATUS_INACTIVE;
+    can.sd_status = GUI_STATUS_ERROR;
+    can.sd_low_space = false;
 
     /* Chamber target. */
-    g_state.chamber_target_c = 6000;  /* 60°C */
+    can.chamber_target_c = 6000;  /* 60°C */
 
     /* Water model. */
-    g_state.water_modelled = true;
+    can.water_modelled = true;
 
     /* Uptime (seconds since simulated start). */
-    g_state.uptime_seconds = g_sim_time - 1728892800u;
+    can.uptime_seconds = g_sim_time - 1728892800u;
+
+    /* Counters and fault flags are zero in the mock. */
+    can.rx_frames = 0;
+    can.tx_frames = 0;
+    can.bus_errors = 0;
+    can.last_frame_ms = 0;
+    can.can_fault = 0;
+    can.sd_fault = 0;
+    can.i2c_fault = 0;
+
+    g_can.publish();
+    g_climate.publish();
 }
 
-const gui_haus_state_t *gui_get_state(void) {
+void gui_get_state(HausState *out) {
+    if (!out) return;
     gui_update_state();
-    return &g_state;
+    out->can = g_can.acquire();
+    out->climate = g_climate.acquire();
 }
 
 int gui_get_history(const gui_history_request_t *req) {

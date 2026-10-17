@@ -3,28 +3,50 @@
  * @brief Device implementation of the GUI data interface.
  *
  * Reads real data from the CAN bus, SD card, and NTP/RTC to populate the
- * gui_haus_state_t snapshot. This file is compiled on the ESP32 device.
+ * HausState snapshot. This file is compiled on the ESP32 device.
  *
  * The host harness uses haus_gui_mock.cpp instead (selected by HAUS_HOST).
  */
 
 #include "haus_gui.h"
 #include "haus_can.h"
+#include "haus_triple_buffer.h"
 
 #include <Arduino.h>
+#include <atomic>
 #include <time.h>
 #include <esp_heap_caps.h>
 #include <esp_task_wdt.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 /* ─── Internal state ────────────────────────────────────────────────────────
  *
- *  All data is collected into this single struct by gui_update_state() which
- *  is called from a low-priority task (or the main loop) every ~1 second.
- *  gui_get_state() returns a const pointer — the UI never modifies state.
+ *  One triple buffer per producer (whitepaper §10.2). canTask owns CanState,
+ *  sensorTask owns ClimateState. gui_update_state() writes every field of its
+ *  private slot and publishes it; gui_get_state() acquires both blocks and
+ *  copies them into caller memory. Readers never retain a pointer into a slot.
+ *
+ *  The triple-buffer exchange assumes one reader at a time, so the UI and the
+ *  recorder serialise on g_read_mutex. Producers never take that lock.
  */
 
-static gui_haus_state_t g_state;
-static bool g_state_valid = false;
+static TripleBuffer<CanState> g_can;
+static TripleBuffer<ClimateState> g_climate;
+static std::atomic<bool> g_published{false};
+
+static portMUX_TYPE g_read_mutex_init = portMUX_INITIALIZER_UNLOCKED;
+static SemaphoreHandle_t g_read_mutex = nullptr;
+
+static SemaphoreHandle_t read_mutex(void) {
+    portENTER_CRITICAL(&g_read_mutex_init);
+    if (!g_read_mutex) {
+        static StaticSemaphore_t buf;
+        g_read_mutex = xSemaphoreCreateMutexStatic(&buf);
+    }
+    portEXIT_CRITICAL(&g_read_mutex_init);
+    return g_read_mutex;
+}
 
 /* Sensor identity cache — updated when identity frames arrive. */
 static uint8_t g_sensor_roms[GUI_MAX_SENSORS][8];
@@ -34,9 +56,9 @@ static uint8_t g_sensor_bound_count = 0;
 
 static void read_temperatures(haus_can_temperature_t *out) {
     /* TODO: Read from CAN bus 0x200 frame.
-     * For now, return all GUI_EMPTY until CAN is integrated. */
+     * For now, return all HAUS_CAN_TEMP_EMPTY until CAN is integrated. */
     for (int i = 0; i < HAUS_CAN_MAX_SENSORS; i++) {
-        out->temperature[i] = GUI_EMPTY;
+        out->temperature[i] = HAUS_CAN_TEMP_EMPTY;
     }
 }
 
@@ -55,12 +77,14 @@ static void read_power(int32_t *watts, uint8_t *source) {
     *source = GUI_PWR_SRC_NONE;
 }
 
-static void read_living(int16_t *temp, uint16_t *hum, uint32_t *pres) {
+static void read_living(int16_t *temp, uint16_t *hum, uint32_t *pres,
+                        uint8_t *flags) {
     /* TODO: Read from I2C sensors (AHT20 + BMP380).
-     * On this board, no local sensors are usable — return GUI_EMPTY. */
+     * On this board, no local sensors are usable — return invalid. */
     *temp = GUI_EMPTY;
     *hum = 0;
     *pres = 0;
+    *flags = 0;
 }
 
 /* ─── SD history reader (called by gui_get_history) ───────────────────────── */
@@ -86,11 +110,17 @@ static int read_rollup_file(gui_sample_t *samples, uint16_t max_samples,
 
 /* ─── Public API ──────────────────────────────────────────────────────────── */
 
-const gui_haus_state_t *gui_get_state(void) {
-    if (!g_state_valid) {
+void gui_get_state(HausState *out) {
+    if (!out) return;
+    if (!g_published.load(std::memory_order_acquire)) {
         gui_update_state();
     }
-    return &g_state;
+
+    SemaphoreHandle_t lock = read_mutex();
+    xSemaphoreTake(lock, portMAX_DELAY);
+    out->can = g_can.acquire();
+    out->climate = g_climate.acquire();
+    xSemaphoreGive(lock);
 }
 
 int gui_get_history(const gui_history_request_t *req) {
@@ -116,65 +146,86 @@ bool gui_water_model_available(void) {
 
 /* ─── Update function (called from task, NOT from UI thread) ────────────────
  *
- *  Call gui_update_state() from a low-priority task (~1 Hz) to refresh g_state.
- *  The UI calls gui_get_state() which returns a const pointer — no locking
- *  needed because g_state is only written by one task and read by many.
+ *  Call gui_update_state() from a low-priority task (~1 Hz) to refresh the
+ *  producer blocks. The UI calls gui_get_state(), which copies them out.
  */
 
 void gui_update_state(void) {
+    CanState &can = g_can.write();
+    ClimateState &climate = g_climate.write();
+
     /* System clock. tpl_wifi_setup() starts SNTP, so time() becomes valid
      * once the first sync has landed. Before that the UI must show --:--. */
     const time_t now = time(nullptr);
-    g_state.time.timestamp = (now > 0) ? (uint32_t)now : 0;
-    g_state.time.synced = (now > 1700000000);  /* after 2023-11-14 */
+    can.timestamp = (now > 0) ? (uint32_t)now : 0;
+    can.synced = (now > 1700000000);  /* after 2023-11-14 */
 
     /* Temperatures — no CAN wiring yet, so every slot is empty. */
     haus_can_temperature_t temps;
     read_temperatures(&temps);
-    for (int i = 0; i < 4; i++) {
-        g_state.temps.temp[i] = temps.temperature[i];
+    for (int i = 0; i < HAUS_CAN_MAX_SENSORS; i++) {
+        can.temp_c100[i] = temps.temperature[i];
+        can.fn_of_slot[i] = SENSOR_FN_NONE;
     }
-    g_state.temps.sensor_count = 0;
+    for (int i = 0; i < SENSOR_FN_COUNT; i++) {
+        can.temp_by_fn[i] = HAUS_CAN_TEMP_EMPTY;
+    }
 
     /* PWM — reported-by-0x280 value; nothing received yet. */
     haus_can_pwm_t pwm;
     read_pwm(&pwm);
-    g_state.pwm.duty_permille = pwm.duty_permille;
-    g_state.pwm.frequency_hz = pwm.frequency_hz;
-    g_state.pwm.source = GUI_PWM_SRC_EEPROM;
-    g_state.pwm.active = false;
-    g_state.pwm.requested_permille = 0xFFFF;
-    g_state.pwm.has_pending = false;
+    can.pwm_permille = pwm.duty_permille;
+    can.frequency_hz = pwm.frequency_hz;
+    can.pwm_src = (uint8_t)haus_can_pwm_source(pwm.flags);
+    can.active = (can.pwm_permille > 0 &&
+                          can.pwm_permille < 1000);
+    can.pwm_pending = 0xFFFF;
+    can.requested_permille = 0xFFFF;
+    can.has_pending = false;
+    can.pwm_pending_since_ms = 0;
 
     /* Household power — no SML decode yet. */
     int32_t watts = 0;
     uint8_t power_src = GUI_PWR_SRC_NONE;
     read_power(&watts, &power_src);
-    g_state.power.watts = watts;
-    g_state.power.watts_last = watts;
-    g_state.power.valid = false;
-    g_state.power.source = power_src;
+    can.watts = watts;
+    can.watts_last = watts;
+    can.valid = false;
+    can.power_src = power_src;
+    can.power_dw = 0;
 
     /* Living room — no usable local sensors on this board. */
     int16_t living_temp = GUI_EMPTY;
     uint16_t living_hum = 0;
     uint32_t living_pres = 0;
-    read_living(&living_temp, &living_hum, &living_pres);
-    g_state.living.temperature = living_temp;
-    g_state.living.humidity = living_hum;
-    g_state.living.pressure = living_pres;
-    g_state.living.valid = false;
+    uint8_t climate_flags = 0;
+    read_living(&living_temp, &living_hum, &living_pres, &climate_flags);
+    climate.living_c100 = living_temp;
+    climate.hum_c100 = living_hum;
+    climate.pressure_pa = living_pres;
+    climate.climate_flags = climate_flags;
 
-    g_state.system.can_status = GUI_STATUS_INACTIVE;
-    g_state.system.duty_status = (g_state.pwm.source == GUI_PWM_SRC_CAN)
-                                     ? GUI_STATUS_OK
-                                     : GUI_STATUS_INACTIVE;
-    g_state.system.sd_status = GUI_STATUS_INACTIVE;
-    g_state.system.sd_low_space = false;
+    can.can_status = GUI_STATUS_INACTIVE;
+    can.duty_status = (can.pwm_src == PWM_SRC_CAN)
+                                  ? GUI_STATUS_OK
+                                  : GUI_STATUS_INACTIVE;
+    can.sd_status = GUI_STATUS_INACTIVE;
+    can.sd_low_space = false;
 
-    g_state.chamber_target_c = 6000;  /* 60 °C default */
-    g_state.water_modelled = false;
-    g_state.uptime_seconds = millis() / 1000;
+    can.chamber_target_c = 6000;  /* 60 °C default */
+    can.water_modelled = false;
+    can.uptime_seconds = millis() / 1000;
 
-    g_state_valid = true;
+    /* Counters and fault flags are refreshed by the CAN task in S8.03. */
+    can.rx_frames = 0;
+    can.tx_frames = 0;
+    can.bus_errors = 0;
+    can.last_frame_ms = 0;
+    can.can_fault = 0;
+    can.sd_fault = 0;
+    can.i2c_fault = 0;
+
+    g_can.publish();
+    g_climate.publish();
+    g_published.store(true, std::memory_order_release);
 }

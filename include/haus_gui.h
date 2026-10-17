@@ -7,8 +7,11 @@
  * or host specifics.
  *
  * Data structures:
- *   gui_sample_t     — 24 bytes, one minute of sensor data
- *   gui_haus_state_t — current system snapshot
+ *   gui_sample_t      — 24 bytes, one minute of sensor data
+ *   SensorFn          — the function a sensor is bound to
+ *   CanState          — immutable block owned by canTask
+ *   ClimateState      — immutable block owned by sensorTask
+ *   HausState         — merged read-only view, copied out per call
  *   gui_sensor_info_t — bound sensor (rank, ROM, label)
  */
 
@@ -24,8 +27,17 @@ extern "C" {
 
 /* ─── Constants ─────────────────────────────────────────────────────────── */
 
-#define GUI_EMPTY      0x7FFF   /* Sentinel: no valid temperature */
+#define GUI_EMPTY      0x7FFF   /* Sentinel: no valid sample temperature */
 #define GUI_MAX_SENSORS  8
+
+/* Canonical CAN constants. Mirrored here because haus_can.h is C++-only and
+ * this header is also included by haus_ui.c. Keep both copies identical. */
+#ifndef HAUS_CAN_MAX_SENSORS
+#define HAUS_CAN_MAX_SENSORS 4
+#endif
+#ifndef HAUS_CAN_TEMP_EMPTY
+#define HAUS_CAN_TEMP_EMPTY INT16_MIN
+#endif
 
 /* Status indicator state. The app decides the state; the UI maps it to a
  * palette colour (green / red / grey). */
@@ -47,65 +59,80 @@ typedef struct {
 } gui_sample_t;
 /* static_assert(sizeof(gui_sample_t) == 24); */
 
-/* ─── State snapshot ────────────────────────────────────────────────────── */
+/* ─── Sensor function (whitepaper §10.2) ─────────────────────────────────── */
 
+/* C spelling of the whitepaper's `enum class SensorFn`. Values are stable and
+ * may be stored in CanState.fn_of_slot. */
+typedef enum {
+    SENSOR_FN_CHAMBER = 0,
+    SENSOR_FN_WATER_IN,
+    SENSOR_FN_WATER_OUT,
+    SENSOR_FN_BOARD,
+    SENSOR_FN_NONE,
+    SENSOR_FN_COUNT
+} SensorFn;
+
+/* Climate validity bits (whitepaper §7.4 / D24). */
+#define CLIMATE_VALID_AHT20  0x01
+#define CLIMATE_VALID_BMP280 0x02
+
+/* ─── Producer blocks (whitepaper §10.2) ─────────────────────────────────── */
+
+/* Owner: canTask. Written completely each cycle, published as one block. */
 typedef struct {
-    /* Time */
-    struct {
-        uint32_t timestamp;
-        bool synced;
-    } time;
+    uint32_t timestamp;
+    bool     synced;
 
-    /* Temperatures (× 100, GUI_EMPTY = no sensor) */
-    struct {
-        int16_t temp[4];
-        uint8_t sensor_count;
-    } temps;
+    /* Temperatures: HAUS_CAN_TEMP_EMPTY means "no sensor in this slot". */
+    int16_t  temp_c100[HAUS_CAN_MAX_SENSORS];
+    uint8_t  fn_of_slot[HAUS_CAN_MAX_SENSORS];  /* SensorFn, or SENSOR_FN_NONE */
+    int16_t  temp_by_fn[SENSOR_FN_COUNT];
 
-    /* PWM */
-    struct {
-        uint16_t duty_permille;
-        uint16_t frequency_hz;
-        uint8_t source;       /* GUI_PWM_SRC_CAN / EEPROM */
-        bool active;
-        uint16_t requested_permille;
-        bool has_pending;
-    } pwm;
+    uint16_t pwm_permille;      /* reported by 0x280, never what we sent */
+    uint16_t frequency_hz;
+    uint8_t  pwm_src;           /* PWM_SRC_EEPROM / _CAN / _NRF / _FAULT */
+    bool     active;
+    uint16_t pwm_pending;       /* slider position; 0xFFFF == none pending */
+    uint16_t requested_permille;
+    bool     has_pending;
+    uint32_t pwm_pending_since_ms;
 
-    /* SML Power */
-    struct {
-        int32_t watts;
-        int32_t watts_last;
-        bool valid;
-        uint8_t source;       /* GUI_PWR_SRC_SML / — */
-    } power;
+    uint16_t power_dw;          /* decawatts, same unit as Sample.power_dw */
+    uint8_t  power_src;         /* NONE / SML / ADC */
+    int32_t  watts;
+    int32_t  watts_last;
+    bool     valid;
 
-    /* Living room */
-    struct {
-        int16_t temperature;  /* × 100, GUI_EMPTY = no sensor */
-        uint16_t humidity;    /* × 100 */
-        uint32_t pressure;    /* × 100 hPa */
-        bool valid;
-    } living;
+    gui_status_t can_status;
+    gui_status_t duty_status;
+    gui_status_t sd_status;
+    bool         sd_low_space;
+    int16_t      chamber_target_c;
+    bool         water_modelled;
+    uint32_t     uptime_seconds;
 
-    /* System */
-    struct {
-        gui_status_t can_status;
-        gui_status_t duty_status;
-        gui_status_t sd_status;
-        bool sd_low_space;
-    } system;
+    uint32_t rx_frames;
+    uint32_t tx_frames;
+    uint32_t bus_errors;
+    uint32_t last_frame_ms;
+    uint8_t  can_fault;         /* sticky until a frame is received again */
+    uint8_t  sd_fault;
+    uint8_t  i2c_fault;
+} CanState;
 
-    /* Chamber */
-    int16_t chamber_target_c;   /* × 100 */
+/* Owner: sensorTask. Written completely each cycle, published as one block. */
+typedef struct {
+    int16_t  living_c100;       /* × 100 °C */
+    uint16_t hum_c100;          /* × 100 %rh */
+    uint32_t pressure_pa;       /* Pa */
+    uint8_t  climate_flags;     /* CLIMATE_VALID_* */
+} ClimateState;
 
-    /* Water model */
-    bool water_modelled;
-
-    /* Uptime */
-    uint32_t uptime_seconds;
-
-} gui_haus_state_t;
+/* Read-only merged view, assembled per call by gui_get_state(). */
+typedef struct {
+    CanState     can;
+    ClimateState climate;
+} HausState;
 
 /* ─── Sensor info ───────────────────────────────────────────────────────── */
 
@@ -131,8 +158,9 @@ typedef struct {
 /* Update state from sensors / CAN / SD. Call periodically (~1 Hz). */
 void gui_update_state(void);
 
-/* Get current system snapshot (caller must not free). */
-const gui_haus_state_t *gui_get_state(void);
+/* Copy the current merged snapshot into caller-owned memory.
+ * Readers never retain a pointer into a producer block. */
+void gui_get_state(HausState *out);
 
 /* Get historical samples within [start_epoch, end_epoch].
  * Returns 0 on success, -1 on bad args. */
@@ -153,7 +181,17 @@ bool gui_water_model_available(void);
 #define GUI_PWR_SRC_SML    1
 
 #ifdef __cplusplus
-}
+}  /* extern "C" */
+
+#include <type_traits>
+static_assert(std::is_trivially_copyable<CanState>::value,
+              "CanState must be trivially copyable");
+static_assert(std::is_trivially_copyable<ClimateState>::value,
+              "ClimateState must be trivially copyable");
+static_assert(std::is_trivially_copyable<HausState>::value,
+              "HausState must be trivially copyable");
+static_assert(std::is_trivially_copyable<gui_sample_t>::value,
+              "gui_sample_t must be trivially copyable");
 #endif
 
 #endif /* HAUS_GUI_H */

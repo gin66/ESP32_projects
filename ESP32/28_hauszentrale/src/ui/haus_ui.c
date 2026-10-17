@@ -636,14 +636,15 @@ lv_obj_t *haus_ui_init(void) {
 }
 
 void haus_ui_update(void) {
-    const gui_haus_state_t *state = gui_get_state();
+    HausState state;
+    gui_get_state(&state);
     char buf[48];
 
     /* Status: date + clock. */
-    if (state->time.synced) {
-        epoch_to_date(state->time.timestamp, buf, sizeof(buf));
+    if (state.can.synced) {
+        epoch_to_date(state.can.timestamp, buf, sizeof(buf));
         txt(s_status_date, buf);
-        time_t t = (time_t)state->time.timestamp;
+        time_t t = (time_t)state.can.timestamp;
         struct tm tm;
         if (localtime_r(&t, &tm)) {
             snprintf(buf, sizeof(buf), "%02d:%02d", tm.tm_hour, tm.tm_min);
@@ -654,14 +655,14 @@ void haus_ui_update(void) {
         txt(s_clock, "--:--");
     }
 
-    status_dot_apply(s_can_dot, state->system.can_status, &s_last_can_color);
-    duty_dot_apply(s_duty_src, state->system.duty_status, &s_last_duty_color);
-    status_dot_apply(s_sd_dot, state->system.sd_status, &s_last_sd_color);
+    status_dot_apply(s_can_dot, state.can.can_status, &s_last_can_color);
+    duty_dot_apply(s_duty_src, state.can.duty_status, &s_last_duty_color);
+    status_dot_apply(s_sd_dot, state.can.sd_status, &s_last_sd_color);
 
     /* Chamber. */
-    int16_t chamber = state->temps.temp[0];
+    int16_t chamber = state.can.temp_by_fn[SENSOR_FN_CHAMBER];
     bool chamber_changed;
-    if (chamber != GUI_EMPTY) {
+    if (chamber != HAUS_CAN_TEMP_EMPTY) {
         snprintf(buf, sizeof(buf), "%.1f", chamber / 100.0);
         chamber_changed = txt(s_chamber_temp, buf);
         /* Render valid temperature in C_COLD (blue). */
@@ -683,7 +684,7 @@ void haus_ui_update(void) {
      * Only redraw when the colour actually changes. */
     if (s_pipe_l && s_pipe_r && s_pipe_lu && s_pipe_ru) {
         uint32_t pcol;
-        if (chamber == GUI_EMPTY) {
+        if (chamber == HAUS_CAN_TEMP_EMPTY) {
             /* No data → grey */
             pcol = 0x444444;
         } else {
@@ -702,9 +703,9 @@ void haus_ui_update(void) {
         }
         /* Water-out pipe follows the same ramp but uses the water-out temp.
          * If water-out is empty, fall back to chamber colour. */
-        int16_t wout = state->temps.temp[2];
-        if (wout == GUI_EMPTY) wout = chamber;
-        if (wout == GUI_EMPTY) {
+        int16_t wout = state.can.temp_by_fn[SENSOR_FN_WATER_OUT];
+        if (wout == HAUS_CAN_TEMP_EMPTY) wout = chamber;
+        if (wout == HAUS_CAN_TEMP_EMPTY) {
             pcol = 0x444444;
         } else {
             int32_t tc = wout;
@@ -723,9 +724,9 @@ void haus_ui_update(void) {
     }
 
     /* Water in (amber) / water out (modelled, hot). */
-    int16_t win = state->temps.temp[1];
-    int16_t wout = state->temps.temp[2];
-    if (win != GUI_EMPTY) {
+    int16_t win = state.can.temp_by_fn[SENSOR_FN_WATER_IN];
+    int16_t wout = state.can.temp_by_fn[SENSOR_FN_WATER_OUT];
+    if (win != HAUS_CAN_TEMP_EMPTY) {
         snprintf(buf, sizeof(buf), "%.1f °C", win / 100.0);
         txt(s_water_in, buf);
         lv_obj_set_style_text_color(s_water_in, lv_color_hex(C_AMBER), 0);
@@ -733,7 +734,7 @@ void haus_ui_update(void) {
         txt(s_water_in, "--");
         lv_obj_set_style_text_color(s_water_in, lv_color_hex(0x444444), 0);
     }
-    if (wout != GUI_EMPTY) {
+    if (wout != HAUS_CAN_TEMP_EMPTY) {
         snprintf(buf, sizeof(buf), "~%.1f °C", wout / 100.0);
         txt(s_water_out, buf);
         lv_obj_set_style_text_color(s_water_out, lv_color_hex(C_HOT), 0);
@@ -741,15 +742,15 @@ void haus_ui_update(void) {
         txt(s_water_out, "--");
         lv_obj_set_style_text_color(s_water_out, lv_color_hex(0x444444), 0);
     }
-    bool flow = state->pwm.duty_permille > 0 && state->pwm.duty_permille < 1000;
+    bool flow = state.can.pwm_permille > 0 && state.can.pwm_permille < 1000;
     txt(s_pump, flow ? "on" : "off");
-    snprintf(buf, sizeof(buf), "Vpp %u", state->pwm.duty_permille);
+    snprintf(buf, sizeof(buf), "Vpp %u", state.can.pwm_permille);
     txt(s_pump_lbl, buf);
 
     /* Living room. */
     bool living_changed;
-    if (state->living.temperature != GUI_EMPTY) {
-        snprintf(buf, sizeof(buf), "%.1f", state->living.temperature / 100.0);
+    if (state.climate.climate_flags & CLIMATE_VALID_AHT20) {
+        snprintf(buf, sizeof(buf), "%.1f", state.climate.living_c100 / 100.0);
         living_changed = txt(s_living_temp, buf);
         lv_obj_set_style_text_color(s_living_temp, lv_color_hex(C_COLD), 0);
     } else {
@@ -760,17 +761,17 @@ void haus_ui_update(void) {
         lv_obj_align_to(s_living_unit, s_living_temp,
                         LV_ALIGN_OUT_RIGHT_BOTTOM, 4, -2);
     }
-    if (state->living.humidity) {
-        snprintf(buf, sizeof(buf), "%u rh", state->living.humidity / 100);
+    if (state.climate.climate_flags & CLIMATE_VALID_AHT20) {
+        snprintf(buf, sizeof(buf), "%u rh", state.climate.hum_c100 / 100);
         txt(s_living_rh, buf);
         lv_obj_set_style_text_color(s_living_rh, lv_color_hex(C_CYAN), 0);
     } else {
         txt(s_living_rh, "-- rh");
         lv_obj_set_style_text_color(s_living_rh, lv_color_hex(0x444444), 0);
     }
-    if (state->living.pressure) {
+    if (state.climate.climate_flags & CLIMATE_VALID_BMP280) {
         snprintf(buf, sizeof(buf), "%lu hPa",
-                 (unsigned long)(state->living.pressure / 100));
+                 (unsigned long)(state.climate.pressure_pa / 100));
         txt(s_living_pa, buf);
         lv_obj_set_style_text_color(s_living_pa, lv_color_hex(C_VIOLET), 0);
     } else {
@@ -780,8 +781,8 @@ void haus_ui_update(void) {
 
     /* Power (always watts, with the bolt glyph). */
     bool power_changed;
-    if (state->power.valid) {
-        snprintf(buf, sizeof(buf), "%d", (int)state->power.watts);
+    if (state.can.valid) {
+        snprintf(buf, sizeof(buf), "%d", (int)state.can.watts);
         power_changed = txt(s_power_num, buf);
         lv_obj_set_style_text_color(s_power_num, lv_color_hex(C_INK), 0);
         /* The small label next to the number is the unit, never a source
@@ -805,8 +806,8 @@ void haus_ui_update(void) {
      * Left pipe (water in) flows rightward, right pipe (water out) flows
      * leftward. Dashes are hidden when duty = 0 or duty = 1000. */
     if (s_flow_dash[0]) {
-        bool flowing = (state->pwm.duty_permille > 0 &&
-                        state->pwm.duty_permille < 1000);
+        bool flowing = (state.can.pwm_permille > 0 &&
+                        state.can.pwm_permille < 1000);
         /* Phase: 0–1200 ms cycle, dashes shift by 22 px per step. */
         uint32_t phase = lv_tick_get() % 1200;
         int offset = (int)(phase / 200) * 22;  /* 6 steps × 22 px */
@@ -832,10 +833,11 @@ void haus_ui_update(void) {
 }
 
 void haus_ui_animate(void) {
-    const gui_haus_state_t *state = gui_get_state();
-    const int16_t chamber = state->temps.temp[0];
+    HausState state;
+    gui_get_state(&state);
+    const int16_t chamber = state.can.temp_by_fn[SENSOR_FN_CHAMBER];
 
-    if (chamber == GUI_EMPTY) {
+    if (chamber == HAUS_CAN_TEMP_EMPTY) {
         for (int i = 0; i < 3; i++) {
             if (!s_flame[i]) continue;
             if (s_last_flame_opa[i] != 0) {
@@ -977,13 +979,14 @@ static void chart_build(int top, bool with_target) {
     }
 
     /* History envelope from the shared data interface. */
-    const gui_haus_state_t *st = gui_get_state();
+    HausState st;
+    gui_get_state(&st);
     static gui_sample_t samples[440];
     static lv_point_precise_t pts[440];
     uint16_t count = 0;
     gui_history_request_t req = {
-        .start_epoch = st->time.timestamp - 86400u,
-        .end_epoch = st->time.timestamp,
+        .start_epoch = st.can.timestamp - 86400u,
+        .end_epoch = st.can.timestamp,
         .samples = samples,
         .max_samples = 440,
         .out_count = &count,
@@ -1016,10 +1019,11 @@ lv_obj_t *haus_ui_build_chart(void) {
     lv_obj_set_style_bg_color(root, lv_color_hex(C_BG), 0);
 
     header_build("CHAMBER", "1 d", C_OK);
-    const gui_haus_state_t *st = gui_get_state();
+    HausState st;
+    gui_get_state(&st);
     char buf[32];
-    if (st->temps.temp[0] != GUI_EMPTY)
-        snprintf(buf, sizeof(buf), "%.1f °C", st->temps.temp[0] / 100.0);
+    if (st.can.temp_by_fn[SENSOR_FN_CHAMBER] != HAUS_CAN_TEMP_EMPTY)
+        snprintf(buf, sizeof(buf), "%.1f °C", st.can.temp_by_fn[SENSOR_FN_CHAMBER] / 100.0);
     else
         snprintf(buf, sizeof(buf), "--");
     label_make(lv_screen_active(), buf, 20, 56, &lv_font_montserrat_48, C_COLD);
@@ -1041,17 +1045,18 @@ lv_obj_t *haus_ui_build_detail(void) {
     lv_obj_set_style_bg_color(root, lv_color_hex(C_BG), 0);
 
     header_build("CHAMBER", "RESTORED", C_DIM);
-    const gui_haus_state_t *st = gui_get_state();
+    HausState st;
+    gui_get_state(&st);
     char buf[32];
-    if (st->temps.temp[0] != GUI_EMPTY)
-        snprintf(buf, sizeof(buf), "%.1f °C", st->temps.temp[0] / 100.0);
+    if (st.can.temp_by_fn[SENSOR_FN_CHAMBER] != HAUS_CAN_TEMP_EMPTY)
+        snprintf(buf, sizeof(buf), "%.1f °C", st.can.temp_by_fn[SENSOR_FN_CHAMBER] / 100.0);
     else
         snprintf(buf, sizeof(buf), "--");
     label_make(lv_screen_active(), buf, 20, 56, &lv_font_montserrat_48, C_COLD);
 
     range_build(120);
     snprintf(buf, sizeof(buf), "target %.1f °C (dashed)",
-             st->chamber_target_c / 100.0);
+             st.can.chamber_target_c / 100.0);
     label_make(lv_screen_active(), buf, 20, 172,
                &lv_font_montserrat_16, C_ACCENT);
     chart_build(204, true);

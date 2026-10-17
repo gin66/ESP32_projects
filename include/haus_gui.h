@@ -51,13 +51,20 @@ typedef enum {
 
 typedef struct {
     uint32_t epoch;            /* 0: seconds since boot / real timestamp */
-    int16_t temp[4];          /* 4: chamber, water_in, water_out, padding */
-    uint16_t duty_permille;   /* 12: 0–1000 */
-    int32_t watts;            /* 14: SML household watts */
-    uint8_t flags;            /* 18: bit 0 = modelled, bit 1 = GAP */
-    uint8_t padding[5];       /* 19–23: reserved */
+    int32_t watts;             /* 4: SML household watts */
+    int16_t temp[4];           /* 8: chamber, water_in, water_out, padding */
+    uint16_t duty_permille;    /* 16: 0–1000 */
+    uint8_t flags;             /* 18: bit 0 = modelled, bit 1 = GAP */
+    uint8_t padding[5];        /* 19–23: reserved */
 } gui_sample_t;
-/* static_assert(sizeof(gui_sample_t) == 24); */
+
+#if defined(__cplusplus)
+static_assert(sizeof(gui_sample_t) == 24,
+              "gui_sample_t must be 24 bytes (fixed-size records)");
+#else
+_Static_assert(sizeof(gui_sample_t) == 24,
+               "gui_sample_t must be 24 bytes (fixed-size records)");
+#endif
 
 /* ─── Sensor function (whitepaper §10.2) ─────────────────────────────────── */
 

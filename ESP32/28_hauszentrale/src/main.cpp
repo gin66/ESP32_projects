@@ -17,6 +17,7 @@
 
 #include "template.h"
 #include "haus_gui.h"
+#include "haus_history.h"
 #include "haus_sd.h"
 #include "haus_ui.h"
 #include <esp_heap_caps.h>
@@ -84,6 +85,12 @@ void setup() {
         /* Double bookkeeping: losing the card costs minute detail, not the
          * hourly history, which is written independently to SPIFFS. */
         TPL_LOGW("sd", "SD unavailable; minute history off, hourly SPIFFS bookkeeping continues");
+    }
+
+    /* L1/L2 plus the independent SPIFFS hourly ring. Failure here is logged,
+     * but the panel still boots. */
+    if (!haus_history_init()) {
+        TPL_LOGW("history", "history store unavailable");
     }
 
     /* S4.02: reset the ST7262 through the CH422G before bring-up */

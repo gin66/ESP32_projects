@@ -74,12 +74,12 @@ Hardware connected: /dev/cu.usbmodem5C941561291
 
 ## S6 · PROJECT SKELETON — platformio.ini, partitions, OTA
 
-- [ ] S6.01 Fill in [common] from §7.1 with all build flags, including board_build.flash_size = 16MB — Test: pio run -e esp32usb compiles a hello world and the image is not capped
-- [ ] S6.02 Add the esp32ota env with espota/3232 — Test: pio run -e esp32ota builds the same image
-- [ ] S6.03 Verify existing partitions_16m.csv works (factory + update_0 ~2.75 MB, spiffs ~1.94 MB, coredump 256 KB) — Test: gen_esp32part.py validates it and WiFi calibration still works after upload
-- [ ] S6.04 Wire tpl_wifi_setup(true, true, 255) — Test: no LED pin is claimed and no RGB bit is corrupted
-- [ ] S6.05 Confirm an OTA update over WiFi actually replaces the app — Test: push a build with a changed version string, it changes on the device
-- [ ] S6.06 Add -Werror and confirm the build is clean — Test: a deliberate warning fails the build
+- [x] S6.01 Fill in [common] from §7.1 with all build flags, including board_build.flash_size = 16MB — Test: pio run -e esp32usb compiles a hello world and the image is not capped
+- [x] S6.02 Add the esp32ota env with espota/3232 — Test: pio run -e esp32ota builds the same image
+- [x] S6.03 Verify existing partitions_16m.csv works (factory + update_0 6 MB, spiffs 3.7 MB, coredump 256 KB) — Test: gen_esp32part.py validates it and WiFi calibration still works after upload
+- [x] S6.04 Wire tpl_wifi_setup(true, true, 255) — Test: no LED pin is claimed and no RGB bit is corrupted
+- [x] S6.05 Confirm an OTA update over WiFi actually replaces the app — Test: push a build with a changed version string, it changes on the device
+- [x] S6.06 Add -Werror and confirm the build is clean — Test: a deliberate warning fails the build (scoped with `build_src_flags` so LVGL's own `#warning`s do not fail the link)
 
 ## S7 · LOG RING — diagnostics before any GUI or actuator work
 

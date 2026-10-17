@@ -2869,6 +2869,55 @@ static lv_obj_t* detail_build(int screen, const char* title, int nav_index,
 
 void haus_ui_three_finger(void) { ui_jump(UI_SCREEN_HOME); }
 
+/* ─── Screensaver (S26.06 / D43) ───────────────────────────────────────────
+ *
+ * Content dimming, never the backlight: a solid overlay fades to a dark tint
+ * over the UI. It has no children, so LVGL draws it directly and does not
+ * allocate a screen-sized layer (the failure mode that was removed in S10b).
+ */
+
+static lv_obj_t* s_dim_overlay;
+static bool s_dimmed;
+
+#ifndef HAUS_HOST
+static void dim_opa_cb(void* obj, int32_t v) {
+  lv_obj_set_style_bg_opa((lv_obj_t*)obj, (lv_opa_t)v, 0);
+}
+#endif
+
+bool haus_ui_dimmed(void) { return s_dimmed; }
+
+void haus_ui_set_dimmed(bool dimmed) {
+  if (dimmed == s_dimmed) return;
+  s_dimmed = dimmed;
+  if (dimmed) {
+    s_dim_overlay = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(s_dim_overlay);
+    lv_obj_set_size(s_dim_overlay, SCREEN_W, SCREEN_H);
+    lv_obj_set_pos(s_dim_overlay, 0, 0);
+    lv_obj_set_style_bg_color(s_dim_overlay, lv_color_hex(C_BG), 0);
+    lv_obj_set_style_bg_opa(s_dim_overlay, 0, 0);
+    /* lv_obj_create() is clickable by default: the overlay swallows the tap
+     * that wakes the screensaver. */
+
+#ifdef HAUS_HOST
+    /* The PNG harness renders a single frame; no animation can advance. */
+    lv_obj_set_style_bg_opa(s_dim_overlay, 200, 0);
+#else
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, s_dim_overlay);
+    lv_anim_set_exec_cb(&a, dim_opa_cb);
+    lv_anim_set_values(&a, 0, 200);
+    lv_anim_set_duration(&a, 800);
+    lv_anim_start(&a);
+#endif
+  } else if (s_dim_overlay) {
+    lv_obj_delete(s_dim_overlay);
+    s_dim_overlay = NULL;
+  }
+}
+
 #ifdef UI_SMOKE_TEST
 void haus_ui_smoke_step(void) {
   static const int seq[] = {UI_SCREEN_HOME,     UI_SCREEN_CHAMBER,
@@ -3259,6 +3308,11 @@ lv_obj_t* haus_ui_build_settings(void) {
 void haus_ui_deinit(void) {
   log_modal_close();
   s_log_modal = NULL;
+  if (s_dim_overlay) {
+    lv_obj_delete(s_dim_overlay);
+    s_dim_overlay = NULL;
+    s_dimmed = false;
+  }
   lv_obj_t* root = lv_screen_active();
   while (lv_obj_get_child_cnt(root) > 0) {
     lv_obj_delete(lv_obj_get_child(root, 0));

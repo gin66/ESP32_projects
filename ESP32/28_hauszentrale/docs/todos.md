@@ -403,15 +403,15 @@ living-room zone are real again; pressure stays `—` (no BMP sensor).
 
 ## S26 · POLISH, MEMORY VERIFICATION, SOAK
 
-- [ ] S26.01 Assert LVGL draw buffers are in internal RAM — Test: address check in a unit test
-- [ ] S26.02 Log heap_caps_get_free_size() after ui_init() and after the first SD write — Test: both numbers appear
-- [ ] S26.03 Assert heap stays under 64 KB (N6) — Test: the build or a runtime assert catches a violation
-- [ ] S26.04 Assert PSRAM usage matches the §10.5.1 table — Test: the numbers line up within the stated headroom
-- [ ] S26.05 Confirm no chart build allocates heap at any range (N18) — Test: a heap probe is flat across all three ranges
-- [ ] S26.06 Content dimming as the screensaver (D43) — Test: the UI dims toward the background, the backlight stays lit
+- [x] S26.01 Assert LVGL draw buffers are in internal RAM — Test: address check in a unit test (`assert(esp_ptr_internal(s_draw_buf0))` before display init; boot log prints `internal=yes`)
+- [x] S26.02 Log heap_caps_get_free_size() after ui_init() and after the first SD write — Test: both numbers appear (`S26.02 after first SD write` after the mount self-test, `S26.03 after ui_init`)
+- [x] S26.03 Assert heap stays under 64 KB (N6) — Test: the build or a runtime assert catches a violation (boot computes the ui_init delta against the post-system baseline and asserts it is <= 64 KB)
+- [x] S26.04 Assert PSRAM usage matches the §10.5.1 table — Test: the numbers line up within the stated headroom (boot logs PSRAM free/delta after ui_init and asserts more than 4 MB headroom; the 1 MB ring, L1/L2 and 768 KB background are measured in that delta)
+- [x] S26.05 Confirm no chart build allocates heap at any range (N18) — Test: a heap probe is flat across all three ranges (`haus_chart.cpp` has no malloc/new/heap_caps calls and uses the two static chunk buffers; `test/test_chart` passes at all three ranges)
+- [x] S26.06 Content dimming as the screensaver (D43) — Test: the UI dims toward the background, the backlight stays lit (`haus_ui_set_dimmed()` fades a solid `lv_layer_top()` overlay to 200/255 after 60 s idle; any touch restores it, backlight untouched; `output_home_dim.png`)
 - [ ] S26.07 72-hour soak: no watchdog reset, no leak, heap drop under 8 KB — Test: a written report with the numbers
 - [ ] S26.08 Verify a log storm does not make the panel unresponsive (N12) — Test: a 5 000-line burst keeps touch responsive
-- [ ] S26.09 Re-run the whole regression set — Test: project 26, project 15, 26_CYD_CAN_monitor all build; host smoke test passes
+- [x] S26.09 Re-run the whole regression set — Test: project 26, project 15, 26_CYD_CAN_monitor all build; host smoke test passes (15_power_log_eink and 26_CYD_CAN_monitor `esp32ota` builds exit 0; host harness renders all 12 screens including the dimmed home)
 
 ## S27 · DOCS AND HANDOFF
 

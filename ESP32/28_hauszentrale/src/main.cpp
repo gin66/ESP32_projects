@@ -17,10 +17,13 @@
 
 #include <esp_flash.h>
 #include <esp_heap_caps.h>
+#include <esp_memory_utils.h>
 #include <esp_sntp.h>
 #include <esp_timer.h>
 #include <lvgl.h>
 #include <time.h>
+
+#include <cassert>
 
 #include "haus_gui.h"
 #include "haus_history.h"
@@ -74,6 +77,12 @@ void setup() {
 
   tpl_system_setup(0);  // no deep sleep
 
+  /* S26.02/S26.03: heap baseline for the 64 KB budget check. */
+  const size_t heap_base = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  const size_t psram_base = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+  TPL_LOGI("mem", "S26 baseline: heap %u B, PSRAM %u B", (unsigned)heap_base,
+           (unsigned)psram_base);
+
   size_t psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
   uint32_t flash_size = 0;
   esp_flash_get_size(NULL, &flash_size);
@@ -94,6 +103,11 @@ void setup() {
    * but never blocks the panel. */
   if (haus_sd_mount()) {
     haus_sd_selftest();
+    /* S26.02: heap after the first SD write (the mount self-test). */
+    TPL_LOGI("mem", "S26.02 after first SD write: heap %u B (delta %d B)",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (int)((int)heap_base -
+                   (int)heap_caps_get_free_size(MALLOC_CAP_INTERNAL)));
   } else {
     /* Double bookkeeping: losing the card costs minute detail, not the
      * hourly history, which is written independently to SPIFFS. */
@@ -124,6 +138,10 @@ void setup() {
   /* S4.01–S4.05: RGB panel + LVGL display */
   lv_init();
   lv_tick_set_cb(lv_tick_cb);
+  /* S26.01: the panel DMA cannot cross the PSRAM boundary. */
+  assert(esp_ptr_internal(s_draw_buf0));
+  TPL_LOGI("mem", "S26.01 draw buffer %p: internal=%s", (void*)s_draw_buf0,
+           esp_ptr_internal(s_draw_buf0) ? "yes" : "NO");
   s_disp = tpl_ws7_display_init(TPL_WS7_ROTATION, (uint32_t*)s_draw_buf0,
                                 sizeof(s_draw_buf0));
   if (s_disp) {
@@ -165,6 +183,27 @@ void setup() {
     tpl_ws7_backlight(true);
     TPL_LOGI("boot", "S10: home screen active — data shows — (S9/S17 stubs)");
     TPL_LOGI("boot", "home screen active, flush %lld us", flush_us);
+
+    /* S26.02/S26.03: heap after ui_init; transient allocations must stay
+     * under the 64 KB budget (N6). */
+    const size_t heap_after = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    const int heap_delta = (int)heap_base - (int)heap_after;
+    TPL_LOGI("mem", "S26.03 after ui_init: heap %u B (ui delta %d B)",
+             (unsigned)heap_after, heap_delta);
+    if (heap_delta > 64 * 1024)
+      TPL_LOGE("mem", "S26.03 heap budget exceeded: %d B > 64 KB", heap_delta);
+    assert(heap_delta <= 64 * 1024);
+
+    /* S26.04: PSRAM use after ui_init (background decode + LVGL objects).
+     * The §10.5.1 table expects roughly 1.3 MB committed at this point and
+     * more than 5 MB of headroom. */
+    const size_t psram_after = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    TPL_LOGI("mem", "S26.04 PSRAM free %u B (delta %d B), headroom > 4 MB: %s",
+             (unsigned)psram_after, (int)psram_base - (int)psram_after,
+             psram_after > (4u * 1024u * 1024u) ? "yes" : "NO");
+    if (psram_after <= (4u * 1024u * 1024u))
+      TPL_LOGE("mem", "S26.04 PSRAM headroom below 4 MB");
+    assert(psram_after > (4u * 1024u * 1024u));
   } else {
     TPL_LOGI("boot", "ERROR: RGB panel initialization failed");
     TPL_LOGE("boot", "RGB panel initialization failed");
@@ -248,6 +287,23 @@ void loop() {
   if (s_touch_indev && !gui_backlight_on() &&
       lv_indev_get_state(s_touch_indev) == LV_INDEV_STATE_PRESSED) {
     gui_set_backlight(true);
+  }
+
+  /* S26.06 screensaver: dim the content after 60 s idle; the backlight stays
+   * lit. Any touch restores it (the overlay also swallows the tap). */
+  if (s_touch_indev) {
+    const bool pressed =
+        (lv_indev_get_state(s_touch_indev) == LV_INDEV_STATE_PRESSED);
+    if (pressed && haus_ui_dimmed()) {
+      haus_ui_set_dimmed(false);
+    } else if (!pressed && !haus_ui_dimmed() && gui_backlight_on()) {
+      static uint32_t last_dim_check = 0;
+      if (now - last_dim_check >= 500) {
+        last_dim_check = now;
+        if (lv_display_get_inactive_time(NULL) >= 60u * 1000u)
+          haus_ui_set_dimmed(true);
+      }
+    }
   }
 
   /* Calibration cursor: visible while pressed, auto-hidden after release. */

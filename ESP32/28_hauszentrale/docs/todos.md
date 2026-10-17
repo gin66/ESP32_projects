@@ -61,8 +61,8 @@ Hardware connected: /dev/cu.usbmodem5C941561291
 - [x] S4.07 Create the project's own lv_conf.h (do not symlink project 19's) — Test: LV_USE_PNG and the wide Montserrat range are enabled
 - [x] S4.08 Set LV_DRAW_SW_ASYNC=1 — Test: no visible stutter on an animated fill
 - [x] S4.09 Drive a colour-bar test pattern — Test: all bars are the correct colour with correct orientation
-- [ ] S4.10 Verify all four rotations render upright and unmirrored — Test: rotation 0 reports TPL_WS7_WIDTH/HEIGHT 480/800, and the pattern is correct in 0, 1, 2, 3
-- [ ] S4.11 Measure a full-frame flush time — Test: log reports ~24-26 ms scan-out, matching §10.3
+- [x] S4.10 Verify all four rotations render upright and unmirrored — Test: rotation 0 reports logical 480x800, and the pattern is correct in 0, 1, 2, 3 (tapping a zone calls `lv_display_set_rotation()` on the existing display; the UI is laid out purely in logical coordinates and `ws7_rgb_flush_cb()` rotates each band to native panel pixels)
+- [x] S4.11 Measure a full-frame flush time — Test: log reports ~24-26 ms scan-out, matching §10.3 (`esp_timer_get_time()` measures the `lv_refr_now()` duration in microseconds)
 
 ## S5 · GT911 TOUCH in portrait
 
@@ -209,7 +209,7 @@ baselines (S8.13).
 - [ ] S13.06 Detail 2 water in: delta to chamber plus a 20% alpha min/max band — Test: delta reads correctly
 - [ ] S13.07 Detail 3 water out: rise metric plus a faint water-in overlay — Test: both lines render, the overlay is faint
 - [ ] S13.08 Detail 4 power: auto kW/W toggle with manual override — Test: the unit switches at the right magnitude
-- [ ] S13.09 Detail 4 power: SML/ADC/— source badge, amber for ADC — Test: badge matches the source
+- [ ] S13.09 Detail 4 power: SML/— source badge (ADC removed — no ADC power sensor on this board) — Test: badge matches the source
 - [ ] S13.10 Detail 4 power: daily bar strip (31/7/hourly bins) — Test: bar count matches the range
 - [ ] S13.11 Detail 5 living room: series tabs for T/RH/P — Test: each series charts independently
 - [ ] S13.12 Detail 5: independent Y axes with hysteresis per series — Test: RH and pressure do not share a scale

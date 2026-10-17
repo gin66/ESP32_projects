@@ -263,6 +263,7 @@ void gui_update_state(void) {
     /* Populate the CAN producer block from mock functions. */
     can.timestamp = g_sim_time;
     can.synced = true;
+    can.last_update_epoch = g_sim_time;
 
     /* Temperatures. */
     can.temp_c100[0] = mock_chamber_temp(g_sim_time);
@@ -305,6 +306,7 @@ void gui_update_state(void) {
     climate.hum_c100 = mock_living_humidity(g_sim_time);
     climate.pressure_pa = mock_living_pressure(g_sim_time);
     climate.climate_flags = CLIMATE_VALID_AHT20 | CLIMATE_VALID_BMP280;
+    climate.last_update_epoch = g_sim_time;
 
     /* System: exercise all three indicator states in the host render. */
     can.can_status = GUI_STATUS_OK;

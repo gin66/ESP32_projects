@@ -54,9 +54,25 @@ typedef struct {
     int32_t watts;             /* 4: SML household watts */
     int16_t temp[4];           /* 8: chamber, water_in, water_out, padding */
     uint16_t duty_permille;    /* 16: 0–1000 */
-    uint8_t flags;             /* 18: bit 0 = modelled, bit 1 = GAP */
-    uint8_t padding[5];        /* 19–23: reserved */
+    uint8_t flags;             /* 18: bit 0 = modelled, bit 1 = GAP,
+                                *     bit 2 = any source stale */
+    uint8_t stale_mask;        /* 19: SAMPLE_STALE_* bits, per source */
+    uint8_t padding[4];        /* 20–23: reserved */
 } gui_sample_t;
+
+/* Sample flags */
+#define SAMPLE_FLAG_MODELLED 0x01
+#define SAMPLE_FLAG_GAP      0x02
+#define SAMPLE_FLAG_STALE    0x04
+
+/* Per-source stale bits, in RollupColumn series order (0…5), plus power. */
+#define SAMPLE_STALE_CHAMBER   0x01
+#define SAMPLE_STALE_WATER_IN  0x02
+#define SAMPLE_STALE_WATER_OUT 0x04
+#define SAMPLE_STALE_LIVING    0x08
+#define SAMPLE_STALE_HUMIDITY  0x10
+#define SAMPLE_STALE_PRESSURE  0x20
+#define SAMPLE_STALE_POWER     0x40
 
 #if defined(__cplusplus)
 static_assert(sizeof(gui_sample_t) == 24,
@@ -89,6 +105,7 @@ typedef enum {
 typedef struct {
     uint32_t timestamp;
     bool     synced;
+    uint32_t last_update_epoch;  /* last CAN frame / power update, unix s */
 
     /* Temperatures: HAUS_CAN_TEMP_EMPTY means "no sensor in this slot". */
     int16_t  temp_c100[HAUS_CAN_MAX_SENSORS];
@@ -134,6 +151,7 @@ typedef struct {
     uint16_t hum_c100;          /* × 100 %rh */
     uint32_t pressure_pa;       /* Pa */
     uint8_t  climate_flags;     /* CLIMATE_VALID_* */
+    uint32_t last_update_epoch; /* last sensor read, unix s */
 } ClimateState;
 
 /* Read-only merged view, assembled per call by gui_get_state(). */

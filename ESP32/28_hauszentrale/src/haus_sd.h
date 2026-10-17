@@ -26,6 +26,10 @@ void haus_sd_unmount(void);
  * suitable for the 1 Hz status poll. */
 bool haus_sd_is_mounted(void);
 
+/* Serialize card access between the 1 Hz probe and the recorder task. */
+bool haus_sd_lock(uint32_t timeout_ms);
+void haus_sd_unlock(void);
+
 /* Refresh the cached capacity figures. This is the only call that reads the
  * FAT; the storage panel calls it on demand, never the render path. */
 void haus_sd_space_refresh(void);

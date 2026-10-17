@@ -1215,8 +1215,9 @@ struct Sample {
   uint32_t pressure_pa;    // Pa         /
   uint16_t power_dw;      // decawatts (0.1 W). SML watts × 10, saturated at 6553.5 W
   uint8_t  flags;          // VALID bits + FAULT bits, incl. climate-present + TEMP_MODELLED
+  uint8_t  stale_mask;     // per-source stale bit; see below
 };
-// 4 + 2*4 + 2 + 4 + 2 + 1 = 21, padded to 24 for 4-byte alignment.
+// 4 + 2*4 + 2 + 4 + 2 + 1 + 1 = 22, padded to 24 for 4-byte alignment.
 static_assert(sizeof(Sample) == 24, "fixed-size records enable seeking");
 
 struct Recorder {
@@ -1237,6 +1238,16 @@ empty slot — so they use a `CLIMATE_VALID` bit in `flags` and a documented
 sentinel of their own. Reusing `INT16_MIN` for a locally-read sensor would make
 "the probe is unplugged" and "the chip is not responding" the same value on the
 chart, which is exactly the conflation R5 exists to prevent on the CAN side.
+
+**Stale is labelled, not silently repeated.** Each producer stamps
+`last_update_epoch` when it refreshes. At sample time the recorder compares that
+stamp with the sample epoch; after **60 seconds** without a refresh the affected
+source's bit is set in `stale_mask` and `SAMPLE_FLAG_STALE` is set in `flags`.
+The value is still written to the log with its timestamp, so a reader can see what
+was last known and *when*, but a stale minute is excluded from the L2 hourly
+aggregate. A completed hour with `n < 60` is therefore visibly partial. The
+recorder emits one log line when the stale mask changes and one when it clears,
+not one per minute.
 
 - **ESP32 backend:** SD through the CH422G-controlled CS (`tpl_ws7_sd_select` /
   `tpl_ws7_sd_bus`). The day's samples accumulate in the L1 buffer and the file

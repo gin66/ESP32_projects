@@ -47,6 +47,10 @@ bool haus_history_ring_append(const RollupColumn *col);
  * number written. Uses the wall clock; returns 0 before the clock is valid. */
 size_t haus_history_ring_load(RollupColumn *out, size_t max_columns);
 
+/* Same, with an explicit "now" so the rollover/ring order is testable. */
+size_t haus_history_ring_load_at(RollupColumn *out, size_t max_columns,
+                                 uint32_t now_epoch);
+
 /* Record one minute from the merged state. Idempotent within a minute. */
 bool haus_history_sample(const HausState *state, uint32_t epoch_seconds);
 
@@ -59,6 +63,19 @@ void haus_history_flush_hour(uint32_t epoch_seconds);
 
 /* Start the device recorder task. No-op on the host build. */
 void haus_history_start_recorder(void);
+
+/* Number of successful daily file writes (day file + rollup) since boot. Used
+ * by the simulated-day test; should be exactly 2 per rollover. */
+uint32_t haus_history_sd_write_count(void);
+
+/* Path of the last day file written, e.g. "/data_20241014.bin". */
+const char *haus_history_last_day_path(void);
+
+#ifdef HAUS_HOST
+/* Test-only: sizes of the last simulated day/rollup writes. */
+uint32_t haus_history_test_day_bytes(void);
+uint32_t haus_history_test_rollup_bytes(void);
+#endif
 
 #ifdef __cplusplus
 }

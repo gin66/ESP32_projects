@@ -19,6 +19,8 @@
 #include <Arduino.h>
 #include <SD.h>
 #include <SPI.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include <string.h>
 
 #define HAUS_SD_DUMMY_CS 15
@@ -31,6 +33,7 @@ static bool s_mounted = false;
 static uint64_t s_total_bytes = 0;
 static uint64_t s_used_bytes = 0;
 static bool s_space_valid = false;
+static SemaphoreHandle_t s_sd_lock = NULL;
 
 bool haus_sd_mount(void) {
     if (s_mounted && haus_sd_is_mounted()) return true;
@@ -101,15 +104,26 @@ void haus_sd_unmount(void) {
     tpl_ws7_sd_select(false);
 }
 
+bool haus_sd_lock(uint32_t timeout_ms) {
+    if (!s_sd_lock) s_sd_lock = xSemaphoreCreateMutex();
+    if (!s_sd_lock) return false;
+    return xSemaphoreTake(s_sd_lock, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
+}
+
+void haus_sd_unlock(void) {
+    if (s_sd_lock) xSemaphoreGive(s_sd_lock);
+}
+
 bool haus_sd_is_mounted(void) {
     if (!s_mounted) return false;
+    if (!haus_sd_lock(100)) return false;
 
     /* Cheap read-only probe: one byte, not a FAT scan. A pulled card makes
      * open/read fail within the SPI timeout. */
     File probe = SD.open(HAUS_SD_PROBE_PATH, FILE_READ);
-    if (!probe) return false;
-    const int c = probe.read();
-    probe.close();
+    const int c = probe ? probe.read() : -1;
+    if (probe) probe.close();
+    haus_sd_unlock();
     return c == HAUS_SD_PROBE_BYTE;
 }
 

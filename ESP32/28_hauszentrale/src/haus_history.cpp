@@ -9,22 +9,32 @@
 
 #include "haus_history.h"
 
+#include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #ifdef HAUS_HOST
 
+#define TPL_LOGI(...) do {} while (0)
+#define TPL_LOGW(...) do {} while (0)
+#define TPL_LOGE(...) do {} while (0)
+
 static gui_sample_t s_l1_storage[HAUS_L1_SAMPLES];
 static RollupColumn s_l2_storage[HAUS_L2_COLUMNS];
+static RollupColumn s_ring_storage[HAUS_RING_HOURS];
+static uint32_t s_test_day_bytes = 0;
+static uint32_t s_test_rollup_bytes = 0;
 
 #else  /* device */
 
 #include <Arduino.h>
+#include <SD.h>
 #include <SPIFFS.h>
 #include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-#include <time.h>
 
+#include "haus_sd.h"
 #include "tpl_debug_log.h"
 
 typedef struct __attribute__((packed)) {
@@ -43,10 +53,118 @@ static bool s_ring_ready = false;
 static gui_sample_t *s_l1 = NULL;
 static RollupColumn *s_l2 = NULL;
 static uint32_t s_last_sample_minute = UINT32_MAX;
+static uint32_t s_last_sample_epoch = 0;
 static uint32_t s_last_day = 0;
+static uint32_t s_sd_write_count = 0;
+static char s_last_day_path[32] = "";
+static uint8_t s_last_stale_mask = 0;
+
+/* One minute without a refresh marks a source stale in the log. */
+#define HAUS_STALE_AFTER_S 60
+
+static bool source_stale(uint32_t now, uint32_t last_update) {
+    if (last_update == 0) return true;
+    if (now <= last_update) return false;  /* clock step back */
+    return (now - last_update) >= HAUS_STALE_AFTER_S;
+}
 
 static size_t ring_slot(uint32_t epoch_hour) {
     return (size_t)(epoch_hour % HAUS_RING_HOURS);
+}
+
+/* Day names come from the last sample's epoch, not from a separate
+ * localtime() read, so an NTP step cannot split a day across two files (D34). */
+static void format_day_path(uint32_t epoch, char *out, size_t n) {
+    time_t t = (time_t)epoch;
+    struct tm tm;
+    if (!localtime_r(&t, &tm)) {
+        snprintf(out, n, "/data_00000000.bin");
+        return;
+    }
+    char date[16];
+    strftime(date, sizeof(date), "%Y%m%d", &tm);
+    snprintf(out, n, "/data_%s.bin", date);
+}
+
+static bool sd_write_day(uint32_t epoch) {
+    format_day_path(epoch, s_last_day_path, sizeof(s_last_day_path));
+
+#ifdef HAUS_HOST
+    s_test_day_bytes = HAUS_L1_BYTES;
+    s_sd_write_count++;
+    return true;
+#else
+    if (!haus_sd_lock(2000)) return false;
+    File f = SD.open(s_last_day_path, FILE_WRITE);
+    const bool ok =
+        f && (f.write((const uint8_t *)s_l1, HAUS_L1_BYTES) == HAUS_L1_BYTES);
+    if (f) f.close();
+    haus_sd_unlock();
+
+    if (ok) {
+        s_sd_write_count++;
+        TPL_LOGI("history", "day file written: %s (%u B)", s_last_day_path,
+                 (unsigned)HAUS_L1_BYTES);
+    } else {
+        TPL_LOGE("history", "day file write failed: %s", s_last_day_path);
+    }
+    return ok;
+#endif
+}
+
+static bool sd_write_rollup(uint32_t epoch) {
+#ifdef HAUS_HOST
+    (void)epoch;
+    s_test_rollup_bytes = HAUS_L2_BYTES;
+    s_sd_write_count++;
+    return true;
+#else
+    const uint32_t last_hour = epoch / 3600;
+    if (!haus_sd_lock(2000)) return false;
+
+    File f = SD.open("/rollup.bin", FILE_WRITE);
+    bool ok = (bool)f;
+    if (ok) {
+        RollupColumn buf[16];
+        size_t idx = 0;
+        for (size_t i = 0; i < HAUS_L2_COLUMNS; i++) {
+            const uint32_t h = last_hour - (HAUS_L2_COLUMNS - 1) + (uint32_t)i;
+            buf[idx++] = s_l2[h % HAUS_L2_COLUMNS];
+            if (idx == sizeof(buf) / sizeof(buf[0])) {
+                const size_t bytes = idx * sizeof(RollupColumn);
+                if (f.write((const uint8_t *)buf, bytes) != bytes) {
+                    ok = false;
+                    break;
+                }
+                idx = 0;
+            }
+        }
+        if (ok && idx != 0) {
+            const size_t bytes = idx * sizeof(RollupColumn);
+            if (f.write((const uint8_t *)buf, bytes) != bytes) ok = false;
+        }
+    }
+    if (f) f.close();
+    haus_sd_unlock();
+
+    if (ok) {
+        s_sd_write_count++;
+        TPL_LOGI("history", "rollup written: %u columns", (unsigned)HAUS_L2_COLUMNS);
+    } else {
+        TPL_LOGE("history", "rollup write failed");
+    }
+    return ok;
+#endif
+}
+
+static void write_daily_files(uint32_t epoch) {
+    if (epoch == 0) return;
+    if (!sd_write_day(epoch)) {
+        TPL_LOGW("history", "day file not written");
+    }
+    if (!sd_write_rollup(epoch)) {
+        TPL_LOGW("history", "rollup not written");
+    }
 }
 
 static void add_series(RollupColumn *col, int series, int32_t value) {
@@ -73,7 +191,9 @@ bool haus_history_sample(const HausState *state, uint32_t epoch_seconds) {
     if (s_last_day == 0) {
         s_last_day = day;
     } else if (day != s_last_day) {
-        /* Local midnight: today's minute buffer starts fresh. */
+        /* Local midnight: write the finished day and the rollup, then start
+         * today's minute buffer fresh. */
+        write_daily_files(s_last_sample_epoch);
         memset(s_l1, 0, HAUS_L1_BYTES);
         s_last_day = day;
     }
@@ -87,7 +207,38 @@ bool haus_history_sample(const HausState *state, uint32_t epoch_seconds) {
     s->temp[3] = HAUS_CAN_TEMP_EMPTY;
     s->duty_permille = state->can.pwm_permille;
     s->watts = state->can.watts;
-    s->flags = state->can.water_modelled ? 0x01 : 0x00;
+    s->flags = state->can.water_modelled ? SAMPLE_FLAG_MODELLED : 0x00;
+
+    uint8_t stale = 0;
+    const bool living_valid = (state->climate.climate_flags & CLIMATE_VALID_AHT20) != 0;
+    const bool pressure_valid = (state->climate.climate_flags & CLIMATE_VALID_BMP280) != 0;
+
+    if (s->temp[0] != HAUS_CAN_TEMP_EMPTY &&
+        source_stale(epoch_seconds, state->can.last_update_epoch))
+        stale |= SAMPLE_STALE_CHAMBER;
+    if (s->temp[1] != HAUS_CAN_TEMP_EMPTY &&
+        source_stale(epoch_seconds, state->can.last_update_epoch))
+        stale |= SAMPLE_STALE_WATER_IN;
+    if (s->temp[2] != HAUS_CAN_TEMP_EMPTY &&
+        source_stale(epoch_seconds, state->can.last_update_epoch))
+        stale |= SAMPLE_STALE_WATER_OUT;
+    if (living_valid &&
+        source_stale(epoch_seconds, state->climate.last_update_epoch))
+        stale |= SAMPLE_STALE_LIVING | SAMPLE_STALE_HUMIDITY;
+    if (pressure_valid &&
+        source_stale(epoch_seconds, state->climate.last_update_epoch))
+        stale |= SAMPLE_STALE_PRESSURE;
+    if (state->can.valid &&
+        source_stale(epoch_seconds, state->can.last_update_epoch))
+        stale |= SAMPLE_STALE_POWER;
+
+    s->stale_mask = stale;
+    if (stale != 0) s->flags |= SAMPLE_FLAG_STALE;
+    if (stale != s_last_stale_mask) {
+        TPL_LOGW("history", "stale mask 0x%02x -> 0x%02x",
+                 (unsigned)s_last_stale_mask, (unsigned)stale);
+        s_last_stale_mask = stale;
+    }
 
     const uint32_t hour_start_sec = epoch_seconds - (epoch_seconds % 3600);
     const uint32_t hour_start_min = hour_start_sec / 60;
@@ -99,22 +250,30 @@ bool haus_history_sample(const HausState *state, uint32_t epoch_seconds) {
         col->t = hour_start_min;
     }
 
-    if (s->temp[0] != HAUS_CAN_TEMP_EMPTY)
+    /* Stale minutes are recorded in L1 with their mask, but never folded into
+     * the hourly aggregate. A completed hour with n < 60 is therefore visibly
+     * partial rather than silently complete. */
+    if (s->temp[0] != HAUS_CAN_TEMP_EMPTY &&
+        !(stale & SAMPLE_STALE_CHAMBER))
         add_series(col, 0, s->temp[0]);
-    if (s->temp[1] != HAUS_CAN_TEMP_EMPTY)
+    if (s->temp[1] != HAUS_CAN_TEMP_EMPTY &&
+        !(stale & SAMPLE_STALE_WATER_IN))
         add_series(col, 1, s->temp[1]);
-    if (s->temp[2] != HAUS_CAN_TEMP_EMPTY)
+    if (s->temp[2] != HAUS_CAN_TEMP_EMPTY &&
+        !(stale & SAMPLE_STALE_WATER_OUT))
         add_series(col, 2, s->temp[2]);
-    if (state->climate.climate_flags & CLIMATE_VALID_AHT20) {
+    if (living_valid && !(stale & SAMPLE_STALE_LIVING)) {
         add_series(col, 3, state->climate.living_c100);
         add_series(col, 4, (int32_t)state->climate.hum_c100);
     }
-    if (state->climate.climate_flags & CLIMATE_VALID_BMP280)
+    if (pressure_valid && !(stale & SAMPLE_STALE_PRESSURE))
         add_series(col, 5, (int32_t)state->climate.pressure_pa);
 
     /* The hour is complete at minute 59. */
     if ((epoch_seconds % 3600) >= 3540) {
-#ifndef HAUS_HOST
+#ifdef HAUS_HOST
+        (void)haus_history_ring_append(col);
+#else
         if (s_ring_ready) {
             if (haus_history_ring_append(col)) {
                 TPL_LOGI("history", "hour appended: t=%u n[0]=%u\n",
@@ -127,6 +286,7 @@ bool haus_history_sample(const HausState *state, uint32_t epoch_seconds) {
 #endif
     }
 
+    s_last_sample_epoch = epoch_seconds;
     return true;
 }
 
@@ -150,11 +310,18 @@ void haus_history_flush_hour(uint32_t epoch_seconds) {
 #endif
 }
 
+uint32_t haus_history_sd_write_count(void) { return s_sd_write_count; }
+
+const char *haus_history_last_day_path(void) { return s_last_day_path; }
+
 #ifdef HAUS_HOST
 
 bool haus_history_init(void) {
     s_l1 = s_l1_storage;
     s_l2 = s_l2_storage;
+    memset(s_ring_storage, 0, sizeof(s_ring_storage));
+    s_test_day_bytes = 0;
+    s_test_rollup_bytes = 0;
     return true;
 }
 
@@ -162,17 +329,38 @@ gui_sample_t *haus_history_l1(void) { return s_l1; }
 RollupColumn *haus_history_l2(void) { return s_l2; }
 
 bool haus_history_ring_append(const RollupColumn *col) {
-    (void)col;
-    return false;
+    if (!col || col->t == 0) return false;
+    const size_t slot = ring_slot((uint32_t)(col->t / 60));
+    s_ring_storage[slot] = *col;
+    return true;
+}
+
+size_t haus_history_ring_load_at(RollupColumn *out, size_t max_columns,
+                                 uint32_t now_epoch) {
+    if (!out || max_columns == 0) return 0;
+    if (now_epoch < 24 * 3600) return 0;
+    if (max_columns > HAUS_RING_HOURS) max_columns = HAUS_RING_HOURS;
+
+    const uint32_t now_hour = now_epoch / 3600;
+    const uint32_t first_hour = now_hour - (uint32_t)max_columns + 1;
+
+    size_t written = 0;
+    for (size_t i = 0; i < max_columns; i++) {
+        const size_t slot = ring_slot(first_hour + (uint32_t)i);
+        if (s_ring_storage[slot].t == 0) continue;
+        out[written++] = s_ring_storage[slot];
+    }
+    return written;
 }
 
 size_t haus_history_ring_load(RollupColumn *out, size_t max_columns) {
-    (void)out;
-    (void)max_columns;
-    return 0;
+    return haus_history_ring_load_at(out, max_columns, (uint32_t)time(nullptr));
 }
 
 void haus_history_start_recorder(void) {}
+
+uint32_t haus_history_test_day_bytes(void) { return s_test_day_bytes; }
+uint32_t haus_history_test_rollup_bytes(void) { return s_test_rollup_bytes; }
 
 #else  /* device */
 
@@ -267,13 +455,12 @@ bool haus_history_ring_append(const RollupColumn *col) {
     return ok;
 }
 
-size_t haus_history_ring_load(RollupColumn *out, size_t max_columns) {
+size_t haus_history_ring_load_at(RollupColumn *out, size_t max_columns,
+                                 uint32_t now_epoch) {
     if (!s_ring_ready || !out || max_columns == 0) return 0;
+    if (now_epoch < 24 * 3600) return 0;
 
-    const time_t now = time(nullptr);
-    if (now < 24 * 3600) return 0;  /* no valid wall clock yet */
-
-    const uint32_t now_hour = (uint32_t)(now / 3600);
+    const uint32_t now_hour = now_epoch / 3600;
     if (max_columns > HAUS_RING_HOURS) max_columns = HAUS_RING_HOURS;
 
     const uint32_t first_hour = now_hour - (uint32_t)max_columns + 1;
@@ -295,6 +482,10 @@ size_t haus_history_ring_load(RollupColumn *out, size_t max_columns) {
     }
     f.close();
     return written;
+}
+
+size_t haus_history_ring_load(RollupColumn *out, size_t max_columns) {
+    return haus_history_ring_load_at(out, max_columns, (uint32_t)time(nullptr));
 }
 
 static void recorder_task(void *arg) {

@@ -162,6 +162,8 @@ void gui_update_state(void) {
     const time_t now = time(nullptr);
     can.timestamp = (now > 0) ? (uint32_t)now : 0;
     can.synced = (now > 1700000000);  /* after 2023-11-14 */
+    /* No CAN task yet; 0 makes any future valid value explicitly stale. */
+    can.last_update_epoch = 0;
 
     /* Temperatures — no CAN wiring yet, so every slot is empty. */
     haus_can_temperature_t temps;
@@ -207,6 +209,8 @@ void gui_update_state(void) {
     climate.hum_c100 = living_hum;
     climate.pressure_pa = living_pres;
     climate.climate_flags = climate_flags;
+    /* sensorTask (S18, abandoned) would stamp this when it reads. */
+    climate.last_update_epoch = 0;
 
     can.can_status = GUI_STATUS_INACTIVE;
     can.duty_status = (can.pwm_src == PWM_SRC_CAN)

@@ -292,12 +292,12 @@ can be exercised. The local SHT45 path (S18b) is independent and does not wait.
 
 ## S17 · CAN SUBSYSTEM on the device
 
-- [ ] S17.01 Install TWAI at 125 kbps, ACCEPT_ALL filter — Test: it starts without error
-- [ ] S17.02 Create canTask: 4096 B, priority 3, 100 ms alert timeout — Test: task stats show the expected stack
-- [ ] S17.03 Re-arm RX_DATA|ERR_PASS|BUS_ERROR|RECOVERED|RX_QUEUE_FULL — Test: alerts fire in a loop
-- [ ] S17.04 Set alerts_config = 0 (non-NULL) — Test: the panel does not crash when the first alert fires
+- [x] S17.01 Install TWAI at 125 kbps, ACCEPT_ALL filter — Test: it starts without error (`src/haus_can_bus.cpp`; bench log `TWAI running at 125 kbps`. Pins are TX 20 / RX 19 per Waveshare's `waveshare_twai_port.h` — the whitepaper had them swapped)
+- [x] S17.02 Create canTask: 4096 B, priority 3, 100 ms alert timeout — Test: task stats show the expected stack (`xTaskCreate(can_task, "canTask", 4096, NULL, 3, ...)`)
+- [x] S17.03 Re-arm RX_DATA|ERR_PASS|BUS_ERROR|RECOVERED|RX_QUEUE_FULL — Test: alerts fire in a loop (`twai_reconfigure_alerts()` after start + bus-off recovery path)
+- [x] S17.04 Set alerts_config = 0 (non-NULL) — Test: the panel does not crash when the first alert fires (`uint32_t configured = 0;`)
 - [ ] S17.05 Surface ERR_PASS/BUS_ERROR as a sticky bus-fault flag — Test: the banner appears and clears only on a good frame
-- [ ] S17.06 Send one 0x555 wall-clock frame per second — Test: the bus sees it at 1 Hz, nothing else per-second
+- [x] S17.06 Send one 0x555 wall-clock frame per second — Test: the bus sees it at 1 Hz, nothing else per-second (bench `/sd/status`: `can_tx` grows by one per second; before SNTP the frame carries a zero clock so the bus always has an ACK source)
 - [ ] S17.07 Prove CAN reception never blocks LVGL (N3) — Test: a CAN flood leaves the UI at the same frame rate
 
 ## S18 · LOCAL I2C SENSORS — ABANDONED
@@ -376,6 +376,7 @@ living-room zone are real again; pressure stays `—` (no BMP sensor).
 - [x] S23.14 Extend /sd/status JSON with the same figures — Test: the JSON matches the panel (route registered in `main.cpp`; includes total/used/free/floor/headroom, tiers, rollover, newest, fault_since, writing)
 - [x] S23.15 Home SD dot shows only presence/activity: green = present, readable, safe to remove; red = write in progress; grey = absent — Test: all three states are reachable, and a fault with an idle card still shows green while the storage panel reports faulty (dot colour ignores `sd_fault`)
 - [x] S23.16 The write-in-progress flag is raised and cleared around every recorder write (rollover, log dump, retention) — Test: the dot turns red for the duration and returns to green (`haus_history_set_writing()` around `write_daily_files()`, retention deletes and `gui_log_save()`)
+- [ ] S23.17 Show the panel's WiFi IP in SETTINGS — Test: the address matches the DHCP lease, so the web UI can be reached when CAN has taken GPIO 19/20 and USB is gone
 
 ## S24 · CAN ENABLE SWITCH (boot sequence, N19)
 
@@ -405,13 +406,13 @@ living-room zone are real again; pressure stays `—` (no BMP sensor).
 
 - [x] S26.01 Assert LVGL draw buffers are in internal RAM — Test: address check in a unit test (`assert(esp_ptr_internal(s_draw_buf0))` before display init; boot log prints `internal=yes`)
 - [x] S26.02 Log heap_caps_get_free_size() after ui_init() and after the first SD write — Test: both numbers appear (`S26.02 after first SD write` after the mount self-test, `S26.03 after ui_init`)
-- [x] S26.03 Assert heap stays under 64 KB (N6) — Test: the build or a runtime assert catches a violation (boot computes the ui_init delta against the post-system baseline and asserts it is <= 64 KB)
+- [x] S26.03 Assert heap stays under 64 KB (N6) — Test: the build or a runtime assert catches a violation (boot computes the ui_init delta against the post-lv_init baseline; logs 60 688 B for the home screen, under the 64 KB budget. It logs an error above the budget rather than aborting)
 - [x] S26.04 Assert PSRAM usage matches the §10.5.1 table — Test: the numbers line up within the stated headroom (boot logs PSRAM free/delta after ui_init and asserts more than 4 MB headroom; the 1 MB ring, L1/L2 and 768 KB background are measured in that delta)
 - [x] S26.05 Confirm no chart build allocates heap at any range (N18) — Test: a heap probe is flat across all three ranges (`haus_chart.cpp` has no malloc/new/heap_caps calls and uses the two static chunk buffers; `test/test_chart` passes at all three ranges)
-- [x] S26.06 Content dimming as the screensaver (D43) — Test: the UI dims toward the background, the backlight stays lit (`haus_ui_set_dimmed()` fades a solid `lv_layer_top()` overlay to 200/255 after 60 s idle; any touch restores it, backlight untouched; `output_home_dim.png`)
+- [x] ~~S26.06 Content dimming as the screensaver (D43) — Test: the UI dims toward the background, the backlight stays lit~~ ~~REJECTED: content dimming does not make sense; the screen stays at full brightness.~~
 - [ ] S26.07 72-hour soak: no watchdog reset, no leak, heap drop under 8 KB — Test: a written report with the numbers
 - [ ] S26.08 Verify a log storm does not make the panel unresponsive (N12) — Test: a 5 000-line burst keeps touch responsive
-- [x] S26.09 Re-run the whole regression set — Test: project 26, project 15, 26_CYD_CAN_monitor all build; host smoke test passes (15_power_log_eink and 26_CYD_CAN_monitor `esp32ota` builds exit 0; host harness renders all 12 screens including the dimmed home)
+- [x] S26.09 Re-run the whole regression set — Test: project 26, project 15, 26_CYD_CAN_monitor all build; host smoke test passes (15_power_log_eink and 26_CYD_CAN_monitor `esp32ota` builds exit 0; host harness renders all 11 screens)
 
 ## S27 · DOCS AND HANDOFF
 

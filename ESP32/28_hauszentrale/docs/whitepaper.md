@@ -249,7 +249,7 @@ Everything else must fit in what remains, which is why the CH422G exists.
 | Peripheral | Pins | Control |
 | ---------- | ---- | ------- |
 | Touch (GT911) | SDA 8, SCL 9 | I2C @ 400 kHz, shared with CH422G |
-| CAN (TJA1051) | TX 19, RX 20 | behind FSUSB42UMX, gated by CH422G **IO5** |
+| CAN (TJA1051) | TX 20, RX 19 | behind FSUSB42UMX, gated by CH422G **IO5** (per Waveshare `waveshare_twai_port.h`) |
 | SD (SPI) | MOSI 11, MISO 13, SCLK 12 | CS via CH422G **IO4** (active low) |
 | LCD reset | — | CH422G **IO3** |
 | Backlight | — | CH422G **IO2** → AP3032 **EN** pin via R52 (**on/off only, no PWM** — §7.13) |
@@ -1033,8 +1033,8 @@ build_flags = ${common.build_flags}
     -D IS_WAVESHARE_LCD7
     -D TPL_WS7_ROTATION=0          ; portrait: 480 x 800 logical
     -D TPL_WS7_DRAW_LINES=20
-    -D HAUS_CAN_TX=19
-    -D HAUS_CAN_RX=20
+    -D HAUS_CAN_TX=20
+    -D HAUS_CAN_RX=19
     -D HAUS_SD_ENABLE=1
 upload_protocol = espota
 upload_port = ${common.hostname}.local

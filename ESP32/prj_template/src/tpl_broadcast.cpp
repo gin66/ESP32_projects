@@ -141,12 +141,20 @@ bool tpl_broadcast_receive(void* buffer, size_t buffer_size,
     if (packetSize > (int)buffer_size) {
       total_oversize++;
       rx_history_add(packetSize, 0, (uint8_t*)buffer, false, true, false);
-      udp.flush();
+  #if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+    udp.clear();  // flush() is deprecated in Arduino-ESP32 3.x (IDF 5)
+#else
+    udp.flush();
+#endif
       continue;
     }
 
     size_t bytes_read = udp.read((uint8_t*)buffer, packetSize);
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+    udp.clear();  // flush() is deprecated in Arduino-ESP32 3.x (IDF 5)
+#else
     udp.flush();
+#endif
 
     if (bytes_read > 0) {
       bool truncated = (bytes_read != (size_t)packetSize);

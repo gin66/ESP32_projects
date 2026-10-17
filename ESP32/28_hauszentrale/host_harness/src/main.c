@@ -91,11 +91,6 @@ static int render_to_png(const char* filename) {
 
 static void build_water(void) { haus_ui_build_water(2); }
 
-static void build_home_dim(void) {
-  haus_ui_init();
-  haus_ui_set_dimmed(true);
-}
-
 static void build_chamber_week(void) {
   haus_ui_build_detail();
   haus_ui_set_range(1);
@@ -143,7 +138,6 @@ int main(int argc, char* argv[]) {
 
   static void (*const build_funcs[])(void) = {
       (void (*)(void))haus_ui_init,
-      build_home_dim,
       (void (*)(void))haus_ui_build_detail,
       (void (*)(void))haus_ui_build_power,
       (void (*)(void))haus_ui_build_living,
@@ -156,8 +150,8 @@ int main(int argc, char* argv[]) {
       build_chamber_month,
   };
   static const char* const screen_names[] = {
-      "home",    "home_dim", "detail", "power", "living",     "settings",
-      "storage", "can",      "log",    "water", "chart_week", "chart_month",
+      "home", "detail", "power", "living",     "settings",    "storage",
+      "can",  "log",    "water", "chart_week", "chart_month",
   };
 
   for (size_t i = 0; i < sizeof(build_funcs) / sizeof(build_funcs[0]); i++) {

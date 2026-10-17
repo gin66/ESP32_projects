@@ -23,6 +23,7 @@
 #include <cstring>
 
 #include "haus_can.h"
+#include "haus_can_bus.h"
 #include "haus_history.h"
 #include "haus_rollup.h"
 #include "haus_sd.h"
@@ -68,19 +69,18 @@ static bool g_can_enabled = false;
  */
 
 static void read_temperatures(haus_can_temperature_t* out) {
-  /* TODO: Read from CAN bus 0x200 frame.
-   * For now, return all HAUS_CAN_TEMP_EMPTY until CAN is integrated. */
-  for (int i = 0; i < HAUS_CAN_MAX_SENSORS; i++) {
-    out->temperature[i] = HAUS_CAN_TEMP_EMPTY;
-  }
+  haus_can_snapshot_t snap;
+  haus_can_bus_get(&snap);
+  for (int i = 0; i < HAUS_CAN_MAX_SENSORS; i++)
+    out->temperature[i] = snap.temp_c100[i];
 }
 
 static void read_pwm(haus_can_pwm_t* out) {
-  /* TODO: Read from CAN bus 0x280 frame.
-   * For now, return "off" with EEPROM source. */
-  out->duty_permille = 0;
-  out->frequency_hz = 0;
-  out->flags = PWM_SRC_EEPROM;
+  haus_can_snapshot_t snap;
+  haus_can_bus_get(&snap);
+  out->duty_permille = snap.pwm_permille;
+  out->frequency_hz = snap.frequency_hz;
+  out->flags = snap.pwm_flags;
 }
 
 static void read_power(int32_t* watts, uint8_t* source) {
@@ -316,6 +316,7 @@ bool gui_can_enabled(void) { return g_can_enabled; }
 
 void gui_set_can_enabled(bool enabled) {
   g_can_enabled = enabled;
+  haus_can_bus_set_enabled(enabled);
   TPL_LOGI("settings", "CAN %s", enabled ? "on" : "off");
 }
 
@@ -355,10 +356,13 @@ void gui_update_state(void) {
   const time_t now = time(nullptr);
   can.timestamp = (now > 0) ? (uint32_t)now : 0;
   can.synced = (now > 1700000000); /* after 2023-11-14 */
-  /* No CAN task yet; 0 makes any future valid value explicitly stale. */
-  can.last_update_epoch = 0;
 
-  /* Temperatures — no CAN wiring yet, so every slot is empty. */
+  haus_can_snapshot_t snap;
+  haus_can_bus_get(&snap);
+  can.last_update_epoch = snap.last_update_epoch;
+
+  /* Temperatures from 0x200. Identity mapping (rank → function) is S9; until
+   * then the slots are taken in the order the controller reports them. */
   haus_can_temperature_t temps;
   read_temperatures(&temps);
   for (int i = 0; i < HAUS_CAN_MAX_SENSORS; i++) {
@@ -368,6 +372,11 @@ void gui_update_state(void) {
   for (int i = 0; i < SENSOR_FN_COUNT; i++) {
     can.temp_by_fn[i] = HAUS_CAN_TEMP_EMPTY;
   }
+  can.fn_of_slot[0] = SENSOR_FN_CHAMBER;
+  can.fn_of_slot[1] = SENSOR_FN_WATER_IN;
+  can.fn_of_slot[2] = SENSOR_FN_WATER_OUT;
+  for (int i = 0; i < 3; i++)
+    can.temp_by_fn[can.fn_of_slot[i]] = can.temp_c100[i];
 
   /* PWM — reported-by-0x280 value; nothing received yet. */
   haus_can_pwm_t pwm;
@@ -404,7 +413,9 @@ void gui_update_state(void) {
   climate.last_update_epoch =
       (climate_flags & CLIMATE_VALID_SHT45) ? can.timestamp : 0;
 
-  can.can_status = GUI_STATUS_INACTIVE;
+  can.can_status =
+      snap.running ? (snap.bus_fault ? GUI_STATUS_ERROR : GUI_STATUS_OK)
+                   : GUI_STATUS_INACTIVE;
   can.duty_status =
       (can.pwm_src == PWM_SRC_CAN) ? GUI_STATUS_OK : GUI_STATUS_INACTIVE;
   /* SD is green when present and readable, grey when absent. Red is reserved
@@ -446,13 +457,13 @@ void gui_update_state(void) {
   can.water_modelled = false;
   can.uptime_seconds = millis() / 1000;
 
-  /* Counters and fault flags are refreshed by the CAN task in S8.03. */
-  can.rx_frames = 0;
-  can.tx_frames = 0;
-  can.bus_errors = 0;
-  can.last_frame_ms = 0;
+  /* CAN counters and fault flags come from the RX task snapshot. */
+  can.rx_frames = snap.rx_frames;
+  can.tx_frames = snap.tx_frames;
+  can.bus_errors = snap.bus_errors;
+  can.last_frame_ms = snap.last_frame_ms;
   can.can_enabled = g_can_enabled;
-  can.can_fault = 0;
+  can.can_fault = snap.bus_fault ? 1 : 0;
   can.sd_fault = haus_history_sd_fault() ? 1 : 0;
   can.i2c_fault = 0;
 

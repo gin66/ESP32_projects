@@ -25,6 +25,7 @@ target/
 [0-9][0-9]_*/tools/tail_ws.py
 [0-9][0-9]_*/include/version.h
 [0-9][0-9]_*/include/haus_*.h
+!28_hauszentrale/include/haus_can_bus.h
 !28_hauszentrale/include/haus_chart.h
 !28_hauszentrale/include/haus_gui.h
 !28_hauszentrale/include/haus_history.h

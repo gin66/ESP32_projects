@@ -44,11 +44,6 @@ void haus_ui_set_range(int range);
 /** Three-finger gesture: return to Home from anywhere. */
 void haus_ui_three_finger(void);
 
-/** Content-dimming screensaver (S26.06 / D43). The backlight stays lit; any
- * touch should call haus_ui_set_dimmed(false). */
-void haus_ui_set_dimmed(bool dimmed);
-bool haus_ui_dimmed(void);
-
 #ifdef UI_SMOKE_TEST
 void haus_ui_smoke_step(void);
 #endif

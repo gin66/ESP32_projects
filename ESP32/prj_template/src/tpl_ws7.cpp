@@ -182,9 +182,9 @@ esp_err_t tpl_ws7_sd_select(bool select) {
 
 esp_err_t tpl_ws7_set_usb_mode(bool usb) {
   // USB_SEL: HIGH = CAN, LOW = USB
-  // usb=true -> USB mode -> IO5=LOW -> CAN disabled
-  // usb=false -> CAN mode -> IO5=HIGH
-  return ws7_update_bit(TPL_WS7_IO_USB_SEL, usb);
+  // usb=true  -> IO5 LOW  -> USB mode
+  // usb=false -> IO5 HIGH -> CAN mode
+  return ws7_update_bit(TPL_WS7_IO_USB_SEL, !usb);
 }
 
 bool tpl_ws7_can_available(void) {

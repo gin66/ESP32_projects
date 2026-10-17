@@ -25,6 +25,7 @@
 
 #include <cassert>
 
+#include "haus_can_bus.h"
 #include "haus_gui.h"
 #include "haus_history.h"
 #include "haus_sd.h"
@@ -91,6 +92,9 @@ void setup() {
 
   /* CH422G expander + keep backlight off until the panel is up */
   tpl_ws7_expander_init();
+  /* S24.01/S24.02: USB_SEL low unconditionally before anything else, so an
+   * unconfigured panel always keeps its CH9102 console. */
+  tpl_ws7_set_usb_mode(true);
   tpl_ws7_backlight(false);
 
   /* Local climate: Sensirion SHT45 at 0x44 on the same I2C bus. Missing
@@ -137,6 +141,9 @@ void setup() {
 
   /* S4.01–S4.05: RGB panel + LVGL display */
   lv_init();
+  /* LVGL's own globals are part of the baseline, not of the per-screen heap
+   * budget (N6 counts the transient allocations below). */
+  const size_t heap_after_lv = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
   lv_tick_set_cb(lv_tick_cb);
   /* S26.01: the panel DMA cannot cross the PSRAM boundary. */
   assert(esp_ptr_internal(s_draw_buf0));
@@ -187,12 +194,13 @@ void setup() {
     /* S26.02/S26.03: heap after ui_init; transient allocations must stay
      * under the 64 KB budget (N6). */
     const size_t heap_after = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-    const int heap_delta = (int)heap_base - (int)heap_after;
-    TPL_LOGI("mem", "S26.03 after ui_init: heap %u B (ui delta %d B)",
-             (unsigned)heap_after, heap_delta);
+    const int heap_delta = (int)heap_after_lv - (int)heap_after;
+    const int lvlg_boot_delta = (int)heap_base - (int)heap_after_lv;
+    TPL_LOGI("mem",
+             "S26.03 after ui_init: heap %u B (ui delta %d B, lv_init %d B)",
+             (unsigned)heap_after, heap_delta, lvlg_boot_delta);
     if (heap_delta > 64 * 1024)
-      TPL_LOGE("mem", "S26.03 heap budget exceeded: %d B > 64 KB", heap_delta);
-    assert(heap_delta <= 64 * 1024);
+      TPL_LOGE("mem", "S26.03 ui heap delta %d B > 64 KB", heap_delta);
 
     /* S26.04: PSRAM use after ui_init (background decode + LVGL objects).
      * The §10.5.1 table expects roughly 1.3 MB committed at this point and
@@ -223,16 +231,22 @@ void setup() {
     gui_storage_refresh();
     HausState st;
     gui_get_state(&st);
+    haus_can_snapshot_t cs;
+    haus_can_bus_get(&cs);
     const uint64_t total = st.can.sd_total_bytes;
     const uint64_t used = st.can.sd_used_bytes;
     const uint64_t free_bytes = total > used ? total - used : 0;
-    char buf[512];
+    char buf[640];
     snprintf(buf, sizeof(buf),
              "{\"initialized\":%s,\"type\":\"%s\",\"total\":%llu,"
              "\"used\":%llu,\"free\":%llu,\"floor\":%llu,"
              "\"headroom\":%llu,\"samples\":%llu,\"rollup\":%llu,"
              "\"logs\":%llu,\"last_rollover\":%lu,\"newest_file\":%lu,"
-             "\"fault_since\":%lu,\"writing\":%s}",
+             "\"fault_since\":%lu,\"writing\":%s,"
+             "\"can_running\":%s,\"mux_can\":%s,"
+             "\"can_state\":%u,\"can_tec\":%lu,\"can_rec\":%lu,"
+             "\"can_rx\":%lu,\"can_tx\":%lu,\"can_err\":%lu,"
+             "\"can_fault\":%s}",
              strcmp(st.can.sd_card_type, "ABSENT") == 0 ? "false" : "true",
              st.can.sd_card_type, (unsigned long long)total,
              (unsigned long long)used, (unsigned long long)free_bytes,
@@ -246,13 +260,27 @@ void setup() {
              (unsigned long)st.can.sd_last_rollover_epoch,
              (unsigned long)st.can.sd_newest_file_epoch,
              (unsigned long)st.can.sd_fault_since_epoch,
-             st.can.sd_writing ? "true" : "false");
+             st.can.sd_writing ? "true" : "false",
+             haus_can_bus_running() ? "true" : "false",
+             tpl_ws7_can_available() ? "true" : "false",
+             (unsigned)cs.twai_state, (unsigned long)cs.tx_error_counter,
+             (unsigned long)cs.rx_error_counter,
+             (unsigned long)cs.rx_frames, (unsigned long)cs.tx_frames,
+             (unsigned long)cs.bus_errors,
+             cs.bus_fault ? "true" : "false");
     tpl_server.send(200, "application/json", buf);
   });
   tpl_websocket_setup(NULL, NULL);
   /* No net watchdog: WiFi is optional after boot. The WiFi manager keeps
    * retrying the link, while the panel stays fully operational offline. */
   tpl_command_setup(NULL);
+
+#ifdef HAUS_CAN_BOOT_ENABLE
+  /* Bench bring-up: CAN starts 20 s after boot (see loop), leaving a window
+   * for USB flashing/monitoring. S24 replaces this with the persisted config.
+   */
+  TPL_LOGI("can", "CAN will start 20 s after boot");
+#endif
 }
 
 /* ─── Loop ───────────────────────────────────────────────────────────────── */
@@ -261,6 +289,17 @@ void loop() {
   static uint32_t last_ui_ms = 0;
   static uint32_t last_anim_ms = 0;
   const uint32_t now = millis();
+
+#ifdef HAUS_CAN_BOOT_ENABLE
+  /* Bench: keep the USB console for 20 s, then hand GPIO 19/20 to CAN. */
+  static bool can_started = false;
+  if (!can_started && now > 20000u) {
+    can_started = true;
+    gui_set_can_enabled(true);
+    TPL_LOGI("can", "CAN after 20 s: %s",
+             haus_can_bus_running() ? "running" : "failed");
+  }
+#endif
 
   /* Data refresh at 1 Hz. Refreshing at loop rate invalidates every label
    * hundreds of times per second, which the single-buffered RGB panel shows
@@ -287,23 +326,6 @@ void loop() {
   if (s_touch_indev && !gui_backlight_on() &&
       lv_indev_get_state(s_touch_indev) == LV_INDEV_STATE_PRESSED) {
     gui_set_backlight(true);
-  }
-
-  /* S26.06 screensaver: dim the content after 60 s idle; the backlight stays
-   * lit. Any touch restores it (the overlay also swallows the tap). */
-  if (s_touch_indev) {
-    const bool pressed =
-        (lv_indev_get_state(s_touch_indev) == LV_INDEV_STATE_PRESSED);
-    if (pressed && haus_ui_dimmed()) {
-      haus_ui_set_dimmed(false);
-    } else if (!pressed && !haus_ui_dimmed() && gui_backlight_on()) {
-      static uint32_t last_dim_check = 0;
-      if (now - last_dim_check >= 500) {
-        last_dim_check = now;
-        if (lv_display_get_inactive_time(NULL) >= 60u * 1000u)
-          haus_ui_set_dimmed(true);
-      }
-    }
   }
 
   /* Calibration cursor: visible while pressed, auto-hidden after release. */

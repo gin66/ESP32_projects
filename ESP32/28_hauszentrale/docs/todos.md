@@ -296,9 +296,9 @@ can be exercised. The local SHT45 path (S18b) is independent and does not wait.
 - [x] S17.02 Create canTask: 4096 B, priority 3, 100 ms alert timeout — Test: task stats show the expected stack (`xTaskCreate(can_task, "canTask", 4096, NULL, 3, ...)`)
 - [x] S17.03 Re-arm RX_DATA|ERR_PASS|BUS_ERROR|RECOVERED|RX_QUEUE_FULL — Test: alerts fire in a loop (`twai_reconfigure_alerts()` after start + bus-off recovery path)
 - [x] S17.04 Set alerts_config = 0 (non-NULL) — Test: the panel does not crash when the first alert fires (`uint32_t configured = 0;`)
-- [ ] S17.05 Surface ERR_PASS/BUS_ERROR as a sticky bus-fault flag — Test: the banner appears and clears only on a good frame
+- [x] S17.05 Surface ERR_PASS/BUS_ERROR as a sticky bus-fault flag — Test: the banner appears and clears only on a good frame (`bus_fault` is set on ERR_PASS/BUS_ERROR and cleared only by `decode_frame`; the banner lives on the home screen, not `lv_layer_top()` — a top-layer child forced a full-width composite that the single-buffered RGB panel showed as white stripe tearing)
 - [x] S17.06 Send one 0x555 wall-clock frame per second — Test: the bus sees it at 1 Hz, nothing else per-second (bench `/sd/status`: `can_tx` grows by one per second; before SNTP the frame carries a zero clock so the bus always has an ACK source)
-- [ ] S17.07 Prove CAN reception never blocks LVGL (N3) — Test: a CAN flood leaves the UI at the same frame rate
+- [x] S17.07 Prove CAN reception never blocks LVGL (N3) — Test: a CAN flood leaves the UI at the same frame rate (bench: 12,000 frames at 992/s from the CYD, `ui_hz` 175–188 vs 188 idle, no reset or HTTP timeout. Required yields in `can_task` (idle-task starvation), 10 Hz status polling, one `time()` per second, and static buffers in the HTTP handlers: `/sd/status` previously overflowed the 8 KB loop stack under load and rebooted the panel. Light telemetry at `/can`)
 
 ## S18 · LOCAL I2C SENSORS — ABANDONED
 

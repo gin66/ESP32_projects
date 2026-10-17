@@ -1714,7 +1714,7 @@ ever scans a sample file.
 
 | Tier | Granularity | Where | Size | Answers |
 | ---- | ----------- | ----- | ---- | ------- |
-| **L0** samples | 1 min | SD, one file per day | 34 560 B/day | nothing directly — the durable record |
+| **L0** samples | 1 min | SD, one file per day | 34 652 B/day (34 560 + CRCs) | nothing directly — the durable record |
 | **L1** day buffer | 1 min | PSRAM, today only | 34 560 B | **1 day**, at full resolution |
 | **L2** rollup | 1 hour, 31 days | PSRAM, loaded at boot | 65 472 B | **1 week** and **1 month** |
 | **L2-SPIFFS** hourly mirror | 1 hour, 12 months | SPIFFS, rotating ring | 770 880 B | an independent copy of **1 week** and **1 month**, surviving SD failure |
@@ -1766,9 +1766,9 @@ resolution.
 **Boot sequence.**
 
 ```
-1. mount SD (if present), open /rollup.bin   (65 472 B, ~35 ms)
+1. mount SD (if present), open /rollup.bin   (65 520 B, ~35 ms)
    — if the card is absent or the rollup is unreadable, load the SPIFFS ring
-2. read the newest /data_YYYYMMDD.bin         (34 560 B, ~20 ms, SD only)
+2. read the newest /data_YYYYMMDD.bin         (34 652 B, ~20 ms, SD only)
 3. re-apply those samples to L2                -> catches up SD columns
 4. replay them into a fresh L1 for today
 5. ui_init() and first frame
@@ -1788,7 +1788,7 @@ empty axis that reads as "nothing happened" (§9.5).
 3. rewrite `/rollup.bin` with the current 744 columns, one write
 4. clear L1 and start a new day
 
-The SD card therefore sees two writes a day, 34 560 + 65 472 = 100 032 B. A card
+The SD card therefore sees two writes a day, 34 652 + 65 520 = 100 172 B. A card
 that is only ever written twice a day will outlast the panel it is in. The SPIFFS
 ring sees one small append an hour, and it keeps the week/month record alive even
 if the card is already damaged.
@@ -2785,7 +2785,7 @@ average at 1 month.
 
 A raw month (1 036 800 B, thirty days of 34 560 B) fits in the 8 MB PSRAM, so it
 *could* be cached wholesale. It is deliberately not (§9.5). Retention (§9.7):
-24 months is 24 × 1 036 800 B ≈ 25 MB of daily files, plus one 65 472 B rollup,
+24 months is 24 × 1 039 560 B ≈ 25 MB of daily files, plus one 65 520 B rollup,
 which still sits under the 50 MB free-space floor.
 
 ### 9.3 Record format and downsampling
@@ -2914,7 +2914,7 @@ history views lose trust.
 
 ### 9.7 File rotation and retention
 
-- **One file per day**: `/data_YYYYMMDD.bin`, 34 560 B, written **once** at local
+- **One file per day**: `/data_YYYYMMDD.bin`, 34 652 B, written **once** at local
   midnight by the recorder task (§7.10). Two writes a day in total, including the
   rollup — against the 1 440 a per-minute append would cost.
 - The file is named by the wall clock, and the day boundary comes from the **last
@@ -3220,13 +3220,13 @@ SD write, and phase 12's soak test fails if either drops by more than 8 KB over
 
 | Tier | Path | Write pattern | Size |
 | ---- | ---- | ------------- | ---- |
-| Daily samples | `/data_YYYYMMDD.bin` (SD) | **once per day**, whole file | 34 560 B |
-| Rollup (L2) | `/rollup.bin` (SD) | once per day, whole file, rewritten | 65 472 B |
+| Daily samples | `/data_YYYYMMDD.bin` (SD) | **once per day**, whole file, 64-record CRC blocks | 34 652 B |
+| Rollup (L2) | `/rollup.bin` (SD) | once per day, whole file, 64-column CRC blocks | 65 520 B |
 | Hourly mirror | `/rollup_ring.bin` (SPIFFS) | one column as each hour closes | 770 880 B for 12 months |
 | Log dumps | `/log_*.txt` (SD) | on demand + before every reset (§7.6) | up to 1 MB |
 | Assets | `/bg.png`, `/ui.json`, config (SPIFFS) | never or rarely | ~120 KB+ |
 
-**1 036 800 B per 30-day month** of daily files (30 × 34 560), plus one 65 472 B
+**1 039 560 B per 30-day month** of daily files (30 × 34 652), plus one 65 520 B
 rollup. At 24 months that is ≈ 25 MB, and the 50 MB free-space floor (§9.7) is
 untouched. The old 1.01 MB figure used 33 792 B/day.
 

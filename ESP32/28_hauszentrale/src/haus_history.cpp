@@ -13,6 +13,18 @@
 #include <string.h>
 #include <time.h>
 
+uint32_t haus_crc32(const void *data, size_t len) {
+    const uint8_t *p = (const uint8_t *)data;
+    uint32_t crc = 0xFFFFFFFFu;
+    for (size_t i = 0; i < len; i++) {
+        crc ^= p[i];
+        for (int k = 0; k < 8; k++) {
+            crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
+        }
+    }
+    return ~crc;
+}
+
 #ifdef HAUS_HOST
 
 #define TPL_LOGI(...) do {} while (0)
@@ -26,6 +38,8 @@ static RollupColumn s_test_rollup_data[HAUS_L2_COLUMNS];
 static bool s_test_rollup_valid = false;
 static gui_sample_t s_test_day_data[HAUS_L1_SAMPLES];
 static bool s_test_day_valid = false;
+static uint32_t s_test_rollup_crc[(HAUS_L2_COLUMNS + 63) / 64];
+static uint32_t s_test_day_crc[(HAUS_L1_SAMPLES + 63) / 64];
 static uint32_t s_test_day_bytes = 0;
 static uint32_t s_test_rollup_bytes = 0;
 static bool s_test_fail_writes = false;
@@ -121,22 +135,38 @@ static bool sd_write_day(uint32_t epoch) {
 #ifdef HAUS_HOST
     if (s_test_fail_writes) return false;
     memcpy(s_test_day_data, s_l1, HAUS_L1_BYTES);
+    for (size_t base = 0; base < HAUS_L1_SAMPLES; base += HAUS_BLOCK_RECORDS) {
+        size_t n = HAUS_L1_SAMPLES - base;
+        if (n > HAUS_BLOCK_RECORDS) n = HAUS_BLOCK_RECORDS;
+        s_test_day_crc[base / HAUS_BLOCK_RECORDS] =
+            haus_crc32(&s_test_day_data[base], n * sizeof(gui_sample_t));
+    }
     s_test_day_valid = true;
-    s_test_day_bytes = HAUS_L1_BYTES;
+    s_test_day_bytes = HAUS_DAY_FILE_BYTES;
     s_sd_write_count++;
     return true;
 #else
     if (!haus_sd_lock(2000)) return false;
     File f = SD.open(s_last_day_path, FILE_WRITE);
-    const bool ok =
-        f && (f.write((const uint8_t *)s_l1, HAUS_L1_BYTES) == HAUS_L1_BYTES);
+    bool ok = (bool)f;
+    for (size_t base = 0; ok && base < HAUS_L1_SAMPLES;
+         base += HAUS_BLOCK_RECORDS) {
+        size_t n = HAUS_L1_SAMPLES - base;
+        if (n > HAUS_BLOCK_RECORDS) n = HAUS_BLOCK_RECORDS;
+        const size_t bytes = n * sizeof(gui_sample_t);
+        const uint32_t crc = haus_crc32(&s_l1[base], bytes);
+        if (f.write((const uint8_t *)&s_l1[base], bytes) != bytes ||
+            f.write((const uint8_t *)&crc, sizeof(crc)) != sizeof(crc)) {
+            ok = false;
+        }
+    }
     if (f) f.close();
     haus_sd_unlock();
 
     if (ok) {
         s_sd_write_count++;
         TPL_LOGI("history", "day file written: %s (%u B)", s_last_day_path,
-                 (unsigned)HAUS_L1_BYTES);
+                 (unsigned)HAUS_DAY_FILE_BYTES);
     } else {
         TPL_LOGE("history", "day file write failed: %s", s_last_day_path);
     }
@@ -153,34 +183,37 @@ static bool sd_write_rollup(uint32_t epoch) {
                            (uint32_t)i;
         s_test_rollup_data[i] = s_l2[h % HAUS_L2_COLUMNS];
     }
+    for (size_t base = 0; base < HAUS_L2_COLUMNS; base += HAUS_BLOCK_RECORDS) {
+        size_t n = HAUS_L2_COLUMNS - base;
+        if (n > HAUS_BLOCK_RECORDS) n = HAUS_BLOCK_RECORDS;
+        s_test_rollup_crc[base / HAUS_BLOCK_RECORDS] =
+            haus_crc32(&s_test_rollup_data[base], n * sizeof(RollupColumn));
+    }
     s_test_rollup_valid = true;
-    s_test_rollup_bytes = HAUS_L2_BYTES;
+    s_test_rollup_bytes = HAUS_ROLLUP_FILE_BYTES;
     s_sd_write_count++;
     return true;
 #else
-    const uint32_t last_hour = epoch / 3600;
+    const uint32_t last_hour = epoch / 3600u;
     if (!haus_sd_lock(2000)) return false;
 
     File f = SD.open("/rollup.bin", FILE_WRITE);
     bool ok = (bool)f;
-    if (ok) {
-        RollupColumn buf[16];
-        size_t idx = 0;
-        for (size_t i = 0; i < HAUS_L2_COLUMNS; i++) {
-            const uint32_t h = last_hour - (HAUS_L2_COLUMNS - 1) + (uint32_t)i;
-            buf[idx++] = s_l2[h % HAUS_L2_COLUMNS];
-            if (idx == sizeof(buf) / sizeof(buf[0])) {
-                const size_t bytes = idx * sizeof(RollupColumn);
-                if (f.write((const uint8_t *)buf, bytes) != bytes) {
-                    ok = false;
-                    break;
-                }
-                idx = 0;
-            }
+    static RollupColumn block[HAUS_BLOCK_RECORDS];
+    for (size_t base = 0; ok && base < HAUS_L2_COLUMNS;
+         base += HAUS_BLOCK_RECORDS) {
+        size_t n = HAUS_L2_COLUMNS - base;
+        if (n > HAUS_BLOCK_RECORDS) n = HAUS_BLOCK_RECORDS;
+        for (size_t i = 0; i < n; i++) {
+            const uint32_t h = last_hour - (uint32_t)(HAUS_L2_COLUMNS - 1) +
+                               (uint32_t)(base + i);
+            block[i] = s_l2[h % HAUS_L2_COLUMNS];
         }
-        if (ok && idx != 0) {
-            const size_t bytes = idx * sizeof(RollupColumn);
-            if (f.write((const uint8_t *)buf, bytes) != bytes) ok = false;
+        const size_t bytes = n * sizeof(RollupColumn);
+        const uint32_t crc = haus_crc32(block, bytes);
+        if (f.write((const uint8_t *)block, bytes) != bytes ||
+            f.write((const uint8_t *)&crc, sizeof(crc)) != sizeof(crc)) {
+            ok = false;
         }
     }
     if (f) f.close();
@@ -188,7 +221,8 @@ static bool sd_write_rollup(uint32_t epoch) {
 
     if (ok) {
         s_sd_write_count++;
-        TPL_LOGI("history", "rollup written: %u columns", (unsigned)HAUS_L2_COLUMNS);
+        TPL_LOGI("history", "rollup written: %u columns",
+                 (unsigned)HAUS_L2_COLUMNS);
     } else {
         TPL_LOGE("history", "rollup write failed");
     }
@@ -431,10 +465,19 @@ size_t haus_history_restore(uint32_t now_epoch) {
     size_t restored = 0;
 
     if (s_test_rollup_valid) {
-        for (size_t i = 0; i < HAUS_L2_COLUMNS; i++) {
-            l2_store(&s_test_rollup_data[i]);
+        for (size_t base = 0; base < HAUS_L2_COLUMNS;
+             base += HAUS_BLOCK_RECORDS) {
+            size_t n = HAUS_L2_COLUMNS - base;
+            if (n > HAUS_BLOCK_RECORDS) n = HAUS_BLOCK_RECORDS;
+            const uint32_t crc =
+                haus_crc32(&s_test_rollup_data[base],
+                           n * sizeof(RollupColumn));
+            if (crc != s_test_rollup_crc[base / HAUS_BLOCK_RECORDS]) break;
+            for (size_t i = 0; i < n; i++) {
+                l2_store(&s_test_rollup_data[base + i]);
+                restored++;
+            }
         }
-        restored = HAUS_L2_COLUMNS;
     } else if (now_epoch >= 24 * 3600u) {
         const uint32_t now_hour = now_epoch / 3600u;
         const uint32_t first_hour = now_hour - (uint32_t)(HAUS_L2_COLUMNS - 1);
@@ -454,15 +497,27 @@ size_t haus_history_restore(uint32_t now_epoch) {
             (now_epoch >= 24 * 3600u) &&
             (local_day_key(now_epoch) == local_day_key(s_test_day_data[0].epoch));
 
-        for (size_t i = 0; i < HAUS_L1_SAMPLES; i++) {
-            const gui_sample_t *s = &s_test_day_data[i];
-            if (s->epoch == 0) continue;
-            const uint32_t hour_min = (s->epoch / 3600u) * 60u;
-            if (newest == 0 || hour_min >= newest + 60u) {
-                (void)apply_sample_to_l2(s);
+        for (size_t base = 0; base < HAUS_L1_SAMPLES;
+             base += HAUS_BLOCK_RECORDS) {
+            size_t n = HAUS_L1_SAMPLES - base;
+            if (n > HAUS_BLOCK_RECORDS) n = HAUS_BLOCK_RECORDS;
+            const uint32_t crc =
+                haus_crc32(&s_test_day_data[base],
+                           n * sizeof(gui_sample_t));
+            if (crc != s_test_day_crc[base / HAUS_BLOCK_RECORDS]) break;
+            for (size_t i = 0; i < n; i++) {
+                const gui_sample_t *s = &s_test_day_data[base + i];
+                if (s->epoch == 0) continue;
+                const uint32_t hour_min = (s->epoch / 3600u) * 60u;
+                if (newest == 0 || hour_min >= newest + 60u) {
+                    (void)apply_sample_to_l2(s);
+                }
+                if (is_today) {
+                    const uint32_t mod = (s->epoch % 86400u) / 60u;
+                    if (mod < HAUS_L1_SAMPLES) s_l1[mod] = *s;
+                }
             }
         }
-        if (is_today) memcpy(s_l1, s_test_day_data, HAUS_L1_BYTES);
     }
 
     return restored;
@@ -476,11 +531,25 @@ void haus_history_test_fail_writes(bool fail) { s_test_fail_writes = fail; }
 void haus_history_test_clear_files(void) {
     memset(s_test_rollup_data, 0, sizeof(s_test_rollup_data));
     memset(s_test_day_data, 0, sizeof(s_test_day_data));
+    memset(s_test_rollup_crc, 0, sizeof(s_test_rollup_crc));
+    memset(s_test_day_crc, 0, sizeof(s_test_day_crc));
     s_test_rollup_valid = false;
     s_test_day_valid = false;
     s_test_day_bytes = 0;
     s_test_rollup_bytes = 0;
     s_last_day_path[0] = '\0';
+}
+
+void haus_history_test_corrupt_day(size_t index) {
+    if (index < HAUS_L1_SAMPLES) {
+        ((uint8_t *)&s_test_day_data[index])[0] ^= 0xFFu;
+    }
+}
+
+void haus_history_test_corrupt_rollup(size_t index) {
+    if (index < HAUS_L2_COLUMNS) {
+        ((uint8_t *)&s_test_rollup_data[index])[0] ^= 0xFFu;
+    }
 }
 
 #else  /* device */
@@ -656,13 +725,21 @@ static void restore_day_file(const char *path, uint32_t now_epoch) {
     File f = SD.open(path, FILE_READ);
     if (!f) return;
 
-    gui_sample_t buf[32];
-    for (;;) {
-        const size_t got = f.read((uint8_t *)buf, sizeof(buf));
-        if (got == 0) break;
-        const size_t count = got / sizeof(gui_sample_t);
-        for (size_t i = 0; i < count; i++) {
-            const gui_sample_t *s = &buf[i];
+    static gui_sample_t block[HAUS_BLOCK_RECORDS];
+    for (size_t base = 0; base < HAUS_L1_SAMPLES; base += HAUS_BLOCK_RECORDS) {
+        size_t n = HAUS_L1_SAMPLES - base;
+        if (n > HAUS_BLOCK_RECORDS) n = HAUS_BLOCK_RECORDS;
+        const size_t bytes = n * sizeof(gui_sample_t);
+        if (f.read((uint8_t *)block, bytes) != bytes) break;
+        uint32_t crc = 0;
+        if (f.read((uint8_t *)&crc, sizeof(crc)) != sizeof(crc)) break;
+        if (crc != haus_crc32(block, bytes)) {
+            TPL_LOGW("history", "day file CRC mismatch at block %u",
+                     (unsigned)(base / HAUS_BLOCK_RECORDS));
+            break;
+        }
+        for (size_t i = 0; i < n; i++) {
+            const gui_sample_t *s = &block[i];
             if (s->epoch == 0) continue;
             const uint32_t hour_min = (s->epoch / 3600u) * 60u;
             if (newest == 0 || hour_min >= newest + 60u) {
@@ -673,7 +750,6 @@ static void restore_day_file(const char *path, uint32_t now_epoch) {
                 if (mod < HAUS_L1_SAMPLES) s_l1[mod] = *s;
             }
         }
-        if ((got % sizeof(gui_sample_t)) != 0) break;
     }
     f.close();
 }
@@ -685,18 +761,26 @@ size_t haus_history_restore(uint32_t now_epoch) {
     if (haus_sd_is_mounted() && haus_sd_lock(2000)) {
         File f = SD.open("/rollup.bin", FILE_READ);
         if (f) {
-            RollupColumn buf[16];
-            for (;;) {
-                const size_t got = f.read((uint8_t *)buf, sizeof(buf));
-                if (got == 0) break;
-                const size_t cols = got / sizeof(RollupColumn);
-                for (size_t i = 0; i < cols; i++) {
-                    if (buf[i].t != 0) {
-                        l2_store(&buf[i]);
+            static RollupColumn block[HAUS_BLOCK_RECORDS];
+            for (size_t base = 0; base < HAUS_L2_COLUMNS;
+                 base += HAUS_BLOCK_RECORDS) {
+                size_t n = HAUS_L2_COLUMNS - base;
+                if (n > HAUS_BLOCK_RECORDS) n = HAUS_BLOCK_RECORDS;
+                const size_t bytes = n * sizeof(RollupColumn);
+                if (f.read((uint8_t *)block, bytes) != bytes) break;
+                uint32_t crc = 0;
+                if (f.read((uint8_t *)&crc, sizeof(crc)) != sizeof(crc)) break;
+                if (crc != haus_crc32(block, bytes)) {
+                    TPL_LOGW("history", "rollup CRC mismatch at block %u",
+                             (unsigned)(base / HAUS_BLOCK_RECORDS));
+                    break;
+                }
+                for (size_t i = 0; i < n; i++) {
+                    if (block[i].t != 0) {
+                        l2_store(&block[i]);
                         restored++;
                     }
                 }
-                if (cols == 0 || (got % sizeof(RollupColumn)) != 0) break;
             }
             f.close();
         }

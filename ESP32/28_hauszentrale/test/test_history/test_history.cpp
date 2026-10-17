@@ -112,12 +112,16 @@ static uint32_t test_rollover(uint32_t start) {
           "writes = %u, want 2", (unsigned)haus_history_sd_write_count());
     CHECK(strcmp(haus_history_last_day_path(), "/data_20241014.bin") == 0,
           "day path = '%s'", haus_history_last_day_path());
-    CHECK(haus_history_test_day_bytes() == HAUS_L1_BYTES,
+    CHECK(haus_history_test_day_bytes() == HAUS_DAY_FILE_BYTES,
           "day bytes = %u", (unsigned)haus_history_test_day_bytes());
-    CHECK(haus_history_test_rollup_bytes() == HAUS_L2_BYTES,
+    CHECK(haus_history_test_rollup_bytes() == HAUS_ROLLUP_FILE_BYTES,
           "rollup bytes = %u", (unsigned)haus_history_test_rollup_bytes());
     CHECK(HAUS_L1_BYTES == 34560u, "L1 size = %u", (unsigned)HAUS_L1_BYTES);
     CHECK(HAUS_L2_BYTES == 65472u, "L2 size = %u", (unsigned)HAUS_L2_BYTES);
+    CHECK(HAUS_DAY_FILE_BYTES == 34652u, "day file = %u",
+          (unsigned)HAUS_DAY_FILE_BYTES);
+    CHECK(HAUS_ROLLUP_FILE_BYTES == 65520u, "rollup file = %u",
+          (unsigned)HAUS_ROLLUP_FILE_BYTES);
 
     return next;
 }
@@ -272,6 +276,21 @@ static void test_restore(uint32_t start, uint32_t next) {
           (unsigned)haus_history_l2()[slot].n[0]);
 }
 
+/* ─── D4: CRC tail ────────────────────────────────────────────────────────── */
+
+static void test_crc_tail(uint32_t start) {
+    SECTION("D4  a corrupt 64-record block discards the day-file tail");
+
+    CHECK(haus_history_init(), "history init failed");
+    haus_history_test_corrupt_day(100); /* block 1 */
+    const size_t restored = haus_history_restore(start + 12u * 3600u);
+    CHECK(restored == (size_t)HAUS_L2_COLUMNS,
+          "rollup restore = %u", (unsigned)restored);
+    CHECK(haus_history_l1_count() == 64u,
+          "L1 after corrupt block = %u, want 64",
+          (unsigned)haus_history_l1_count());
+}
+
 /* ─── E: time edges ───────────────────────────────────────────────────────── */
 
 static uint32_t local_midnight(int year, int mon, int mday) {
@@ -385,6 +404,7 @@ int main(void) {
     test_stale_recovery(next);
     test_ring_order(start, next);
     test_restore(start, next);
+    test_crc_tail(start);
     test_ring_wrap(start);
     test_time_edges();
     test_l2_wrap(start);

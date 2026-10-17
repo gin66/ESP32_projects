@@ -28,6 +28,18 @@
 #define HAUS_RING_BYTES (HAUS_RING_HOURS * sizeof(RollupColumn))
 #define HAUS_RING_PATH "/rollup_ring.bin"
 
+/* Files are written in 64-record blocks with a trailing CRC32. */
+#define HAUS_BLOCK_RECORDS 64
+#define HAUS_DAY_FILE_BYTES                                                    \
+    (HAUS_L1_BYTES +                                                           \
+     4u * ((HAUS_L1_SAMPLES + HAUS_BLOCK_RECORDS - 1) / HAUS_BLOCK_RECORDS))
+#define HAUS_ROLLUP_FILE_BYTES                                                 \
+    (HAUS_L2_BYTES +                                                           \
+     4u * ((HAUS_L2_COLUMNS + HAUS_BLOCK_RECORDS - 1) / HAUS_BLOCK_RECORDS))
+
+/* IEEE 802.3 CRC32. Exposed so the host test can corrupt and re-check blocks. */
+uint32_t haus_crc32(const void *data, size_t len);
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -82,6 +94,8 @@ uint32_t haus_history_test_day_bytes(void);
 uint32_t haus_history_test_rollup_bytes(void);
 void haus_history_test_fail_writes(bool fail);
 void haus_history_test_clear_files(void);
+void haus_history_test_corrupt_day(size_t index);
+void haus_history_test_corrupt_rollup(size_t index);
 #endif
 
 #ifdef __cplusplus

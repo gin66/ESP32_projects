@@ -117,10 +117,10 @@ static uint32_t test_rollover(uint32_t start) {
     CHECK(haus_history_test_rollup_bytes() == HAUS_ROLLUP_FILE_BYTES,
           "rollup bytes = %u", (unsigned)haus_history_test_rollup_bytes());
     CHECK(HAUS_L1_BYTES == 34560u, "L1 size = %u", (unsigned)HAUS_L1_BYTES);
-    CHECK(HAUS_L2_BYTES == 65472u, "L2 size = %u", (unsigned)HAUS_L2_BYTES);
+    CHECK(HAUS_L2_BYTES == 68448u, "L2 size = %u", (unsigned)HAUS_L2_BYTES);
     CHECK(HAUS_DAY_FILE_BYTES == 34652u, "day file = %u",
           (unsigned)HAUS_DAY_FILE_BYTES);
-    CHECK(HAUS_ROLLUP_FILE_BYTES == 65520u, "rollup file = %u",
+    CHECK(HAUS_ROLLUP_FILE_BYTES == 68496u, "rollup file = %u",
           (unsigned)HAUS_ROLLUP_FILE_BYTES);
 
     return next;
@@ -435,7 +435,7 @@ static void test_retention(uint32_t now) {
 int main(void) {
     CHECK(sizeof(gui_sample_t) == 24u, "gui_sample_t = %u",
           (unsigned)sizeof(gui_sample_t));
-    CHECK(sizeof(RollupColumn) == 88u, "RollupColumn = %u",
+    CHECK(sizeof(RollupColumn) == 92u, "RollupColumn = %u",
           (unsigned)sizeof(RollupColumn));
 
     (void)setenv("TZ", "CET-1CEST,M3.5.0/2,M10.5.0/3", 1);

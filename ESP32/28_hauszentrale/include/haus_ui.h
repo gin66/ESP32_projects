@@ -32,11 +32,30 @@ void haus_ui_update(void);
 /** Advance the flame/breathing animation (~20 Hz). */
 void haus_ui_animate(void);
 
-/** Build the chamber envelope/history screen. */
-lv_obj_t *haus_ui_build_chart(void);
-
 /** Build the chamber detail screen (target line, readouts). */
 lv_obj_t *haus_ui_build_detail(void);
+
+/** Build the combined water screen (water in / water out / Soll). */
+lv_obj_t *haus_ui_build_water(int nav_index);
+
+/** Select the chart range: 0 = 1 day, 1 = 1 week, 2 = 1 month. */
+void haus_ui_set_range(int range);
+
+/** Three-finger gesture: return to Home from anywhere. */
+void haus_ui_three_finger(void);
+
+#ifdef UI_SMOKE_TEST
+void haus_ui_smoke_step(void);
+#endif
+
+/** Build the power and living-room detail screens. */
+lv_obj_t *haus_ui_build_power(void);
+lv_obj_t *haus_ui_build_living(void);
+lv_obj_t *haus_ui_build_settings(void);
+lv_obj_t *haus_ui_build_can(void);
+
+/** Build the full-bleed log screen (S15). */
+lv_obj_t *haus_ui_build_log(void);
 
 /** Delete every object the UI created. */
 void haus_ui_deinit(void);

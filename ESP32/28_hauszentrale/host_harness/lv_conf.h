@@ -62,6 +62,7 @@
 #define LV_FONT_MONTSERRAT_32 1
 #define LV_FONT_MONTSERRAT_48 1
 #define LV_FONT_UNSCII_8 1
+#define LV_FONT_UNSCII_16 1
 
 /* SDL display driver */
 #define LV_USE_SDL 1

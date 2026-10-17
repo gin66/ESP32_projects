@@ -23,13 +23,17 @@
 #define CHART_COL_GAP 0x01
 #define CHART_COL_PARTIAL 0x02
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
-    uint32_t t;                        /* bucket start, unix seconds */
-    int16_t  mn[HAUS_CHART_SERIES];    /* 4 B */
-    int16_t  mx[HAUS_CHART_SERIES];    /* 4 B */
-    int32_t  sum[HAUS_CHART_SERIES];   /* 8 B */
-    uint16_t n[HAUS_CHART_SERIES];     /* 4 B */
-    uint8_t  flags;                    /* 1 B */
+  uint32_t t;                     /* bucket start, unix seconds */
+  int16_t mn[HAUS_CHART_SERIES];  /* 4 B */
+  int16_t mx[HAUS_CHART_SERIES];  /* 4 B */
+  int32_t sum[HAUS_CHART_SERIES]; /* 8 B */
+  uint16_t n[HAUS_CHART_SERIES];  /* 4 B */
+  uint8_t flags;                  /* 1 B */
 } ChartColumn;
 
 #if defined(__cplusplus)
@@ -46,10 +50,10 @@ _Static_assert(HAUS_CHART_COLUMNS * sizeof(ChartColumn) == 12320,
 
 /* Streaming readers: fill `out` with [first, first+count) records and return
  * the number written. The builder calls these in fixed-size chunks. */
-typedef size_t (*haus_chart_sample_reader)(void *ctx, size_t first, size_t count,
-                                           gui_sample_t *out);
-typedef size_t (*haus_chart_rollup_reader)(void *ctx, size_t first, size_t count,
-                                           RollupColumn *out);
+typedef size_t (*haus_chart_sample_reader)(void *ctx, size_t first,
+                                           size_t count, gui_sample_t *out);
+typedef size_t (*haus_chart_rollup_reader)(void *ctx, size_t first,
+                                           size_t count, RollupColumn *out);
 
 /* Build a 440-column envelope from raw minute samples or pre-aggregated
  * rollup columns. series_a/series_b are source series indices (0…5); pass -1
@@ -60,5 +64,9 @@ void haus_chart_build_samples(ChartColumn *cols, uint32_t t0, uint32_t t1,
 void haus_chart_build_rollup(ChartColumn *cols, uint32_t t0, uint32_t t1,
                              haus_chart_rollup_reader reader, void *ctx,
                              size_t total, int series_a, int series_b);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* HAUS_CHART_H */

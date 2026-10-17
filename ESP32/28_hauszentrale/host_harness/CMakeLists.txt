@@ -35,11 +35,14 @@ target_include_directories(lvgl PUBLIC
 add_executable(hauszentrale_host
     src/main.c
     ${CMAKE_SOURCE_DIR}/../src/ui/haus_ui.c
+    ${CMAKE_SOURCE_DIR}/../src/ui/lv_font_haus_mono_21.c
+    ${CMAKE_SOURCE_DIR}/../src/haus_chart.cpp
     src/haus_gui_mock.cpp
 )
 
 target_compile_definitions(hauszentrale_host PRIVATE
     HAUS_HOST
+    LV_CONF_PATH="${CMAKE_SOURCE_DIR}/lv_conf.h"
 )
 
 target_link_libraries(hauszentrale_host PRIVATE lvgl)
@@ -52,7 +55,10 @@ if(APPLE)
 endif()
 
 # Ensure lv_conf.h is findable
-target_include_directories(hauszentrale_host PRIVATE ${CMAKE_SOURCE_DIR})
+target_include_directories(hauszentrale_host PRIVATE
+    ${CMAKE_SOURCE_DIR}
+    ${LVGL_ROOT_DIR}/src/libs/lodepng
+)
 
 # Project-local headers (haus_gui.h, haus_history.h, …) and shared headers
 # (haus_can.h, haus_nrf.h) live in different include roots.

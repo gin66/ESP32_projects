@@ -240,6 +240,7 @@
 #define LV_THEME_DEFAULT 0
 
 /*Default font*/
+#define LV_FONT_UNSCII_16 1
 #define LV_FONT_DEFAULT &lv_font_montserrat_16
 
 /*Enable scalable theme*/

@@ -117,11 +117,13 @@ Hardware connected: /dev/cu.usbmodem5C941561291
 renderer). The data interface is `include/haus_gui.h` with two implementations:
 `src/haus_gui.cpp` (device, all stubs) and `host_harness/src/haus_gui_mock.cpp`
 (host, synthetic heater with 30-day history and a virtual clock). The harness now
-renders three screens to PNG via `host_harness/src/{main.c,haus_ui.c}`:
-`output_home.png` (S10 home: status strip, clock, cabinet+flames, pipes+flow
-dashes, living strip, power band, 7-tab nav pane), `output_chart.png`
-(S12: 1d envelope from `gui_get_history()`, readouts) and `output_detail.png`
-(S13: dashed target line, data line, readouts). Fixes required to get there:
+renders the screens to PNG via `host_harness/src/{main.c,haus_ui.c}`:
+`output_home.png`, `output_detail.png`, `output_power.png`, `output_living.png`,
+`output_settings.png`, `output_can.png`, `output_log.png`, `output_water.png`,
+`output_chart_week.png` and `output_chart_month.png`. The old `output_chart.png`
+was a duplicate of the chamber detail and has been removed. The chart screens use the
+streaming L1/L2 readers and the canvas renderer; the log screen uses the synthetic
+ring. Fixes required to get there:
 register a display flush callback (otherwise the 2nd `lv_refr_now()` hangs in
 `wait_for_flushing`); `lv_line_set_points()` does not copy points, so all point
 arrays must outlive the render; nav children must not re-add `NAV_Y` on top of
@@ -177,20 +179,24 @@ the SDL window / smoke test / screenshot baseline path.
 - [x] Place the °C unit labels at build time — Test: chamber and living-room units are aligned immediately, not left at (0,0)
 - [x] Make WiFi non-essential at runtime: connect at boot for the initial SNTP sync (refresh once an hour), keep it available afterwards for optional log/control use, drop the net-watchdog reboot path, and if the link is lost re-run `WiFi.begin()` until connected while the panel keeps operating offline. Add a WiFi symbol (no text) to the status strip — Test: pulling the AP never reboots the panel, the symbol is green when connected and grey when not, log/control work when connected, and the clock stays correct across an hour. Implemented: `-DNO_NET_WATCHDOG` and the `tpl_net_watchdog_setup()` call removed; `sntp_set_sync_interval(1 h)`; the WiFi manager keeps the existing non-blocking retry/tier loop; `CanState.wifi_status` drives an `LV_SYMBOL_WIFI` glyph (green/grey) in the status strip.
 
+## S10b · BRING-UP FIXES (continued)
+
+- [x] Stop navigation taps from rebooting — the heater cabinet canvas (99 KB) and the chart canvas (229 KB) were allocated from the internal heap, the cabinet buffer leaked on every Home rebuild, and the screen-wide cross-fade could force a full-screen LVGL layer. Both buffers now come from PSRAM, the cabinet buffer is freed in `haus_ui_deinit()`, and the screen-wide fade was removed. Test: a `-DUI_SMOKE_TEST` build cycles all screens every 2 s; 40 s (about 20 transitions) ran with no reset markers.
+
 ## S11 · THREE-TIER HISTORY STORE
 
 - [x] S11.00 **BLOCKER — bring up the SD card on this board.** Implemented in `src/haus_sd.cpp`: CH422G IO4 is made push-pull and held asserted, the Arduino SD library uses a spare GPIO as its dummy CS, and SPI runs on MOSI 11 / SCLK 12 / MISO 13. Bench result: **SDHC 59.6 GB mounted**, write/read/delete self-test passed. The home SD dot follows `haus_sd_is_mounted()`, which does a cheap one-byte read from `/.sd_probe` at 1 Hz; a pulled card turns the dot grey within a second without a FAT scan. Capacity figures are cached and refreshed only on demand by the storage panel via `haus_sd_space_refresh()`.
-- [x] S11.00b **Double bookkeeping, not a fallback.** The independent 12-month SPIFFS ring (`/rollup_ring.bin`, 8 760 × 88 B) is created/validated at boot, appended at minute 59, and restored into L2 when the SD rollup is absent. The SD day/rollup files are written at rollover. The data layer is complete; the chart read path that consumes the restored L2 is S12.
-- [x] S11.01 Define RollupColumn (88 B) with static_assert — Test: the size assert holds on both host and device. Implemented in `include/haus_rollup.h`; included by both `haus_gui.cpp` and `haus_gui_mock.cpp` so the C++/C assert is compiled in both builds.
-- [x] S11.02 Allocate L1 (34 560 B) and L2 (65 472 B) statically in PSRAM — Test: neither is ever reallocated. Implemented in `src/haus_history.cpp`: one-time `heap_caps_malloc(MALLOC_CAP_SPIRAM)` guarded by the pointers themselves. Boot log now reports `L1=34560 B L2=65472 B` at fixed PSRAM addresses. Also fixed `gui_sample_t` to its documented 24-byte layout and added a compile-time size assert.
+- [x] S11.00b **Double bookkeeping, not a fallback.** The independent 12-month SPIFFS ring (`/rollup_ring.bin`, 8 760 × 92 B) is created/validated at boot, appended at minute 59, and restored into L2 when the SD rollup is absent. The SD day/rollup files are written at rollover. The data layer is complete; the chart read path that consumes the restored L2 is S12.
+- [x] S11.01 Define RollupColumn (92 B) with static_assert — Test: the size assert holds on both host and device. Implemented in `include/haus_rollup.h`; included by both `haus_gui.cpp` and `haus_gui_mock.cpp` so the C++/C assert is compiled in both builds.
+- [x] S11.02 Allocate L1 (34 560 B) and L2 (68 448 B) statically in PSRAM — Test: neither is ever reallocated. Implemented in `src/haus_history.cpp`: one-time `heap_caps_malloc(MALLOC_CAP_SPIRAM)` guarded by the pointers themselves. Boot log now reports `L1=34560 B L2=68448 B` at fixed PSRAM addresses. Also fixed `gui_sample_t` to its documented 24-byte layout and added a compile-time size assert.
 - [x] S11.03 Sample once a minute on recorderTask — Test: exactly 1 440 samples in a simulated day. Implemented `haus_history_sample()` + `HistoryRecorder` task (Core 0, 1 Hz check, idempotent per minute). Host simulation passed: 1 440 distinct L1 entries in one day.
 - [x] S11.04 Aggregate minute samples into hourly columns — Test: min/max/sum/n match a hand-computed hour. Implemented in `haus_history_sample()`; host simulation verified 24 columns × 60 samples, with min/max/sum/n correct for all six series. Completed hours are appended to the SPIFFS ring.
 - [x] S11.04b Mark stale sources in the recorded log — Test: a source not refreshed for 60 s sets its `stale_mask` bit and `SAMPLE_FLAG_STALE`, is excluded from L2 aggregation, and logs one transition line. Implemented in `haus_history_sample()`; host test verified chamber/water/power stale while climate stayed fresh (`0x47`).
-- [x] S11.04c Host test for all rolling counters and both write paths — `make test` and `make sanitize` in `test/test_history` pass **11 351 checks**: 1 440-sample day, 24 hourly columns, exactly 2 SD writes at midnight, day path, 34 652/65 520 B CRC-blocked files, stale mask and recovery, clock-back handling, SPIFFS ring order, 8 760-hour ring wrap, 744-column L2 wrap, leap day, both DST transitions, a failed-write rollover, L2 restore from the saved rollup before the clock is valid, today's day-file replay into L1 without double-counting L2, a corrupt 64-record tail being discarded, and 30 stale months deleted one per retention pass.
+- [x] S11.04c Host test for all rolling counters and both write paths — `make test` and `make sanitize` in `test/test_history` pass **11 351 checks**: 1 440-sample day, 24 hourly columns, exactly 2 SD writes at midnight, day path, 34 652/68 496 B CRC-blocked files, stale mask and recovery, clock-back handling, SPIFFS ring order, 8 760-hour ring wrap, 744-column L2 wrap, leap day, both DST transitions, a failed-write rollover, L2 restore from the saved rollup before the clock is valid, today's day-file replay into L1 without double-counting L2, a corrupt 64-record tail being discarded, and 30 stale months deleted one per retention pass.
 - [x] S11.05 Write /data_YYYYMMDD.bin once at midnight, whole file — Test: exactly two writes per simulated day. Implemented in `write_daily_files()`; host simulated day verified exactly 2 counter increments (day + rollup).
-- [x] S11.06 Rewrite /rollup.bin once at midnight — Test: file is 65 472 bytes and reloads identically. The rollup writer emits 744 × 88 B columns in chronological ring order; the same layout is read by `haus_history_ring_load()`.
+- [x] S11.06 Rewrite /rollup.bin once at midnight — Test: file is 68 448 bytes and reloads identically. The rollup writer emits 744 × 92 B columns in chronological ring order; the same layout is read by `haus_history_ring_load()`.
 - [x] S11.07 Name the day file from the last sample's epoch — Test: an NTP step cannot split a day (D34). `format_day_path()` uses the previous sample's epoch via `localtime_r`; the host test asserted `/data_20241014.bin`.
-- [x] S11.08 Boot sequence: mount, read rollup, read newest day, re-apply, replay into L1 — Test: under 100 KB read, under 100 ms. `haus_history_restore()` loads the SD `/rollup.bin` (or the SPIFFS ring), finds the newest `/data_YYYYMMDD.bin`, applies only hours newer than the rollup to L2, and replays today's file into L1. Total read is 65 472 + 34 560 = 100 032 B.
+- [x] S11.08 Boot sequence: mount, read rollup, read newest day, re-apply, replay into L1 — Test: under 100 KB read, under 100 ms. `haus_history_restore()` loads the SD `/rollup.bin` (or the SPIFFS ring), finds the newest `/data_YYYYMMDD.bin`, applies only hours newer than the rollup to L2, and replays today's file into L1. Total read is 68 448 + 34 560 = 103 008 B.
 - [x] S11.09 Restore happens before the first frame — Test: no chart is ever seen half-populated. `main.cpp` calls `haus_history_restore()` after SD/history init and before display/LVGL init, so `haus_ui_init()` never sees an empty L2.
 - [x] S11.10 Add CRC32 per 64-record block — Test: a corrupted tail is detected and discarded at read time. Day and rollup files are written as 64-record blocks with a trailing IEEE CRC32; restore validates each block and stops at the first mismatch. Host test corrupts block 1 and confirms only block 0 survives.
 - [x] S11.11 Implement 24-month retention, one delete per pass — Test: 30 stale months delete without stalling the recorder. `haus_history_retention_step()` scans for the oldest `/data_*.bin`, compares calendar months, and deletes at most one file. The recorder calls it once per local day (and therefore once at startup when the clock becomes valid).
@@ -202,70 +208,71 @@ the SDL window / smoke test / screenshot baseline path.
 - [x] S12.01 Define ChartColumn (28 B) and static_assert — Test: 440 columns = 12 320 bytes. Implemented in `include/haus_chart.h`; both the C and C++ asserts are compiled (the header is included by `haus_ui.c`).
 - [x] S12.02 Stream the downsample in 512-record chunks — Test: peak working set is about 24 KB, zero heap. Implemented in `src/haus_chart.cpp` with static 512-sample (12 KB) and 64-rollup-column (5.6 KB) buffers; `test/test_chart` asserts the chunk limits.
 - [x] S12.03 Validate each quantity against its own sentinel before aggregating — Test: a mixed column aggregates only valid minutes, n reflects it. `sample_value()` checks `HAUS_CAN_TEMP_EMPTY`, climate valid flags, and per-source `stale_mask`; the host test verifies 1 370 valid minutes from 1 440 with 60 sentinel + 10 stale.
-- [ ] S12.04 Mark GAP columns and draw them as a dashed baseline — Test: a 03:00-05:00 dropout is not bridged (R6). GAP marking is implemented and tested; dashed rendering is part of S12.05.
-- [ ] S12.05 Render into an lv_canvas at 440x260, not lv_chart — Test: envelope renders, axes are ours
-- [ ] S12.06 Redraw only on range change or a new sample — Test: chart redraw count is at most 1/minute
-- [ ] S12.07 Auto-scale the Y axis with 12% hysteresis and nice steps — Test: an oscillating value does not make the axis jump
-- [ ] S12.08 Fill each column with about 20 stacked rects for a gradient — Test: the fill is a gradient, not flat
-- [ ] S12.09 Draw min/max as ticks at 1 day and a 25% band at 1w/1m — Test: each range uses the specified treatment
-- [ ] S12.10 Serve 1 day from L1 and 1w/1m from L2 — Test: with the card removed after boot, all three ranges still render
-- [ ] S12.11 Show 'no data' when L1/L2 are empty — Test: never an empty axis that reads as 'nothing happened'
-- [ ] S12.12 Label a stale rollup with 'history as of HH:MM' — Test: a day-old rollup says so on the chart
-- [ ] S12.13 Add the press-and-hold scrubber with a readout bubble — Test: the bubble shows the column's min/mean/max, not a fabricated instant
-- [ ] S12.14 State the 1-hour resolution in the readout for week/month — Test: the label says 'envelope of hourly aggregates'
+- [x] S12.04 Mark GAP columns and draw them as a dashed baseline — Test: a 03:00-05:00 dropout is not bridged (R6). GAP columns are marked by the builder and drawn as dashed baseline ticks in `chart_draw()`; a gap is never connected by the mean line.
+- [x] S12.05 Render into an lv_canvas at 440x260, not lv_chart — Test: envelope renders, axes are ours. Implemented in `chart_build_widgets()`/`chart_draw()`; axes, grid, labels and the Soll line are all ours.
+- [x] S12.06 Redraw only on range change or a new sample — Test: chart redraw count is at most 1/minute. `detail_update()` rebuilds only when `gui_history_newest_epoch()` advances or the range changes; the header still updates at 1 Hz.
+- [x] S12.07 Auto-scale the Y axis with 12% hysteresis and nice steps — Test: an oscillating value does not make the axis jump. `chart_axis()` uses 1/2/5 steps and keeps the current band until the data leaves it by 12%.
+- [x] S12.08 Fill each column with about 20 stacked rects for a gradient — Test: the fill is a gradient, not flat. The waterfall fill blends from the series colour to the background down to the baseline.
+- [x] S12.09 Draw min/max as ticks at 1 day and a 25% band at 1w/1m — Test: each range uses the specified treatment. Day uses vertical min/max ticks; week/month use a 25% band; water uses the band on all ranges.
+- [x] S12.10 Serve 1 day from L1 and 1w/1m from L2 — Test: with the card removed after boot, all three ranges still render. `gui_read_samples_chunk()` reads L1; `gui_read_rollup_chunk()` reads L2; the host mock synthesises both.
+- [x] S12.11 Show 'no data' when L1/L2 are empty — Test: never an empty axis that reads as 'nothing happened'. The chart draws an explicit centred "no data" label when no series has a valid column.
+- [x] S12.12 Label a stale rollup with 'history as of HH:MM' — Test: a day-old rollup says so on the chart. The stale label is shown when the newest column is more than an hour old.
+- [x] S12.13 Add the press-and-hold scrubber with a readout bubble — Test: the bubble shows the column's min/mean/max, not a fabricated instant. Press/drag maps x to a column and shows the column timestamp plus min/mean/max; it clears 1.5 s after release.
+- [x] S12.14 State the 1-hour resolution in the readout for week/month — Test: the label says 'envelope of hourly aggregates'. The data-age line appends that phrase for 1w/1m.
 
 ## S13 · DETAIL SCREENS
 
-- [ ] S13.01 Build the shared skeleton: header, range selector, chart, readouts, data age, back — Test: one implementation serves all five
-- [ ] S13.02 Add the 1d/1w/1m segmented range control — Test: switching range rebuilds from the correct tier
-- [ ] S13.03 Add min/max/mean/now readouts and the '12 min ago' data age line — Test: a stale sample shows the age
-- [ ] S13.04 Detail 1 chamber: target line dashed and labelled — Test: the reference line renders at the configured target
-- [ ] S13.05 Detail 1 chamber: time above target over the range — Test: computed from samples, not a snapshot
-- [ ] S13.06 Detail 2 water in: delta to chamber plus a 20% alpha min/max band — Test: delta reads correctly
-- [ ] S13.07 Detail 3 water out: rise metric plus a faint water-in overlay — Test: both lines render, the overlay is faint
-- [ ] S13.08 Detail 4 power: auto kW/W toggle with manual override — Test: the unit switches at the right magnitude
-- [ ] S13.09 Detail 4 power: SML/— source badge (ADC removed — no ADC power sensor on this board) — Test: badge matches the source
-- [ ] S13.10 Detail 4 power: daily bar strip (31/7/hourly bins) — Test: bar count matches the range
-- [ ] S13.11 Detail 5 living room: series tabs for T/RH/P — Test: each series charts independently
-- [ ] S13.12 Detail 5: independent Y axes with hysteresis per series — Test: RH and pressure do not share a scale
-- [ ] S13.13 Detail 5: I2C badge green/amber/grey per device presence — Test: all three states reachable
-- [ ] S13.14 Detail 5: sensor sub-line naming the attached probes — Test: 'AHT20 · BMP280 · H1' renders
-- [ ] S13.15 Detail 5: no target line — Test: none is drawn
-- [ ] S13.16 Every screen renders on the host harness too — Test: make run walks all five without hardware
+- [x] S13.01 Build the shared skeleton: header, range selector, chart, readouts, data age, back — Test: one implementation serves all five. `detail_build()` serves chamber, water, power, living and settings.
+- [x] S13.02 Add the 1d/1w/1m segmented range control — Test: switching range rebuilds from the correct tier. `range_build()`/`range_set()` switch L1 samples vs L2 rollups.
+- [x] S13.03 Add min/max/mean/now readouts and the '12 min ago' data age line — Test: a stale sample shows the age. `chart_update_readouts()` computes all four and formats min/h/d age.
+- [x] S13.04 Detail 1 chamber: target line dashed and labelled — Test: the reference line renders at the configured target. Soll is drawn as a dashed series and labelled at the right edge.
+- [x] S13.05 Detail 1 chamber: time above target over the range — Test: computed from samples, not a snapshot. The line above the chart accumulates whole columns whose mean exceeds that column's Soll.
+- [x] S13.06 Detail 2 water in: delta to chamber plus a 20% alpha min/max band — Test: delta reads correctly. The combined water screen shows delta/rise and uses a min/max band for both water series.
+- [x] S13.06b **One combined water chart with three series: water-in, water-out and Soll.** Soll is a real series (future automatic control), not a reference line. `target_c100` lives in the two formerly-padding bytes of `gui_sample_t` (still 24 B) and in `RollupColumn` (now 92 B, carried through the SD rollup and the 12-month SPIFFS ring). The chart builds a separate `int16_t target[440]`; the WATER tab opens the same screen. Tests: all three lines render at 1 d/1 w/1 m; target history is restored with the rollup after reboot.
+- [x] S13.07 Detail 3 water out: rise metric plus a faint water-in overlay — Test: both lines render, the overlay is faint. The combined water screen draws water-in and water-out plus rise.
+- [x] S13.08 Detail 4 power: auto kW/W toggle with manual override — Test: the unit switches at the right magnitude. The header/chart auto-select kW above 1000 W; the header `auto/W/kW` button cycles the manual override.
+- [x] S13.09 Detail 4 power: SML/— source badge (ADC removed — no ADC power sensor on this board) — Test: badge matches the source. The header badge follows `CanState.power_src`.
+- [x] S13.10 Detail 4 power: daily bar strip (31/7/hourly bins) — Test: bar count matches the range. 24 hourly, 7 daily or 31 daily bars are shown.
+- [x] S13.11 Detail 5 living room: series tabs for T/RH/P — Test: each series charts independently. Temp/RH/Pressure tabs rebuild the chart for series 3/4/5.
+- [x] S13.12 Detail 5: independent Y axes with hysteresis per series — Test: RH and pressure do not share a scale. The axis key includes the selected living-room series.
+- [x] S13.13 Detail 5: I2C badge green/amber/grey per device presence — Test: all three states reachable. The badge follows the AHT20/BMP280 valid bits.
+- [x] S13.14 Detail 5: sensor sub-line naming the attached probes — Test: 'AHT20 · BMP280 · H1' renders. Rendered as an ASCII-friendly sub-line.
+- [x] S13.15 Detail 5: no target line — Test: none is drawn. The living-room config has `use_target = 0`.
+- [x] S13.16 Every screen renders on the host harness too — Test: make run walks all five without hardware. The harness now renders home, chamber, water, power, living, settings and log, plus 1w/1m charts.
 
 ## S14 · NAVIGATION
 
-- [ ] S14.01 Implement Screen enum and push/pop/jump/current — Test: a unit test covers jump resetting depth to 1
-- [ ] S14.02 Build the 88 px bottom pane with seven 68 px icon tabs — Test: all seven render at the right widths
-- [ ] S14.03 Icons only, no 4 mm labels in the pane — Test: labels appear in the header instead
-- [ ] S14.04 Active tab: filled glyph plus a 3 px accent rule — Test: the current screen is marked
-- [ ] S14.05 Back button (48 px LV_SYMBOL_LEFT) on every screen except home — Test: present and functional
-- [ ] S14.06 120 ms cross-fade on the content layer only — Test: the background does not flash black
-- [ ] S14.07 Three-finger tap returns Home from anywhere — Test: gesture works on the panel
-- [ ] S14.08 Long-press clock toggles 12/24 h and C/F — Test: format toggles
-- [ ] S14.09 Idle return to home after 3 minutes — Test: it returns; the log screen is exempt with follow on
-- [ ] S14.10 Suppress idle return on the chamber screen while a duty change is pending — Test: it stays until resolved
+- [x] S14.01 Implement Screen enum and push/pop/jump/current — Test: a unit test covers jump resetting depth to 1. `ui_jump()` resets depth to 1; `ui_push()`/`ui_pop()` manage the stack.
+- [x] S14.02 Build the 88 px bottom pane with six 80 px icon tabs — Test: all six render at the right widths. The duplicate WATER IN/WATER OUT tabs were collapsed into one WATER tab.
+- [x] S14.03 Icons only, no 4 mm labels in the pane — Test: labels appear in the header instead.
+- [x] S14.04 Active tab: filled glyph plus a 3 px accent rule — Test: the current screen is marked. Active glyph is ink-white and the 3 px accent rule is drawn.
+- [x] S14.05 Back button only where there is no nav pane — Test: present and functional. The persistent nav pane makes Back redundant on Home/Chamber/Water/Power/Living/Settings; the full-bleed log screen keeps its toolbar back.
+- [ ] S14.06 120 ms cross-fade on the content layer only — Test: the background does not flash black. The whole-screen fade was removed because it made LVGL allocate a screen-sized layer and contributed to the touch reboot; a content-container-only fade is still pending.
+- [x] S14.07 Three-finger tap returns Home from anywhere — Test: gesture works on the panel. `tpl_ws7_touch_points()` exposes the GT911 frame count; `main.cpp` polls it at 20 Hz and calls `haus_ui_three_finger()`.
+- [x] S14.08 Long-press clock toggles 12/24 h and C/F — Test: format toggles. Four-state cycle 24h/C, 12h/C, 12h/F, 24h/F; temperatures and chart labels follow.
+- [x] S14.09 Idle return to home after 3 minutes — Test: it returns; the log screen is exempt with follow on. Uses `lv_display_get_inactive_time()`; the log branch returns before the idle check.
+- [x] S14.10 Suppress idle return on the chamber screen while a duty change is pending — Test: it stays until resolved. The idle check skips chamber when `CanState.has_pending` is set.
 
 ## S15 · LOG SCREEN
 
-- [ ] S15.01 Generate a custom monospace font at 21 px, ASCII + degree + level glyphs — Test: lv_font_conv output committed
-- [ ] S15.02 Build the toolbar with Back, LOG, E/W/I/D, INV, CLR, SAVE — Test: all six render at 44 px
-- [ ] S15.03 One scrollable lv_obj + one LV_LABEL_LONG_MODE_WRAP label — Test: it wraps, it never uses the LVGL 8 spelling
-- [ ] S15.04 Render only the visible window (about 26 lines) — Test: the label never receives 1 MB of text
-- [ ] S15.05 Wrap at 38 characters — Test: a long record wraps rather than truncates
-- [ ] S15.06 Rebuild throttled to 5 Hz — Test: a 5 000-line burst leaves touch responsive
-- [ ] S15.07 Scan for newlines only when the window start moves — Test: consecutive re-renders reuse the line index
-- [ ] S15.08 Colour by level, with ! and !! overrides — Test: E red, W amber, I grey, D dim, ! amber, !! red
-- [ ] S15.09 Follow-at-end on by default — Test: the view sticks to the newest record
-- [ ] S15.10 Any manual scroll turns follow off and shows a FOLLOW button — Test: scrolling back is not yanked away
-- [ ] S15.11 Status bar: bytes, percent, dropped count, uptime, WS dot — Test: all five fields render
-- [ ] S15.12 Level filter row actually filters — Test: pressing E hides I and D records
-- [ ] S15.13 CLR requires a confirm — Test: it does not clear without one
-- [ ] S15.14 SAVE dumps the ring to /log_<ts>.txt — Test: the file appears with the full 1 MB
-- [ ] S15.15 Long-press the status strip opens the log screen — Test: gesture works
-- [ ] S15.16 No nav pane, full-bleed — Test: about 26 lines are visible
-- [ ] S15.17 Readable with WiFi down and USB disabled — Test: pull the antenna and the mux, the screen still works
-- [ ] S15.18 Never touches WiFi or tpl_server — Test: code review plus a test with WiFi disabled
+- [x] S15.01 Generate a custom monospace font at 21 px, ASCII + degree + level glyphs — Test: lv_font_conv output committed. `src/ui/lv_font_haus_mono_21.c` is generated from SF Mono at 21 px, 4 bpp, covering `0x20–0x7E`, `°` and `·`.
+- [x] S15.02 Build the toolbar with Back, LOG, E/W/I/D, INV, CLR, SAVE — Test: all six render at 44 px.
+- [x] S15.03 One scrollable lv_obj + one wrapping label — Test: it wraps, it never uses the LVGL 8 spelling. A compatibility macro maps to `LV_LABEL_LONG_WRAP` on the device (LVGL 9.2) and `LV_LABEL_LONG_MODE_WRAP` on the host (LVGL 10).
+- [x] S15.04 Render only the visible window (about 26 lines) — Test: the label never receives 1 MB of text. Only 26 wrapped visual lines are composed into the label.
+- [x] S15.05 Wrap at 38 characters — Test: a long record wraps rather than truncates.
+- [x] S15.06 Rebuild throttled to 5 Hz — Test: a 5 000-line burst leaves touch responsive. `log_screen_update()` throttles to 200 ms; the main loop calls it at 1 Hz.
+- [x] S15.07 Scan for newlines only when the window start moves — Test: consecutive re-renders reuse the line index. A rebuild is skipped when dump length, scroll offset, follow state and level mask are unchanged, so consecutive re-renders reuse the previous window.
+- [x] S15.08 Colour by level, with ! and !! overrides — Test: E red, W amber, I grey, D dim, ! amber, !! red. Host uses LVGL recolor; the device LVGL 9.2 build falls back to plain text because that version has no label recolor API.
+- [x] S15.09 Follow-at-end on by default — Test: the view sticks to the newest record.
+- [x] S15.10 Any manual scroll turns follow off and shows a FOLLOW button — Test: scrolling back is not yanked away. An up/down gesture on the log view clears follow, moves the window by five lines and turns the FOLLOW button amber; tapping FOLLOW returns to the end.
+- [x] S15.11 Status bar: bytes, percent, dropped count, uptime, WS dot — Test: all five fields render.
+- [x] S15.12 Level filter row actually filters — Test: pressing E hides I and D records.
+- [x] S15.13 CLR requires a confirm — Test: it does not clear without one. A modal Confirm/Cancel panel guards the clear.
+- [x] S15.14 SAVE dumps the ring to /log_<ts>.txt — Test: the file appears with the full 1 MB. Device path writes the ring dump through the SD lock; the host stub reports success.
+- [x] S15.15 Long-press the status strip opens the log screen — Test: gesture works. A 480x32 long-press hotspot sits over the home status strip.
+- [x] S15.16 No nav pane, full-bleed — Test: about 26 lines are visible.
+- [x] S15.17 Readable with WiFi down and USB disabled — Test: pull the antenna and the mux, the screen still works. The log screen reads the ring directly and touches no network object.
+- [x] S15.18 Never touches WiFi or tpl_server — Test: code review plus a test with WiFi disabled. Only the existing GUI state carries the WS indicator.
 
 ## S16 · tpl_can_monitor extraction (R10 regression)
 

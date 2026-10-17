@@ -17,6 +17,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "haus_ui.h"
+#include "haus_chart.h"
 #include "haus_gui.h"
 
 #include <stdio.h>

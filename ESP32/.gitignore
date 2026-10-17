@@ -25,6 +25,12 @@ target/
 [0-9][0-9]_*/tools/tail_ws.py
 [0-9][0-9]_*/include/version.h
 [0-9][0-9]_*/include/haus_*.h
+!28_hauszentrale/include/haus_chart.h
+!28_hauszentrale/include/haus_gui.h
+!28_hauszentrale/include/haus_history.h
+!28_hauszentrale/include/haus_rollup.h
+!28_hauszentrale/include/haus_triple_buffer.h
+!28_hauszentrale/include/haus_ui.h
 .DS_Store
 sweep/
 23_LED_matrix/tools/test_harness/test_harness

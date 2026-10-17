@@ -199,7 +199,7 @@ the SDL window / smoke test / screenshot baseline path.
 
 ## S12 · CHARTS
 
-- [ ] S12.01 Define ChartColumn (28 B) and static_assert — Test: 440 columns = 12 320 bytes
+- [x] S12.01 Define ChartColumn (28 B) and static_assert — Test: 440 columns = 12 320 bytes. Implemented in `include/haus_chart.h`; both the C and C++ asserts are compiled (the header is included by `haus_ui.c`).
 - [ ] S12.02 Stream the downsample in 512-record chunks — Test: peak working set is about 24 KB, zero heap
 - [ ] S12.03 Validate each quantity against its own sentinel before aggregating — Test: a mixed column aggregates only valid minutes, n reflects it
 - [ ] S12.04 Mark GAP columns and draw them as a dashed baseline — Test: a 03:00-05:00 dropout is not bridged (R6)

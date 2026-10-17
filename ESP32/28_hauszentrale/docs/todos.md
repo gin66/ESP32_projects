@@ -139,13 +139,13 @@ the SDL window / smoke test / screenshot baseline path.
 **Blocked on S17** — needs a live CAN bus (identity frames) before any of this
 can be exercised. The local SHT45 path (S18b) is independent and does not wait.
 
-- [ ] S9.01 Learn rank to ROM from 0x180+r identity frames — Test: a replayed identity burst populates the map
-- [ ] S9.02 Expire the identity after 90 s — Test: with frames stopped, the slot demotes to unknown
-- [ ] S9.03 Load ROM to function from SPIFFS sensor_roles[] seeded with the three known ROMs — Test: the table loads and round-trips
-- [ ] S9.04 Resolve by function, never by rank — Test: unplugging the water-in probe keeps the labels correct
-- [ ] S9.05 Log and surface a rank shift — Test: a simulated shift logs '! rank shift' and shows the correct label
-- [ ] S9.06 Render '—' for unbound ROM, expired identity, and unknown — Test: all three cases show a dash, not a number
-- [ ] S9.07 Never render INT16_MIN as a temperature (R5) — Test: a sentinel slot renders grey/—, never -327.68
+- [x] S9.01 Learn rank to ROM from 0x180+r identity frames — Test: a replayed identity burst populates the map (`haus_can_bus.cpp` stores rank/ROM/seen_ms; verified on the bench with `can 180 …` / `can 181 …` / `can 182 …` from the CYD, and by `test/test_sensor_map`)
+- [x] S9.02 Expire the identity after 90 s — Test: with frames stopped, the slot demotes to unknown (`HAUS_SENSOR_ID_TTL_MS`; virtual test covers the TTL boundary and the device logs `identity expired; zone shows --`)
+- [x] S9.03 Load ROM to function from SPIFFS sensor_roles[] seeded with the three known ROMs — Test: the table loads and round-trips (`haus_sensor_roles.cpp`: seed on first boot, save to `/sensor_roles.bin`, reload after reboot logs `loaded 3 entries`)
+- [x] S9.04 Resolve by function, never by rank — Test: unplugging the water-in probe keeps the labels correct (the resolver follows ROM → function and the newest rank; verified by the rank-shift test and `test_sensor_map`)
+- [x] S9.05 Log and surface a rank shift — Test: a simulated shift logs '! rank shift' and shows the correct label (bench: `! rank shift: chamber moved 0 -> 3`, once, no flapping)
+- [x] S9.06 Render '—' for unbound ROM, expired identity, and unknown — Test: all three cases show a dash, not a number (`temp_by_fn` stays `HAUS_CAN_TEMP_EMPTY`; home zones render `--`)
+- [x] S9.07 Never render INT16_MIN as a temperature (R5) — Test: a sentinel slot renders grey/—, never -327.68 (sentinel test in `test/test_sensor_map`; UI checks `HAUS_CAN_TEMP_EMPTY`)
 
 ## S10 · HOME SCREEN
 

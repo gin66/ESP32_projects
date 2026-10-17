@@ -45,9 +45,8 @@ static void snapshot_reset(void) {
   snapshot_unlock();
 }
 
-void haus_can_bus_get(haus_can_snapshot_t *out) {
-  if (!out)
-    return;
+void haus_can_bus_get(haus_can_snapshot_t* out) {
+  if (!out) return;
   snapshot_lock();
   *out = s_snap;
   snapshot_unlock();
@@ -55,7 +54,7 @@ void haus_can_bus_get(haus_can_snapshot_t *out) {
 
 bool haus_can_bus_running(void) { return s_running; }
 
-static void decode_frame(const twai_message_t *msg) {
+static void decode_frame(const twai_message_t* msg) {
   const uint32_t now_ms = (uint32_t)millis();
   const time_t now = time(nullptr);
 
@@ -73,6 +72,21 @@ static void decode_frame(const twai_message_t *msg) {
     haus_can_get_temperature(msg->data, &temps);
     memcpy(s_snap.temp_c100, temps.temperature, sizeof(temps.temperature));
     s_snap.valid = true;
+  } else if (msg->identifier >= CAN_ID_ID_BASE &&
+             msg->identifier < CAN_ID_ID_BASE + 4 &&
+             msg->data_length_code >= 8) {
+    const uint8_t rank = (uint8_t)(msg->identifier - CAN_ID_ID_BASE);
+    haus_can_identity_t ident;
+    haus_can_get_identity(msg->data, &ident);
+    memcpy(s_snap.id_rom[rank], ident.rom, 8);
+    s_snap.id_seen_ms[rank] = now_ms;
+    if (rank >= s_snap.id_count) s_snap.id_count = (uint8_t)(rank + 1);
+    snapshot_unlock();
+    TPL_LOGI("can", "identity rank %u ROM %02X%02X%02X%02X%02X%02X%02X%02X",
+             (unsigned)rank, ident.rom[0], ident.rom[1], ident.rom[2],
+             ident.rom[3], ident.rom[4], ident.rom[5], ident.rom[6],
+             ident.rom[7]);
+    snapshot_lock();
   } else if (msg->identifier == CAN_ID_PWM_REPORT &&
              msg->data_length_code >= sizeof(haus_can_pwm_t)) {
     haus_can_pwm_t pwm;
@@ -128,7 +142,7 @@ static void tx_timestamp(void) {
   snapshot_unlock();
 }
 
-static void can_task(void *arg) {
+static void can_task(void* arg) {
   (void)arg;
   TPL_LOGI("can", "canTask started (RX %d / TX %d, 125 kbps)", HAUS_CAN_RX,
            HAUS_CAN_TX);
@@ -141,8 +155,7 @@ static void can_task(void *arg) {
 
     uint32_t alerts = 0;
     if (twai_read_alerts(&alerts, pdMS_TO_TICKS(100)) == ESP_OK) {
-      if (!s_running)
-        continue;
+      if (!s_running) continue;
       if (alerts & TWAI_ALERT_RX_DATA) {
         twai_message_t msg;
         int drained = 0;
@@ -161,8 +174,7 @@ static void can_task(void *arg) {
         snapshot_unlock();
         TPL_LOGW("can", "RX queue full");
       }
-      if (alerts & TWAI_ALERT_BUS_RECOVERED)
-        TPL_LOGI("can", "bus recovered");
+      if (alerts & TWAI_ALERT_BUS_RECOVERED) TPL_LOGI("can", "bus recovered");
     }
 
     /* A lone or failed node goes BUS_OFF after 32 failed transmissions. TWAI
@@ -195,8 +207,7 @@ static void can_task(void *arg) {
 }
 
 bool haus_can_bus_start(void) {
-  if (s_running)
-    return true;
+  if (s_running) return true;
 
   /* Route GPIO 19/20 to the transceiver, then let the mux settle (S24.03). */
   if (tpl_ws7_set_usb_mode(false) != ESP_OK) {
@@ -209,9 +220,8 @@ bool haus_can_bus_start(void) {
            tpl_ws7_can_available() ? 1 : 0);
   vTaskDelay(pdMS_TO_TICKS(200));
 
-  twai_general_config_t g =
-      TWAI_GENERAL_CONFIG_DEFAULT((gpio_num_t)HAUS_CAN_TX,
-                                  (gpio_num_t)HAUS_CAN_RX, TWAI_MODE_NORMAL);
+  twai_general_config_t g = TWAI_GENERAL_CONFIG_DEFAULT(
+      (gpio_num_t)HAUS_CAN_TX, (gpio_num_t)HAUS_CAN_RX, TWAI_MODE_NORMAL);
   twai_timing_config_t t = TWAI_TIMING_CONFIG_125KBITS();
   twai_filter_config_t f = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
@@ -243,16 +253,14 @@ bool haus_can_bus_start(void) {
   }
   s_running = true;
 
-  if (!s_task)
-    xTaskCreate(can_task, "canTask", 4096, NULL, 3, &s_task);
+  if (!s_task) xTaskCreate(can_task, "canTask", 4096, NULL, 3, &s_task);
 
   TPL_LOGI("can", "TWAI running at 125 kbps");
   return true;
 }
 
 void haus_can_bus_stop(void) {
-  if (!s_running)
-    return;
+  if (!s_running) return;
   s_running = false;
   vTaskDelay(pdMS_TO_TICKS(150)); /* let the task leave twai_read_alerts */
 

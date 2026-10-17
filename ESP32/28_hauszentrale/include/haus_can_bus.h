@@ -37,6 +37,11 @@ typedef struct {
   uint8_t twai_state; /* TWAI_STATE_* */
   uint32_t tx_error_counter;
   uint32_t rx_error_counter;
+
+  /* 0x180+rank identity frames (S9.01). */
+  uint8_t id_count;
+  uint8_t id_rom[4][8];
+  uint32_t id_seen_ms[4];
 } haus_can_snapshot_t;
 
 /* Switch the mux to CAN, install/start TWAI and create the RX task. Idempotent.

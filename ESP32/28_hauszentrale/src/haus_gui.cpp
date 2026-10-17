@@ -27,6 +27,7 @@
 #include "haus_history.h"
 #include "haus_rollup.h"
 #include "haus_sd.h"
+#include "haus_sensor_roles.h"
 #include "haus_sht45.h"
 #include "haus_triple_buffer.h"
 #include "tpl_debug_log.h"
@@ -361,22 +362,79 @@ void gui_update_state(void) {
   haus_can_bus_get(&snap);
   can.last_update_epoch = snap.last_update_epoch;
 
-  /* Temperatures from 0x200. Identity mapping (rank → function) is S9; until
-   * then the slots are taken in the order the controller reports them. */
+  /* Temperatures from 0x200. The slot's number is only a rank; the function
+   * travels with the DS18B20 ROM announced on 0x180+r (§7.7, S9):
+   *   slot → rank → ROM (expires after 90 s) → local sensor_roles[] → function
+   * An expired or unbound ROM leaves the slot at SENSOR_FN_NONE, so the zone
+   * renders "--" instead of a plausible number under the wrong label. */
   haus_can_temperature_t temps;
   read_temperatures(&temps);
   for (int i = 0; i < HAUS_CAN_MAX_SENSORS; i++) {
     can.temp_c100[i] = temps.temperature[i];
     can.fn_of_slot[i] = SENSOR_FN_NONE;
   }
-  for (int i = 0; i < SENSOR_FN_COUNT; i++) {
+  for (int i = 0; i < SENSOR_FN_COUNT; i++)
     can.temp_by_fn[i] = HAUS_CAN_TEMP_EMPTY;
+
+  /* Feed the pure resolver with the learned identities and this frame's
+   * temperatures. It applies the 90 s expiry, the local ROM → function table
+   * and resolves each function at the newest rank only. */
+  haus_sensor_rank_t ranks[HAUS_CAN_MAX_SENSORS];
+  for (int r = 0; r < HAUS_CAN_MAX_SENSORS; r++) {
+    ranks[r].seen = (snap.id_seen_ms[r] != 0);
+    ranks[r].seen_ms = snap.id_seen_ms[r];
+    memcpy(ranks[r].rom, snap.id_rom[r], 8);
+    ranks[r].temp_c100 = can.temp_c100[r];
   }
-  can.fn_of_slot[0] = SENSOR_FN_CHAMBER;
-  can.fn_of_slot[1] = SENSOR_FN_WATER_IN;
-  can.fn_of_slot[2] = SENSOR_FN_WATER_OUT;
-  for (int i = 0; i < 3; i++)
-    can.temp_by_fn[can.fn_of_slot[i]] = can.temp_c100[i];
+
+  haus_sensor_role_t roles[HAUS_SENSOR_MAX_ROLES];
+  uint8_t role_count = haus_sensor_roles_count();
+  if (role_count > HAUS_SENSOR_MAX_ROLES) role_count = HAUS_SENSOR_MAX_ROLES;
+  for (uint8_t i = 0; i < role_count; i++) {
+    const haus_sensor_role_t* entry = haus_sensor_roles_at(i);
+    if (entry)
+      roles[i] = *entry;
+    else
+      roles[i].function = SENSOR_FN_NONE;
+  }
+
+  static haus_sensor_map_state_t s_map_state;
+  static bool s_map_reset_done = false;
+  if (!s_map_reset_done) {
+    haus_sensor_map_reset(&s_map_state);
+    s_map_reset_done = true;
+  }
+
+  haus_sensor_map_output_t mapped;
+  haus_sensor_map_resolve(ranks, (uint32_t)millis(), roles, role_count,
+                          &s_map_state, &mapped);
+  for (int r = 0; r < HAUS_CAN_MAX_SENSORS; r++)
+    can.fn_of_slot[r] = mapped.fn_of_slot[r];
+  for (int f = 0; f < SENSOR_FN_COUNT; f++)
+    can.temp_by_fn[f] = mapped.temp_by_fn[f];
+  static bool s_was_bound[SENSOR_FN_COUNT] = {false, false, false, false,
+                                              false};
+  bool now_bound[SENSOR_FN_COUNT] = {false, false, false, false, false};
+  for (int r = 0; r < HAUS_CAN_MAX_SENSORS; r++) {
+    const uint8_t fn = mapped.fn_of_slot[r];
+    if (fn < SENSOR_FN_COUNT && fn != SENSOR_FN_NONE) now_bound[fn] = true;
+  }
+  for (int f = 0; f < SENSOR_FN_COUNT; f++) {
+    if (now_bound[f] && !s_was_bound[f])
+      TPL_LOGI("can", "%s resolved", haus_sensor_fn_name((uint8_t)f));
+    s_was_bound[f] = now_bound[f];
+  }
+  for (int f = 0; f < SENSOR_FN_COUNT; f++) {
+    if (mapped.shifted[f]) {
+      TPL_LOGW("can", "! rank shift: %s moved %u -> %u",
+               haus_sensor_fn_name((uint8_t)f), (unsigned)mapped.from_rank[f],
+               (unsigned)mapped.to_rank[f]);
+    }
+    if (mapped.expired[f]) {
+      TPL_LOGW("can", "%s identity expired; zone shows --",
+               haus_sensor_fn_name((uint8_t)f));
+    }
+  }
 
   /* PWM — reported-by-0x280 value; nothing received yet. */
   haus_can_pwm_t pwm;
@@ -413,9 +471,9 @@ void gui_update_state(void) {
   climate.last_update_epoch =
       (climate_flags & CLIMATE_VALID_SHT45) ? can.timestamp : 0;
 
-  can.can_status =
-      snap.running ? (snap.bus_fault ? GUI_STATUS_ERROR : GUI_STATUS_OK)
-                   : GUI_STATUS_INACTIVE;
+  can.can_status = snap.running
+                       ? (snap.bus_fault ? GUI_STATUS_ERROR : GUI_STATUS_OK)
+                       : GUI_STATUS_INACTIVE;
   can.duty_status =
       (can.pwm_src == PWM_SRC_CAN) ? GUI_STATUS_OK : GUI_STATUS_INACTIVE;
   /* SD is green when present and readable, grey when absent. Red is reserved

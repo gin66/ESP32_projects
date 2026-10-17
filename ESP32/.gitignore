@@ -24,15 +24,8 @@ target/
 [0-9][0-9]_*/tools/generate_matter_pairing.py
 [0-9][0-9]_*/tools/tail_ws.py
 [0-9][0-9]_*/include/version.h
-[0-9][0-9]_*/include/haus_*.h
-!28_hauszentrale/include/haus_can_bus.h
-!28_hauszentrale/include/haus_chart.h
-!28_hauszentrale/include/haus_gui.h
-!28_hauszentrale/include/haus_history.h
-!28_hauszentrale/include/haus_rollup.h
-!28_hauszentrale/include/haus_sht45.h
-!28_hauszentrale/include/haus_triple_buffer.h
-!28_hauszentrale/include/haus_ui.h
+[0-9][0-9]_*/include/haus_can.h
+[0-9][0-9]_*/include/haus_nrf.h
 .DS_Store
 sweep/
 23_LED_matrix/tools/test_harness/test_harness
@@ -54,3 +47,6 @@ sweep/
 28_hauszentrale/test/test_chart/test_chart
 28_hauszentrale/test/test_chart/test_chart_san
 28_hauszentrale/test/test_chart/*.dSYM
+28_hauszentrale/test/test_sensor_map/test_sensor_map
+28_hauszentrale/test/test_sensor_map/test_sensor_map_san
+28_hauszentrale/test/test_sensor_map/*.dSYM

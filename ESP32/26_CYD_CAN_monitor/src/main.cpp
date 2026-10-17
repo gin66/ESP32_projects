@@ -39,9 +39,9 @@
 // ************* LVGL and EEZ Studio UI includes *************
 #include <lvgl.h>
 
+#include "protocol_detail.h"
 #include "ui/screens.h"
 #include "ui/ui.h"
-#include "protocol_detail.h"
 
 // ************* TFT display and touchscreen *************
 #include <TFT_eSPI.h>
@@ -69,7 +69,8 @@ XPT2046_Touchscreen touchscreen(CYD_TOUCH_CS, CYD_TOUCH_IRQ);
 TFT_eSPI tft = TFT_eSPI();
 
 #ifndef DEBUG_TOUCH
-#define DEBUG_TOUCH 0  // Prints the raw ADC point and the point reported to LVGL
+#define DEBUG_TOUCH \
+  0  // Prints the raw ADC point and the point reported to LVGL
 #endif
 
 // Touch coordinates
@@ -112,7 +113,8 @@ can_id_entry_t g_can_id_table[MAX_CAN_IDS];
 /* Exposed to protocol_detail.cpp for array bounds checking. */
 int g_max_can_ids = MAX_CAN_IDS;
 
-/* SML reassembly array — exposed to protocol_detail.cpp (non-static, matches header). */
+/* SML reassembly array — exposed to protocol_detail.cpp (non-static, matches
+ * header). */
 sml_reassembly_t g_sml[SML_MAX_MESSAGES];
 int g_sml_count = SML_MAX_MESSAGES;
 
@@ -140,8 +142,8 @@ static uint32_t g_proto_heizung_ee_cnt = 0;
  * log's own anomaly flag. Both are conditions where the node looks alive
  * but is not delivering what its status claims, so they are surfaced
  * on the stats line rather than left inside a decoded frame. */
-static uint8_t  g_proto_heizung_pwmfail = 0;
-static uint8_t  g_proto_heizung_ee_anom = 0;
+static uint8_t g_proto_heizung_pwmfail = 0;
+static uint8_t g_proto_heizung_ee_anom = 0;
 
 // Protocol analyzer state
 static uint16_t g_sml_base_id = 0;
@@ -151,12 +153,12 @@ static bool g_sml_active = false;
 
 /* SML reassembly array — defined in the header, non-static here. */
 static bool validate_sml_header(const uint8_t* buf, size_t buf_size) {
-    if (buf_size < 16) return false;
-    /* SML frames begin with 0x1B 0x1B 0x1B 0x1B 0x01 0x01 0x01 0x01
-     * repeated.  Check the first 8 bytes (one full repetition). */
-    static const uint8_t sml_header[8] = {0x1b, 0x1b, 0x1b, 0x1b,
-                                          0x01, 0x01, 0x01, 0x01};
-    return (memcmp(buf, sml_header, 8) == 0);
+  if (buf_size < 16) return false;
+  /* SML frames begin with 0x1B 0x1B 0x1B 0x1B 0x01 0x01 0x01 0x01
+   * repeated.  Check the first 8 bytes (one full repetition). */
+  static const uint8_t sml_header[8] = {0x1b, 0x1b, 0x1b, 0x1b,
+                                        0x01, 0x01, 0x01, 0x01};
+  return (memcmp(buf, sml_header, 8) == 0);
 }
 
 // Display mode
@@ -197,12 +199,9 @@ static void ui_apply_legibility(void) {
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, LV_PART_MAIN);
   }
 
-  lv_obj_t* labels[] = {objects.lblStats,
-                        objects.lblIP,
-                        objects.lblClearBtn,
-                        objects.lblHeaderId,
-                        objects.lblHeaderData,
-                        objects.lblHeaderTime};
+  lv_obj_t* labels[] = {objects.lblStats,      objects.lblIP,
+                        objects.lblClearBtn,   objects.lblHeaderId,
+                        objects.lblHeaderData, objects.lblHeaderTime};
   for (uint32_t i = 0; i < sizeof(labels) / sizeof(labels[0]); i++) {
     if (labels[i] == NULL) continue;
     lv_obj_set_style_bg_color(labels[i], lv_color_hex(0x000000), LV_PART_MAIN);
@@ -282,10 +281,12 @@ static void can_table_update(const twai_message_t* msg) {
     entry->interval_ms = now - entry->last_timestamp;
     /* Track interval min/max (skip the first reading which is 0) */
     if (entry->interval_ms > 0) {
-      if (entry->frame_count == 0 || entry->interval_ms < entry->interval_min_ms) {
+      if (entry->frame_count == 0 ||
+          entry->interval_ms < entry->interval_min_ms) {
         entry->interval_min_ms = entry->interval_ms;
       }
-      if (entry->frame_count == 0 || entry->interval_ms > entry->interval_max_ms) {
+      if (entry->frame_count == 0 ||
+          entry->interval_ms > entry->interval_max_ms) {
         entry->interval_max_ms = entry->interval_ms;
       }
     }
@@ -335,9 +336,9 @@ static void decode_protocol(uint32_t id, const uint8_t* data, uint8_t len,
     if (len >= 8) {
       haus_can_identity_t id_data;
       haus_can_get_identity(data, &id_data);
-      snprintf(info->decoded, sizeof(info->decoded), "%02X:%02X:%02X:%02X:%02X:%02X",
-               id_data.rom[1], id_data.rom[2], id_data.rom[3], id_data.rom[4],
-               id_data.rom[5], id_data.rom[6]);
+      snprintf(info->decoded, sizeof(info->decoded),
+               "%02X:%02X:%02X:%02X:%02X:%02X", id_data.rom[1], id_data.rom[2],
+               id_data.rom[3], id_data.rom[4], id_data.rom[5], id_data.rom[6]);
     }
     g_proto_heizung_id_cnt++;
     return;
@@ -347,7 +348,6 @@ static void decode_protocol(uint32_t id, const uint8_t* data, uint8_t len,
   info->protocol = proto;
 
   switch (proto) {
-
     /* ── Temperature data (0x200) ───────────────────────────────────── */
     case HAUS_PROTO_HEIZUNG_TEMP: {
       info->label[0] = 'T';
@@ -386,8 +386,7 @@ static void decode_protocol(uint32_t id, const uint8_t* data, uint8_t len,
       if (len >= 5) {
         haus_can_pwm_t p;
         haus_can_get_pwm(data, &p);
-        snprintf(info->decoded, sizeof(info->decoded),
-                 "duty=%d/1000 f=%dHz %s",
+        snprintf(info->decoded, sizeof(info->decoded), "duty=%d/1000 f=%dHz %s",
                  p.duty_permille, p.frequency_hz,
                  (p.flags & PWM_FLAG_ACTIVE) ? "ACTIVE" : "OFF");
       }
@@ -405,8 +404,8 @@ static void decode_protocol(uint32_t id, const uint8_t* data, uint8_t len,
         haus_can_adc_t a;
         haus_can_get_adc(data, &a);
         snprintf(info->decoded, sizeof(info->decoded),
-                 "max=%u min=%u pp=%u flags=0x%02X",
-                 a.max_count, a.min_count, a.pp_count, a.flags);
+                 "max=%u min=%u pp=%u flags=0x%02X", a.max_count, a.min_count,
+                 a.pp_count, a.flags);
       }
       g_proto_heizung_adc_cnt++;
       return;
@@ -419,27 +418,40 @@ static void decode_protocol(uint32_t id, const uint8_t* data, uint8_t len,
       info->label[2] = '\0';
       if (len >= 8) {
         haus_can_ee_t e;
-        const char *src;
+        const char* src;
         haus_can_get_ee(data, &e);
 
         switch (e.flags & EE_SRC_MASK) {
-          case EE_SRC_VIRGIN  << EE_SRC_SHIFT: src = "virgin";     break;
-          case EE_SRC_MARKER  << EE_SRC_SHIFT: src = "marker";     break;
-          case EE_SRC_WINDOW  << EE_SRC_SHIFT: src = "window";     break;
-          case EE_SRC_ANOMALY << EE_SRC_SHIFT: src = "ANOMALY";    break;
-          case EE_SRC_INVALID << EE_SRC_SHIFT: src = "bad-newest"; break;
-          default:                                 src = "?";        break;
+          case EE_SRC_VIRGIN << EE_SRC_SHIFT:
+            src = "virgin";
+            break;
+          case EE_SRC_MARKER << EE_SRC_SHIFT:
+            src = "marker";
+            break;
+          case EE_SRC_WINDOW << EE_SRC_SHIFT:
+            src = "window";
+            break;
+          case EE_SRC_ANOMALY << EE_SRC_SHIFT:
+            src = "ANOMALY";
+            break;
+          case EE_SRC_INVALID << EE_SRC_SHIFT:
+            src = "bad-newest";
+            break;
+          default:
+            src = "?";
+            break;
         }
 
         snprintf(info->decoded, sizeof(info->decoded),
-                 "rest=%u rec=%u arc=%u..%u w=%u %s%s%s",
-                 e.restored_duty, e.records, e.oldest, e.newest, e.writes, src,
+                 "rest=%u rec=%u arc=%u..%u w=%u %s%s%s", e.restored_duty,
+                 e.records, e.oldest, e.newest, e.writes, src,
                  (e.oldest > e.newest) ? " wrap" : "",
                  (e.flags & EE_FLAG_PWMFAIL) ? " PWMFAIL" : "");
 
         g_proto_heizung_pwmfail =
             (uint8_t)((e.flags & EE_FLAG_PWMFAIL) ? 1 : 0);
-        g_proto_heizung_ee_anom = (uint8_t)((e.flags & EE_FLAG_ANOMALY) ? 1 : 0);
+        g_proto_heizung_ee_anom =
+            (uint8_t)((e.flags & EE_FLAG_ANOMALY) ? 1 : 0);
       }
       g_proto_heizung_ee_cnt++;
       return;
@@ -457,8 +469,8 @@ static void decode_protocol(uint32_t id, const uint8_t* data, uint8_t len,
         haus_can_stats_t s;
         haus_can_get_stats(data, &s);
         snprintf(info->decoded, sizeof(info->decoded),
-                 "sent=%u recv=%u ref=%u eflg=0x%02X canstat=0x%02X",
-                 s.sent, s.received, s.refused, s.eflg, s.canstat);
+                 "sent=%u recv=%u ref=%u eflg=0x%02X canstat=0x%02X", s.sent,
+                 s.received, s.refused, s.eflg, s.canstat);
       }
       g_proto_heizung_stats_cnt++;
       return;
@@ -541,7 +553,8 @@ static void decode_protocol(uint32_t id, const uint8_t* data, uint8_t len,
           if (g_sml_received_length >= expected) {
             /* Complete message received — validate before clearing. */
             uint16_t saved_len = g_sml_received_length;
-            bool ok = (saved_len > 16 && validate_sml_header(g_sml_buffer, saved_len));
+            bool ok = (saved_len > 16 &&
+                       validate_sml_header(g_sml_buffer, saved_len));
             g_sml_active = false;
             g_sml_received_length = 0;
             g_sml[slot].active = false;
@@ -572,7 +585,7 @@ static void decode_protocol(uint32_t id, const uint8_t* data, uint8_t len,
 
   /* ── Time broadcast (custom, type = 0x01) ─────────────────────────── */
   if (len >= sizeof(can_time_message_t) && data[0] == CAN_MSG_TYPE_TIME) {
-    info->protocol = (haus_protocol_t)0xFFFF;  /* non-haus marker */
+    info->protocol = (haus_protocol_t)0xFFFF; /* non-haus marker */
     snprintf(info->label, sizeof(info->label), "TIME-BCAST");
     can_time_message_t time_msg;
     memcpy(&time_msg, data, sizeof(can_time_message_t));
@@ -654,14 +667,12 @@ static void update_can_display(void) {
     snprintf(stats_buf, sizeof(stats_buf),
              "Proto: TS:%lu SML:%lu TB:%lu HID:%lu HTmp:%lu "
              "HPWM:%lu HADC:%lu HSt:%lu HEE:%lu%s%s Ukn:%lu",
-             g_proto_timestamp_cnt, g_proto_sml_cnt,
-             g_proto_time_broadcast_cnt,
+             g_proto_timestamp_cnt, g_proto_sml_cnt, g_proto_time_broadcast_cnt,
              g_proto_heizung_id_cnt, g_proto_heizung_temp_cnt,
              g_proto_heizung_pwm_cnt, g_proto_heizung_adc_cnt,
              g_proto_heizung_stats_cnt, g_proto_heizung_ee_cnt,
              g_proto_heizung_ee_anom ? " EE-ANOM" : "",
-             g_proto_heizung_pwmfail ? " PWMFAIL" : "",
-             g_proto_unknown_cnt);
+             g_proto_heizung_pwmfail ? " PWMFAIL" : "", g_proto_unknown_cnt);
   } else {
     snprintf(stats_buf, sizeof(stats_buf), "RX: %lu | TX: %lu | Err: %lu",
              g_can_rx_count, g_can_tx_count, g_can_error_cnt);
@@ -761,11 +772,12 @@ static void update_can_display(void) {
           case HAUS_PROTO_HEIZUNG_EE:
             /* Red when the log is in a state the node cannot be trusted from:
              * a lost restore point, or a recorded output-path failure. */
-            lv_obj_set_style_text_color(
-                objects.lblData[i],
-                lv_color_hex((g_proto_heizung_ee_anom || g_proto_heizung_pwmfail)
-                                 ? 0xFF6666 : 0x66CCCC),
-                LV_PART_MAIN);
+            lv_obj_set_style_text_color(objects.lblData[i],
+                                        lv_color_hex((g_proto_heizung_ee_anom ||
+                                                      g_proto_heizung_pwmfail)
+                                                         ? 0xFF6666
+                                                         : 0x66CCCC),
+                                        LV_PART_MAIN);
             lv_obj_set_style_text_color(objects.lblTime[i],
                                         lv_color_hex(0x66CCCC), LV_PART_MAIN);
             break;
@@ -1418,9 +1430,89 @@ void setup() {
   Serial.println("[26_CYD_CAN_monitor] Setup complete");
 }
 
+// ************* On-demand CAN TX (bench) *************
+//
+// Serial commands (newline-terminated):
+//   can <id hex> <hex data>    send an arbitrary standard-ID frame
+//   help                       print this list
+//
+// Only for bench bring-up; nothing is sent automatically.
+
+static uint8_t hex_nibble(char c) {
+  if (c >= '0' && c <= '9') return (uint8_t)(c - '0');
+  if (c >= 'a' && c <= 'f') return (uint8_t)(c - 'a' + 10);
+  if (c >= 'A' && c <= 'F') return (uint8_t)(c - 'A' + 10);
+  return 0xFF;
+}
+
+static int parse_hex(const char* s, uint8_t* out, int max_len) {
+  int n = 0;
+  while (s[0] && s[1] && n < max_len) {
+    const uint8_t hi = hex_nibble(s[0]);
+    const uint8_t lo = hex_nibble(s[1]);
+    if (hi == 0xFF || lo == 0xFF) break;
+    out[n++] = (uint8_t)((hi << 4) | lo);
+    s += 2;
+  }
+  return n;
+}
+
+static bool send_bench_frame(uint32_t id, const uint8_t* data, uint8_t len) {
+  twai_message_t msg;
+  memset(&msg, 0, sizeof(msg));
+  msg.identifier = id;
+  msg.data_length_code = len;
+  msg.flags = TWAI_MSG_FLAG_NONE;
+  memcpy(msg.data, data, len);
+  return twai_transmit(&msg, pdMS_TO_TICKS(100)) == ESP_OK;
+}
+
+static void handle_bench_command(char* line) {
+  char* cmd = strtok(line, " ");
+  if (!cmd) return;
+
+  if (strcmp(cmd, "help") == 0) {
+    Serial.println("can <id hex> <hex data>");
+    return;
+  }
+  if (strcmp(cmd, "can") == 0) {
+    char* id_s = strtok(NULL, " ");
+    char* data_s = strtok(NULL, " ");
+    uint8_t data[8];
+    int n = 0;
+    if (id_s) n = parse_hex(data_s ? data_s : "", data, 8);
+    const uint32_t id = id_s ? (uint32_t)strtoul(id_s, NULL, 16) : 0;
+    if (!id_s || n <= 0) {
+      Serial.println("[TX] usage: can <id hex> <hex data>");
+      return;
+    }
+    const bool ok = send_bench_frame(id, data, (uint8_t)n);
+    Serial.printf("[TX] 0x%03X %s\n", (unsigned)id, ok ? "sent" : "FAILED");
+    return;
+  }
+  Serial.println("[TX] unknown command; type help");
+}
+
+static void poll_bench_serial(void) {
+  static char line[64];
+  static size_t len = 0;
+  while (Serial.available() > 0) {
+    const char c = (char)Serial.read();
+    if (c == '\r') continue;
+    if (c == '\n') {
+      line[len] = '\0';
+      if (len > 0) handle_bench_command(line);
+      len = 0;
+      continue;
+    }
+    if (len < sizeof(line) - 1) line[len++] = c;
+  }
+}
+
 // ************* Loop *************
 
 void loop() {
+  poll_bench_serial();
   static unsigned long last_display_update = 0;
   static unsigned long last_ui_tick = 0;
 #if DISPLAY_DEBUG

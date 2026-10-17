@@ -29,6 +29,7 @@
 #include "haus_gui.h"
 #include "haus_history.h"
 #include "haus_sd.h"
+#include "haus_sensor_roles.h"
 #include "haus_sht45.h"
 #include "haus_ui.h"
 #include "template.h"
@@ -130,6 +131,9 @@ void setup() {
     TPL_LOGI("history", "boot restore: %u columns", (unsigned)restored);
     haus_history_start_recorder();
   }
+
+  /* S9.03: ROM -> function table (seeded on first boot). */
+  haus_sensor_roles_init();
 
   /* S4.02: reset the ST7262 through the CH422G before bring-up */
   tpl_ws7_panel_reset();
@@ -264,9 +268,8 @@ void setup() {
              haus_can_bus_running() ? "true" : "false",
              tpl_ws7_can_available() ? "true" : "false",
              (unsigned)cs.twai_state, (unsigned long)cs.tx_error_counter,
-             (unsigned long)cs.rx_error_counter,
-             (unsigned long)cs.rx_frames, (unsigned long)cs.tx_frames,
-             (unsigned long)cs.bus_errors,
+             (unsigned long)cs.rx_error_counter, (unsigned long)cs.rx_frames,
+             (unsigned long)cs.tx_frames, (unsigned long)cs.bus_errors,
              cs.bus_fault ? "true" : "false");
     tpl_server.send(200, "application/json", buf);
   });
@@ -308,8 +311,7 @@ void loop() {
   if (tpl_config.ota_ongoing != s_ota_backlight_off) {
     s_ota_backlight_off = tpl_config.ota_ongoing;
     tpl_ws7_backlight(!s_ota_backlight_off);
-    TPL_LOGI("ota", "backlight %s for OTA",
-             s_ota_backlight_off ? "OFF" : "ON");
+    TPL_LOGI("ota", "backlight %s for OTA", s_ota_backlight_off ? "OFF" : "ON");
   }
 
   /* Data refresh at 1 Hz. Refreshing at loop rate invalidates every label

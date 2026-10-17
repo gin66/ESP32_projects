@@ -49,3 +49,6 @@ sweep/
 28_hauszentrale/test/test_history/test_history
 28_hauszentrale/test/test_history/test_history_san
 28_hauszentrale/test/test_history/*.dSYM
+28_hauszentrale/test/test_chart/test_chart
+28_hauszentrale/test/test_chart/test_chart_san
+28_hauszentrale/test/test_chart/*.dSYM

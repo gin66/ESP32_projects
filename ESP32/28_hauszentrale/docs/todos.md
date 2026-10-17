@@ -200,9 +200,9 @@ the SDL window / smoke test / screenshot baseline path.
 ## S12 · CHARTS
 
 - [x] S12.01 Define ChartColumn (28 B) and static_assert — Test: 440 columns = 12 320 bytes. Implemented in `include/haus_chart.h`; both the C and C++ asserts are compiled (the header is included by `haus_ui.c`).
-- [ ] S12.02 Stream the downsample in 512-record chunks — Test: peak working set is about 24 KB, zero heap
-- [ ] S12.03 Validate each quantity against its own sentinel before aggregating — Test: a mixed column aggregates only valid minutes, n reflects it
-- [ ] S12.04 Mark GAP columns and draw them as a dashed baseline — Test: a 03:00-05:00 dropout is not bridged (R6)
+- [x] S12.02 Stream the downsample in 512-record chunks — Test: peak working set is about 24 KB, zero heap. Implemented in `src/haus_chart.cpp` with static 512-sample (12 KB) and 64-rollup-column (5.6 KB) buffers; `test/test_chart` asserts the chunk limits.
+- [x] S12.03 Validate each quantity against its own sentinel before aggregating — Test: a mixed column aggregates only valid minutes, n reflects it. `sample_value()` checks `HAUS_CAN_TEMP_EMPTY`, climate valid flags, and per-source `stale_mask`; the host test verifies 1 370 valid minutes from 1 440 with 60 sentinel + 10 stale.
+- [ ] S12.04 Mark GAP columns and draw them as a dashed baseline — Test: a 03:00-05:00 dropout is not bridged (R6). GAP marking is implemented and tested; dashed rendering is part of S12.05.
 - [ ] S12.05 Render into an lv_canvas at 440x260, not lv_chart — Test: envelope renders, axes are ours
 - [ ] S12.06 Redraw only on range change or a new sample — Test: chart redraw count is at most 1/minute
 - [ ] S12.07 Auto-scale the Y axis with 12% hysteresis and nice steps — Test: an oscillating value does not make the axis jump

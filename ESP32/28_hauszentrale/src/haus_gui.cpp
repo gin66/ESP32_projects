@@ -10,6 +10,7 @@
 
 #include "haus_gui.h"
 #include "haus_can.h"
+#include "haus_history.h"
 #include "haus_rollup.h"
 #include "haus_sd.h"
 #include "haus_triple_buffer.h"
@@ -220,7 +221,14 @@ void gui_update_state(void) {
      * for an in-progress write (SD status semantics, §8.15.1). */
     can.sd_status = haus_sd_is_mounted() ? GUI_STATUS_OK
                                          : GUI_STATUS_INACTIVE;
+    uint64_t total_bytes = 0;
+    uint64_t used_bytes = 0;
     can.sd_low_space = false;
+    if (haus_sd_space_get(&total_bytes, &used_bytes)) {
+        const uint64_t free_bytes =
+            total_bytes > used_bytes ? total_bytes - used_bytes : 0;
+        can.sd_low_space = free_bytes < (50ULL * 1024ULL * 1024ULL);
+    }
 
     /* WiFi is optional after boot: the symbol is green only while associated
      * and holding a DHCP lease, grey otherwise. */
@@ -240,7 +248,7 @@ void gui_update_state(void) {
     can.bus_errors = 0;
     can.last_frame_ms = 0;
     can.can_fault = 0;
-    can.sd_fault = 0;
+    can.sd_fault = haus_history_sd_fault() ? 1 : 0;
     can.i2c_fault = 0;
 
     g_can.publish();

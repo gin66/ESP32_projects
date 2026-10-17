@@ -391,6 +391,13 @@ static void test_write_failure(void) {
 static void test_retention(uint32_t now) {
     SECTION("H1  30 stale months delete one per pass, recent files stay");
 
+    CHECK(haus_history_retention_months(100ULL * 1024 * 1024) == 24,
+          "100 MB should keep 24 months");
+    CHECK(haus_history_retention_months(49ULL * 1024 * 1024) == 3,
+          "49 MB should force 3 months");
+    CHECK(haus_history_retention_months(50ULL * 1024 * 1024) == 24,
+          "50 MB exactly should keep 24 months");
+
     CHECK(haus_history_init(), "history init failed");
     haus_history_test_clear_files();
 

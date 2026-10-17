@@ -81,6 +81,16 @@ size_t haus_history_restore(uint32_t now_epoch);
  * file was deleted, 0 when none was expired, -1 on an I/O error. */
 int haus_history_retention_step(uint32_t now_epoch, int max_months);
 
+/* Effective retention: 3 months while free space is below 50 MB, otherwise
+ * 24 months. */
+#define HAUS_FREE_FLOOR_BYTES (50ULL * 1024ULL * 1024ULL)
+int haus_history_retention_months(uint64_t free_bytes);
+
+/* 30 s SD watchdog: detect a pulled card, retry the mount, and keep a sticky
+ * fault until the card is mounted and passes the self-test. */
+void haus_history_sd_watchdog(uint32_t now_ms);
+bool haus_history_sd_fault(void);
+
 /* Start the device recorder task. No-op on the host build. */
 void haus_history_start_recorder(void);
 

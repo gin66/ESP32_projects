@@ -101,6 +101,10 @@ static void l2_store(const RollupColumn *col) {
 
 /* Calendar-month comparison, so 24 months is 24 calendar months rather than an
  * arbitrary number of days. */
+int haus_history_retention_months(uint64_t free_bytes) {
+    return free_bytes < HAUS_FREE_FLOOR_BYTES ? 3 : 24;
+}
+
 static bool retention_expired(uint32_t file_epoch, uint32_t now_epoch,
                               int max_months) {
     if (file_epoch == 0 || now_epoch < 24 * 3600u) return false;
@@ -580,6 +584,9 @@ size_t haus_history_test_retention_files(void) {
     return s_test_retention_count;
 }
 
+void haus_history_sd_watchdog(uint32_t now_ms) { (void)now_ms; }
+bool haus_history_sd_fault(void) { return false; }
+
 int haus_history_retention_step(uint32_t now_epoch, int max_months) {
     if (s_test_retention_count == 0) return 0;
 
@@ -937,18 +944,55 @@ size_t haus_history_restore(uint32_t now_epoch) {
     return restored;
 }
 
+static bool s_sd_fault = false;
+
+void haus_history_sd_watchdog(uint32_t now_ms) {
+    static uint32_t last_check_ms = 0;
+    if (last_check_ms != 0 && (now_ms - last_check_ms) < 30000u) return;
+    last_check_ms = now_ms;
+
+    if (haus_sd_is_mounted()) {
+        if (s_sd_fault) {
+            TPL_LOGI("sd", "card recovered");
+            s_sd_fault = false;
+        }
+        return;
+    }
+
+    s_sd_fault = true;
+    TPL_LOGW("sd", "card lost; retrying mount");
+    if (haus_sd_mount()) {
+        if (haus_sd_selftest()) {
+            TPL_LOGI("sd", "card remounted and verified");
+            s_sd_fault = false;
+        }
+    }
+}
+
+bool haus_history_sd_fault(void) { return s_sd_fault; }
+
 static void recorder_task(void *arg) {
     (void)arg;
     uint32_t last_minute = UINT32_MAX;
 
     for (;;) {
+        haus_history_sd_watchdog((uint32_t)millis());
         const time_t now = time(nullptr);
         if (now > 1700000000) {
             static uint32_t last_retention_day = 0;
             const uint32_t today = local_day_key((uint32_t)now);
             if (today != last_retention_day) {
                 last_retention_day = today;
-                (void)haus_history_retention_step((uint32_t)now, 24);
+                haus_sd_space_refresh();
+                uint64_t total = 0;
+                uint64_t used = 0;
+                uint64_t free_bytes = UINT64_MAX;
+                if (haus_sd_space_get(&total, &used)) {
+                    free_bytes = total > used ? total - used : 0;
+                }
+                const int months =
+                    haus_history_retention_months(free_bytes);
+                (void)haus_history_retention_step((uint32_t)now, months);
             }
 
             const uint32_t minute = (uint32_t)(now / 60);

@@ -314,12 +314,10 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
    * even been started yet. SNTP keeps running in the background, so once WiFi is
    * up the clock is set without any further action. */
   Serial.print("Retrieving time: ");
-  /* The timezone must be set regardless of whether the NTP wait below sees a
-   * sync: SNTP keeps running in the background, and the UI converts the epoch
-   * with localtime(). Without this, a late sync would be displayed as UTC. */
-  setenv("TZ", "CET-1CEST,M3.5.0/2:00,M10.5.0/3:00", 1);
-  tzset();
-  configTime(0, 0, "pool.ntp.org");  // get UTC time via NTP
+  /* configTzTime(), not configTime(): configTime(gmt=0) calls setTimeZone(0,0)
+   * and overwrites TZ, so the clock would silently stay in UTC. This sets both
+   * the SNTP servers and the POSIX timezone (CET/CEST, Europe/Berlin). */
+  configTzTime("CET-1CEST,M3.5.0/2:00,M10.5.0/3:00", "pool.ntp.org");
   const unsigned long ntp_deadline = millis() + TPL_NTP_WAIT_MS;
   time_t now = time(nullptr);
   while (now < 24 * 3600 && static_cast<long>(millis() - ntp_deadline) < 0) {

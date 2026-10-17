@@ -24,6 +24,7 @@ static RollupColumn s_l2_storage[HAUS_L2_COLUMNS];
 static RollupColumn s_ring_storage[HAUS_RING_HOURS];
 static uint32_t s_test_day_bytes = 0;
 static uint32_t s_test_rollup_bytes = 0;
+static bool s_test_fail_writes = false;
 
 #else  /* device */
 
@@ -72,6 +73,15 @@ static size_t ring_slot(uint32_t epoch_hour) {
     return (size_t)(epoch_hour % HAUS_RING_HOURS);
 }
 
+/* Local calendar day, used for the midnight rollover. A DST change makes the
+ * day 23 or 25 hours long; a UTC day number would split it in the wrong place. */
+static uint32_t local_day_key(uint32_t epoch) {
+    time_t t = (time_t)epoch;
+    struct tm tm;
+    if (!localtime_r(&t, &tm)) return epoch / 86400u;
+    return ((uint32_t)(tm.tm_year + 1900) * 1000u) + (uint32_t)tm.tm_yday;
+}
+
 /* Day names come from the last sample's epoch, not from a separate
  * localtime() read, so an NTP step cannot split a day across two files (D34). */
 static void format_day_path(uint32_t epoch, char *out, size_t n) {
@@ -90,6 +100,7 @@ static bool sd_write_day(uint32_t epoch) {
     format_day_path(epoch, s_last_day_path, sizeof(s_last_day_path));
 
 #ifdef HAUS_HOST
+    if (s_test_fail_writes) return false;
     s_test_day_bytes = HAUS_L1_BYTES;
     s_sd_write_count++;
     return true;
@@ -115,6 +126,7 @@ static bool sd_write_day(uint32_t epoch) {
 static bool sd_write_rollup(uint32_t epoch) {
 #ifdef HAUS_HOST
     (void)epoch;
+    if (s_test_fail_writes) return false;
     s_test_rollup_bytes = HAUS_L2_BYTES;
     s_sd_write_count++;
     return true;
@@ -187,7 +199,7 @@ bool haus_history_sample(const HausState *state, uint32_t epoch_seconds) {
     if (minute == s_last_sample_minute) return true;
     s_last_sample_minute = minute;
 
-    const uint32_t day = epoch_seconds / 86400;
+    const uint32_t day = local_day_key(epoch_seconds);
     if (s_last_day == 0) {
         s_last_day = day;
     } else if (day != s_last_day) {
@@ -319,9 +331,17 @@ const char *haus_history_last_day_path(void) { return s_last_day_path; }
 bool haus_history_init(void) {
     s_l1 = s_l1_storage;
     s_l2 = s_l2_storage;
+    memset(s_l1, 0, HAUS_L1_BYTES);
+    memset(s_l2, 0, HAUS_L2_BYTES);
     memset(s_ring_storage, 0, sizeof(s_ring_storage));
     s_test_day_bytes = 0;
     s_test_rollup_bytes = 0;
+    s_last_sample_minute = UINT32_MAX;
+    s_last_sample_epoch = 0;
+    s_last_day = 0;
+    s_last_stale_mask = 0;
+    s_sd_write_count = 0;
+    s_last_day_path[0] = '\0';
     return true;
 }
 
@@ -361,6 +381,7 @@ void haus_history_start_recorder(void) {}
 
 uint32_t haus_history_test_day_bytes(void) { return s_test_day_bytes; }
 uint32_t haus_history_test_rollup_bytes(void) { return s_test_rollup_bytes; }
+void haus_history_test_fail_writes(bool fail) { s_test_fail_writes = fail; }
 
 #else  /* device */
 
@@ -425,6 +446,15 @@ bool haus_history_init(void) {
                  (void *)s_l1, (void *)s_l2);
         return false;
     }
+
+    memset(s_l1, 0, HAUS_L1_BYTES);
+    memset(s_l2, 0, HAUS_L2_BYTES);
+    s_last_sample_minute = UINT32_MAX;
+    s_last_sample_epoch = 0;
+    s_last_day = 0;
+    s_last_stale_mask = 0;
+    s_sd_write_count = 0;
+    s_last_day_path[0] = '\0';
 
     s_ring_ready = ring_open_or_create();
     if (!s_ring_ready) {

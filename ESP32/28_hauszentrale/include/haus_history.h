@@ -72,9 +72,11 @@ uint32_t haus_history_sd_write_count(void);
 const char *haus_history_last_day_path(void);
 
 #ifdef HAUS_HOST
-/* Test-only: sizes of the last simulated day/rollup writes. */
+/* Test-only: sizes of the last simulated day/rollup writes, and fault
+ * injection for the write path. */
 uint32_t haus_history_test_day_bytes(void);
 uint32_t haus_history_test_rollup_bytes(void);
+void haus_history_test_fail_writes(bool fail);
 #endif
 
 #ifdef __cplusplus

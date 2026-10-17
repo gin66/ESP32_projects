@@ -42,3 +42,4 @@ sweep/
 28_hauszentrale/host_harness/build/
 28_hauszentrale/test/test_history/test_history
 28_hauszentrale/test/test_history/test_history_san
+28_hauszentrale/test/test_history/*.dSYM

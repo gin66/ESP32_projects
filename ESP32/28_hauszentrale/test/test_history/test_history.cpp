@@ -10,7 +10,9 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 static uint32_t g_checks;
 static uint32_t g_failures;
@@ -45,6 +47,8 @@ static HausState fresh_state(uint32_t epoch) {
     st.climate.last_update_epoch = epoch;
     return st;
 }
+
+static uint32_t local_midnight(int year, int mon, int mday);
 
 /* ─── A: a simulated day ──────────────────────────────────────────────────── */
 
@@ -148,6 +152,34 @@ static void test_stale(uint32_t next) {
           (unsigned)haus_history_l2()[slot].n[0]);
 }
 
+static void test_stale_recovery(uint32_t next) {
+    SECTION("C2  stale clears on the next fresh sample; clock-back is not stale");
+
+    const uint32_t t = next + 120u;  /* 00:02 */
+    HausState st = fresh_state(t);   /* both sources refreshed now */
+    CHECK(haus_history_sample(&st, t), "fresh sample rejected");
+
+    const gui_sample_t *l1 = haus_history_l1();
+    const gui_sample_t &s = l1[(t % 86400u) / 60u];
+    CHECK((s.flags & SAMPLE_FLAG_STALE) == 0, "STALE flag did not clear");
+    CHECK(s.stale_mask == 0, "stale mask = 0x%02x, want 0",
+          (unsigned)s.stale_mask);
+
+    /* 00:00 fresh + 00:02 fresh; the 00:01 stale minute was excluded. */
+    const uint32_t slot = (t / 3600u) % HAUS_L2_COLUMNS;
+    CHECK(haus_history_l2()[slot].n[0] == 2,
+          "L2 n[0] = %u, want 2", (unsigned)haus_history_l2()[slot].n[0]);
+
+    const uint32_t back = t + 60u;  /* 00:03, clock stepped backwards */
+    st = fresh_state(back);
+    st.can.last_update_epoch = back + 100u;
+    st.climate.last_update_epoch = back + 100u;
+    CHECK(haus_history_sample(&st, back), "clock-back sample rejected");
+    const gui_sample_t &b = l1[(back % 86400u) / 60u];
+    CHECK((b.flags & SAMPLE_FLAG_STALE) == 0,
+          "future timestamp marked stale");
+}
+
 /* ─── D: SPIFFS ring order ────────────────────────────────────────────────── */
 
 static void test_ring_order(uint32_t start, uint32_t next) {
@@ -169,7 +201,7 @@ static void test_ring_order(uint32_t start, uint32_t next) {
 /* ─── E: ring wrap ────────────────────────────────────────────────────────── */
 
 static void test_ring_wrap(uint32_t start) {
-    SECTION("E1  the 8 760-hour index overwrites the oldest slot");
+    SECTION("D2  the 8 760-hour index overwrites the oldest slot");
 
     CHECK(haus_history_init(), "history init failed");
     const uint32_t base_hour = start / 3600u;
@@ -201,20 +233,122 @@ static void test_ring_wrap(uint32_t start) {
     }
 }
 
+/* ─── E: time edges ───────────────────────────────────────────────────────── */
+
+static uint32_t local_midnight(int year, int mon, int mday) {
+    struct tm tm;
+    memset(&tm, 0, sizeof(tm));
+    tm.tm_year = year - 1900;
+    tm.tm_mon = mon - 1;
+    tm.tm_mday = mday;
+    tm.tm_isdst = -1;
+    return (uint32_t)mktime(&tm);
+}
+
+static void test_time_edges(void) {
+    SECTION("E1  local midnight through leap day and DST");
+
+    CHECK(haus_history_init(), "history init failed");
+    const uint32_t leap0 = local_midnight(2024, 2, 29);
+    const uint32_t leap1 = local_midnight(2024, 3, 1);
+    HausState st = fresh_state(leap0);
+    CHECK(haus_history_sample(&st, leap0), "leap-day sample rejected");
+    st = fresh_state(leap1);
+    CHECK(haus_history_sample(&st, leap1), "next-day sample rejected");
+    CHECK(strcmp(haus_history_last_day_path(), "/data_20240229.bin") == 0,
+          "leap-day path = '%s'", haus_history_last_day_path());
+
+    CHECK(haus_history_init(), "history init failed");
+    const uint32_t spring0 = local_midnight(2024, 3, 31);
+    const uint32_t spring1 = local_midnight(2024, 4, 1);
+    CHECK((uint32_t)(spring1 - spring0) == 23u * 3600u,
+          "spring day = %u s, want 23 h", (unsigned)(spring1 - spring0));
+    st = fresh_state(spring0);
+    CHECK(haus_history_sample(&st, spring0), "spring sample rejected");
+    st = fresh_state(spring1);
+    CHECK(haus_history_sample(&st, spring1), "post-spring sample rejected");
+    CHECK(strcmp(haus_history_last_day_path(), "/data_20240331.bin") == 0,
+          "spring path = '%s'", haus_history_last_day_path());
+
+    CHECK(haus_history_init(), "history init failed");
+    const uint32_t autumn0 = local_midnight(2024, 10, 27);
+    const uint32_t autumn1 = local_midnight(2024, 10, 28);
+    CHECK((uint32_t)(autumn1 - autumn0) == 25u * 3600u,
+          "autumn day = %u s, want 25 h", (unsigned)(autumn1 - autumn0));
+    st = fresh_state(autumn0);
+    CHECK(haus_history_sample(&st, autumn0), "autumn sample rejected");
+    st = fresh_state(autumn1);
+    CHECK(haus_history_sample(&st, autumn1), "post-autumn sample rejected");
+    CHECK(strcmp(haus_history_last_day_path(), "/data_20241027.bin") == 0,
+          "autumn path = '%s'", haus_history_last_day_path());
+}
+
+/* ─── F: L2 ring wrap ─────────────────────────────────────────────────────── */
+
+static void test_l2_wrap(uint32_t start) {
+    SECTION("F1  the 744-column L2 ring overwrites its oldest hour");
+
+    CHECK(haus_history_init(), "history init failed");
+    for (uint32_t h = 0; h <= (uint32_t)HAUS_L2_COLUMNS; h++) {
+        const uint32_t t = start + h * 3600u;
+        HausState st = fresh_state(t);
+        CHECK(haus_history_sample(&st, t), "hour %u rejected", (unsigned)h);
+    }
+
+    const uint32_t slot = (start / 3600u) % (uint32_t)HAUS_L2_COLUMNS;
+    const uint32_t newest_t = (start / 60u) + (uint32_t)HAUS_L2_COLUMNS * 60u;
+    const RollupColumn &c = haus_history_l2()[slot];
+    CHECK(c.t == newest_t, "L2 slot t = %u, want %u", (unsigned)c.t,
+          (unsigned)newest_t);
+    CHECK(c.n[0] == 1, "L2 slot n[0] = %u, want 1", (unsigned)c.n[0]);
+}
+
+/* ─── G: write failure ────────────────────────────────────────────────────── */
+
+static void test_write_failure(void) {
+    SECTION("G1  failed SD writes do not stop the rollover");
+
+    CHECK(haus_history_init(), "history init failed");
+    haus_history_test_fail_writes(true);
+
+    const uint32_t d0 = local_midnight(2024, 10, 14);
+    const uint32_t d1 = local_midnight(2024, 10, 15);
+    HausState st = fresh_state(d0);
+    CHECK(haus_history_sample(&st, d0), "first sample rejected");
+    st = fresh_state(d1);
+    CHECK(haus_history_sample(&st, d1), "rollover sample rejected");
+
+    CHECK(haus_history_sd_write_count() == 0,
+          "write count = %u, want 0", (unsigned)haus_history_sd_write_count());
+    CHECK(haus_history_l1_count() == 1,
+          "L1 count = %u, want 1", (unsigned)haus_history_l1_count());
+    CHECK(strcmp(haus_history_last_day_path(), "/data_20241014.bin") == 0,
+          "failed-write path = '%s'", haus_history_last_day_path());
+
+    haus_history_test_fail_writes(false);
+}
+
 int main(void) {
     CHECK(sizeof(gui_sample_t) == 24u, "gui_sample_t = %u",
           (unsigned)sizeof(gui_sample_t));
     CHECK(sizeof(RollupColumn) == 88u, "RollupColumn = %u",
           (unsigned)sizeof(RollupColumn));
 
+    (void)setenv("TZ", "CET-1CEST,M3.5.0/2,M10.5.0/3", 1);
+    tzset();
+
     CHECK(haus_history_init(), "history init failed");
-    const uint32_t start = 1728864000u; /* 2024-10-14 00:00 UTC */
+    const uint32_t start = local_midnight(2024, 10, 14);
 
     test_day(start);
     const uint32_t next = test_rollover(start);
     test_stale(next);
+    test_stale_recovery(next);
     test_ring_order(start, next);
     test_ring_wrap(start);
+    test_time_edges();
+    test_l2_wrap(start);
+    test_write_failure();
 
     if (g_failures != 0u) {
         printf("%u/%u checks FAILED\n", (unsigned)g_failures,

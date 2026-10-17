@@ -47,6 +47,19 @@ bool haus_history_ring_append(const RollupColumn *col);
  * number written. Uses the wall clock; returns 0 before the clock is valid. */
 size_t haus_history_ring_load(RollupColumn *out, size_t max_columns);
 
+/* Record one minute from the merged state. Idempotent within a minute. */
+bool haus_history_sample(const HausState *state, uint32_t epoch_seconds);
+
+/* Number of valid minute entries currently in L1 (0…1440). */
+size_t haus_history_l1_count(void);
+
+/* Append the current hour's column to the ring immediately (used when a day
+ * or hour boundary arrives without a minute-59 sample). */
+void haus_history_flush_hour(uint32_t epoch_seconds);
+
+/* Start the device recorder task. No-op on the host build. */
+void haus_history_start_recorder(void);
+
 #ifdef __cplusplus
 }
 #endif

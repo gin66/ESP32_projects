@@ -91,6 +91,8 @@ void setup() {
      * but the panel still boots. */
     if (!haus_history_init()) {
         TPL_LOGW("history", "history store unavailable");
+    } else {
+        haus_history_start_recorder();
     }
 
     /* S4.02: reset the ST7262 through the CH422G before bring-up */

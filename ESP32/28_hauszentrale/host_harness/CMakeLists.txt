@@ -54,5 +54,9 @@ endif()
 # Ensure lv_conf.h is findable
 target_include_directories(hauszentrale_host PRIVATE ${CMAKE_SOURCE_DIR})
 
-# Include parent directory for haus_gui.h and haus_can.h
-target_include_directories(hauszentrale_host PRIVATE ${CMAKE_SOURCE_DIR}/../../../include)
+# Project-local headers (haus_gui.h, haus_history.h, …) and shared headers
+# (haus_can.h, haus_nrf.h) live in different include roots.
+target_include_directories(hauszentrale_host PRIVATE
+    ${CMAKE_SOURCE_DIR}/../include
+    ${CMAKE_SOURCE_DIR}/../../../include
+)

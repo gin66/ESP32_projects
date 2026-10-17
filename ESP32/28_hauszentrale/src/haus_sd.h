@@ -1,0 +1,35 @@
+/**
+ * @file haus_sd.h
+ * @brief Project-specific SD-card mount for the Waveshare ESP32-S3 board.
+ *
+ * The SD card's chip-select is CH422G IO4, not a GPIO. The recorder owns this
+ * handle; it does not use tpl_sd (whose CS is a real GPIO).
+ */
+
+#ifndef HAUS_SD_H
+#define HAUS_SD_H
+
+#include <stdbool.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Mount the card, if not already mounted. Returns true on success. */
+bool haus_sd_mount(void);
+
+/* Unmount and release the expander CS. */
+void haus_sd_unmount(void);
+
+/* Mounted and readable? */
+bool haus_sd_is_mounted(void);
+
+/* Write, read back and delete /sd_test.txt. Returns true when the round-trip
+ * matches. Call after haus_sd_mount(). */
+bool haus_sd_selftest(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* HAUS_SD_H */

@@ -10,6 +10,8 @@
 
 #include "haus_gui.h"
 #include "haus_can.h"
+#include "haus_rollup.h"
+#include "haus_sd.h"
 #include "haus_triple_buffer.h"
 
 #include <Arduino.h>
@@ -210,7 +212,10 @@ void gui_update_state(void) {
     can.duty_status = (can.pwm_src == PWM_SRC_CAN)
                                   ? GUI_STATUS_OK
                                   : GUI_STATUS_INACTIVE;
-    can.sd_status = GUI_STATUS_INACTIVE;
+    /* SD is green when present and readable, grey when absent. Red is reserved
+     * for an in-progress write (SD status semantics, §8.15.1). */
+    can.sd_status = haus_sd_is_mounted() ? GUI_STATUS_OK
+                                         : GUI_STATUS_INACTIVE;
     can.sd_low_space = false;
 
     /* WiFi is optional after boot: the symbol is green only while associated

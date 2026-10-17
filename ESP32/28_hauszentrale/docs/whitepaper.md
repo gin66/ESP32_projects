@@ -1,6 +1,7 @@
 # White Paper: 28_hauszentrale — House Central on the Waveshare ESP32-S3-Touch-LCD-7
 
 **Status:** COMPLETE — all sections written. Open questions in §12 remain to be answered before phase 1.
+**Revision:** 1.8 — adds **double bookkeeping** for history: the hourly rollup is written to an independent 12-month SPIFFS ring as well as the SD store, so an SD-card failure cannot erase week/month history. Also records the project-specific SD bring-up through the CH422G CS and SPI3 (§7.10, §8.15.4, §9.7).
 **Revision:** 1.7 — redefines the home SD dot as a removal indicator: **green = present, readable, safe to remove; red = write in progress; grey = absent**. Faulty storage remains an evidence-based, sticky state but moves to the storage panel and log bar rather than a dot colour (§8.15.1, D44, R28).
 **Revision:** 1.6 — adds the battery, charging and indicator-LED subsystem from the schematic (§3.7: CS8501 charger, `CHRG`/`STDBY` open-drain status pins wired only to their LEDs, no enable pin, VBAT uninstrumented, R31 as the one-resistor fix), R31, Q25, D52, and the reconciliation of §2.2 and §8.1
 **Revision:** 1.6 — resolves Q24: the BMP380+AHT20 combo is not usable on this board. The BMP380 at `0x77` returns chip_id=0x00 (unpowered or SDA/SCL not wired). The AHT20 at `0x38` hard-collides with CH422G WR-IO. No local climate sensors can be fitted. The living-room zone (Detail 5) renders `—` permanently. S18 in the todo list is marked ABANDONED.
@@ -1705,6 +1706,7 @@ ever scans a sample file.
 | **L0** samples | 1 min | SD, one file per day | 34 560 B/day | nothing directly — the durable record |
 | **L1** day buffer | 1 min | PSRAM, today only | 34 560 B | **1 day**, at full resolution |
 | **L2** rollup | 1 hour, 31 days | PSRAM, loaded at boot | 65 472 B | **1 week** and **1 month** |
+| **L2-SPIFFS** hourly mirror | 1 hour, 12 months | SPIFFS, rotating ring | 770 880 B | an independent copy of **1 week** and **1 month**, surviving SD failure |
 
 **L2 column layout** — one column per hour, 744 of them:
 
@@ -1726,6 +1728,17 @@ at all. The struct is written and read as a flat block with no per-field
 endianness concerns beyond the usual little-endian assumption both the ESP32 and
 the host harness share (N5).
 
+**Double bookkeeping, not a fallback.** The hourly rollup is written to two
+independent stores: the SD card's `/rollup.bin` at the daily rollover, and a
+rotating **SPIFFS ring** as each hour closes. SPIFFS is *not* written only when
+the card fails; both stores are primary and are written unconditionally. At 88 B
+per column a 12-month ring is 770 880 B (~753 KB), which fits comfortably in the
+3.72 MB SPIFFS partition beside the background PNG and configuration. The ring
+advances once an hour, so it costs 24 flash writes a day rather than 1 440. If the
+card is absent or fails, the week and month views still have history; if SPIFFS
+fills, the oldest hour is overwritten. The SD card is therefore never the sole
+custodian of the history the panel displays.
+
 **Why the week and month views do not touch the SD card.** A month is 43 200
 samples = 1 012 KB (§9.2). Streaming and downsampling that on every range switch
 is the 500 ms figure §9.5 used to carry, and it would run on the recorder task
@@ -1742,27 +1755,32 @@ resolution.
 **Boot sequence.**
 
 ```
-1. mount SD, open /rollup.bin          (65 472 B, ~35 ms)
-2. read the newest /data_YYYYMMDD.bin   (34 560 B, ~20 ms)
-3. re-apply those samples to L2          -> catches up the columns the rollup predates
+1. mount SD (if present), open /rollup.bin   (65 472 B, ~35 ms)
+   — if the card is absent or the rollup is unreadable, load the SPIFFS ring
+2. read the newest /data_YYYYMMDD.bin         (34 560 B, ~20 ms, SD only)
+3. re-apply those samples to L2                -> catches up SD columns
 4. replay them into a fresh L1 for today
 5. ui_init() and first frame
 ```
 
 Steps 1–4 total ~100 KB and complete **before the first frame is drawn**, so no
 chart is ever seen half-populated and there is no spinner on the home screen. If
-the card is absent, steps 1–4 are skipped, L1 starts empty and the charts say
-"no data" — never an empty axis that reads as "nothing happened" (§9.5).
+the card is absent, step 2 is skipped, L1 starts empty, and the week/month views
+come from the SPIFFS ring while the 1-day view honestly says "no data" — never an
+empty axis that reads as "nothing happened" (§9.5).
 
 **Daily rollover**, at local midnight on the recorder task:
 
-1. finalise the last hour column of L2; append it
+1. finalise the last hour column of L2; append it to the SPIFFS ring (hourly,
+   independent of the card)
 2. write `/data_YYYYMMDD.bin` — the whole day's 1 440 samples, one write
 3. rewrite `/rollup.bin` with the current 744 columns, one write
 4. clear L1 and start a new day
 
-Two writes a day, 34 560 + 65 472 = 100 032 B. A card that is only ever written twice a day will
-outlast the panel it is in.
+The SD card therefore sees two writes a day, 34 560 + 65 472 = 100 032 B. A card
+that is only ever written twice a day will outlast the panel it is in. The SPIFFS
+ring sees one small append an hour, and it keeps the week/month record alive even
+if the card is already damaged.
 
 **The trade this makes, stated plainly.** Between rollovers, the day's history
 exists only in PSRAM. A power cut loses up to 24 hours of minute data — which §9.3
@@ -2713,16 +2731,17 @@ updating is worse than one that says so.
 account for. `tpl_sd` drives a real chip-select **GPIO** — `pinMode(TPL_SD_CS,
 OUTPUT)` and `SD.begin(TPL_SD_CS, sdSPI, …)` (`tpl_sd.cpp:29-30`, `:39-41`) —
 but on this board CS is a CH422G bit with no GPIO behind it (§3.4, §6.5).
-So `/sd/list`, `/sd/read` and `/sd/download` are all dead here, and §6.7's claim
-that "`tpl_sd` stays as the *browser*" does not hold. The storage figures above are
-therefore read from **the recorder's own SD handle**, not from `tpl_sd` — which is
-the right call anyway, since the recorder owns the card (§6.7).
 
-What remains open is the **browser**: either move `/sd/list` and `/sd/download` into
-the recorder service, or revisit the `tpl_sd` CS hook that §6.7 rejected as
-"an untyped function pointer for a two-call sequence". The second option now looks
-less bad than it did, because `tpl_ws7_sd_select()` is a properly typed named
-accessor rather than a bare function pointer. **Q20.**
+The recorder therefore owns a **project-specific SD bring-up**:
+`tpl_ws7_sd_cs_enable_oc_pp()` configures CH422G IO4 as push-pull,
+`tpl_ws7_sd_select()` asserts the active-low CS, and `tpl_ws7_sd_bus()` returns
+SPI3 on MOSI 11, SCLK 12, MISO 13. The card is mounted through that handle, and
+`/sd/list`, `/sd/read` and `/sd/download` move into the recorder service rather
+than relying on `tpl_sd`. The storage figures above come from the same handle.
+
+This bring-up is a prerequisite for §7.10 and is tracked as **S11.00**.
+**Q20** — whether to add a reusable CS hook to `tpl_sd` — remains open but no
+longer blocks the recorder.
 
 ## 9. History Charts
 
@@ -2894,10 +2913,14 @@ history views lose trust.
   only in PSRAM. A power cut loses it, and §9.3 renders the loss as gaps rather
   than interpolating across them. This is the deliberate side of the write-endurance
   trade (§7.10, Q16, R23).
-- **Retention: 24 months**, configurable in SPIFFS config, at 1 036 800 B/month ≈ 25 MB.
+- **Double bookkeeping:** as each hour closes, the same rollup column is appended
+  to the **SPIFFS ring** independently of the card. A 12-month ring is ~753 KB and
+  rotates oldest-first. If the card fails or is removed, the week and month views
+  keep working; only the current day's minute detail is lost.
+- **Retention: 24 months on SD**, configurable in SPIFFS config, at 1 036 800 B/month ≈ 25 MB.
   On startup and daily, the oldest files beyond the limit are deleted. Deleting is
   never more than one file per pass, so a card with 30 stale months does not stall
-  the recorder.
+  the recorder. The SPIFFS ring retains 12 months independently.
 - **Free-space guard:** if free space drops below 50 MB, retention is forced to
   3 months and the home screen's SD dot turns amber. Losing a month of history is
   acceptable; filling the card and losing *everything* is not. The floor was set
@@ -3182,14 +3205,15 @@ short-lived and none is on a per-frame path.
 SD write, and phase 12's soak test fails if either drops by more than 8 KB over
 72 hours. A leak on a wall panel is invisible until it is not.
 
-#### 10.5.4 SD card
+#### 10.5.4 SD card and SPIFFS
 
 | Tier | Path | Write pattern | Size |
 | ---- | ---- | ------------- | ---- |
-| Daily samples | `/data_YYYYMMDD.bin` | **once per day**, whole file | 34 560 B |
-| Rollup (L2) | `/rollup.bin` | once per day, whole file, rewritten | 65 472 B |
-| Log dumps | `/log_*.txt` | on demand + before every reset (§7.6) | up to 1 MB |
-| Assets | — | never (they are in SPIFFS, §4.4/Q4) | — |
+| Daily samples | `/data_YYYYMMDD.bin` (SD) | **once per day**, whole file | 34 560 B |
+| Rollup (L2) | `/rollup.bin` (SD) | once per day, whole file, rewritten | 65 472 B |
+| Hourly mirror | `/rollup_ring.bin` (SPIFFS) | one column as each hour closes | 770 880 B for 12 months |
+| Log dumps | `/log_*.txt` (SD) | on demand + before every reset (§7.6) | up to 1 MB |
+| Assets | `/bg.png`, `/ui.json`, config (SPIFFS) | never or rarely | ~120 KB+ |
 
 **1 036 800 B per 30-day month** of daily files (30 × 34 560), plus one 65 472 B
 rollup. At 24 months that is ≈ 25 MB, and the 50 MB free-space floor (§9.7) is
@@ -3200,6 +3224,13 @@ writes/day; writing the day once is **one**. That is the entire reason for the
 tiered store (§7.10) — SD cards fail from write endurance long before they fill,
 and a card in a wall panel that nobody will ever think to replace should not be
 written 525 000 times a year to store data that does not change within the day.
+
+The **SPIFFS hourly ring** is the second, independent bookkeeping store. The
+partition is 0x3B0000 (3 899 392 B, 3.72 MB); 12 months of 88 B columns is
+770 880 B, leaving ample room for the background PNG and configuration. Its write
+rate is one column an hour, not one a minute. The ring is not a fallback that is
+only written when the card fails: it is always written, so the card is never the
+sole custodian of the week/month history.
 
 ## 11. Risks and Mitigations
 
@@ -3233,7 +3264,7 @@ written 525 000 times a year to store data that does not change within the day.
 | R24 | **A modelled water-out temperature is read as a measurement** — by a person, or by a later contributor who wires it into a statistic | **High** | Medium | Structural, not editorial: a dedicated `TEMP_MODELLED` flag bit in the record, a dashed chart line, a permanent `MODELLED` badge, `~` prefixes on every derived value, and exclusion from all efficiency statistics (§7.11). A modelled value cannot silently become a measured one even if someone forgets which is which |
 | R25 | **The 4 mm floor makes the panel less informative** — 26 log lines instead of 44, 38 characters instead of 50, 13 CAN rows instead of 16 | Low | **Certain** | Accepted (§8.1.1). The requirement is readability without glasses, and density was never the goal. Mitigated where it is cheap: soft wrapping rather than clipping, and the visible dropped-line counter so the loss of text is diagnosable rather than mysterious |
 | R26 | **The SML decoder drifts.** It is lifted from project 15; if the two copies diverge, the panel and the e-ink display disagree about the household's power | Medium | Medium | Lift into `src/app/` as pure C++ (N5) and have **project 15 adopt the shared version**, so there is one implementation and project 15's build is the regression test — the same pattern as the `tpl_can_monitor` extraction (§7.3) |
-| R28 | **A card mounts, then fails**, and history stops while the strip dot is green because green now means "idle and removable", not "healthy" | Medium | Low | A sticky *faulty* state driven by evidence — failed rollover write, CRC mismatch, free space under the floor — not by absence of activity (§8.15.1). It is reported in Settings → Storage and the log status bar, not inferred from the dot. The recorder already retries every 30 s (§9.7); a fault is what that retry loop reports. The free-space warning still appears on the home strip when the floor is close |
+| R28 | **A card mounts, then fails**, and history stops while the strip dot is green because green now means "idle and removable", not "healthy" | Medium | Low | A sticky *faulty* state driven by evidence — failed rollover write, CRC mismatch, free space under the floor — not by absence of activity (§8.15.1). It is reported in Settings → Storage and the log status bar, not inferred from the dot. The recorder retries every 30 s (§9.7). Week/month history survives the failure because the hourly rollup is independently written to the SPIFFS ring (§7.10); only minute detail for the current day is at risk. The free-space warning still appears on the home strip when the floor is close |
 | R29 | **`tpl_sd` cannot mount on this board**, so `/sd/list` and `/sd/download` are dead and §6.7's "tpl_sd stays as the browser" is wrong | Low | **Certain** | Already true as built: `tpl_sd` drives a real CS GPIO and this board's CS is a CH422G bit. Storage figures are read from the recorder's own handle instead. The *browser* is the open half — **Q20** |
 | R27 | **Enabling CAN in config strands the device**, if Q22 finds that `USB_SEL` high disconnects the CH9102 | **High** | Unknown until Q22 | N19 drives `USB_SEL` low first. A crash after step 3 of §7.12 leaves it high. The strap on GPIO 4 (Q17) is the fix no firmware bug can override, and it shares that pin with Q19. BOOT + the CH9102 already worked with the mechanical switch set correctly (§3.1.1, §7.12 option C). The expander's `0xFF` reset value is not this risk |
 | R30 | **An AHT20 on H1 shares address `0x38` with CH422G WR-IO** | **High** | **Certain** if fitted as rev 1.4 specified | Do not fit it on this bus (§7.8). **BMP380 at `0x77` returns chip_id=0x00 (unpowered/not wired).** No local climate sensors are usable. Q24 resolved: the living-room zone stays `—` permanently. |
@@ -3386,7 +3417,7 @@ debugging a UI bug and an actuator bug in the same session.
 | D30 | Show `PWM_SRC_*` provenance as a first-class UI element | Showing only the duty value | A restored-from-EEPROM duty and a live commanded one are the same number and completely different situations; `haus_can.h:242` builds the distinction into the protocol, so hiding it wastes the only signal that has it (F20) |
 | D31 | Theme, strings, units and static-screen order live in `/ui.json`; logic stays hardcoded | Fully declarative screens; fully hardcoded screens | §4.4. The heater graphic, the envelope chart and the log window are not declarable, so a layout DSL that could express this UI would be a reimplementation of LVGL's draw pipeline — and one that could not would not be describing this application |
 | D32 | A bad or absent `/ui.json` falls back to the compiled-in UI | Letting a layout file fail the boot | With CAN enabled there is no USB console, so a panel that will not boot on a bad file can only be recovered by pushing a new SPIFFS image over OTA. Same posture as the background PNG (§4.4.3, §8.3) |
-| D33 | **Three-tier history store**: minute samples on SD by day, a 1 440-sample day buffer and a 744-column hourly rollup in PSRAM | Per-minute SD appends with on-query downsampling | Drops card writes from 1 440/day to 2, which is the difference between a card that lasts years and one that lasts months; makes week and month charts a ~1 ms rescale instead of a 500 ms card read, which in turn removes the async chart build, the LRU cache and the loading spinner entirely (§7.10, §9.5) |
+| D33 | **Three-tier history store with double bookkeeping**: minute samples on SD by day, a 1 440-sample day buffer and a 744-column hourly rollup in PSRAM, plus a 12-month hourly ring in SPIFFS | Per-minute SD appends with on-query downsampling; SPIFFS as a failure-only fallback | Drops card writes from 1 440/day to 2, which is the difference between a card that lasts years and one that lasts months; makes week and month charts a ~1 ms rescale instead of a 500 ms card read; and keeps an independent hourly record so a damaged card cannot erase the history the panel displays. At 88 B/hour the SPIFFS ring costs only ~753 KB/year and 24 writes/day (§7.10, §9.5) |
 | D34 | One **daily** file rather than one monthly | Monthly file, daily append | Makes the write atomic and the loss window exactly "since the last rollover" rather than "since the start of the month". Costs one file per month instead of one; that is 12 files a year |
 | D35 | L2 is **hourly**, and the chart says so | Minute-resolution month view | 1 MB per query is the thing D33 removes; hourly columns give 720 points for a month, which is already finer than a 440 px chart can show, and the 1-day view — where minute detail matters — is served from L1 at full resolution |
 | D36 | Household power from **SML**, decoder lifted from project 15 | Writing a new SML parser; using `0x2C0` | Project 15 already decodes `1-0:16.7.0/255` with `libsml`, so the work is a lift rather than a build. The `0x2C0` amp chain was derived from hardware that has since changed, so it is not a measurement (§7.4, Q1) |

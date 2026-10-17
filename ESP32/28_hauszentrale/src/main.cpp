@@ -17,6 +17,7 @@
 
 #include "template.h"
 #include "haus_gui.h"
+#include "haus_sd.h"
 #include "haus_ui.h"
 #include <esp_heap_caps.h>
 #include <esp_flash.h>
@@ -74,6 +75,16 @@ void setup() {
     /* CH422G expander + keep backlight off until the panel is up */
     tpl_ws7_expander_init();
     tpl_ws7_backlight(false);
+
+    /* S11.00: SD bring-up through CH422G IO4 + SPI3 pins. Failure is logged
+     * but never blocks the panel. */
+    if (haus_sd_mount()) {
+        haus_sd_selftest();
+    } else {
+        /* Double bookkeeping: losing the card costs minute detail, not the
+         * hourly history, which is written independently to SPIFFS. */
+        TPL_LOGW("sd", "SD unavailable; minute history off, hourly SPIFFS bookkeeping continues");
+    }
 
     /* S4.02: reset the ST7262 through the CH422G before bring-up */
     tpl_ws7_panel_reset();

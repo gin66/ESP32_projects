@@ -13,6 +13,7 @@
 
 #include "haus_gui.h"
 #include "haus_can.h"
+#include "haus_rollup.h"
 #include "haus_triple_buffer.h"
 #include <cmath>
 #include <cstring>

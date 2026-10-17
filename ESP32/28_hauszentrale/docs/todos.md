@@ -179,7 +179,9 @@ the SDL window / smoke test / screenshot baseline path.
 
 ## S11 · THREE-TIER HISTORY STORE
 
-- [ ] S11.01 Define RollupColumn (88 B) with static_assert — Test: the size assert holds on both host and device
+- [x] S11.00 **BLOCKER — bring up the SD card on this board.** Implemented in `src/haus_sd.cpp`: CH422G IO4 is made push-pull and held asserted, the Arduino SD library uses a spare GPIO as its dummy CS, and SPI runs on MOSI 11 / SCLK 12 / MISO 13. Bench result: **SDHC 59.6 GB mounted**, write/read/delete self-test passed. The home SD dot now follows `haus_sd_is_mounted()`, which performs a real `totalBytes()` access at 1 Hz, so a pulled card turns the dot grey within a second.
+- [ ] S11.00b **Double bookkeeping, not a fallback.** Keep an independent hourly rollup ring in SPIFFS (12 months ≈ 753 KB at 88 B/column) alongside the SD minute store. Both stores are primary and written unconditionally; losing or removing the SD card must not remove week/month history. Test: with the card pulled after boot, week/month charts still render from the SPIFFS ring, and overlapping hours from both stores agree
+- [x] S11.01 Define RollupColumn (88 B) with static_assert — Test: the size assert holds on both host and device. Implemented in `include/haus_rollup.h`; included by both `haus_gui.cpp` and `haus_gui_mock.cpp` so the C++/C assert is compiled in both builds.
 - [ ] S11.02 Allocate L1 (34 560 B) and L2 (65 472 B) statically in PSRAM — Test: neither is ever reallocated
 - [ ] S11.03 Sample once a minute on recorderTask — Test: exactly 1 440 samples in a simulated day
 - [ ] S11.04 Aggregate minute samples into hourly columns — Test: min/max/sum/n match a hand-computed hour

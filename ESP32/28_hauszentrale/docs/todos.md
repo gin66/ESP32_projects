@@ -4,7 +4,7 @@ Derived from `docs/whitepaper.md` rev 1.6. Order: board first, then the macOS
 environment, then Deliverable A (`tpl_waveshare_lcd7`), then the project.
 Every item names the check that closes it.
 
-285 items. Tick boxes as work lands.
+278 items. Tick boxes as work lands.
 
 ## S0 · BENCH — the two things only the hardware can answer
 
@@ -150,7 +150,7 @@ baselines (S8.13).
 - [ ] S10.02 Build the FONT_CLOCK label with HH:MM only — Test: no seconds are drawn
 - [ ] S10.03 Gate the clock on the NTP flag — Test: before sync it shows --:--, never 1970 (R13)
 - [ ] S10.04 Load bg.png from SPIFFS and decode once into static PSRAM — Test: 768 000 bytes allocated, decoded once
-- [ ] S10.05 Fall back to a flat dark background when SPIFFS is empty — Test: removing ui.json/bg.png still boots, no black rectangle
+- [ ] S10.05 Fall back to a flat dark background when SPIFFS is empty — Test: removing bg.png still boots, no black rectangle
 - [ ] S10.06 Put the background on lv_layer_bottom() — Test: redrawing the flame does not re-decode or repaint the image
 - [ ] S10.07 Draw the heater cabinet outline on an lv_canvas — Test: rounded rect with the specified stroke renders
 - [ ] S10.08 Draw the firebox with warmth lerped from chamber temperature — Test: the colour tracks a replayed temperature
@@ -319,19 +319,9 @@ baselines (S8.13).
 - [ ] S21.04 Resize CAN monitor rows from 20 to 21 px and row height 50 — Test: the sweep passes and about 13 rows fit
 - [ ] S21.05 Keep font bitmaps flash-resident, not internal RAM (N8) — Test: internal RAM use does not grow with fonts
 
-## S22 · /ui.json (theme, strings, units)
-
-- [ ] S22.01 Define the version-1 schema and a compiled-in default — Test: the default matches the built-in theme exactly
-- [ ] S22.02 Parse /ui.json with ArduinoJson at boot and free it — Test: heap returns to baseline within 9 KB
-- [ ] S22.03 Apply strings — Test: a renamed zone takes effect with no rebuild
-- [ ] S22.04 Apply the style block — Test: changing accent_heat changes the flame colour
-- [ ] S22.05 Apply units — Test: hPa/C toggles correctly
-- [ ] S22.06 Fall back to compiled-in defaults on missing/corrupt/future version — Test: a garbage ui.json still boots the hardcoded UI (D32)
-- [ ] S22.07 Add an editing page in data/uiedit.html using /spiffs/read — Test: editing and saving works from a browser
-
 ## S23 · SETTINGS + STORAGE STATUS
 
-- [ ] S23.01 Build the Settings rows: CAN, backlight, units, retention, target, sensor roles, water model, UI file, diagnostics — Test: all nine rows render
+- [ ] S23.01 Build the Settings rows: CAN, backlight, power unit, retention, target, sensor roles, water model, diagnostics — Test: all eight rows render
 - [ ] S23.02 CAN switch shows the actual state read back from the shadow, not the requested one — Test: config says on while mux is low shows a fault
 - [ ] S23.03 CAN toggles persist immediately and are logged — Test: it survives a reboot
 - [ ] S23.04 Both CAN toggle modals name the consequence — Test: the text matches §8.14

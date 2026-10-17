@@ -369,17 +369,32 @@ nav.pane svg { display: block; }
   <div class="bg"></div>
   <header class="hdr">
     <button class="back" aria-label="Back"><svg width="28" height="28" viewBox="0 0 28 28"><path d="M17 5 L8 14 L17 23" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-    <h1>WATER OUT</h1>
+    <h1>WATER</h1>
   </header>
-  <div class="big empty">—</div>
-  <div class="seg range"><b>1 day</b><span>1 week</span><span>1 month</span></div>
-  <svg class="chart" viewBox="0 0 440 260">
+  <div class="seg range" style="top:56px"><b>1 day</b><span>1 week</span><span>1 month</span></div>
+  <div class="extra" style="top:112px"><span style="color:#8aa4b8">&#9472; water in</span> &nbsp;
+    <span style="color:#d4553a">&#9472;&#9472; water out</span> &nbsp;
+    <span style="color:#9a9086">&#183;&#183; Soll 60 &#176;C</span></div>
+  <svg class="chart" viewBox="0 0 440 260" style="top:140px">
+    <line x1="64" y1="88" x2="420" y2="88" stroke="#9a9086" stroke-dasharray="5 6"/>
+    <text x="8" y="96" fill="#9a9086" font-size="21">60</text>
+    <text x="8" y="152" fill="#9a9086" font-size="21">50</text>
+    <text x="8" y="208" fill="#9a9086" font-size="21">40</text>
+    <line x1="64" y1="32" x2="64" y2="200" stroke="#3a342e"/>
     <line x1="64" y1="200" x2="420" y2="200" stroke="#3a342e"/>
-    <text x="200" y="130" text-anchor="middle" fill="#6a625c" font-size="52">—</text>
+    <polyline fill="none" stroke="#8aa4b8" stroke-width="3"
+      points="70,152 110,150 150,148 190,146 230,149 270,147 310,145 350,148 390,146 420,147"/>
+    <polyline fill="none" stroke="#d4553a" stroke-width="3" stroke-dasharray="7 6"
+      points="70,76 110,74 150,78 190,72 230,70 270,75 310,71 350,73 390,70 420,74"/>
+    <text x="64" y="232" fill="#9a9086" font-size="21">00</text>
+    <text x="140" y="232" fill="#9a9086" font-size="21">06</text>
+    <text x="220" y="232" fill="#9a9086" font-size="21">12</text>
+    <text x="300" y="232" fill="#9a9086" font-size="21">18</text>
+    <text x="384" y="232" fill="#9a9086" font-size="21">24</text>
   </svg>
-  <p class="reason">No return sensor on the bus. Rank 2 is the transmitter board, not water. The model is not installed.</p>
-  <div class="rise">rise —</div>
-  <div class="nav-slot" data-tab="wout"></div>
+  <div class="stats" style="top:412px"><span>in <b>48.6</b></span><span>out <b>~62.1</b></span><span>rise <b>~13.5</b></span><span>soll <b>60</b></span></div>
+  <div class="age" style="top:438px">water out modelled &#183; no return sensor on the bus</div>
+  <div class="nav-slot" data-tab="water"></div>
 </section>
 
 <section id="living" class="screen">
@@ -483,15 +498,12 @@ nav.pane svg { display: block; }
     <div class="row">BACKLIGHT <i class="sw on"><i></i></i></div>
     <div class="units">
       <div class="h">UNITS</div>
-      <div class="u-row">temperature <div class="mini"><b>C</b><span>F</span></div></div>
-      <div class="u-row">clock <div class="mini"><b>24 h</b><span>12 h</span></div></div>
       <div class="u-row">power <div class="mini"><span>auto</span><span>kW</span><b>W</b></div></div>
     </div>
     <div class="row">RETENTION <span class="v">24 months</span></div>
     <div class="row">HEATER TARGET <span class="v">60 °C</span></div>
     <div class="row">SENSOR ROLES <span class="v">3 bound, 1 unbound <span class="edit">edit</span></span></div>
     <div class="row">WATER MODEL <span class="v">not installed</span></div>
-    <div class="row">UI FILE <span class="v">/ui.json v1 <span class="edit">edit</span></span></div>
     <div class="row">DIAGNOSTICS <span class="v">SAVE RING TO SD</span></div>
   </div>
   <div class="nav-slot" data-tab="gear"></div>
@@ -569,20 +581,18 @@ const svg = {
   home: '<svg width="32" height="32" viewBox="0 0 32 32"><path fill="currentColor" d="M16 4 L29 15 H25 V28 H19 V20 H13 V28 H7 V15 H3 Z"/></svg>',
   homeOff: '<svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><path d="M16 5 L28 15 H25 V27 H19 V19 H13 V27 H7 V15 H4 Z"/></svg>',
   flame: '<svg width="32" height="32" viewBox="0 0 24 24"><path fill="currentColor" d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>',
-  win: '<svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M16 5c5 7 8 11 8 16a8 8 0 0 1-16 0c0-5 3-9 8-16z"/></svg>',
-  wout: '<svg width="32" height="32" viewBox="0 0 32 32"><path fill="currentColor" d="M16 5c5 7 8 11 8 16a8 8 0 0 1-16 0c0-5 3-9 8-16z"/></svg>',
+  water: '<svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 10 q4 -4 8 0 t8 0 t8 0"/><path d="M2 16 q4 -4 8 0 t8 0 t8 0"/><path d="M2 22 q4 -4 8 0 t8 0 t8 0"/></svg>',
   pwr: '<svg width="32" height="32" viewBox="0 0 32 32"><path fill="currentColor" d="M18 3 L8 18 H15 L13 29 L25 13 H17 Z"/></svg>',
   room: '<svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="13" y="3" width="6" height="15" rx="3"/><circle cx="16" cy="24" r="5.5"/><path d="M16 8 V20"/></svg>',
   gear: '<svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><path d="M13 3 h6 l1 4.2 a8.5 8.5 0 0 1 3.3 1.9 l4-1.6 3 5.2 -3.2 2.8 a8.5 8.5 0 0 1 0 3.8 l3.2 2.8 -3 5.2 -4-1.6 a8.5 8.5 0 0 1 -3.3 1.9 L19 29 h-6 l-1-4.2 a8.5 8.5 0 0 1 -3.3-1.9 l-4 1.6 -3-5.2 3.2-2.8 a8.5 8.5 0 0 1 0-3.8 L2.7 12.7 l3-5.2 4 1.6 a8.5 8.5 0 0 1 3.3-1.9 Z"/><circle cx="16" cy="16" r="3.2"/></svg>',
   gearOn: '<svg width="32" height="32" viewBox="0 0 32 32" fill="currentColor"><path fill-rule="evenodd" d="M13 3 h6 l1 4.2 a8.5 8.5 0 0 1 3.3 1.9 l4-1.6 3 5.2 -3.2 2.8 a8.5 8.5 0 0 1 0 3.8 l3.2 2.8 -3 5.2 -4-1.6 a8.5 8.5 0 0 1 -3.3 1.9 L19 29 h-6 l-1-4.2 a8.5 8.5 0 0 1 -3.3-1.9 l-4 1.6 -3-5.2 3.2-2.8 a8.5 8.5 0 0 1 0-3.8 L2.7 12.7 l3-5.2 4 1.6 a8.5 8.5 0 0 1 3.3-1.9 Z M16 12.4 a3.6 3.6 0 1 0 0.01 0 Z"/></svg>'
 };
-const order = ['home','cham','win','wout','pwr','living','gear'];
+const order = ['home','cham','water','pwr','living','gear'];
 function icon(name, on) {
   const key = {
     home: on ? 'home' : 'homeOff',
     cham: 'flame',
-    win: 'win',
-    wout: 'wout',
+    water: 'water',
     pwr: 'pwr',
     living: 'room',
     gear: on ? 'gearOn' : 'gear'

@@ -44,6 +44,13 @@ target_compile_definitions(hauszentrale_host PRIVATE
 
 target_link_libraries(hauszentrale_host PRIVATE lvgl)
 
+# LVGL's own targets pull in both liblvgl.a and liblvgl_thorvg.a; the macOS
+# linker warns about the duplicates. Silence just that warning.
+if(APPLE)
+    target_link_options(hauszentrale_host PRIVATE
+        -Wl,-no_warn_duplicate_libraries)
+endif()
+
 # Ensure lv_conf.h is findable
 target_include_directories(hauszentrale_host PRIVATE ${CMAKE_SOURCE_DIR})
 

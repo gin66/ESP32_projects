@@ -11,7 +11,7 @@
  *   y=172..580 Heater cabinet (fire + pipes)
  *   y=580..656 Living-room band
  *   y=656..712 Power band
- *   y=712..800 Bottom navigation pane (7 tabs, smartphone-style)
+ *   y=712..800 Bottom navigation pane (6 tabs, smartphone-style)
  */
 
 #define _POSIX_C_SOURCE 200809L
@@ -30,7 +30,7 @@
 
 #define NAV_Y 712
 #define NAV_H 88
-#define NAV_TABS 7
+#define NAV_TABS 6
 
 /* ─── Palette (from docs/ui/mockup.html) ──────────────────────────────────── */
 
@@ -53,11 +53,10 @@
 static const char *nav_icons[NAV_TABS] = {
     LV_SYMBOL_HOME,     /* 0 home */
     LV_SYMBOL_CHARGE,   /* 1 chamber */
-    LV_SYMBOL_TINT,     /* 2 water in */
-    LV_SYMBOL_TINT,     /* 3 water out */
-    LV_SYMBOL_POWER,    /* 4 power */
-    LV_SYMBOL_BELL,     /* 5 living */
-    LV_SYMBOL_SETTINGS, /* 6 gear */
+    NULL,               /* 2 water: both in and out (drawn as waves) */
+    LV_SYMBOL_POWER,    /* 3 power */
+    LV_SYMBOL_EYE_OPEN, /* 4 living (monitoring/observation) */
+    LV_SYMBOL_SETTINGS, /* 5 gear */
 };
 
 /* Home-screen widgets (NULL when the home screen is not built). */
@@ -91,6 +90,32 @@ static void txt(lv_obj_t *label, const char *text) {
     if (label && text) lv_label_set_text(label, text);
 }
 
+/* LVGL 10 replaced the generic flag API with per-flag setters. The firmware
+ * still builds against LVGL 9.2, so keep both paths working. */
+#if LVGL_VERSION_MAJOR >= 10
+static void obj_set_clickable(lv_obj_t *o, bool en) {
+    lv_obj_set_clickable(o, en);
+}
+static void obj_set_scrollable(lv_obj_t *o, bool en) {
+    lv_obj_set_scrollable(o, en);
+}
+#else
+static void obj_set_clickable(lv_obj_t *o, bool en) {
+    if (en) {
+        lv_obj_add_flag(o, LV_OBJ_FLAG_CLICKABLE);
+    } else {
+        lv_obj_clear_flag(o, LV_OBJ_FLAG_CLICKABLE);
+    }
+}
+static void obj_set_scrollable(lv_obj_t *o, bool en) {
+    if (en) {
+        lv_obj_add_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+    } else {
+        lv_obj_clear_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+    }
+}
+#endif
+
 static lv_obj_t *label_make(lv_obj_t *parent, const char *text, int x, int y,
                             const lv_font_t *font, uint32_t color) {
     lv_obj_t *l = lv_label_create(parent);
@@ -109,7 +134,27 @@ static void hline(lv_obj_t *parent, int y, uint32_t color) {
     lv_obj_set_style_bg_color(o, lv_color_hex(color), 0);
     lv_obj_set_style_border_width(o, 0, 0);
     lv_obj_set_style_radius(o, 0, 0);
-    lv_obj_clear_flag(o, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    obj_set_clickable(o, false);
+    obj_set_scrollable(o, false);
+}
+
+/* Three stacked waves standing in for the water series (in and out). LVGL's
+ * built-in Montserrat subset has no wave glyph, so draw it. The points array is
+ * static because lv_line stores the pointer instead of copying it. */
+static void nav_waves(lv_obj_t *nav, int cx, int y, uint32_t color) {
+    static const lv_point_precise_t wave_pts[] = {
+        {0, 2}, {4, 0}, {8, 2}, {12, 0}, {16, 2},
+        {20, 0}, {24, 2}, {28, 0}, {32, 2},
+    };
+    for (int r = 0; r < 3; r++) {
+        lv_obj_t *w = lv_line_create(nav);
+        lv_line_set_points(w, wave_pts, 9);
+        lv_obj_set_pos(w, cx - 16, y + r * 7);
+        lv_obj_set_style_line_width(w, 2, 0);
+        lv_obj_set_style_line_color(w, lv_color_hex(color), 0);
+        lv_obj_set_style_line_rounded(w, true, 0);
+        obj_set_clickable(w, false);
+    }
 }
 
 static void nav_build(int active) {
@@ -120,19 +165,23 @@ static void nav_build(int active) {
     lv_obj_set_style_border_width(nav, 0, 0);
     lv_obj_set_style_radius(nav, 0, 0);
     lv_obj_set_style_pad_all(nav, 0, 0);
-    lv_obj_clear_flag(nav, LV_OBJ_FLAG_SCROLLABLE);
+    obj_set_scrollable(nav, false);
     hline(nav, 0, C_LINE);
 
     int tab_w = SCREEN_W / NAV_TABS;
     for (int i = 0; i < NAV_TABS; i++) {
-        lv_obj_t *icon = lv_label_create(nav);
-        lv_obj_set_style_text_font(icon, &lv_font_montserrat_24, 0);
-        lv_obj_set_style_text_color(
-            icon, lv_color_hex(i == active ? C_INK : C_DIM), 0);
-        lv_label_set_text(icon, nav_icons[i]);
-        lv_obj_set_width(icon, tab_w);
-        lv_obj_set_style_text_align(icon, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_pos(icon, i * tab_w, NAV_H / 2 - 14);
+        uint32_t color = i == active ? C_INK : C_DIM;
+        if (nav_icons[i] == NULL) {
+            nav_waves(nav, i * tab_w + tab_w / 2, NAV_H / 2 - 10, color);
+        } else {
+            lv_obj_t *icon = lv_label_create(nav);
+            lv_obj_set_style_text_font(icon, &lv_font_montserrat_24, 0);
+            lv_obj_set_style_text_color(icon, lv_color_hex(color), 0);
+            lv_label_set_text(icon, nav_icons[i]);
+            lv_obj_set_width(icon, tab_w);
+            lv_obj_set_style_text_align(icon, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_set_pos(icon, i * tab_w, NAV_H / 2 - 14);
+        }
 
         if (i == active) {
             lv_obj_t *rule = lv_obj_create(nav);
@@ -141,7 +190,7 @@ static void nav_build(int active) {
             lv_obj_set_style_bg_color(rule, lv_color_hex(C_ACCENT), 0);
             lv_obj_set_style_border_width(rule, 0, 0);
             lv_obj_set_style_radius(rule, 1, 0);
-            lv_obj_clear_flag(rule, LV_OBJ_FLAG_CLICKABLE);
+            obj_set_clickable(rule, false);
         }
     }
 }
@@ -216,7 +265,7 @@ static void build_heater(void) {
     lv_obj_set_style_bg_opa(glow, 24, 0);
     lv_obj_set_style_radius(glow, 22, 0);
     lv_obj_set_style_border_width(glow, 0, 0);
-    lv_obj_clear_flag(glow, LV_OBJ_FLAG_CLICKABLE);
+    obj_set_clickable(glow, false);
 
     /* Cabinet */
     s_cabinet = lv_obj_create(lv_screen_active());
@@ -227,7 +276,7 @@ static void build_heater(void) {
     lv_obj_set_style_border_width(s_cabinet, 2, 0);
     lv_obj_set_style_border_color(s_cabinet, lv_color_hex(0x6a5e54), 0);
     lv_obj_set_style_pad_all(s_cabinet, 0, 0);
-    lv_obj_clear_flag(s_cabinet, LV_OBJ_FLAG_SCROLLABLE);
+    obj_set_scrollable(s_cabinet, false);
 
     /* Fire chamber (warm gradient) */
     s_fire = lv_obj_create(s_cabinet);
@@ -239,7 +288,7 @@ static void build_heater(void) {
     lv_obj_set_style_radius(s_fire, 10, 0);
     lv_obj_set_style_border_width(s_fire, 0, 0);
     lv_obj_set_style_pad_all(s_fire, 0, 0);
-    lv_obj_clear_flag(s_fire, LV_OBJ_FLAG_SCROLLABLE);
+    obj_set_scrollable(s_fire, false);
 
     /* Flame: a soft glow plus three tongues and a bright core. */
     lv_obj_t *glow2 = lv_obj_create(s_fire);
@@ -249,7 +298,7 @@ static void build_heater(void) {
     lv_obj_set_style_radius(glow2, 42, 0);
     lv_obj_set_style_border_width(glow2, 0, 0);
     lv_obj_set_style_opa(glow2, 90, 0);
-    lv_obj_clear_flag(glow2, LV_OBJ_FLAG_CLICKABLE);
+    obj_set_clickable(glow2, false);
 
     const int fw[3] = {26, 40, 26};
     const int fh[3] = {54, 88, 54};
@@ -263,7 +312,7 @@ static void build_heater(void) {
         lv_obj_set_style_radius(s_flame[i], fw[i] / 2, 0);
         lv_obj_set_style_border_width(s_flame[i], 0, 0);
         lv_obj_set_style_opa(s_flame[i], 235, 0);
-        lv_obj_clear_flag(s_flame[i], LV_OBJ_FLAG_CLICKABLE);
+        obj_set_clickable(s_flame[i], false);
     }
     /* Bright core. */
     lv_obj_t *core = lv_obj_create(s_fire);
@@ -273,7 +322,7 @@ static void build_heater(void) {
     lv_obj_set_style_radius(core, 8, 0);
     lv_obj_set_style_border_width(core, 0, 0);
     lv_obj_set_style_opa(core, 240, 0);
-    lv_obj_clear_flag(core, LV_OBJ_FLAG_CLICKABLE);
+    obj_set_clickable(core, false);
 
     /* Soll / target (below the fire, inside the cabinet) */
     lv_obj_t *target = label_make(s_cabinet, "60°C", 0, 0,
@@ -291,14 +340,14 @@ static void build_heater(void) {
     lv_obj_set_style_bg_color(pipe_l, lv_color_hex(C_AMBER), 0);
     lv_obj_set_style_radius(pipe_l, 6, 0);
     lv_obj_set_style_border_width(pipe_l, 0, 0);
-    lv_obj_clear_flag(pipe_l, LV_OBJ_FLAG_CLICKABLE);
+    obj_set_clickable(pipe_l, false);
     lv_obj_t *pipe_lu = lv_obj_create(lv_screen_active());
     lv_obj_set_size(pipe_lu, 12, 62);
     lv_obj_set_pos(pipe_lu, 164, 410);
     lv_obj_set_style_bg_color(pipe_lu, lv_color_hex(C_AMBER), 0);
     lv_obj_set_style_radius(pipe_lu, 6, 0);
     lv_obj_set_style_border_width(pipe_lu, 0, 0);
-    lv_obj_clear_flag(pipe_lu, LV_OBJ_FLAG_CLICKABLE);
+    obj_set_clickable(pipe_lu, false);
 
     lv_obj_t *pipe_r = lv_obj_create(lv_screen_active());
     lv_obj_set_size(pipe_r, 148, 12);
@@ -306,14 +355,14 @@ static void build_heater(void) {
     lv_obj_set_style_bg_color(pipe_r, lv_color_hex(C_HOT), 0);
     lv_obj_set_style_radius(pipe_r, 6, 0);
     lv_obj_set_style_border_width(pipe_r, 0, 0);
-    lv_obj_clear_flag(pipe_r, LV_OBJ_FLAG_CLICKABLE);
+    obj_set_clickable(pipe_r, false);
     lv_obj_t *pipe_ru = lv_obj_create(lv_screen_active());
     lv_obj_set_size(pipe_ru, 12, 62);
     lv_obj_set_pos(pipe_ru, 304, 410);
     lv_obj_set_style_bg_color(pipe_ru, lv_color_hex(C_HOT), 0);
     lv_obj_set_style_radius(pipe_ru, 6, 0);
     lv_obj_set_style_border_width(pipe_ru, 0, 0);
-    lv_obj_clear_flag(pipe_ru, LV_OBJ_FLAG_CLICKABLE);
+    obj_set_clickable(pipe_ru, false);
 
     /* Flow dashes along the horizontal pipes. */
     for (int j = 0; j < 6; j++) {
@@ -324,7 +373,7 @@ static void build_heater(void) {
         lv_obj_set_style_radius(d1, 2, 0);
         lv_obj_set_style_border_width(d1, 0, 0);
         lv_obj_set_style_opa(d1, 150, 0);
-        lv_obj_clear_flag(d1, LV_OBJ_FLAG_CLICKABLE);
+        obj_set_clickable(d1, false);
 
         lv_obj_t *d2 = lv_obj_create(lv_screen_active());
         lv_obj_set_size(d2, 12, 4);
@@ -333,7 +382,7 @@ static void build_heater(void) {
         lv_obj_set_style_radius(d2, 2, 0);
         lv_obj_set_style_border_width(d2, 0, 0);
         lv_obj_set_style_opa(d2, 150, 0);
-        lv_obj_clear_flag(d2, LV_OBJ_FLAG_CLICKABLE);
+        obj_set_clickable(d2, false);
     }
 
     /* Chamber temperature (left of the cabinet). */
@@ -370,7 +419,7 @@ static void build_living(void) {
     s_living_unit = label_make(lv_screen_active(), "°C", 0, 0,
                                &lv_font_montserrat_16, C_COLD);
 
-    s_living_rh = label_make(lv_screen_active(), "47 %rh", 300, 590,
+    s_living_rh = label_make(lv_screen_active(), "47 rh", 300, 590,
                              &lv_font_montserrat_16, C_CYAN);
     s_living_pa = label_make(lv_screen_active(), "1013 hPa", 300, 616,
                              &lv_font_montserrat_16, C_VIOLET);
@@ -389,7 +438,7 @@ static void build_power(void) {
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END,
                           LV_FLEX_ALIGN_CENTER);
-    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    obj_set_scrollable(row, false);
 
     label_make(row, LV_SYMBOL_CHARGE, 0, 0, &lv_font_montserrat_32, C_ACCENT);
     s_power_num = label_make(row, "1284", 0, 0, &lv_font_montserrat_48, C_INK);
@@ -406,7 +455,7 @@ static void build_zones(void) {
         lv_obj_set_pos(z, i * (SCREEN_W / 5), 200);
         lv_obj_set_style_bg_opa(z, LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_width(z, 0, 0);
-        lv_obj_add_flag(z, LV_OBJ_FLAG_CLICKABLE);
+        obj_set_clickable(z, true);
     }
 }
 
@@ -521,10 +570,10 @@ void haus_ui_update(void) {
                         LV_ALIGN_OUT_RIGHT_BOTTOM, 4, -2);
     }
     if (state->living.humidity) {
-        snprintf(buf, sizeof(buf), "%u %rh", state->living.humidity / 100);
+        snprintf(buf, sizeof(buf), "%u rh", state->living.humidity / 100);
         txt(s_living_rh, buf);
     } else {
-        txt(s_living_rh, "-- %rh");
+        txt(s_living_rh, "-- rh");
     }
     if (state->living.pressure) {
         snprintf(buf, sizeof(buf), "%lu hPa",
@@ -577,7 +626,7 @@ static void range_build(int top) {
     lv_obj_set_style_border_color(seg, lv_color_hex(C_LINE), 0);
     lv_obj_set_style_radius(seg, 8, 0);
     lv_obj_set_style_pad_all(seg, 0, 0);
-    lv_obj_clear_flag(seg, LV_OBJ_FLAG_SCROLLABLE);
+    obj_set_scrollable(seg, false);
 
     const char *names[3] = {"1 day", "1 week", "1 month"};
     int w = 440 / 3;
@@ -588,7 +637,7 @@ static void range_build(int top) {
             lv_obj_set_pos(div, i * w, 0);
             lv_obj_set_style_bg_color(div, lv_color_hex(C_LINE), 0);
             lv_obj_set_style_border_width(div, 0, 0);
-            lv_obj_clear_flag(div, LV_OBJ_FLAG_CLICKABLE);
+            obj_set_clickable(div, false);
         }
         lv_obj_t *l = label_make(seg, names[i], 0, 0,
                                  &lv_font_montserrat_16,
@@ -618,7 +667,7 @@ static void chart_build(int top, bool with_target) {
     lv_obj_set_style_bg_opa(c, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(c, 0, 0);
     lv_obj_set_style_pad_all(c, 0, 0);
-    lv_obj_clear_flag(c, LV_OBJ_FLAG_SCROLLABLE);
+    obj_set_scrollable(c, false);
 
     /* axes */
     static lv_point_precise_t yax[2] = {{64, 12}, {64, 200}};

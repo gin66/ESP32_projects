@@ -23,9 +23,14 @@
 
 #define HAUS_SD_DUMMY_CS 15
 #define HAUS_SD_FREQ 4000000
+#define HAUS_SD_PROBE_PATH "/.sd_probe"
+#define HAUS_SD_PROBE_BYTE 'H'
 
 static SPIClass s_sd_spi(HSPI);
 static bool s_mounted = false;
+static uint64_t s_total_bytes = 0;
+static uint64_t s_used_bytes = 0;
+static bool s_space_valid = false;
 
 bool haus_sd_mount(void) {
     if (s_mounted && haus_sd_is_mounted()) return true;
@@ -59,16 +64,30 @@ bool haus_sd_mount(void) {
         return false;
     }
 
+    /* A one-byte sentinel makes removal detection a cheap read instead of a
+     * full FAT scan (totalBytes) on every 1 Hz status tick. */
+    File probe = SD.open(HAUS_SD_PROBE_PATH, FILE_WRITE);
+    if (!probe) {
+        TPL_LOGE("sd", "could not create probe file");
+        SD.end();
+        tpl_ws7_sd_select(false);
+        return false;
+    }
+    probe.write((uint8_t)HAUS_SD_PROBE_BYTE);
+    probe.close();
+
     const char *type_str = "UNKNOWN";
     if (type == CARD_MMC) type_str = "MMC";
     else if (type == CARD_SD) type_str = "SDSC";
     else if (type == CARD_SDHC) type_str = "SDHC";
 
-    TPL_LOGI("sd", "mounted: %s, %llu MB total, %llu MB used\n",
-             type_str, SD.totalBytes() / (1024ULL * 1024ULL),
-             SD.usedBytes() / (1024ULL * 1024ULL));
-
     s_mounted = true;
+    haus_sd_space_refresh();
+
+    TPL_LOGI("sd", "mounted: %s, %llu MB total, %llu MB used\n",
+             type_str, (unsigned long long)(s_total_bytes / (1024ULL * 1024ULL)),
+             (unsigned long long)(s_used_bytes / (1024ULL * 1024ULL)));
+
     return true;
 }
 
@@ -78,15 +97,37 @@ void haus_sd_unmount(void) {
         s_sd_spi.end();
         s_mounted = false;
     }
+    s_space_valid = false;
     tpl_ws7_sd_select(false);
 }
 
 bool haus_sd_is_mounted(void) {
     if (!s_mounted) return false;
-    /* cardType() may be cached; totalBytes() performs a real FAT access, so a
-     * pulled card is detected here rather than at the next write. */
-    if (SD.cardType() == CARD_NONE) return false;
-    if (SD.totalBytes() == 0) return false;
+
+    /* Cheap read-only probe: one byte, not a FAT scan. A pulled card makes
+     * open/read fail within the SPI timeout. */
+    File probe = SD.open(HAUS_SD_PROBE_PATH, FILE_READ);
+    if (!probe) return false;
+    const int c = probe.read();
+    probe.close();
+    return c == HAUS_SD_PROBE_BYTE;
+}
+
+void haus_sd_space_refresh(void) {
+    if (!s_mounted) {
+        s_space_valid = false;
+        return;
+    }
+    /* The only FAT-scanning calls; the storage panel invokes this on demand. */
+    s_total_bytes = SD.totalBytes();
+    s_used_bytes = SD.usedBytes();
+    s_space_valid = (s_total_bytes != 0);
+}
+
+bool haus_sd_space_get(uint64_t *total_bytes, uint64_t *used_bytes) {
+    if (!s_space_valid) return false;
+    if (total_bytes) *total_bytes = s_total_bytes;
+    if (used_bytes) *used_bytes = s_used_bytes;
     return true;
 }
 

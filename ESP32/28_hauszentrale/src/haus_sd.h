@@ -10,6 +10,7 @@
 #define HAUS_SD_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -21,8 +22,17 @@ bool haus_sd_mount(void);
 /* Unmount and release the expander CS. */
 void haus_sd_unmount(void);
 
-/* Mounted and readable? */
+/* Mounted and readable? Cheap read-only probe (one byte from a sentinel file),
+ * suitable for the 1 Hz status poll. */
 bool haus_sd_is_mounted(void);
+
+/* Refresh the cached capacity figures. This is the only call that reads the
+ * FAT; the storage panel calls it on demand, never the render path. */
+void haus_sd_space_refresh(void);
+
+/* Cached capacity figures from the last refresh. Returns false when no valid
+ * figures are available (card absent or never refreshed). */
+bool haus_sd_space_get(uint64_t *total_bytes, uint64_t *used_bytes);
 
 /* Write, read back and delete /sd_test.txt. Returns true when the round-trip
  * matches. Call after haus_sd_mount(). */

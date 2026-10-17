@@ -7,6 +7,7 @@
 #include <Wire.h>
 #include <driver/spi_master.h>
 #include <esp_heap_caps.h>
+#include <esp_idf_version.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_rgb.h>
 #include <esp_lcd_types.h>
@@ -283,8 +284,10 @@ lv_display_t *tpl_ws7_display_init(uint8_t rotation, uint32_t *buf,
   panel_config.timings.flags.pclk_active_neg = 0;
   panel_config.timings.flags.pclk_idle_high = 1;
   panel_config.data_width = 16;
+#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
   panel_config.sram_trans_align = 4;
   panel_config.psram_trans_align = 64;
+#endif
 
   // Control pins (S4.01)
   panel_config.hsync_gpio_num = TPL_WS7_PIN_HSYNC;
@@ -306,10 +309,17 @@ lv_display_t *tpl_ws7_display_init(uint8_t rotation, uint32_t *buf,
   }
 
   panel_config.disp_gpio_num = -1; // no display-enable GPIO
+#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
   panel_config.on_frame_trans_done = NULL;
   panel_config.user_ctx = NULL;
+#endif
   panel_config.flags.fb_in_psram =
       1; // framebuffer in PSRAM (750 KB won't fit SRAM)
+  /* Bounce buffers: the RGB DMA reads from internal RAM instead of streaming
+   * the PSRAM framebuffer, which is the recommended IDF setup. It also skips
+   * the full-frame cache writeback that esp_lcd does when drawing straight
+   * into a PSRAM frame buffer. */
+  panel_config.bounce_buffer_size_px = TPL_WS7_SCREEN_WIDTH * 10;
 
   esp_err_t err = esp_lcd_new_rgb_panel(&panel_config, &s_rgb_panel);
   if (err != ESP_OK) {
@@ -326,11 +336,13 @@ lv_display_t *tpl_ws7_display_init(uint8_t rotation, uint32_t *buf,
 
   ESP_LOGI(TAG, "RGB panel initialized successfully");
 
-  // Scratch buffer for software rotation (must be in internal RAM for the RGB
-  // DMA)
-  if (s_rot_buf == NULL) {
-    s_rot_buf = (uint8_t *)heap_caps_malloc(buf_size, MALLOC_CAP_DMA |
-                                                          MALLOC_CAP_INTERNAL);
+  // Scratch buffer for software rotation. The CPU rotates into it and
+  // draw_bitmap copies the result into the PSRAM framebuffer, so the scratch
+  // buffer itself is not a DMA source. DIRAM has only a few KB free after the
+  // static image, which is why this lives in PSRAM.
+  if (lv_rotation != LV_DISPLAY_ROTATION_0 && s_rot_buf == NULL) {
+    s_rot_buf = (uint8_t *)heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM |
+                                                          MALLOC_CAP_8BIT);
     if (s_rot_buf == NULL) {
       ESP_LOGW(TAG, "Rotation buffer alloc failed; rotation will be skipped");
     }

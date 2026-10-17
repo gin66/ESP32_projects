@@ -2,6 +2,7 @@
 #include "tpl_debug_log.h"
 
 #include <ArduinoOTA.h>
+#include <WiFi.h>
 #include <inttypes.h>
 #include <WebServer.h>
 

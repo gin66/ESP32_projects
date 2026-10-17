@@ -116,6 +116,24 @@ Key build flags used across projects:
 - Board-type flags: `IS_ESP32CAM`, `IS_ESP32_CYD_28`, `IS_ESP32_CYD_35`, `HAS_STEPPERS`
 - `-DTFT_ROTATION=n` — Display rotation (0–3), project-specific
 
+### Matter and the library finder
+
+PlatformIO's library finder is a text search. It does not evaluate `#ifdef`.
+`template.h` always includes `tpl_matter.h`, and that header contains
+`#include <Matter.h>` inside `#ifdef USE_TPL_MATTER`. On Arduino-ESP32 3.x
+(pioarduino) that name is a real library, so the finder links the whole Matter
+stack into every project. That costs on the order of 90 KB of DIRAM.
+
+`lib_ignore = Matter` is required only when both of these are true:
+
+- The project's platform ships the Matter library (Arduino 3.x / pioarduino).
+- The project does not define `-DUSE_TPL_MATTER`.
+
+Projects on `espressif32 @ 6.13.0` (Arduino 2.0.17) have no Matter library.
+The finder sees the include, finds nothing, and links nothing. They do not
+need the line. `21_matter` defines `USE_TPL_MATTER` and must not ignore it.
+`28_hauszentrale` is the project that currently needs `lib_ignore = Matter`.
+
 ### Project-Specific Notes
 
 - **15_power_log_eink**: E-ink display (GxEPD), SML smart meter protocol (libsml), CAN bus. Board: `LILYGO_V2_3`. Uses `tpl_broadcast`.

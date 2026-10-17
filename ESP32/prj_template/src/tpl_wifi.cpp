@@ -303,7 +303,7 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
 
   /* Start the manager task first: it is what reconnects, and the NTP wait
    * below must not be able to starve it. */
-  xTaskCreatePinnedToCore(TaskWifiManager, "WiFi_Manager", 2688, NULL, 0,
+  xTaskCreatePinnedToCore(TaskWifiManager, "WiFi_Manager", 6144, NULL, 0,
                           &tpl_tasks.task_wifi_manager, CORE_0);
   esp_task_wdt_add(tpl_tasks.task_wifi_manager);
 

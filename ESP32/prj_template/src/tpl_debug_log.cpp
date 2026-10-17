@@ -11,7 +11,10 @@
  *  Legacy fixed-line buffer (kept for compatibility, used only if the PSRAM
  *  ring could not be allocated)
  * ═══════════════════════════════════════════════════════════════════════════ */
-static char log_buf[DEBUG_LOG_LINES][DEBUG_LOG_LINE_SIZE];
+/* Allocated only when the PSRAM ring could not be created, so the normal
+ * path does not burn DEBUG_LOG_LINES * DEBUG_LOG_LINE_SIZE bytes of internal
+ * RAM. */
+static char *log_buf = NULL;
 static int log_head = 0;
 static int log_count = 0;
 static SemaphoreHandle_t log_mutex = NULL;
@@ -37,14 +40,20 @@ static SemaphoreHandle_t ring_mutex = NULL;
  * PSRAM. */
 static void legacy_store(const char *rec, int len) {
     if (!log_mutex || !rec || len <= 0) return;
+    if (!log_buf) {
+        log_buf = (char *)heap_caps_malloc(
+            (size_t)DEBUG_LOG_LINES * DEBUG_LOG_LINE_SIZE,
+            MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (!log_buf) return;
+    }
     if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(5)) != pdTRUE) return;
     int n = len < DEBUG_LOG_LINE_SIZE - 1 ? len : DEBUG_LOG_LINE_SIZE - 1;
-    memcpy(log_buf[log_head], rec, n);
-    while (n > 0 && (log_buf[log_head][n - 1] == '\n' ||
-                     log_buf[log_head][n - 1] == '\r')) {
+    char *line = log_buf + log_head * DEBUG_LOG_LINE_SIZE;
+    memcpy(line, rec, n);
+    while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r')) {
         n--;
     }
-    log_buf[log_head][n] = '\0';
+    line[n] = '\0';
     log_head = (log_head + 1) % DEBUG_LOG_LINES;
     if (log_count < DEBUG_LOG_LINES) log_count++;
     xSemaphoreGive(log_mutex);
@@ -411,7 +420,7 @@ void tpl_debug_log_register_endpoints() {
         tpl_server.send(200, "text/plain", "");
         for (int i = 0; i < n; i++) {
             int idx = (start + i) % DEBUG_LOG_LINES;
-            tpl_server.sendContent(log_buf[idx]);
+            tpl_server.sendContent(log_buf + idx * DEBUG_LOG_LINE_SIZE);
             tpl_server.sendContent("\n");
         }
         xSemaphoreGive(log_mutex);

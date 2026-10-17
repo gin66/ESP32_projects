@@ -294,8 +294,10 @@ void gui_update_state(void) {
     g_state.living.valid = (g_state.living.temperature != GUI_EMPTY);
 
     /* System. */
-    g_state.system.can_available = true;
-    g_state.system.sd_available = true;
+    /* System: exercise all three indicator states in the host render. */
+    g_state.system.can_status = GUI_STATUS_OK;
+    g_state.system.duty_status = GUI_STATUS_INACTIVE;
+    g_state.system.sd_status = GUI_STATUS_ERROR;
     g_state.system.sd_low_space = false;
 
     /* Chamber target. */

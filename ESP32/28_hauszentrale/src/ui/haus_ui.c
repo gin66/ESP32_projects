@@ -47,6 +47,7 @@
 #define C_CYAN 0x6fbfb8
 #define C_VIOLET 0x8d7ea3
 #define C_OK 0x5caf6e
+#define C_OFF 0x444444
 #define C_PANEL 0x1a1412
 
 /* ─── Bottom navigation ───────────────────────────────────────────────────── */
@@ -99,6 +100,7 @@ static void align_power_labels(void);
  * redundant invalidation is a visible redraw, so repeatedly refreshed screens
  * must only touch what actually changed. */
 static uint32_t s_last_can_color = 0xFFFFFFFFu;
+static uint32_t s_last_duty_color = 0xFFFFFFFFu;
 static uint32_t s_last_sd_color = 0xFFFFFFFFu;
 static uint32_t s_last_fire_grad = 0xFFFFFFFFu;
 static uint8_t s_last_flame_opa[3] = {0xFF, 0xFF, 0xFF};
@@ -271,12 +273,52 @@ static lv_obj_t *status_mark(int *right, const char *text) {
     return dot;
 }
 
+/* Map an interface status to a palette colour. */
+static uint32_t status_color(gui_status_t status) {
+    switch (status) {
+        case GUI_STATUS_OK:
+            return C_OK;
+        case GUI_STATUS_ERROR:
+            return C_HOT;
+        default:
+            return C_OFF;
+    }
+}
+
+/* Apply a status to a strip dot, skipping the redraw when it is unchanged. */
+static void status_dot_apply(lv_obj_t *dot, gui_status_t status,
+                             uint32_t *last_color) {
+    if (!dot) return;
+    uint32_t color = status_color(status);
+    if (color == *last_color) return;
+    *last_color = color;
+    lv_obj_set_style_bg_color(dot, lv_color_hex(color), 0);
+}
+
+/* Duty provenance keeps the hollow marker for the non-live (EEPROM) state:
+ * solid = live, hollow = restored, red = fault. */
+static void duty_dot_apply(lv_obj_t *dot, gui_status_t status,
+                           uint32_t *last_color) {
+    if (!dot) return;
+    uint32_t color = status_color(status);
+    if (color == *last_color) return;
+    *last_color = color;
+    if (status == GUI_STATUS_INACTIVE) {
+        lv_obj_set_style_bg_color(dot, lv_color_hex(C_OFF), 0);
+        lv_obj_set_style_border_width(dot, 2, 0);
+        lv_obj_set_style_border_color(dot, lv_color_hex(C_DIM), 0);
+    } else {
+        lv_obj_set_style_bg_color(dot, lv_color_hex(color), 0);
+        lv_obj_set_style_border_width(dot, 0, 0);
+    }
+}
+
 static void build_status(void) {
     s_status_date = label_make(lv_screen_active(), "--- -- ---", 12,
                                STATUS_LABEL_Y, &lv_font_montserrat_16, C_INK);
 
     /* Right-to-left: SD, CAN, then the duty provenance marker. For the duty
-     * marker a solid dot means CAN, hollow means EEPROM. */
+     * marker solid means live, hollow means restored EEPROM, red means fault. */
     int right = SCREEN_W - 12;
     s_sd_dot = status_mark(&right, "SD");
     s_can_dot = status_mark(&right, "CAN");
@@ -612,39 +654,9 @@ void haus_ui_update(void) {
         txt(s_clock, "--:--");
     }
 
-    if (s_can_dot) {
-        uint32_t color = state->system.can_available ? C_OK : C_HOT;
-        if (color != s_last_can_color) {
-            s_last_can_color = color;
-            lv_obj_set_style_bg_color(s_can_dot, lv_color_hex(color), 0);
-        }
-    }
-    if (s_sd_dot) {
-        uint32_t color = state->system.sd_available ? C_OK : 0x444444;
-        if (color != s_last_sd_color) {
-            s_last_sd_color = color;
-            lv_obj_set_style_bg_color(s_sd_dot, lv_color_hex(color), 0);
-        }
-    }
-
-    /* Duty provenance marker: solid = CAN, hollow = EEPROM. */
-    if (s_duty_src) {
-        uint8_t src = state->pwm.source;
-        if (src == GUI_PWM_SRC_CAN) {
-            /* Solid circle: CAN source. */
-            lv_obj_set_style_bg_color(s_duty_src, lv_color_hex(C_OK), 0);
-            lv_obj_set_style_border_width(s_duty_src, 0, 0);
-        } else if (src == GUI_PWM_SRC_EEPROM) {
-            /* Hollow circle: EEPROM source (boot-restored). */
-            lv_obj_set_style_bg_color(s_duty_src, lv_color_hex(C_DIM), 0);
-            lv_obj_set_style_border_width(s_duty_src, 2, 0);
-            lv_obj_set_style_border_color(s_duty_src, lv_color_hex(C_OK), 0);
-        } else {
-            /* Unknown: grey. */
-            lv_obj_set_style_bg_color(s_duty_src, lv_color_hex(0x444444), 0);
-            lv_obj_set_style_border_width(s_duty_src, 0, 0);
-        }
-    }
+    status_dot_apply(s_can_dot, state->system.can_status, &s_last_can_color);
+    duty_dot_apply(s_duty_src, state->system.duty_status, &s_last_duty_color);
+    status_dot_apply(s_sd_dot, state->system.sd_status, &s_last_sd_color);
 
     /* Chamber. */
     int16_t chamber = state->temps.temp[0];

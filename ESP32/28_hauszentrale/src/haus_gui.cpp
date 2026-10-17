@@ -165,8 +165,11 @@ void gui_update_state(void) {
     g_state.living.pressure = living_pres;
     g_state.living.valid = false;
 
-    g_state.system.can_available = false;
-    g_state.system.sd_available = false;
+    g_state.system.can_status = GUI_STATUS_INACTIVE;
+    g_state.system.duty_status = (g_state.pwm.source == GUI_PWM_SRC_CAN)
+                                     ? GUI_STATUS_OK
+                                     : GUI_STATUS_INACTIVE;
+    g_state.system.sd_status = GUI_STATUS_INACTIVE;
     g_state.system.sd_low_space = false;
 
     g_state.chamber_target_c = 6000;  /* 60 °C default */

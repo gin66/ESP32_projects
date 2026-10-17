@@ -27,6 +27,14 @@ extern "C" {
 #define GUI_EMPTY      0x7FFF   /* Sentinel: no valid temperature */
 #define GUI_MAX_SENSORS  8
 
+/* Status indicator state. The app decides the state; the UI maps it to a
+ * palette colour (green / red / grey). */
+typedef enum {
+    GUI_STATUS_INACTIVE = 0,  /* grey: not present or not used */
+    GUI_STATUS_OK,            /* green: healthy / available */
+    GUI_STATUS_ERROR,         /* red: fault */
+} gui_status_t;
+
 /* ─── Sample (24 bytes, static_assert on both host and device) ──────────── */
 
 typedef struct {
@@ -82,8 +90,9 @@ typedef struct {
 
     /* System */
     struct {
-        bool can_available;
-        bool sd_available;
+        gui_status_t can_status;
+        gui_status_t duty_status;
+        gui_status_t sd_status;
         bool sd_low_space;
     } system;
 

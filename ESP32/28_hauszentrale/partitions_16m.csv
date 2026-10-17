@@ -1,8 +1,11 @@
-# Name,   Type, SubType, Offset,   Size,   Flags
-nvs,      data, nvs,     0x9000,    0x4000,
-otadata,  data, ota,     0xd000,    0x2000,
-phy_init, data, phy,     0xf000,    0x1000,
-factory,  app,  factory, 0x10000,  0x600000,
-update_0, app,  ota_0,   0x610000, 0x600000,
+# Name,   Type, SubType, Offset,   Size,     Flags
+# Two OTA slots with the original sizes. Only the names changed:
+# factory -> ota_0, update_0 -> ota_1. A single OTA slot (factory + ota_0)
+# makes the second update fail at Update.begin because there is no target.
+nvs,      data, nvs,     0x9000,   0x4000,
+otadata,  data, ota,     0xd000,   0x2000,
+phy_init, data, phy,     0xf000,   0x1000,
+ota_0,    app,  ota_0,   0x10000,  0x600000,
+ota_1,    app,  ota_1,   0x610000, 0x600000,
 coredump, data, coredump,0xC10000, 0x40000,
 spiffs,   data, spiffs,  0xC50000, 0x3B0000,

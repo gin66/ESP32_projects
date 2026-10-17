@@ -288,6 +288,7 @@ void setup() {
 void loop() {
   static uint32_t last_ui_ms = 0;
   static uint32_t last_anim_ms = 0;
+  static bool s_ota_backlight_off = false;
   const uint32_t now = millis();
 
 #ifdef HAUS_CAN_BOOT_ENABLE
@@ -300,6 +301,16 @@ void loop() {
              haus_can_bus_running() ? "running" : "failed");
   }
 #endif
+
+  /* OTA writes flash with the cache/PSRAM disabled while the RGB DMA is still
+   * scanning the PSRAM framebuffer, which garbles the panel completely. Blank
+   * the backlight for the duration; on a failed update restore it. */
+  if (tpl_config.ota_ongoing != s_ota_backlight_off) {
+    s_ota_backlight_off = tpl_config.ota_ongoing;
+    tpl_ws7_backlight(!s_ota_backlight_off);
+    TPL_LOGI("ota", "backlight %s for OTA",
+             s_ota_backlight_off ? "OFF" : "ON");
+  }
 
   /* Data refresh at 1 Hz. Refreshing at loop rate invalidates every label
    * hundreds of times per second, which the single-buffered RGB panel shows

@@ -2,6 +2,10 @@
 #include "tpl_debug_log.h"
 
 #include <ArduinoOTA.h>
+
+#ifdef IS_WAVESHARE_LCD7
+#include "tpl_ws7.h"
+#endif
 #include <ESPmDNS.h>
 #include <WiFi.h>
 #include <inttypes.h>
@@ -266,6 +270,11 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
           // using SPIFFS.end()
           TPL_LOGI("wifi", "Start updating %s", type.c_str());
           tpl_config.ota_ongoing = true;
+          /* The RGB DMA keeps scanning PSRAM while flash writes disable the
+           * cache: blank the panel instead of showing garbage. */
+#ifdef IS_WAVESHARE_LCD7
+          tpl_ws7_backlight(false);
+#endif
         })
         .onEnd([]() {
           TPL_LOGI("wifi", "\nEnd");
@@ -279,6 +288,9 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
         })
         .onError([](ota_error_t error) {
           TPL_LOGI("wifi", "Error[%u]: ", error);
+#ifdef IS_WAVESHARE_LCD7
+          tpl_ws7_backlight(true);
+#endif
           if (error == OTA_AUTH_ERROR)
             TPL_LOGI("wifi", "Auth Failed");
           else if (error == OTA_BEGIN_ERROR)
@@ -291,7 +303,12 @@ void tpl_wifi_setup(bool verbose, bool waitOTA, gpio_num_t ledPin) {
             TPL_LOGI("wifi", "End Failed");
         });
   } else {
-    ArduinoOTA.onStart([]() { tpl_config.ota_ongoing = true; }).onEnd([]() {
+    ArduinoOTA.onStart([]() {
+      tpl_config.ota_ongoing = true;
+#ifdef IS_WAVESHARE_LCD7
+      tpl_ws7_backlight(false);
+#endif
+    }).onEnd([]() {
       tpl_config.ota_ongoing = false;
       delay(500);
     }).onProgress([](unsigned int, unsigned int) {

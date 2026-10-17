@@ -76,7 +76,7 @@ Hardware connected: /dev/cu.usbmodem5C941561291
 
 - [x] S6.01 Fill in [common] from §7.1 with all build flags, including board_build.flash_size = 16MB — Test: pio run -e esp32usb compiles a hello world and the image is not capped
 - [x] S6.02 Add the esp32ota env with espota/3232 — Test: pio run -e esp32ota builds the same image
-- [x] S6.03 Verify existing partitions_16m.csv works (factory + update_0 6 MB, spiffs 3.7 MB, coredump 256 KB) — Test: gen_esp32part.py validates it and WiFi calibration still works after upload
+- [x] S6.03 Verify existing partitions_16m.csv works (factory + update_0 6 MB, spiffs 3.7 MB, coredump 256 KB) — Test: gen_esp32part.py validates it and WiFi calibration still works after upload (table now has **two** OTA slots: `ota_0` 6 MB + `ota_1` 6 MB, same offsets/sizes as before, spiffs unchanged at 3.7 MB. With only `factory`+`ota_0` the first OTA succeeds and every later one fails at `Update.begin` — verified on the bench)
 - [x] S6.04 Wire tpl_wifi_setup(true, true, 255) — Test: no LED pin is claimed and no RGB bit is corrupted
 - [x] S6.05 Confirm an OTA update over WiFi actually replaces the app — Test: push a build with a changed version string, it changes on the device
 - [x] S6.06 Add -Werror and confirm the build is clean — Test: a deliberate warning fails the build (scoped with `build_src_flags` so LVGL's own `#warning`s do not fail the link)
@@ -386,7 +386,7 @@ living-room zone are real again; pressure stays `—` (no BMP sensor).
 - [ ] S24.04 Start TWAI only if config.can_enabled — Test: with CAN off, no TWAI driver exists
 - [ ] S24.05 With CAN off: zones render —, charts empty, monitor shows an explanation — Test: the panel is otherwise fully alive
 - [ ] S24.06 With CAN on: frames flow — Test: the status dot is green
-- [ ] S24.07 Record what happens to the CH9102 console when IO5 goes high (settles Q22) — Test: a written answer in docs/bench/Q22.md
+- [x] S24.07 Record what happens to the CH9102 console when IO5 goes high (settles Q22) — Test: a written answer in docs/bench/Q22.md
 - [ ] S24.08 Verify a watchdog restart re-runs N19 — Test: after a forced restart, USB comes back
 - [ ] S24.09 Crashes dump the ring to SD before the reset (no console needed) — Test: the file appears after a deliberate crash
 - [ ] S24.10 Write the BOOT + power-cycle recovery procedure — Test: a fresh reader recovers the board with no laptop-side help

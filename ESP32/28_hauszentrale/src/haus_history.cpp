@@ -24,6 +24,8 @@ static RollupColumn s_l2_storage[HAUS_L2_COLUMNS];
 static RollupColumn s_ring_storage[HAUS_RING_HOURS];
 static RollupColumn s_test_rollup_data[HAUS_L2_COLUMNS];
 static bool s_test_rollup_valid = false;
+static gui_sample_t s_test_day_data[HAUS_L1_SAMPLES];
+static bool s_test_day_valid = false;
 static uint32_t s_test_day_bytes = 0;
 static uint32_t s_test_rollup_bytes = 0;
 static bool s_test_fail_writes = false;
@@ -81,6 +83,15 @@ static void l2_store(const RollupColumn *col) {
     s_l2[slot] = *col;
 }
 
+static uint32_t l2_newest_minute(void) {
+    uint32_t newest = 0;
+    if (!s_l2) return 0;
+    for (size_t i = 0; i < HAUS_L2_COLUMNS; i++) {
+        if (s_l2[i].t > newest) newest = s_l2[i].t;
+    }
+    return newest;
+}
+
 /* Local calendar day, used for the midnight rollover. A DST change makes the
  * day 23 or 25 hours long; a UTC day number would split it in the wrong place. */
 static uint32_t local_day_key(uint32_t epoch) {
@@ -109,6 +120,8 @@ static bool sd_write_day(uint32_t epoch) {
 
 #ifdef HAUS_HOST
     if (s_test_fail_writes) return false;
+    memcpy(s_test_day_data, s_l1, HAUS_L1_BYTES);
+    s_test_day_valid = true;
     s_test_day_bytes = HAUS_L1_BYTES;
     s_sd_write_count++;
     return true;
@@ -205,6 +218,44 @@ static void add_series(RollupColumn *col, int series, int32_t value) {
     col->n[series]++;
 }
 
+/* Apply one stored minute to L2. Used by both the live recorder and the boot
+ * replay, so the two paths cannot disagree about stale/valid handling. */
+static RollupColumn *apply_sample_to_l2(const gui_sample_t *s) {
+    if (!s_l2 || !s || s->epoch == 0) return NULL;
+
+    const uint32_t hour_start_sec = s->epoch - (s->epoch % 3600u);
+    const uint32_t hour_start_min = hour_start_sec / 60u;
+    const size_t slot = (hour_start_sec / 3600u) % HAUS_L2_COLUMNS;
+    RollupColumn *col = &s_l2[slot];
+
+    if (col->t != hour_start_min) {
+        memset(col, 0, sizeof(*col));
+        col->t = hour_start_min;
+    }
+
+    const uint8_t stale = s->stale_mask;
+    if (s->temp[0] != HAUS_CAN_TEMP_EMPTY &&
+        !(stale & SAMPLE_STALE_CHAMBER))
+        add_series(col, 0, s->temp[0]);
+    if (s->temp[1] != HAUS_CAN_TEMP_EMPTY &&
+        !(stale & SAMPLE_STALE_WATER_IN))
+        add_series(col, 1, s->temp[1]);
+    if (s->temp[2] != HAUS_CAN_TEMP_EMPTY &&
+        !(stale & SAMPLE_STALE_WATER_OUT))
+        add_series(col, 2, s->temp[2]);
+    if ((s->flags & SAMPLE_FLAG_CLIMATE_AHT20) &&
+        !(stale & SAMPLE_STALE_LIVING))
+        add_series(col, 3, s->living_c100);
+    if ((s->flags & SAMPLE_FLAG_CLIMATE_AHT20) &&
+        !(stale & SAMPLE_STALE_HUMIDITY))
+        add_series(col, 4, (int32_t)s->hum_c100);
+    if ((s->flags & SAMPLE_FLAG_CLIMATE_BMP280) &&
+        !(stale & SAMPLE_STALE_PRESSURE))
+        add_series(col, 5, (int32_t)s->pressure_pa);
+
+    return col;
+}
+
 bool haus_history_sample(const HausState *state, uint32_t epoch_seconds) {
     if (!s_l1 || !s_l2 || !state) return false;
     if (epoch_seconds < 24 * 3600) return false;
@@ -230,15 +281,25 @@ bool haus_history_sample(const HausState *state, uint32_t epoch_seconds) {
     s->temp[0] = state->can.temp_by_fn[SENSOR_FN_CHAMBER];
     s->temp[1] = state->can.temp_by_fn[SENSOR_FN_WATER_IN];
     s->temp[2] = state->can.temp_by_fn[SENSOR_FN_WATER_OUT];
-    s->temp[3] = HAUS_CAN_TEMP_EMPTY;
-    s->duty_permille = state->can.pwm_permille;
-    s->watts = state->can.watts;
+
+    const bool living_valid =
+        (state->climate.climate_flags & CLIMATE_VALID_AHT20) != 0;
+    const bool pressure_valid =
+        (state->climate.climate_flags & CLIMATE_VALID_BMP280) != 0;
+    s->living_c100 = living_valid ? state->climate.living_c100
+                                  : HAUS_CAN_TEMP_EMPTY;
+    s->hum_c100 = living_valid ? state->climate.hum_c100 : 0;
+    s->pressure_pa = pressure_valid ? state->climate.pressure_pa : 0;
+
+    uint32_t power_dw = state->can.valid ? (uint32_t)state->can.watts * 10u : 0u;
+    if (power_dw > 65535u) power_dw = 65535u;
+    s->power_dw = (uint16_t)power_dw;
+
     s->flags = state->can.water_modelled ? SAMPLE_FLAG_MODELLED : 0x00;
+    if (living_valid) s->flags |= SAMPLE_FLAG_CLIMATE_AHT20;
+    if (pressure_valid) s->flags |= SAMPLE_FLAG_CLIMATE_BMP280;
 
     uint8_t stale = 0;
-    const bool living_valid = (state->climate.climate_flags & CLIMATE_VALID_AHT20) != 0;
-    const bool pressure_valid = (state->climate.climate_flags & CLIMATE_VALID_BMP280) != 0;
-
     if (s->temp[0] != HAUS_CAN_TEMP_EMPTY &&
         source_stale(epoch_seconds, state->can.last_update_epoch))
         stale |= SAMPLE_STALE_CHAMBER;
@@ -266,37 +327,12 @@ bool haus_history_sample(const HausState *state, uint32_t epoch_seconds) {
         s_last_stale_mask = stale;
     }
 
-    const uint32_t hour_start_sec = epoch_seconds - (epoch_seconds % 3600);
-    const uint32_t hour_start_min = hour_start_sec / 60;
-    const size_t slot = (hour_start_sec / 3600) % HAUS_L2_COLUMNS;
-    RollupColumn *col = &s_l2[slot];
-
-    if (col->t != hour_start_min) {
-        memset(col, 0, sizeof(*col));
-        col->t = hour_start_min;
-    }
-
-    /* Stale minutes are recorded in L1 with their mask, but never folded into
-     * the hourly aggregate. A completed hour with n < 60 is therefore visibly
-     * partial rather than silently complete. */
-    if (s->temp[0] != HAUS_CAN_TEMP_EMPTY &&
-        !(stale & SAMPLE_STALE_CHAMBER))
-        add_series(col, 0, s->temp[0]);
-    if (s->temp[1] != HAUS_CAN_TEMP_EMPTY &&
-        !(stale & SAMPLE_STALE_WATER_IN))
-        add_series(col, 1, s->temp[1]);
-    if (s->temp[2] != HAUS_CAN_TEMP_EMPTY &&
-        !(stale & SAMPLE_STALE_WATER_OUT))
-        add_series(col, 2, s->temp[2]);
-    if (living_valid && !(stale & SAMPLE_STALE_LIVING)) {
-        add_series(col, 3, state->climate.living_c100);
-        add_series(col, 4, (int32_t)state->climate.hum_c100);
-    }
-    if (pressure_valid && !(stale & SAMPLE_STALE_PRESSURE))
-        add_series(col, 5, (int32_t)state->climate.pressure_pa);
+    /* Stale minutes stay in L1 with their mask but are never folded into the
+     * hourly aggregate; a completed hour with n < 60 is visibly partial. */
+    RollupColumn *col = apply_sample_to_l2(s);
 
     /* The hour is complete at minute 59. */
-    if ((epoch_seconds % 3600) >= 3540) {
+    if (col && (epoch_seconds % 3600) >= 3540) {
 #ifdef HAUS_HOST
         (void)haus_history_ring_append(col);
 #else
@@ -392,23 +428,43 @@ size_t haus_history_ring_load(RollupColumn *out, size_t max_columns) {
 }
 
 size_t haus_history_restore(uint32_t now_epoch) {
+    size_t restored = 0;
+
     if (s_test_rollup_valid) {
         for (size_t i = 0; i < HAUS_L2_COLUMNS; i++) {
             l2_store(&s_test_rollup_data[i]);
         }
-        return HAUS_L2_COLUMNS;
+        restored = HAUS_L2_COLUMNS;
+    } else if (now_epoch >= 24 * 3600u) {
+        const uint32_t now_hour = now_epoch / 3600u;
+        const uint32_t first_hour = now_hour - (uint32_t)(HAUS_L2_COLUMNS - 1);
+        for (uint32_t i = 0; i < (uint32_t)HAUS_L2_COLUMNS; i++) {
+            const size_t slot = ring_slot(first_hour + i);
+            if (s_ring_storage[slot].t == 0) continue;
+            l2_store(&s_ring_storage[slot]);
+            restored++;
+        }
     }
 
-    if (now_epoch < 24 * 3600u) return 0;
-    const uint32_t now_hour = now_epoch / 3600u;
-    const uint32_t first_hour = now_hour - (uint32_t)(HAUS_L2_COLUMNS - 1);
-    size_t restored = 0;
-    for (uint32_t i = 0; i < (uint32_t)HAUS_L2_COLUMNS; i++) {
-        const size_t slot = ring_slot(first_hour + i);
-        if (s_ring_storage[slot].t == 0) continue;
-        l2_store(&s_ring_storage[slot]);
-        restored++;
+    /* Day file: replay into L1 when it is today's, and fold only hours newer
+     * than the rollup's newest column into L2 (avoids double counting). */
+    if (s_test_day_valid) {
+        const uint32_t newest = l2_newest_minute();
+        const bool is_today =
+            (now_epoch >= 24 * 3600u) &&
+            (local_day_key(now_epoch) == local_day_key(s_test_day_data[0].epoch));
+
+        for (size_t i = 0; i < HAUS_L1_SAMPLES; i++) {
+            const gui_sample_t *s = &s_test_day_data[i];
+            if (s->epoch == 0) continue;
+            const uint32_t hour_min = (s->epoch / 3600u) * 60u;
+            if (newest == 0 || hour_min >= newest + 60u) {
+                (void)apply_sample_to_l2(s);
+            }
+        }
+        if (is_today) memcpy(s_l1, s_test_day_data, HAUS_L1_BYTES);
     }
+
     return restored;
 }
 
@@ -419,7 +475,9 @@ uint32_t haus_history_test_rollup_bytes(void) { return s_test_rollup_bytes; }
 void haus_history_test_fail_writes(bool fail) { s_test_fail_writes = fail; }
 void haus_history_test_clear_files(void) {
     memset(s_test_rollup_data, 0, sizeof(s_test_rollup_data));
+    memset(s_test_day_data, 0, sizeof(s_test_day_data));
     s_test_rollup_valid = false;
+    s_test_day_valid = false;
     s_test_day_bytes = 0;
     s_test_rollup_bytes = 0;
     s_last_day_path[0] = '\0';
@@ -560,6 +618,66 @@ size_t haus_history_ring_load(RollupColumn *out, size_t max_columns) {
     return haus_history_ring_load_at(out, max_columns, (uint32_t)time(nullptr));
 }
 
+/* Find the lexicographically newest /data_YYYYMMDD.bin in the SD root. */
+static bool find_newest_day_file(char *out, size_t n) {
+    File dir = SD.open("/");
+    if (!dir || !dir.isDirectory()) return false;
+
+    String newest;
+    File f = dir.openNextFile();
+    while (f) {
+        if (!f.isDirectory()) {
+            String name = f.name();
+            if (name.startsWith("/")) name = name.substring(1);
+            if (name.length() == 17 && name.startsWith("data_") &&
+                name.endsWith(".bin")) {
+                if (newest.length() == 0 || name > newest) newest = name;
+            }
+        }
+        f.close();
+        f = dir.openNextFile();
+    }
+    dir.close();
+
+    if (newest.length() == 0) return false;
+    snprintf(out, n, "/%s", newest.c_str());
+    return true;
+}
+
+/* Replay a day file: fold only hours newer than the rollup into L2, and copy
+ * the samples into L1 when the file belongs to today's local day. */
+static void restore_day_file(const char *path, uint32_t now_epoch) {
+    const uint32_t newest = l2_newest_minute();
+    char today[32];
+    format_day_path(now_epoch, today, sizeof(today));
+    const bool is_today =
+        (now_epoch >= 24 * 3600u) && (strcmp(path, today) == 0);
+
+    File f = SD.open(path, FILE_READ);
+    if (!f) return;
+
+    gui_sample_t buf[32];
+    for (;;) {
+        const size_t got = f.read((uint8_t *)buf, sizeof(buf));
+        if (got == 0) break;
+        const size_t count = got / sizeof(gui_sample_t);
+        for (size_t i = 0; i < count; i++) {
+            const gui_sample_t *s = &buf[i];
+            if (s->epoch == 0) continue;
+            const uint32_t hour_min = (s->epoch / 3600u) * 60u;
+            if (newest == 0 || hour_min >= newest + 60u) {
+                (void)apply_sample_to_l2(s);
+            }
+            if (is_today) {
+                const uint32_t mod = (s->epoch % 86400u) / 60u;
+                if (mod < HAUS_L1_SAMPLES) s_l1[mod] = *s;
+            }
+        }
+        if ((got % sizeof(gui_sample_t)) != 0) break;
+    }
+    f.close();
+}
+
 size_t haus_history_restore(uint32_t now_epoch) {
     size_t restored = 0;
 
@@ -581,6 +699,12 @@ size_t haus_history_restore(uint32_t now_epoch) {
                 if (cols == 0 || (got % sizeof(RollupColumn)) != 0) break;
             }
             f.close();
+        }
+
+        char day_path[32];
+        if (find_newest_day_file(day_path, sizeof(day_path))) {
+            restore_day_file(day_path, now_epoch);
+            TPL_LOGI("history", "replayed day file %s", day_path);
         }
         haus_sd_unlock();
     }

@@ -50,20 +50,23 @@ typedef enum {
 /* ─── Sample (24 bytes, static_assert on both host and device) ──────────── */
 
 typedef struct {
-    uint32_t epoch;            /* 0: seconds since boot / real timestamp */
-    int32_t watts;             /* 4: SML household watts */
-    int16_t temp[4];           /* 8: chamber, water_in, water_out, padding */
-    uint16_t duty_permille;    /* 16: 0–1000 */
-    uint8_t flags;             /* 18: bit 0 = modelled, bit 1 = GAP,
-                                *     bit 2 = any source stale */
-    uint8_t stale_mask;        /* 19: SAMPLE_STALE_* bits, per source */
-    uint8_t padding[4];        /* 20–23: reserved */
+    uint32_t epoch;            /* 0: minute-aligned unix time */
+    int16_t temp[3];           /* 4: chamber, water_in, water_out */
+    int16_t living_c100;       /* 10: living room, HAUS_CAN_TEMP_EMPTY if absent */
+    uint16_t hum_c100;         /* 12: 0.01 %RH */
+    uint16_t power_dw;         /* 14: decawatts, saturated at 65535 */
+    uint32_t pressure_pa;      /* 16: Pa */
+    uint8_t flags;             /* 20: SAMPLE_FLAG_* */
+    uint8_t stale_mask;        /* 21: SAMPLE_STALE_* bits, per source */
+    uint8_t padding[2];        /* 22–23: reserved */
 } gui_sample_t;
 
 /* Sample flags */
-#define SAMPLE_FLAG_MODELLED 0x01
-#define SAMPLE_FLAG_GAP      0x02
-#define SAMPLE_FLAG_STALE    0x04
+#define SAMPLE_FLAG_MODELLED       0x01
+#define SAMPLE_FLAG_GAP            0x02
+#define SAMPLE_FLAG_STALE          0x04
+#define SAMPLE_FLAG_CLIMATE_AHT20  0x08
+#define SAMPLE_FLAG_CLIMATE_BMP280 0x10
 
 /* Per-source stale bits, in RollupColumn series order (0…5), plus power. */
 #define SAMPLE_STALE_CHAMBER   0x01

@@ -255,6 +255,21 @@ static void test_restore(uint32_t start, uint32_t next) {
     CHECK(haus_history_l2()[slot].t == 0, "init did not clear L2");
     CHECK(haus_history_restore(next) == (size_t)HAUS_L2_COLUMNS,
           "second restore failed");
+
+    /* A mid-day boot replays today's day file into L1 as well. */
+    CHECK(haus_history_init(), "history init failed");
+    CHECK(haus_history_restore(start + 12u * 3600u) ==
+              (size_t)HAUS_L2_COLUMNS,
+          "mid-day restore failed");
+    CHECK(haus_history_l1_count() == HAUS_L1_SAMPLES,
+          "L1 after day replay = %u", (unsigned)haus_history_l1_count());
+    const uint32_t idx = (start % 86400u) / 60u;
+    CHECK(haus_history_l1()[idx].epoch == start,
+          "L1 replay first epoch = %u, want %u",
+          (unsigned)haus_history_l1()[idx].epoch, (unsigned)start);
+    CHECK(haus_history_l2()[slot].n[0] == 60,
+          "day replay double-counted L2: n[0] = %u",
+          (unsigned)haus_history_l2()[slot].n[0]);
 }
 
 /* ─── E: time edges ───────────────────────────────────────────────────────── */

@@ -214,19 +214,26 @@ static void init_history(void) {
     for (uint32_t t = start_epoch; t <= now; t += 60) {
         if (idx >= MAX_HISTORY_SAMPLES) break;
 
+        int32_t watts = mock_sml_watts(t);
+        uint32_t power_dw = (uint32_t)watts * 10u;
+        if (power_dw > 65535u) power_dw = 65535u;
+
         g_history[idx].epoch = t;
         g_history[idx].temp[0] = mock_chamber_temp(t);
         g_history[idx].temp[1] = mock_water_in_temp(t);
         g_history[idx].temp[2] = mock_water_out_temp(t);
-        g_history[idx].temp[3] = GUI_EMPTY;  /* sentinel */
-        g_history[idx].duty_permille = mock_pwm_duty(t);
-        g_history[idx].watts = mock_sml_watts(t);
-        g_history[idx].flags = 0x00;  /* no modelled, no GAP */
+        g_history[idx].living_c100 = mock_living_temp(t);
+        g_history[idx].hum_c100 = mock_living_humidity(t);
+        g_history[idx].pressure_pa = mock_living_pressure(t);
+        g_history[idx].power_dw = (uint16_t)power_dw;
+        g_history[idx].flags = SAMPLE_FLAG_CLIMATE_AHT20 |
+                               SAMPLE_FLAG_CLIMATE_BMP280;
+        g_history[idx].stale_mask = 0;
 
         /* Simulate occasional gaps (card removal, SD errors). */
         if (tod(t) > 50000 && tod(t) < 51000) {
-            g_history[idx].flags |= 0x02;  /* GAP flag */
-            g_history[idx].watts = 0;
+            g_history[idx].flags |= SAMPLE_FLAG_GAP;
+            g_history[idx].power_dw = 0;
         }
 
         idx++;

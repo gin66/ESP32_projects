@@ -181,7 +181,7 @@ Read on the Mac (`/Volumes/NO NAME`):
 | File | Size | Contents |
 | --- | --- | --- |
 | `data_20261017.bin`, `data_20261018.bin` | 34,652 B | 34,560 B of minute samples plus 23 CRC32s. Matches the firmware log `day file written … (34652 B)`. |
-| `rollup.bin` | 68,496 B | 68,448 B of rollup columns plus 12 CRC32s. |
+| `rollup.bin` | 77,424 B | 77,376 B of rollup columns plus 12 CRC32s. |
 
 ## HTTP and OTA
 

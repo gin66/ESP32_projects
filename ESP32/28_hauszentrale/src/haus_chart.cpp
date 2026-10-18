@@ -179,6 +179,14 @@ uint32_t haus_chart_build_samples(ChartColumn* cols, uint32_t t0, uint32_t t1,
   return newest;
 }
 
+/* Chart series 7 is power; the rollup stores it as series 6. Target (6) is
+ * built separately and must not resolve to the rollup's power slot. */
+static int rollup_source(int chart_series) {
+  if (chart_series == 7) return 6;
+  if (chart_series == GUI_SERIES_TARGET) return -1;
+  return chart_series;
+}
+
 uint32_t haus_chart_build_rollup(ChartColumn* cols, uint32_t t0, uint32_t t1,
                                  haus_chart_rollup_reader reader, void* ctx,
                                  size_t total, int series_a, int series_b) {
@@ -186,6 +194,9 @@ uint32_t haus_chart_build_rollup(ChartColumn* cols, uint32_t t0, uint32_t t1,
   if (!ensure_chunks()) return 0;
   reset_columns(cols, t0, t1);
   uint32_t newest = 0;
+
+  const int src_a = rollup_source(series_a);
+  const int src_b = rollup_source(series_b);
 
   for (size_t first = 0; first < total;) {
     const size_t want = total - first;
@@ -201,8 +212,8 @@ uint32_t haus_chart_build_rollup(ChartColumn* cols, uint32_t t0, uint32_t t1,
       const size_t col_idx = column_for(t, t0, t1);
       ChartColumn* col = &cols[col_idx];
 
-      if (series_a >= 0) add_rollup(col, 0, r, series_a, t, &newest);
-      if (series_b >= 0) add_rollup(col, 1, r, series_b, t, &newest);
+      if (src_a >= 0) add_rollup(col, 0, r, src_a, t, &newest);
+      if (src_b >= 0) add_rollup(col, 1, r, src_b, t, &newest);
     }
     first += got;
   }

@@ -1496,7 +1496,7 @@ static void chart_cfg_for(int detail, chart_cfg_t* cfg) {
     case UI_SCREEN_POWER:
       cfg->a = 7;
       cfg->use_target = 0;
-      cfg->hourly_ok = 0;
+      cfg->hourly_ok = 1;
       cfg->unit = CHART_UNIT_POWER;
       cfg->color_a = C_ACCENT;
       cfg->color_b = C_ACCENT;

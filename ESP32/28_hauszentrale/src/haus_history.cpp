@@ -75,7 +75,7 @@ typedef struct __attribute__((packed)) {
 } RingHeader;
 
 #define RING_MAGIC 0x484E4752u /* "RNGH" */
-#define RING_VERSION 2
+#define RING_VERSION 3
 
 static bool s_ring_ready = false;
 static haus_ring_stats_t s_ring_stats;
@@ -429,6 +429,10 @@ static RollupColumn* apply_sample_to_l2(const gui_sample_t* s) {
   if ((s->flags & SAMPLE_FLAG_CLIMATE_BMP280) &&
       !(stale & SAMPLE_STALE_PRESSURE))
     add_series(col, 5, (int32_t)s->pressure_pa);
+  /* Power is a measured series too. A valid 0 W is data; only a gap or a
+   * stale SML source is omitted. */
+  if (!(stale & SAMPLE_STALE_POWER) && !(s->flags & SAMPLE_FLAG_GAP))
+    add_series(col, 6, (int32_t)s->power_dw);
 
   return col;
 }
@@ -1067,33 +1071,39 @@ size_t haus_history_restore(uint32_t now_epoch) {
   if (haus_sd_is_mounted() && haus_sd_lock(2000)) {
     File f = SD.open("/rollup.bin", FILE_READ);
     if (f) {
-      RollupColumn* block = io_rollup();
-      if (!block) {
+      if (f.size() != HAUS_ROLLUP_FILE_BYTES) {
+        TPL_LOGW("history", "rollup size %u != %u; ignoring old layout",
+                 (unsigned)f.size(), (unsigned)HAUS_ROLLUP_FILE_BYTES);
         f.close();
-        haus_sd_unlock();
-        return 0;
-      }
-      for (size_t base = 0; base < HAUS_L2_COLUMNS;
-           base += HAUS_BLOCK_RECORDS) {
-        size_t n = HAUS_L2_COLUMNS - base;
-        if (n > HAUS_BLOCK_RECORDS) n = HAUS_BLOCK_RECORDS;
-        const size_t bytes = n * sizeof(RollupColumn);
-        if (f.read((uint8_t*)block, bytes) != bytes) break;
-        uint32_t crc = 0;
-        if (f.read((uint8_t*)&crc, sizeof(crc)) != sizeof(crc)) break;
-        if (crc != haus_crc32(block, bytes)) {
-          TPL_LOGW("history", "rollup CRC mismatch at block %u",
-                   (unsigned)(base / HAUS_BLOCK_RECORDS));
-          break;
+      } else {
+        RollupColumn* block = io_rollup();
+        if (!block) {
+          f.close();
+          haus_sd_unlock();
+          return 0;
         }
-        for (size_t i = 0; i < n; i++) {
-          if (block[i].t != 0) {
-            l2_store(&block[i]);
-            restored++;
+        for (size_t base = 0; base < HAUS_L2_COLUMNS;
+             base += HAUS_BLOCK_RECORDS) {
+          size_t n = HAUS_L2_COLUMNS - base;
+          if (n > HAUS_BLOCK_RECORDS) n = HAUS_BLOCK_RECORDS;
+          const size_t bytes = n * sizeof(RollupColumn);
+          if (f.read((uint8_t*)block, bytes) != bytes) break;
+          uint32_t crc = 0;
+          if (f.read((uint8_t*)&crc, sizeof(crc)) != sizeof(crc)) break;
+          if (crc != haus_crc32(block, bytes)) {
+            TPL_LOGW("history", "rollup CRC mismatch at block %u",
+                     (unsigned)(base / HAUS_BLOCK_RECORDS));
+            break;
+          }
+          for (size_t i = 0; i < n; i++) {
+            if (block[i].t != 0) {
+              l2_store(&block[i]);
+              restored++;
+            }
           }
         }
+        f.close();
       }
-      f.close();
     }
 
     char day_path[32];

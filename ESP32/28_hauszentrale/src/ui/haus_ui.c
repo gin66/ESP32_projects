@@ -149,6 +149,7 @@ static void can_overlay_close(void);
 static void power_bars_update(void);
 static void power_bars_build(void);
 static void build_status_hotspot(void);
+static void pwm_control_update(void);
 
 /* Home-screen widgets (NULL when the home screen is not built). */
 static lv_obj_t* s_status_date;
@@ -1335,6 +1336,17 @@ static lv_obj_t* s_water_extra;
 static lv_obj_t* s_living_tab[2];
 static int g_living_series = 0;
 
+/* PWM request UI (S20.02). No frame is transmitted yet; the requested value
+ * is local and the in-force value always comes from 0x280. */
+static lv_obj_t* s_pwm_switch;
+static lv_obj_t* s_pwm_switch_lbl;
+static lv_obj_t* s_pwm_slider;
+static lv_obj_t* s_pwm_req_lbl;
+static lv_obj_t* s_pwm_force_lbl;
+static bool s_pwm_on;
+static bool s_pwm_touched;
+static uint16_t s_pwm_duty = 500;
+
 static lv_obj_t* s_log_label;
 static lv_obj_t* s_log_container;
 static lv_obj_t* s_log_status;
@@ -2230,6 +2242,132 @@ static void range_build(int top) {
   }
 }
 
+/* ─── PWM request (S20.02) ───────────────────────────────────────────────
+ * OFF is the switch, not a slider position: it sends 1000. ON sends the
+ * 500..0 slider value. The slider's left end is 500 (minimum heat) and its
+ * right end is 0 (full heat); internally it runs 0..500 so the knob moves
+ * toward "more heat" to the right. Nothing is transmitted yet. */
+
+static void pwm_control_visual(void) {
+  if (s_pwm_switch_lbl) txt(s_pwm_switch_lbl, s_pwm_on ? "ON" : "OFF");
+  if (s_pwm_switch) {
+    lv_obj_set_style_bg_color(s_pwm_switch,
+                              lv_color_hex(s_pwm_on ? C_OK : C_OFF), 0);
+    lv_obj_set_style_bg_opa(s_pwm_switch, s_pwm_on ? 220 : 80, 0);
+  }
+  if (s_pwm_slider) {
+    if (s_pwm_on)
+      lv_obj_clear_state(s_pwm_slider, LV_STATE_DISABLED);
+    else
+      lv_obj_add_state(s_pwm_slider, LV_STATE_DISABLED);
+    lv_obj_set_style_opa(s_pwm_slider, s_pwm_on ? LV_OPA_COVER : 120, 0);
+  }
+  if (s_pwm_req_lbl) {
+    char b[40];
+    if (s_pwm_on)
+      snprintf(b, sizeof(b), "requested %u / 1000", (unsigned)s_pwm_duty);
+    else
+      snprintf(b, sizeof(b), "requested OFF (1000)");
+    txt(s_pwm_req_lbl, b);
+  }
+}
+
+static void pwm_switch_cb(lv_event_t* e) {
+  (void)e;
+  s_pwm_touched = true;
+  s_pwm_on = !s_pwm_on;
+  pwm_control_visual();
+}
+
+static void pwm_slider_cb(lv_event_t* e) {
+  (void)e;
+  if (!s_pwm_slider) return;
+  s_pwm_touched = true;
+  s_pwm_duty = (uint16_t)(500 - lv_slider_get_value(s_pwm_slider));
+  pwm_control_visual();
+}
+
+static void pwm_force_text(uint16_t f) {
+  if (!s_pwm_force_lbl) return;
+  char b[40];
+  if (f >= 1000)
+    snprintf(b, sizeof(b), "in force OFF (1000)");
+  else
+    snprintf(b, sizeof(b), "in force %u / 1000", (unsigned)f);
+  txt(s_pwm_force_lbl, b);
+}
+
+static void pwm_control_update(void) {
+  if (!s_pwm_slider) return;
+  HausState st;
+  gui_get_state(&st);
+  const uint16_t f = st.can.pwm_permille;
+  if (!s_pwm_touched) {
+    s_pwm_on = (f <= 500);
+    s_pwm_duty = (f <= 500) ? f : 500;
+    lv_slider_set_value(s_pwm_slider, 500 - s_pwm_duty, LV_ANIM_OFF);
+    pwm_control_visual();
+  }
+  pwm_force_text(f);
+}
+
+static void pwm_control_build(int top) {
+  lv_obj_t* root = lv_screen_active();
+  hline(root, top, C_LINE);
+
+  label_make(root, "HEATER", 20, top + 18, &haus_body_21, C_INK);
+
+  s_pwm_switch = lv_obj_create(root);
+  lv_obj_set_size(s_pwm_switch, 80, 38);
+  lv_obj_set_pos(s_pwm_switch, 380, top + 12);
+  lv_obj_set_style_border_width(s_pwm_switch, 0, 0);
+  lv_obj_set_style_radius(s_pwm_switch, 8, 0);
+  lv_obj_set_style_pad_all(s_pwm_switch, 0, 0);
+  obj_set_scrollable(s_pwm_switch, false);
+  obj_set_clickable(s_pwm_switch, true);
+  lv_obj_add_event_cb(s_pwm_switch, pwm_switch_cb, LV_EVENT_CLICKED, NULL);
+  s_pwm_switch_lbl = label_make(s_pwm_switch, "OFF", 0, 0,
+                                &lv_font_montserrat_16, C_INK);
+  lv_obj_center(s_pwm_switch_lbl);
+
+  s_pwm_slider = lv_slider_create(root);
+  lv_obj_set_size(s_pwm_slider, 440, 30);
+  lv_obj_set_pos(s_pwm_slider, 20, top + 66);
+  lv_slider_set_range(s_pwm_slider, 0, 500);
+  lv_obj_set_style_bg_color(s_pwm_slider, lv_color_hex(C_LINE),
+                            LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(s_pwm_slider, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_radius(s_pwm_slider, 6, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(s_pwm_slider, lv_color_hex(C_HOT),
+                            LV_PART_INDICATOR);
+  lv_obj_set_style_bg_color(s_pwm_slider, lv_color_hex(C_INK), LV_PART_KNOB);
+  lv_obj_set_style_width(s_pwm_slider, 26, LV_PART_KNOB);
+  lv_obj_set_style_height(s_pwm_slider, 26, LV_PART_KNOB);
+  obj_set_clickable(s_pwm_slider, true);
+  lv_obj_add_event_cb(s_pwm_slider, pwm_slider_cb, LV_EVENT_VALUE_CHANGED,
+                      NULL);
+
+  label_make(root, "500 min", 20, top + 102, &lv_font_montserrat_16, C_DIM);
+  lv_obj_t* full = label_make(root, "0 full", 0, top + 102,
+                              &lv_font_montserrat_16, C_DIM);
+  lv_obj_set_width(full, 440);
+  lv_obj_set_style_text_align(full, LV_TEXT_ALIGN_RIGHT, 0);
+  lv_obj_set_pos(full, 20, top + 102);
+
+  s_pwm_req_lbl = label_make(root, "", 20, top + 128, &haus_body_21, C_INK);
+  s_pwm_force_lbl = label_make(root, "", 20, top + 156, &haus_body_21, C_DIM);
+
+  s_pwm_touched = false;
+  HausState st;
+  gui_get_state(&st);
+  const uint16_t f = st.can.pwm_permille;
+  s_pwm_on = (f <= 500);
+  s_pwm_duty = (f <= 500) ? f : 500;
+  lv_slider_set_value(s_pwm_slider, 500 - s_pwm_duty, LV_ANIM_OFF);
+  pwm_control_visual();
+  pwm_force_text(f);
+}
+
 static void header_build_at(const char* title, const char* badge,
                             uint32_t badge_color, int title_y) {
   label_make(lv_screen_active(), title, 20, title_y, &lv_font_montserrat_32,
@@ -2328,6 +2466,7 @@ static void chart_rebuild(void) {
 static void detail_update(void) {
   if (!s_detail_value) return;
   detail_value_update();
+  if (g_detail_screen == UI_SCREEN_CHAMBER) pwm_control_update();
 
   if (g_detail_screen == UI_SCREEN_LIVING) {
     HausState st;
@@ -3022,6 +3161,8 @@ static lv_obj_t* detail_build(int screen, const char* title, int nav_index,
                                ry, &lv_font_montserrat_16, C_DIM);
   s_chart_age = label_make(root, "data age --", 20, ry + 26,
                            &lv_font_montserrat_16, C_FAINT);
+
+  if (screen == UI_SCREEN_CHAMBER) pwm_control_build(524);
 
   nav_build(screen);
   s_chart_force = true;
@@ -4081,6 +4222,9 @@ void haus_ui_deinit(void) {
   memset(s_power_bars, 0, sizeof(s_power_bars));
   s_power_bin_count = 0;
   s_water_extra = NULL;
+  s_pwm_switch = s_pwm_switch_lbl = s_pwm_slider = NULL;
+  s_pwm_req_lbl = s_pwm_force_lbl = NULL;
+  s_pwm_touched = false;
   memset(s_living_tab, 0, sizeof(s_living_tab));
   s_log_label = s_log_container = s_log_status = NULL;
   s_log_follow = s_log_follow_lbl = s_log_ws = NULL;

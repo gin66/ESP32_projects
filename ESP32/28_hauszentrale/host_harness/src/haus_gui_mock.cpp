@@ -133,9 +133,9 @@ static uint16_t mock_pwm_duty(uint32_t epoch) {
   double diff = target_c - chamber_c;
 
   /* Duty is proportional to how far below target we are.
-   * Max duty 800 permille (80%) when far below target.
-   * Drops to 50 permille (5%) when near target. */
-  double duty = 50.0 + 750.0 * (1.0 / (1.0 + exp(-0.3 * diff)));
+   * Max duty 475 permille when far below target.
+   * Drops to 25 permille when near target. */
+  double duty = 25.0 + 450.0 * (1.0 / (1.0 + exp(-0.3 * diff)));
 
   /* Add small noise. */
   duty += sin(epoch * 0.05) * 10.0;

@@ -301,6 +301,7 @@ void setup() {
              "{\"initialized\":%s,\"type\":\"%s\",\"total\":%llu,"
              "\"used\":%llu,\"free\":%llu,\"floor\":%llu,"
              "\"headroom\":%llu,\"samples\":%llu,\"rollup\":%llu,"
+             "\"sample_records\":%llu,\"rollup_records\":%llu,"
              "\"logs\":%llu,\"last_rollover\":%lu,\"newest_file\":%lu,"
              "\"fault_since\":%lu,\"spiffs_total\":%lu,"
              "\"spiffs_used\":%lu,\"ring_bytes\":%lu,\"ring_hours\":%lu,"
@@ -319,6 +320,10 @@ void setup() {
                                       : 0),
              (unsigned long long)st.can.sd_samples_bytes,
              (unsigned long long)st.can.sd_rollup_bytes,
+             (unsigned long long)(st.can.sd_samples_bytes /
+                                  (uint64_t)sizeof(gui_sample_t)),
+             (unsigned long long)(st.can.sd_rollup_bytes /
+                                  (uint64_t)sizeof(RollupColumn)),
              (unsigned long long)st.can.sd_logs_bytes,
              (unsigned long)st.can.sd_last_rollover_epoch,
              (unsigned long)st.can.sd_newest_file_epoch,

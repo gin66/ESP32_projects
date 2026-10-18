@@ -3460,11 +3460,15 @@ lv_obj_t* haus_ui_build_storage(void) {
   label_make(root, line, 20, 216, &haus_body_21, C_DIM);
 
   fmt_bytes(st.can.sd_samples_bytes, a, sizeof(a));
-  snprintf(line, sizeof(line), "minute samples  %s", a);
+  snprintf(line, sizeof(line), "minute samples  %s  %llu recs", a,
+           (unsigned long long)(st.can.sd_samples_bytes /
+                                (uint64_t)sizeof(gui_sample_t)));
   label_make(root, line, 20, 256, &haus_body_21, C_INK);
 
   fmt_bytes(st.can.sd_rollup_bytes, a, sizeof(a));
-  snprintf(line, sizeof(line), "hourly rollup   %s", a);
+  snprintf(line, sizeof(line), "hourly rollup   %s  %llu cols", a,
+           (unsigned long long)(st.can.sd_rollup_bytes /
+                                (uint64_t)sizeof(RollupColumn)));
   label_make(root, line, 20, 284, &haus_body_21, C_INK);
 
   fmt_bytes(st.can.sd_logs_bytes, a, sizeof(a));

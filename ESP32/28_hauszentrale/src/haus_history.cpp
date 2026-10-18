@@ -1163,6 +1163,12 @@ void haus_history_sd_watchdog(uint32_t now_ms) {
   if (!haus_sd_ever_mounted()) {
     if (haus_sd_mount() && haus_sd_selftest()) {
       TPL_LOGI("sd", "card mounted and verified");
+      /* S23.21: a card inserted after a card-less boot must bring its history
+       * with it, not wait for the next reboot. */
+      const size_t restored = haus_history_restore((uint32_t)time(nullptr));
+      TPL_LOGI("history", "card inserted: restored %u columns",
+               (unsigned)restored);
+      gui_request_redraw();
     }
     return;
   }
@@ -1176,6 +1182,10 @@ void haus_history_sd_watchdog(uint32_t now_ms) {
       /* The operational fault clears on a verified remount; the first-failure
        * timestamp stays until a clean rollover (S23.10). */
       s_sd_fault = false;
+      const size_t restored = haus_history_restore((uint32_t)time(nullptr));
+      TPL_LOGI("history", "card reinserted: restored %u columns",
+               (unsigned)restored);
+      gui_request_redraw();
     }
   }
 }

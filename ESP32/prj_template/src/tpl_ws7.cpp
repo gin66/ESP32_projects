@@ -18,28 +18,31 @@
 static const char* TAG = "tpl_ws7";
 
 /* RGB timing defaults. A project can override any of these in platformio.ini,
- * e.g. -DTPL_WS7_HSYNC_BACK_PORCH=20. The Waveshare 7" panel is tolerant, but
- * larger porches give the single-buffered RGB DMA more headroom after OTA. */
+ * e.g. -DTPL_WS7_HSYNC_BACK_PORCH=20, but these are the proven Waveshare 7"
+ * values; wider porches (10/20/16) made the OTA stripes worse on this panel. */
 #ifndef TPL_WS7_HSYNC_PULSE_WIDTH
-#define TPL_WS7_HSYNC_PULSE_WIDTH 10
+#define TPL_WS7_HSYNC_PULSE_WIDTH 4
 #endif
 #ifndef TPL_WS7_HSYNC_BACK_PORCH
-#define TPL_WS7_HSYNC_BACK_PORCH 20
+#define TPL_WS7_HSYNC_BACK_PORCH 8
 #endif
 #ifndef TPL_WS7_HSYNC_FRONT_PORCH
-#define TPL_WS7_HSYNC_FRONT_PORCH 16
+#define TPL_WS7_HSYNC_FRONT_PORCH 8
 #endif
 #ifndef TPL_WS7_VSYNC_PULSE_WIDTH
-#define TPL_WS7_VSYNC_PULSE_WIDTH 10
+#define TPL_WS7_VSYNC_PULSE_WIDTH 4
 #endif
 #ifndef TPL_WS7_VSYNC_BACK_PORCH
-#define TPL_WS7_VSYNC_BACK_PORCH 20
+#define TPL_WS7_VSYNC_BACK_PORCH 8
 #endif
 #ifndef TPL_WS7_VSYNC_FRONT_PORCH
-#define TPL_WS7_VSYNC_FRONT_PORCH 16
+#define TPL_WS7_VSYNC_FRONT_PORCH 8
 #endif
 #ifndef TPL_WS7_PCLK_IDLE_HIGH
-#define TPL_WS7_PCLK_IDLE_HIGH 0
+#define TPL_WS7_PCLK_IDLE_HIGH 1
+#endif
+#ifndef TPL_WS7_PCLK_HZ
+#define TPL_WS7_PCLK_HZ (16 * 1000 * 1000)
 #endif
 
 static uint16_t s_output_shadow = 0;  // 12-bit shadow of CH422G output
@@ -279,42 +282,14 @@ static void ws7_rgb_flush_cb(lv_display_t* disp, const lv_area_t* area,
   lv_display_flush_ready(disp);
 }
 
-lv_display_t* tpl_ws7_display_init(uint8_t rotation, uint32_t* buf,
-                                   size_t buf_size) {
-  if (!buf || buf_size == 0) {
-    ESP_LOGW(TAG, "No draw buffer provided, returning NULL");
-    return NULL;
-  }
-
-  /* Translate the project rotation index (whitepaper §6.6) into the LVGL
-   * enum. Index 0 is portrait and must NOT be passed through as rotation 0,
-   * which would leave the panel in landscape. */
-  lv_display_rotation_t lv_rotation;
-  switch (rotation) {
-    case 0:
-      lv_rotation = LV_DISPLAY_ROTATION_90;
-      break;  // portrait
-    case 1:
-      lv_rotation = LV_DISPLAY_ROTATION_0;
-      break;  // landscape
-    case 2:
-      lv_rotation = LV_DISPLAY_ROTATION_270;
-      break;  // portrait, 180°
-    case 3:
-      lv_rotation = LV_DISPLAY_ROTATION_180;
-      break;  // landscape, mirrored
-    default:
-      lv_rotation = LV_DISPLAY_ROTATION_90;
-      break;
-  }
-
-  ESP_LOGI(TAG, "Initializing RGB panel (ST7262, %dx%d, 16 MHz)",
-           TPL_WS7_SCREEN_WIDTH, TPL_WS7_SCREEN_HEIGHT);
-
+/* Create (or re-create) the RGB panel from the compile-time TPL_WS7_* timing
+ * defaults. Kept separate from the LVGL display so Settings can reset the panel
+ * without destroying the UI. */
+static esp_err_t ws7_rgb_panel_create(void) {
   // Configure RGB panel (S4.01, S4.02)
   esp_lcd_rgb_panel_config_t panel_config = {};
   panel_config.clk_src = LCD_CLK_SRC_PLL160M;
-  panel_config.timings.pclk_hz = 16 * 1000 * 1000;
+  panel_config.timings.pclk_hz = TPL_WS7_PCLK_HZ;
   panel_config.timings.h_res = TPL_WS7_SCREEN_WIDTH;
   panel_config.timings.v_res = TPL_WS7_SCREEN_HEIGHT;
   panel_config.timings.hsync_pulse_width = TPL_WS7_HSYNC_PULSE_WIDTH;
@@ -375,16 +350,56 @@ lv_display_t* tpl_ws7_display_init(uint8_t rotation, uint32_t* buf,
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "RGB panel create failed: %s", esp_err_to_name(err));
     s_rgb_panel = NULL;
-    return NULL;
+    return err;
   }
 
   err = esp_lcd_panel_init(s_rgb_panel);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "RGB panel init failed: %s", esp_err_to_name(err));
-    return NULL;
+    esp_lcd_panel_del(s_rgb_panel);
+    s_rgb_panel = NULL;
+    return err;
   }
 
   ESP_LOGI(TAG, "RGB panel initialized successfully");
+  return ESP_OK;
+
+}
+
+lv_display_t* tpl_ws7_display_init(uint8_t rotation, uint32_t* buf,
+                                   size_t buf_size) {
+  if (!buf || buf_size == 0) {
+    ESP_LOGW(TAG, "No draw buffer provided, returning NULL");
+    return NULL;
+  }
+
+  /* Translate the project rotation index (whitepaper §6.6) into the LVGL
+   * enum. Index 0 is portrait and must NOT be passed through as rotation 0,
+   * which would leave the panel in landscape. */
+  lv_display_rotation_t lv_rotation;
+  switch (rotation) {
+    case 0:
+      lv_rotation = LV_DISPLAY_ROTATION_90;
+      break;  // portrait
+    case 1:
+      lv_rotation = LV_DISPLAY_ROTATION_0;
+      break;  // landscape
+    case 2:
+      lv_rotation = LV_DISPLAY_ROTATION_270;
+      break;  // portrait, 180°
+    case 3:
+      lv_rotation = LV_DISPLAY_ROTATION_180;
+      break;  // landscape, mirrored
+    default:
+      lv_rotation = LV_DISPLAY_ROTATION_90;
+      break;
+  }
+
+  ESP_LOGI(TAG, "Initializing RGB panel (ST7262, %dx%d, %u Hz)",
+           TPL_WS7_SCREEN_WIDTH, TPL_WS7_SCREEN_HEIGHT,
+           (unsigned)TPL_WS7_PCLK_HZ);
+
+  if (ws7_rgb_panel_create() != ESP_OK) return NULL;
 
   // Scratch buffer for software rotation. The CPU rotates into it and
   // draw_bitmap copies the result into the PSRAM framebuffer, so the scratch
@@ -415,6 +430,47 @@ lv_display_t* tpl_ws7_display_init(uint8_t rotation, uint32_t* buf,
 
   return s_lv_display;
 }
+
+// --- Runtime RGB panel reset (S4.06) ---
+
+esp_err_t tpl_ws7_reset_rgb_timing(void) {
+  if (!s_rgb_panel) {
+    ESP_LOGE(TAG, "RGB panel not initialized");
+    return ESP_ERR_INVALID_STATE;
+  }
+
+  /* IDF 5.5 has no esp_lcd_rgb_panel_set_timings()/get_config(). Recreating the
+   * panel is the only public way to put every timing register back to the
+   * compile-time defaults, and it also restarts the DMA. The LVGL display and
+   * its draw buffers stay alive; the flush callback picks up the new handle. */
+  esp_err_t err = esp_lcd_panel_del(s_rgb_panel);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "RGB panel delete failed: %s", esp_err_to_name(err));
+    return err;
+  }
+  s_rgb_panel = NULL;
+
+  /* Reset the ST7262 through CH422G IO3 as well. The timing registers live in
+   * the ESP32 RGB peripheral, so the recreate below is what restores them; the
+   * panel reset clears the controller's own state. */
+  err = tpl_ws7_panel_reset();
+  if (err != ESP_OK) {
+    ESP_LOGW(TAG, "ST7262 reset via CH422G failed: %s", esp_err_to_name(err));
+  }
+
+  err = ws7_rgb_panel_create();
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "RGB panel recreate failed: %s", esp_err_to_name(err));
+    return err;
+  }
+
+  if (s_lv_display) {
+    lv_obj_invalidate(lv_screen_active());
+  }
+  ESP_LOGI(TAG, "RGB panel reset to compile-time timing");
+  return ESP_OK;
+}
+
 // --- GT911 Touch (S5) ---
 
 /* GT911 I2C addresses (7-bit). The address is latched from the INT pin level at

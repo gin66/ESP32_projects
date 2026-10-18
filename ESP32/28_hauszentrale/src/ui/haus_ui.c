@@ -3799,7 +3799,7 @@ static void settings_open_log_cb(lv_event_t* e) {
 static lv_obj_t* settings_value_row(int y, const char* title, const char* value,
                                     lv_event_cb_t cb) {
   lv_obj_t* b = lv_obj_create(lv_screen_active());
-  lv_obj_set_size(b, 440, 42);
+  lv_obj_set_size(b, 440, 40);
   lv_obj_set_pos(b, 20, y);
   lv_obj_set_style_bg_opa(b, 0, 0);
   lv_obj_set_style_border_width(b, 0, 0);
@@ -3809,13 +3809,13 @@ static lv_obj_t* settings_value_row(int y, const char* title, const char* value,
   obj_set_scrollable(b, false);
   obj_set_clickable(b, true);
   if (cb) lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, NULL);
-  label_make(b, title, 0, 10, &haus_body_21, C_INK);
+  label_make(b, title, 0, 9, &haus_body_21, C_INK);
   lv_obj_t* v =
-      label_make(b, value, 0, 10, &haus_body_21, cb ? C_ACCENT : C_DIM);
+      label_make(b, value, 0, 9, &haus_body_21, cb ? C_ACCENT : C_DIM);
   /* Actionable rows carry a chevron; static values do not. */
-  lv_obj_align(v, LV_ALIGN_TOP_RIGHT, cb ? -30 : 0, 10);
+  lv_obj_align(v, LV_ALIGN_TOP_RIGHT, cb ? -30 : 0, 9);
   if (cb)
-    label_make(b, LV_SYMBOL_RIGHT, 426, 8, &lv_font_montserrat_16, C_DIM);
+    label_make(b, LV_SYMBOL_RIGHT, 426, 7, &lv_font_montserrat_16, C_DIM);
   return v;
 }
 
@@ -3849,6 +3849,7 @@ static void epoch_to_datetime(uint32_t epoch, char* out, size_t n) {
 static lv_obj_t* s_backlight_lbl;
 static lv_obj_t* s_power_unit_lbl;
 static lv_obj_t* s_diag_lbl;
+static lv_obj_t* s_panel_lbl;
 static int s_settings_power_unit = -1; /* -1 auto, 0 W, 1 kW */
 
 static void settings_backlight_cb(lv_event_t* e) {
@@ -3865,6 +3866,12 @@ static void settings_power_unit_cb(lv_event_t* e) {
   txt(s_power_unit_lbl, s_settings_power_unit < 0
                             ? "auto"
                             : (s_settings_power_unit == 0 ? "W" : "kW"));
+}
+
+static void settings_panel_reset_cb(lv_event_t* e) {
+  (void)e;
+  const bool ok = gui_reset_panel();
+  if (s_panel_lbl) txt(s_panel_lbl, ok ? "done" : "failed");
 }
 
 static void settings_diag_cb(lv_event_t* e) {
@@ -4447,7 +4454,7 @@ lv_obj_t* haus_ui_build_settings(void) {
   label_make(root, "tap a row with a > to open or change", 20, 122,
              &lv_font_montserrat_16, C_FAINT);
   int y = 140;
-  const int step = 44;
+  const int step = 40;
   settings_value_row(y, "CAN MONITOR", "live IDs", settings_open_can_cb);
   y += step;
   settings_value_row(y, "AC MAINS", "RMS + angle", settings_open_ac_cb);
@@ -4480,6 +4487,9 @@ lv_obj_t* haus_ui_build_settings(void) {
   y += step;
   settings_value_row(y, "STORAGE", mounted ? "card" : "absent",
                      settings_open_storage_cb);
+  y += step;
+  s_panel_lbl = settings_value_row(y, "PANEL RESET", "timing",
+                                   settings_panel_reset_cb);
   y += step;
   s_diag_lbl =
       settings_value_row(y, "DIAGNOSTICS", "SAVE RING", settings_diag_cb);
@@ -4553,6 +4563,7 @@ void haus_ui_deinit(void) {
   s_pwm_last_tx = 0xFFFF;
   memset(s_living_tab, 0, sizeof(s_living_tab));
   memset(s_ac_tab, 0, sizeof(s_ac_tab));
+  s_panel_lbl = NULL;
   s_log_label = s_log_container = s_log_status = NULL;
   s_log_follow = s_log_follow_lbl = s_log_ws = NULL;
   s_log_sd = NULL;

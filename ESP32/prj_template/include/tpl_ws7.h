@@ -96,6 +96,12 @@ spi_host_device_t tpl_ws7_sd_bus(void);
 lv_display_t* tpl_ws7_display_init(uint8_t rotation, uint32_t* buf,
                                    size_t buf_size);
 
+/* Recreate the RGB panel from the compile-time TPL_WS7_* timing macros and
+ * pulse the ST7262 reset through CH422G IO3 (S4.06). This resets every timing
+ * register and restarts DMA without destroying the LVGL display. Used by
+ * Settings -> PANEL RESET. */
+esp_err_t tpl_ws7_reset_rgb_timing(void);
+
 // GT911 touch (S5)
 esp_err_t tpl_ws7_touch_init(void);
 void tpl_ws7_touch_read_cb(lv_indev_t* indev, lv_indev_data_t* data);

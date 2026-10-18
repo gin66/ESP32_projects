@@ -306,6 +306,9 @@ void gui_set_backlight(bool on);
  * this from the detail page when the switch or slider changes. */
 bool gui_send_pwm(uint16_t duty_permille);
 
+/* Settings -> PANEL RESET: recreate the RGB panel from compile-time timing. */
+bool gui_reset_panel(void);
+
 /* PWM source constants (mirror PWM_SRC_* in haus_can.h) */
 #define GUI_PWM_SRC_EEPROM 0x00
 #define GUI_PWM_SRC_CAN 0x02

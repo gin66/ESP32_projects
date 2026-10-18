@@ -424,6 +424,12 @@ bool gui_send_pwm(uint16_t duty_permille) {
   return haus_can_bus_send_pwm(duty_permille);
 }
 
+bool gui_reset_panel(void) {
+  const esp_err_t err = tpl_ws7_reset_rgb_timing();
+  TPL_LOGI("settings", "panel reset %s", err == ESP_OK ? "ok" : "failed");
+  return err == ESP_OK;
+}
+
 bool gui_water_model_available(void) {
   /* TODO: Return true if WaterModel is installed and active.
    * For now, false — water-out shows "—". */

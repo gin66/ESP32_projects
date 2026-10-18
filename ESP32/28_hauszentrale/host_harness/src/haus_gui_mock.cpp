@@ -660,3 +660,5 @@ void gui_set_backlight(bool on) { g_backlight_on = on; }
 bool gui_send_pwm(uint16_t duty_permille) {
   return duty_permille <= 500 || duty_permille == 1000;
 }
+
+bool gui_reset_panel(void) { return true; }

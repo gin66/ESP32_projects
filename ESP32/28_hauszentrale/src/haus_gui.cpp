@@ -493,6 +493,9 @@ void gui_update_state(void) {
     can.fn_of_slot[r] = mapped.fn_of_slot[r];
   for (int f = 0; f < SENSOR_FN_COUNT; f++)
     can.temp_by_fn[f] = mapped.temp_by_fn[f];
+  /* The heater probe is bound as BOARD; the chamber zone shows the same
+   * measurement. There is no separate chamber probe in this installation. */
+  can.temp_by_fn[SENSOR_FN_CHAMBER] = mapped.temp_by_fn[SENSOR_FN_BOARD];
   static bool s_was_bound[SENSOR_FN_COUNT] = {false, false, false, false,
                                               false};
   bool now_bound[SENSOR_FN_COUNT] = {false, false, false, false, false};

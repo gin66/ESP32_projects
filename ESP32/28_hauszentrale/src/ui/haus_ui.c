@@ -3195,14 +3195,22 @@ static void settings_can_cb(lv_event_t* e) {
 
 static lv_obj_t* s_roles_lbl[ROLES_MAX];
 
+/* The installation has three probes: the heater board, the water-in pipe and
+ * the water-out pipe. CHAMBER is kept in the enum for old persisted files and
+ * for the chamber zone, which aliases BOARD. */
+static const uint8_t k_role_cycle[] = {
+    SENSOR_FN_BOARD, SENSOR_FN_WATER_IN, SENSOR_FN_WATER_OUT, SENSOR_FN_NONE,
+};
+#define ROLE_CYCLE_LEN (sizeof(k_role_cycle) / sizeof(k_role_cycle[0]))
+
 static const char* role_fn_name(uint8_t fn) {
   switch (fn) {
     case SENSOR_FN_CHAMBER:
       return "CHAMBER";
     case SENSOR_FN_WATER_IN:
-      return "WATER IN";
+      return "WATER IN (PIPE)";
     case SENSOR_FN_WATER_OUT:
-      return "WATER OUT";
+      return "WATER OUT (PIPE)";
     case SENSOR_FN_BOARD:
       return "BOARD";
     default:
@@ -3232,7 +3240,14 @@ static void roles_row_cb(lv_event_t* e) {
   uint8_t rom[8];
   uint8_t fn = SENSOR_FN_NONE;
   if (!gui_roles_get(index, rom, &fn)) return;
-  const uint8_t next = (uint8_t)((fn + 1u) % SENSOR_FN_COUNT);
+  uint8_t pos = 0;
+  for (uint8_t i = 0; i < ROLE_CYCLE_LEN; i++) {
+    if (k_role_cycle[i] == fn) {
+      pos = i;
+      break;
+    }
+  }
+  const uint8_t next = k_role_cycle[(pos + 1u) % ROLE_CYCLE_LEN];
   gui_roles_set(index, next);
   if (index < ROLES_MAX && s_roles_lbl[index]) {
     if (!gui_roles_get(index, rom, &fn)) fn = next;
@@ -3267,7 +3282,11 @@ lv_obj_t* haus_ui_build_roles(void) {
                &haus_body_21, C_DIM);
   }
 
-  const int y0 = 104, step = 62, h = 54;
+  label_make(root, "RANK", 20, 86, &lv_font_montserrat_16, C_FAINT);
+  label_make(root, "SENSOR ID", 85, 86, &lv_font_montserrat_16, C_FAINT);
+  label_make(root, "ROLE", 250, 86, &lv_font_montserrat_16, C_FAINT);
+
+  const int y0 = 112, step = 62, h = 54;
   for (uint8_t i = 0; i < count && i < ROLES_MAX; i++) {
     uint8_t rom[8];
     uint8_t fn = SENSOR_FN_NONE;
@@ -3280,24 +3299,26 @@ lv_obj_t* haus_ui_build_roles(void) {
     lv_obj_set_style_border_width(row, 1, 0);
     lv_obj_set_style_border_color(row, lv_color_hex(C_LINE), 0);
     lv_obj_set_style_radius(row, 8, 0);
+    lv_obj_set_style_pad_all(row, 0, 0);
     obj_set_scrollable(row, false);
     obj_set_clickable(row, true);
     lv_obj_add_event_cb(row, roles_row_cb, LV_EVENT_CLICKED,
                         (void*)(uintptr_t)i);
 
+    char rank[8];
+    snprintf(rank, sizeof(rank), "%u", (unsigned)i);
+    lv_obj_t* rl = label_make(row, rank, 0, 0, &lv_font_montserrat_16, C_FAINT);
+    lv_obj_align(rl, LV_ALIGN_LEFT_MID, 24, 0);
+
     char id[40];
     snprintf(id, sizeof(id), "%02X%02X%02X%02X%02X%02X%02X%02X", rom[0],
              rom[1], rom[2], rom[3], rom[4], rom[5], rom[6], rom[7]);
-    label_make(row, id, 14, 14, &haus_mono_21, C_DIM);
-    s_roles_lbl[i] = label_make(row, role_fn_name(fn), 250, 14, &haus_body_21,
+    lv_obj_t* idl = label_make(row, id, 0, 0, &lv_font_montserrat_16, C_DIM);
+    lv_obj_align(idl, LV_ALIGN_LEFT_MID, 85, 0);
+    s_roles_lbl[i] = label_make(row, role_fn_name(fn), 0, 0,
+                                &lv_font_montserrat_16,
                                 fn == SENSOR_FN_NONE ? C_FAINT : C_INK);
-  }
-
-  if (count <= 4) {
-    label_make(root, "cycle order", 20, 348, &lv_font_montserrat_16, C_FAINT);
-    label_make(root, "CHAMBER > WATER IN", 20, 380, &haus_body_21, C_DIM);
-    label_make(root, "WATER OUT > BOARD > NONE", 20, 412, &haus_body_21,
-               C_DIM);
+    lv_obj_align(s_roles_lbl[i], LV_ALIGN_LEFT_MID, 250, 0);
   }
 
   label_make(root, "roles persist across reboots", 20, 640,

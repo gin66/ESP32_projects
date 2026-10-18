@@ -21,12 +21,15 @@ typedef struct __attribute__((packed)) {
 } RolesFile;
 
 #define ROLES_MAGIC 0x52534E48u /* "HNSR" */
-#define ROLES_VERSION 2
+#define ROLES_VERSION 3
 
+/* Current installation: the probe on the heater board, the water-in pipe and
+ * the water-out pipe. There is no separate chamber probe; the board probe is
+ * the heater/chamber measurement (see the alias in haus_gui.cpp). */
 static haus_sensor_role_t s_roles[4] = {
-    {{0x28, 0x1B, 0xF7, 0x57, 0x04, 0xE1, 0x3C, 0x26}, SENSOR_FN_CHAMBER},
+    {{0x28, 0x1B, 0xF7, 0x57, 0x04, 0xE1, 0x3C, 0x26}, SENSOR_FN_BOARD},
     {{0x28, 0x76, 0xC2, 0x57, 0x04, 0xE1, 0x3C, 0xF9}, SENSOR_FN_WATER_IN},
-    {{0x28, 0xB9, 0xEE, 0x81, 0xE3, 0xE1, 0x3C, 0x2E}, SENSOR_FN_BOARD},
+    {{0x28, 0xB9, 0xEE, 0x81, 0xE3, 0xE1, 0x3C, 0x2E}, SENSOR_FN_WATER_OUT},
     {{0, 0, 0, 0, 0, 0, 0, 0}, SENSOR_FN_NONE},
 };
 static uint8_t s_count = 3;

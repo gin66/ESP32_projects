@@ -571,8 +571,8 @@ bool gui_can_actual(bool* known) {
   return g_can_enabled;
 }
 
-static uint8_t s_mock_roles[3] = {SENSOR_FN_CHAMBER, SENSOR_FN_WATER_IN,
-                                  SENSOR_FN_BOARD};
+static uint8_t s_mock_roles[3] = {SENSOR_FN_BOARD, SENSOR_FN_WATER_IN,
+                                  SENSOR_FN_WATER_OUT};
 static const uint8_t s_mock_roms[3][8] = {
     {0x28, 0x1B, 0xF7, 0x57, 0x04, 0xE1, 0x3C, 0x26},
     {0x28, 0x76, 0xC2, 0x57, 0x04, 0xE1, 0x3C, 0xF9},

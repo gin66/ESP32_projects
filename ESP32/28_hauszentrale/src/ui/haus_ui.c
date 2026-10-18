@@ -21,6 +21,7 @@
 #include "haus_chart.h"
 #include "haus_config.h"
 #include "haus_gui.h"
+#include "haus_history.h"
 #include "haus_mem.h"
 
 #ifndef HAUS_HOST
@@ -34,6 +35,9 @@
 #endif
 #ifndef VERSION_STRING
 #define VERSION_STRING "dev"
+#endif
+#ifndef GIT_HASH
+#define GIT_HASH VERSION_STRING
 #endif
 
 LV_FONT_DECLARE(haus_mono_21);
@@ -138,6 +142,7 @@ static void ui_show_screen(int screen);
 static void detail_update(void);
 static void log_screen_update(void);
 static void can_screen_update(void);
+static void settings_can_refresh(void);
 static void can_overlay_close(void);
 static void power_bars_update(void);
 static void power_bars_build(void);
@@ -977,6 +982,10 @@ void haus_ui_update(void) {
   }
   if (g_current_screen == UI_SCREEN_CAN) {
     can_screen_update();
+    return;
+  }
+  if (g_current_screen == UI_SCREEN_SETTINGS) {
+    settings_can_refresh();
     return;
   }
   if (g_current_screen != UI_SCREEN_HOME) {
@@ -3059,6 +3068,10 @@ lv_obj_t* haus_ui_build_living(void) {
 
 static lv_obj_t* s_can_switch_lbl;
 static lv_obj_t* s_can_switch;
+static lv_obj_t* s_can_fault_lbl;
+static lv_obj_t* s_can_modal;
+static bool s_can_pending;
+static uint32_t s_can_apply_ms;
 
 static void settings_can_visual(bool on) {
   if (s_can_switch_lbl) txt(s_can_switch_lbl, on ? "ON" : "OFF");
@@ -3068,12 +3081,217 @@ static void settings_can_visual(bool on) {
   }
 }
 
-static void settings_can_cb(lv_event_t* e) {
+/* S23.02: show what the CH422G actually reports, not what was requested. A
+ * request that does not match the mux after the apply window is a fault. */
+static void settings_can_refresh(void) {
+  if (!s_can_switch) return;
+
+  bool known = false;
+  const bool actual = gui_can_actual(&known);
+  const bool requested = gui_can_enabled();
+  settings_can_visual(known ? actual : requested);
+
+  bool mismatch = known && (actual != requested);
+  if (mismatch && s_can_apply_ms != 0 &&
+      (can_ui_now_ms() - s_can_apply_ms) < 2500u) {
+    mismatch = false; /* the apply task is still switching */
+  }
+  if (!mismatch) s_can_apply_ms = 0;
+  if (s_can_fault_lbl) txt(s_can_fault_lbl, mismatch ? "MUX FAULT" : "");
+}
+
+static void can_modal_close(void) {
+  if (s_can_modal) {
+    lv_obj_delete(s_can_modal);
+    s_can_modal = NULL;
+  }
+}
+
+static void can_modal_yes_cb(lv_event_t* e) {
   (void)e;
-  const bool on = !gui_can_enabled();
+  const bool on = s_can_pending;
+  can_modal_close();
   haus_config_set_can_enabled(on);
   gui_set_can_enabled(on);
-  settings_can_visual(on);
+  s_can_apply_ms = can_ui_now_ms();
+  settings_can_refresh();
+}
+
+static void can_modal_no_cb(lv_event_t* e) {
+  (void)e;
+  can_modal_close();
+  settings_can_refresh();
+}
+
+/* S23.04: the only row that changes the USB mux asks first, and the question
+ * names the consequence (§8.14). */
+static void settings_can_cb(lv_event_t* e) {
+  (void)e;
+  if (s_can_modal) return;
+
+  s_can_pending = !gui_can_enabled();
+  const bool on = s_can_pending;
+
+  s_can_modal = lv_obj_create(lv_screen_active());
+  lv_obj_set_size(s_can_modal, SCREEN_W, SCREEN_H);
+  lv_obj_set_pos(s_can_modal, 0, 0);
+  lv_obj_set_style_bg_color(s_can_modal, lv_color_hex(0x000000), 0);
+  lv_obj_set_style_bg_opa(s_can_modal, 160, 0);
+  lv_obj_set_style_border_width(s_can_modal, 0, 0);
+  obj_set_scrollable(s_can_modal, false);
+
+  lv_obj_t* panel = lv_obj_create(s_can_modal);
+  lv_obj_set_size(panel, 580, 270);
+  lv_obj_center(panel);
+  lv_obj_set_style_bg_color(panel, lv_color_hex(C_PANEL), 0);
+  lv_obj_set_style_radius(panel, 12, 0);
+  lv_obj_set_style_border_color(panel, lv_color_hex(C_LINE), 0);
+  lv_obj_set_style_border_width(panel, 1, 0);
+
+  label_make(panel, on ? "Turn CAN on?" : "Turn CAN off?", 20, 20,
+             &lv_font_montserrat_24, C_INK);
+  lv_obj_t* body = label_make(
+      panel,
+      on ? "USB disappears - no serial, no flashing. If the firmware then "
+           "fails, recovery needs a power cycle."
+         : "USB returns; there will be no CAN data, no history and no monitor "
+           "until you turn it back on.",
+      20, 70, &lv_font_montserrat_16, C_DIM);
+  lv_obj_set_width(body, 540);
+  lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
+
+  lv_obj_t* yes = lv_obj_create(panel);
+  lv_obj_set_size(yes, 160, 52);
+  lv_obj_set_pos(yes, 40, 190);
+  lv_obj_set_style_bg_color(yes, lv_color_hex(on ? C_OK : C_HOT), 0);
+  lv_obj_set_style_bg_opa(yes, 200, 0);
+  lv_obj_set_style_border_width(yes, 0, 0);
+  lv_obj_set_style_radius(yes, 8, 0);
+  obj_set_clickable(yes, true);
+  lv_obj_add_event_cb(yes, can_modal_yes_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_center(label_make(yes, on ? "Turn on" : "Turn off", 0, 0,
+                           &lv_font_montserrat_16, C_INK));
+
+  lv_obj_t* no = lv_obj_create(panel);
+  lv_obj_set_size(no, 160, 52);
+  lv_obj_set_pos(no, 380, 190);
+  lv_obj_set_style_bg_opa(no, 0, 0);
+  lv_obj_set_style_border_width(no, 1, 0);
+  lv_obj_set_style_border_color(no, lv_color_hex(C_LINE), 0);
+  lv_obj_set_style_radius(no, 8, 0);
+  obj_set_clickable(no, true);
+  lv_obj_add_event_cb(no, can_modal_no_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_center(
+      label_make(no, "Cancel", 0, 0, &lv_font_montserrat_16, C_DIM));
+}
+
+/* ─── Sensor roles editor (S23.06) ──────────────────────────────────────── */
+
+static lv_obj_t* s_roles_modal;
+
+static const char* role_fn_name(uint8_t fn) {
+  switch (fn) {
+    case SENSOR_FN_CHAMBER:
+      return "CHAMBER";
+    case SENSOR_FN_WATER_IN:
+      return "WATER IN";
+    case SENSOR_FN_WATER_OUT:
+      return "WATER OUT";
+    case SENSOR_FN_BOARD:
+      return "BOARD";
+    default:
+      return "NONE";
+  }
+}
+
+static void roles_modal_close(void) {
+  if (s_roles_modal) {
+    lv_obj_delete(s_roles_modal);
+    s_roles_modal = NULL;
+  }
+}
+
+static void roles_modal_build(void);
+
+static void roles_row_cb(lv_event_t* e) {
+  const uint8_t index = (uint8_t)(uintptr_t)lv_event_get_user_data(e);
+  uint8_t rom[8];
+  uint8_t fn = SENSOR_FN_NONE;
+  if (!gui_roles_get(index, rom, &fn)) return;
+  const uint8_t next = (uint8_t)((fn + 1u) % SENSOR_FN_COUNT);
+  gui_roles_set(index, next);
+  roles_modal_close();
+  roles_modal_build();
+}
+
+static void roles_close_cb(lv_event_t* e) {
+  (void)e;
+  roles_modal_close();
+}
+
+static void roles_modal_build(void) {
+  s_roles_modal = lv_obj_create(lv_screen_active());
+  lv_obj_set_size(s_roles_modal, SCREEN_W, SCREEN_H);
+  lv_obj_set_pos(s_roles_modal, 0, 0);
+  lv_obj_set_style_bg_color(s_roles_modal, lv_color_hex(0x000000), 0);
+  lv_obj_set_style_bg_opa(s_roles_modal, 160, 0);
+  lv_obj_set_style_border_width(s_roles_modal, 0, 0);
+  obj_set_scrollable(s_roles_modal, false);
+
+  lv_obj_t* panel = lv_obj_create(s_roles_modal);
+  lv_obj_set_size(panel, 600, 360);
+  lv_obj_center(panel);
+  lv_obj_set_style_bg_color(panel, lv_color_hex(C_PANEL), 0);
+  lv_obj_set_style_radius(panel, 12, 0);
+  lv_obj_set_style_border_color(panel, lv_color_hex(C_LINE), 0);
+  lv_obj_set_style_border_width(panel, 1, 0);
+
+  label_make(panel, "SENSOR ROLES", 20, 16, &lv_font_montserrat_24, C_INK);
+  label_make(panel, "tap a probe to cycle its function", 20, 50,
+             &lv_font_montserrat_16, C_DIM);
+
+  const uint8_t count = gui_roles_count();
+  for (uint8_t i = 0; i < count; i++) {
+    uint8_t rom[8];
+    uint8_t fn = SENSOR_FN_NONE;
+    if (!gui_roles_get(i, rom, &fn)) continue;
+
+    lv_obj_t* row = lv_obj_create(panel);
+    lv_obj_set_size(row, 560, 44);
+    lv_obj_set_pos(row, 20, 82 + i * 52);
+    lv_obj_set_style_bg_opa(row, 0, 0);
+    lv_obj_set_style_border_width(row, 1, 0);
+    lv_obj_set_style_border_color(row, lv_color_hex(C_LINE), 0);
+    lv_obj_set_style_radius(row, 6, 0);
+    obj_set_scrollable(row, false);
+    obj_set_clickable(row, true);
+    lv_obj_add_event_cb(row, roles_row_cb, LV_EVENT_CLICKED,
+                        (void*)(uintptr_t)i);
+
+    char id[40];
+    snprintf(id, sizeof(id), "%02X%02X%02X%02X%02X%02X%02X%02X", rom[0],
+             rom[1], rom[2], rom[3], rom[4], rom[5], rom[6], rom[7]);
+    label_make(row, id, 12, 10, &lv_font_montserrat_16, C_DIM);
+    label_make(row, role_fn_name(fn), 330, 10, &lv_font_montserrat_16,
+               fn == SENSOR_FN_NONE ? C_FAINT : C_INK);
+  }
+
+  lv_obj_t* close = lv_obj_create(panel);
+  lv_obj_set_size(close, 160, 48);
+  lv_obj_set_pos(close, 220, 282);
+  lv_obj_set_style_bg_opa(close, 0, 0);
+  lv_obj_set_style_border_width(close, 1, 0);
+  lv_obj_set_style_border_color(close, lv_color_hex(C_LINE), 0);
+  lv_obj_set_style_radius(close, 8, 0);
+  obj_set_clickable(close, true);
+  lv_obj_add_event_cb(close, roles_close_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_center(
+      label_make(close, "Close", 0, 0, &lv_font_montserrat_16, C_INK));
+}
+
+static void settings_open_roles_cb(lv_event_t* e) {
+  (void)e;
+  if (!s_roles_modal) roles_modal_build();
 }
 
 static void settings_open_can_cb(lv_event_t* e) {
@@ -3253,6 +3471,25 @@ lv_obj_t* haus_ui_build_storage(void) {
   snprintf(line, sizeof(line), "log dumps       %s", a);
   label_make(root, line, 20, 312, &haus_body_21, C_INK);
 
+  /* S23.20: SPIFFS is a book of its own; it must be visible when no card is
+   * fitted. Figures are refreshed by gui_storage_refresh() on panel open. */
+  fmt_bytes(st.can.spiffs_used_bytes, a, sizeof(a));
+  fmt_bytes(st.can.spiffs_total_bytes, b, sizeof(b));
+  snprintf(line, sizeof(line), "SPIFFS %s of %s", a, b);
+  label_make(root, line, 20, 392, &haus_body_21, C_INK);
+
+  snprintf(line, sizeof(line), "ring %lu of %u hours",
+           (unsigned long)st.can.ring_hours, (unsigned)HAUS_RING_HOURS);
+  label_make(root, line, 20, 420, &haus_body_21, C_DIM);
+
+  epoch_to_datetime(st.can.ring_oldest_epoch, when, sizeof(when));
+  snprintf(line, sizeof(line), "ring oldest   %s", when);
+  label_make(root, line, 20, 448, &haus_body_21, C_DIM);
+
+  epoch_to_datetime(st.can.ring_newest_epoch, when, sizeof(when));
+  snprintf(line, sizeof(line), "ring newest   %s", when);
+  label_make(root, line, 20, 476, &haus_body_21, C_DIM);
+
   /* Faulty is sticky and keeps the first-failure time (D44/S23.10). */
   if (st.can.sd_fault_since_epoch) {
     epoch_to_datetime(st.can.sd_fault_since_epoch, when, sizeof(when));
@@ -3265,7 +3502,7 @@ lv_obj_t* haus_ui_build_storage(void) {
   label_make(root,
              mounted ? "card readable   figures cached"
                      : "no card   history stays in SPIFFS",
-             20, 392, &lv_font_montserrat_16, C_FAINT);
+             20, 512, &lv_font_montserrat_16, C_FAINT);
 
   nav_build(UI_SCREEN_SETTINGS);
   return root;
@@ -3534,7 +3771,6 @@ lv_obj_t* haus_ui_build_settings(void) {
 
   HausState st;
   gui_get_state(&st);
-  const bool can_on = st.can.can_enabled;
 
   label_make(root, "CAN BUS", 20, 58, &haus_body_21, C_INK);
   label_make(root, "Off hands USB back: no CAN data, no", 20, 84,
@@ -3550,10 +3786,14 @@ lv_obj_t* haus_ui_build_settings(void) {
   obj_set_scrollable(s_can_switch, false);
   obj_set_clickable(s_can_switch, true);
   lv_obj_add_event_cb(s_can_switch, settings_can_cb, LV_EVENT_CLICKED, NULL);
-  s_can_switch_lbl = label_make(s_can_switch, can_on ? "ON" : "OFF", 0, 0,
-                                &lv_font_montserrat_16, C_INK);
+  s_can_switch_lbl = label_make(
+      s_can_switch, st.can.can_enabled ? "ON" : "OFF", 0, 0,
+      &lv_font_montserrat_16, C_INK);
   lv_obj_center(s_can_switch_lbl);
-  settings_can_visual(can_on);
+  s_can_fault_lbl =
+      label_make(root, "", 250, 68, &lv_font_montserrat_16, C_HOT);
+  settings_can_visual(st.can.can_enabled);
+  settings_can_refresh(); /* S23.02: replace the request with the mux readback */
 
   /* Compact rows: title + current value, one tap each. A chevron marks the
    * rows that open another screen or change a setting. */
@@ -3584,7 +3824,7 @@ lv_obj_t* haus_ui_build_settings(void) {
   gui_get_sensors(&sensors);
   char sbuf[24];
   snprintf(sbuf, sizeof(sbuf), "%u bound", (unsigned)sensors);
-  settings_value_row(y, "SENSOR ROLES", sbuf, NULL);
+  settings_value_row(y, "SENSOR ROLES", sbuf, settings_open_roles_cb);
   y += step;
   settings_value_row(
       y, "WATER MODEL",
@@ -3598,7 +3838,9 @@ lv_obj_t* haus_ui_build_settings(void) {
   y += step;
   settings_value_row(y, "NETWORK", gui_wifi_ip(), NULL);
   y += step;
-  settings_value_row(y, "FIRMWARE", VERSION_STRING, NULL);
+  /* The full VERSION_STRING is longer than the row; the hash identifies the
+   * exact binary without colliding with the FIRMWARE label (S23.18). */
+  settings_value_row(y, "FIRMWARE", GIT_HASH, NULL);
 
   nav_build(UI_SCREEN_SETTINGS);
   return root;

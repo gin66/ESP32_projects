@@ -31,6 +31,7 @@
 
 static SPIClass s_sd_spi(HSPI);
 static bool s_mounted = false;
+static bool s_ever_mounted = false;
 static uint64_t s_total_bytes = 0;
 static uint64_t s_used_bytes = 0;
 static bool s_space_valid = false;
@@ -91,6 +92,7 @@ bool haus_sd_mount(void) {
   snprintf(s_card_type, sizeof(s_card_type), "%s", type_str);
 
   s_mounted = true;
+  s_ever_mounted = true;
   haus_sd_space_refresh();
 
   TPL_LOGI("sd", "mounted: %s, %llu MB total, %llu MB used\n", type_str,
@@ -168,6 +170,8 @@ bool haus_sd_space_get(uint64_t* total_bytes, uint64_t* used_bytes) {
 const char* haus_sd_card_type(void) { return s_card_type; }
 
 bool haus_sd_present(void) { return s_mounted; }
+
+bool haus_sd_ever_mounted(void) { return s_ever_mounted; }
 
 void haus_sd_note_io_error(void) {
   if (!s_mounted) return;

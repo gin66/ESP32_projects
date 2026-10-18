@@ -166,6 +166,14 @@ typedef struct {
   uint32_t sd_fault_since_epoch;
   uint32_t sd_newest_file_epoch;
   bool sd_writing;
+
+  /* SPIFFS ring statistics (S23.20), cached with the storage figures. */
+  uint32_t spiffs_total_bytes;
+  uint32_t spiffs_used_bytes;
+  uint32_t ring_bytes;
+  uint32_t ring_hours;
+  uint32_t ring_oldest_epoch;
+  uint32_t ring_newest_epoch;
 } CanState;
 
 /* Owner: sensorTask. Written completely each cycle, published as one block. */
@@ -248,6 +256,16 @@ bool gui_water_model_available(void);
 /* CAN enable switch (Settings). The hardware mux is applied by the CAN
  * bring-up path; the UI only owns the persisted intent. */
 bool gui_can_enabled(void);
+
+/* Actual CH422G mux state (S23.02): a hardware readback, not the request.
+ * Returns the mux level; *known is false when the I2C read failed. */
+bool gui_can_actual(bool* known);
+
+/* Sensor-role editor (S23.06). Flat accessors keep the UI independent of the
+ * SPIFFS-backed roles module. rom is 8 bytes; function is a SensorFn. */
+uint8_t gui_roles_count(void);
+bool gui_roles_get(uint8_t index, uint8_t rom[8], uint8_t* function);
+bool gui_roles_set(uint8_t index, uint8_t function);
 
 /* Current WiFi address for the Settings row, or "--" while disconnected. */
 const char* gui_wifi_ip(void);

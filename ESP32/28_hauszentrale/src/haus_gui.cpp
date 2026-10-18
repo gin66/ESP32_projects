@@ -332,6 +332,27 @@ int gui_log_save(void) {
 
 bool gui_can_enabled(void) { return g_can_enabled; }
 
+bool gui_can_actual(bool* known) {
+  bool can = false;
+  const esp_err_t err = tpl_ws7_read_can_available(&can);
+  if (known) *known = (err == ESP_OK);
+  return can;
+}
+
+uint8_t gui_roles_count(void) { return haus_sensor_roles_count(); }
+
+bool gui_roles_get(uint8_t index, uint8_t rom[8], uint8_t* function) {
+  const haus_sensor_role_t* role = haus_sensor_roles_at(index);
+  if (!role) return false;
+  if (rom) memcpy(rom, role->rom, 8);
+  if (function) *function = role->function;
+  return true;
+}
+
+bool gui_roles_set(uint8_t index, uint8_t function) {
+  return haus_sensor_roles_set(index, function);
+}
+
 /* Applying the CAN state switches a USB mux, delays, and installs a driver.
  * Do it in a worker task: if it ever wedges, the UI and web server keep
  * running instead of the whole loop task blocking. */
@@ -381,6 +402,9 @@ void gui_set_can_enabled(bool enabled) {
 void gui_storage_refresh(void) {
   haus_sd_space_refresh();
   haus_history_storage_refresh();
+  /* Publish the refreshed figures now, so a panel opened right after boot or a
+   * /sd/status request does not read the previous 1 Hz snapshot. */
+  gui_update_state();
 }
 
 static bool g_backlight_on = true;
@@ -557,6 +581,15 @@ void gui_update_state(void) {
   can.sd_fault_since_epoch = haus_history_fault_since_epoch();
   can.sd_newest_file_epoch = haus_history_newest_file_epoch();
   can.sd_writing = haus_history_writing();
+
+  haus_ring_stats_t ring;
+  haus_history_ring_stats(&ring);
+  can.spiffs_total_bytes = ring.total_bytes;
+  can.spiffs_used_bytes = ring.used_bytes;
+  can.ring_bytes = ring.ring_bytes;
+  can.ring_hours = ring.hours;
+  can.ring_oldest_epoch = ring.oldest_epoch;
+  can.ring_newest_epoch = ring.newest_epoch;
   can.sd_status = !haus_sd_present()
                       ? GUI_STATUS_INACTIVE
                       : (can.sd_writing ? GUI_STATUS_ERROR : GUI_STATUS_OK);

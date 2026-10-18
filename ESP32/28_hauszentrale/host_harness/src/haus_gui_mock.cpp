@@ -18,6 +18,7 @@
 #include "haus_can.h"
 #include "haus_config.h"
 #include "haus_gui.h"
+#include "haus_history.h"
 #include "haus_rollup.h"
 #include "haus_triple_buffer.h"
 
@@ -363,6 +364,12 @@ void gui_update_state(void) {
   can.sd_fault_since_epoch = 0;
   can.sd_newest_file_epoch = g_sim_time - 86400u;
   can.sd_writing = false;
+  can.spiffs_total_bytes = 3u * 1024u * 1024u;
+  can.spiffs_used_bytes = HAUS_RING_BYTES;
+  can.ring_bytes = HAUS_RING_BYTES;
+  can.ring_hours = 30u * 24u;
+  can.ring_oldest_epoch = g_sim_time - 30u * 86400u;
+  can.ring_newest_epoch = g_sim_time - 3600u;
 
   /* Chamber target. */
   can.chamber_target_c = mock_target_temp(g_sim_time);
@@ -550,6 +557,35 @@ bool gui_water_model_available(void) {
 }
 
 bool gui_can_enabled(void) { return g_can_enabled; }
+
+/* No mux on the host: the requested state is the actual state. */
+bool gui_can_actual(bool* known) {
+  if (known) *known = true;
+  return g_can_enabled;
+}
+
+static uint8_t s_mock_roles[3] = {SENSOR_FN_CHAMBER, SENSOR_FN_WATER_IN,
+                                  SENSOR_FN_BOARD};
+static const uint8_t s_mock_roms[3][8] = {
+    {0x28, 0x1B, 0xF7, 0x57, 0x04, 0xE1, 0x3C, 0x26},
+    {0x28, 0x76, 0xC2, 0x57, 0x04, 0xE1, 0x3C, 0xF9},
+    {0x28, 0xB9, 0xEE, 0x81, 0xE3, 0xE1, 0x3C, 0x2E},
+};
+
+uint8_t gui_roles_count(void) { return 3; }
+
+bool gui_roles_get(uint8_t index, uint8_t rom[8], uint8_t* function) {
+  if (index >= 3) return false;
+  if (rom) memcpy(rom, s_mock_roms[index], 8);
+  if (function) *function = s_mock_roles[index];
+  return true;
+}
+
+bool gui_roles_set(uint8_t index, uint8_t function) {
+  if (index >= 3 || function >= SENSOR_FN_COUNT) return false;
+  s_mock_roles[index] = function;
+  return true;
+}
 
 const char* gui_wifi_ip(void) { return "192.168.1.100"; }
 

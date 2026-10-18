@@ -30,6 +30,10 @@ bool haus_sd_is_mounted(void);
  * render path; a failed write, or the 30 s watchdog, updates the real state. */
 bool haus_sd_present(void);
 
+/* True once a card has mounted successfully in this boot. A card that was
+ * never present is merely absent, not faulty (S23.19). */
+bool haus_sd_ever_mounted(void);
+
 /* A write/read I/O error is the card-gone signal on this board. Drop the
  * mounted flag; the 30 s watchdog remounts when the card comes back. */
 void haus_sd_note_io_error(void);

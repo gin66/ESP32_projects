@@ -61,6 +61,15 @@ bool haus_sensor_roles_save(void) {
   return true;
 }
 
+bool haus_sensor_roles_set(uint8_t index, uint8_t function) {
+  if (index >= s_count || function >= SENSOR_FN_COUNT) return false;
+  if (s_roles[index].function == function) return true;
+  s_roles[index].function = function;
+  TPL_LOGI("roles", "role %u -> %s", (unsigned)index,
+           haus_sensor_fn_name(function));
+  return haus_sensor_roles_save();
+}
+
 bool haus_sensor_roles_init(void) {
   File f = SPIFFS.open(HAUS_SENSOR_ROLE_PATH, "r");
   if (f) {

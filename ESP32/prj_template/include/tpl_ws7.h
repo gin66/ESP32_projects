@@ -1,6 +1,7 @@
 #pragma once
 
 #include <esp_err.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef IS_WAVESHARE_LCD7
@@ -75,6 +76,11 @@ esp_err_t tpl_ws7_panel_reset(void);
 esp_err_t tpl_ws7_sd_select(bool select);
 esp_err_t tpl_ws7_set_usb_mode(bool usb);
 bool tpl_ws7_can_available(void);
+
+/* Read the CH422G RD-IO register and report the actual IO5 level (S23.02).
+ * true = the mux currently routes GPIO 19/20 to CAN. This is a hardware
+ * readback, not the cached output shadow. */
+esp_err_t tpl_ws7_read_can_available(bool* can);
 
 // I2C mutex with bounded timeout (N13)
 esp_err_t tpl_ws7_i2c_lock(uint32_t timeout_ms);

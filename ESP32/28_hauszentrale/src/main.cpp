@@ -296,13 +296,15 @@ void setup() {
     const uint64_t total = st.can.sd_total_bytes;
     const uint64_t used = st.can.sd_used_bytes;
     const uint64_t free_bytes = total > used ? total - used : 0;
-    static char buf[768];
+    static char buf[1024];
     snprintf(buf, sizeof(buf),
              "{\"initialized\":%s,\"type\":\"%s\",\"total\":%llu,"
              "\"used\":%llu,\"free\":%llu,\"floor\":%llu,"
              "\"headroom\":%llu,\"samples\":%llu,\"rollup\":%llu,"
              "\"logs\":%llu,\"last_rollover\":%lu,\"newest_file\":%lu,"
-             "\"fault_since\":%lu,\"writing\":%s,"
+             "\"fault_since\":%lu,\"spiffs_total\":%lu,"
+             "\"spiffs_used\":%lu,\"ring_bytes\":%lu,\"ring_hours\":%lu,"
+             "\"ring_oldest\":%lu,\"ring_newest\":%lu,\"writing\":%s,"
              "\"can_running\":%s,\"mux_can\":%s,"
              "\"can_state\":%u,\"can_tec\":%lu,\"can_rec\":%lu,"
              "\"can_rx\":%lu,\"can_tx\":%lu,\"can_err\":%lu,"
@@ -321,6 +323,12 @@ void setup() {
              (unsigned long)st.can.sd_last_rollover_epoch,
              (unsigned long)st.can.sd_newest_file_epoch,
              (unsigned long)st.can.sd_fault_since_epoch,
+             (unsigned long)st.can.spiffs_total_bytes,
+             (unsigned long)st.can.spiffs_used_bytes,
+             (unsigned long)st.can.ring_bytes,
+             (unsigned long)st.can.ring_hours,
+             (unsigned long)st.can.ring_oldest_epoch,
+             (unsigned long)st.can.ring_newest_epoch,
              st.can.sd_writing ? "true" : "false",
              haus_can_bus_running() ? "true" : "false",
              tpl_ws7_can_available() ? "true" : "false",

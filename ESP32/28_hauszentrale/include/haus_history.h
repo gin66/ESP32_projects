@@ -56,6 +56,18 @@ RollupColumn* haus_history_l2(void);
 /* Append a completed hour column to the SPIFFS ring. */
 bool haus_history_ring_append(const RollupColumn* col);
 
+/* SPIFFS ring statistics (S23.20). Cached; refreshed with the storage panel. */
+typedef struct {
+  uint32_t total_bytes;   /* SPIFFS partition size */
+  uint32_t used_bytes;    /* SPIFFS used */
+  uint32_t ring_bytes;    /* ring file capacity */
+  uint32_t hours;         /* non-zero hourly columns */
+  uint32_t oldest_epoch;  /* seconds; 0 when the ring is empty */
+  uint32_t newest_epoch;  /* seconds; 0 when the ring is empty */
+} haus_ring_stats_t;
+
+void haus_history_ring_stats(haus_ring_stats_t* out);
+
 /* Load up to max_columns newest columns into out, oldest first. Returns the
  * number written. Uses the wall clock; returns 0 before the clock is valid. */
 size_t haus_history_ring_load(RollupColumn* out, size_t max_columns);

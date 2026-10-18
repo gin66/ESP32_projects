@@ -4,7 +4,7 @@ Derived from `docs/whitepaper.md` rev 1.6. Order: board first, then the macOS
 environment, then Deliverable A (`tpl_waveshare_lcd7`), then the project.
 Every item names the check that closes it.
 
-345 items (46 open). Tick boxes as work lands.
+346 items (42 open). Tick boxes as work lands.
 
 ## S0 · BENCH — the two things only the hardware can answer
 
@@ -389,11 +389,11 @@ before treating `sml_error_cnt` as a diagnostic.
 ## S23 · SETTINGS + STORAGE STATUS
 
 - [x] S23.01 Build the Settings rows: CAN, backlight, power unit, retention, target, sensor roles, water model, diagnostics — Test: all eight rows render (plus Storage, UI FILE, CAN MONITOR and LOG; actionable rows carry an accent value and a right chevron)
-- [ ] S23.02 CAN switch shows the actual state read back from the shadow, not the requested one — Test: config says on while mux is low shows a fault
+- [x] S23.02 CAN switch shows the actual state read back from the shadow, not the requested one — Test: config says on while mux is low shows a fault — Done: `gui_can_actual()` reads the CH422G RD-IO register through `tpl_ws7_read_can_available()`; Settings shows the mux level, and a `MUX FAULT` label appears when the request and mux disagree after the 2.5 s apply window (refreshed at 1 Hz only while Settings is open).
 - [x] S23.03 CAN toggles persist immediately and are logged — Test: it survives a reboot — Done: `haus_config_set_can_enabled()` writes the config via `tpl_write_config()` and logs `CAN on/off persisted` (`haus_config.cpp:23-34`).
-- [ ] S23.04 Both CAN toggle modals name the consequence — Test: the text matches §8.14
+- [x] S23.04 Both CAN toggle modals name the consequence — Test: the text matches §8.14 — Done: the switch opens a confirm modal; off reads "USB returns; there will be no CAN data, no history and no monitor until you turn it back on.", on reads "USB disappears - no serial, no flashing. If the firmware then fails, recovery needs a power cycle." The em dash is rendered as a hyphen because the 21 px font set has no U+2014.
 - [x] S23.05 Backlight row drives tpl_ws7_backlight (binary only) — Test: it toggles (`gui_set_backlight()` → `tpl_ws7_backlight()`)
-- [ ] S23.06 Sensor roles editor reachable from Settings — Test: a binding changed here shows up in the next sample
+- [x] S23.06 Sensor roles editor reachable from Settings — Test: a binding changed here shows up in the next sample — Done: the SENSOR ROLES row opens an overlay listing the three ROMs; tapping a row cycles CHAMBER → WATER IN → WATER OUT → BOARD → NONE, `haus_sensor_roles_set()` persists it to SPIFFS, and the next `gui_get_state()` resolves the new binding through the existing sensor map.
 - [x] S23.07 Storage panel: card type, total, used, free, headroom over floor — Test: all fields render (new STORAGE screen under Settings; `output_storage.png`)
 - [x] S23.08 Storage panel: last rollover, newest file, per-tier breakdown — Test: all render (minute samples / hourly rollup / log dumps, scanned on demand)
 - [x] S23.09 Distinguish operational / faulty / absent by evidence (D44) — Test: a failed rollover write marks the storage panel faulty, never merely absent (fault comes from a failed write/watchdog, absence only from `sd_card_type == ABSENT`)
@@ -406,7 +406,8 @@ before treating `sml_error_cnt` as a diagnostic.
 - [x] S23.16 The write-in-progress flag is raised and cleared around every recorder write (rollover, log dump, retention) — Test: the dot turns red for the duration and returns to green (`haus_history_set_writing()` around `write_daily_files()`, retention deletes and `gui_log_save()`)
 - [x] S23.17 Show the panel's WiFi IP in SETTINGS — Test: the address matches the DHCP lease, so the web UI can be reached when CAN has taken GPIO 19/20 and USB is gone — Done: the `NETWORK` row renders `gui_wifi_ip()` (`haus_ui.c:3371`, `haus_gui.cpp:341-346`).
 - [x] S23.18 Show the firmware version from version.h in SETTINGS — Test: the displayed version matches the binary that was flashed, so a panel in the field can be identified without USB — Done: the `FIRMWARE` row renders `VERSION_STRING` from `version.h` (`haus_ui.c:26-30,3373`).
-- [ ] S23.19 Absent card must not latch a storage fault: only a card that was mounted and then disappeared, or a failed write, may set FAULTY; a card that was never present stays merely ABSENT — Test: boot with no card shows ABSENT and no fault timestamp, pulling a mounted card sets the fault, reinserting clears it
+- [x] S23.19 Absent card must not latch a storage fault: only a card that was mounted and then disappeared, or a failed write, may set FAULTY; a card that was never present stays merely ABSENT — Test: boot with no card shows ABSENT and no fault timestamp, pulling a mounted card sets the fault, reinserting clears it — Done: `haus_sd_ever_mounted()` gates both the 30 s watchdog and the failed-write path; a never-present card stays ABSENT with no `note_fault()`. A verified remount clears the operational fault flag, while the first-failure timestamp stays until a clean rollover (S23.10). Verified card-less on the bench: `/sd/status` reports `"type":"ABSENT","fault_since":0`.
+- [x] S23.20 Show SPIFFS ring statistics on the Storage panel and in `/sd/status`: total/used/free, ring hours present, oldest/newest hour — Test: with no card the panel shows the ring figures and they match `/sd/status` — Done: `haus_history_ring_stats()` caches SPIFFS total/used, ring capacity, non-zero hours and oldest/newest; the Storage panel renders `SPIFFS 799 kB of 3.4 MB`, `ring 0 of 8760 hours`, and the oldest/newest lines. `gui_storage_refresh()` now publishes immediately, so the first `/sd/status` after boot matches: `"spiffs_total":3546881,"spiffs_used":818511,"ring_bytes":805920`.
 
 ## S24 · CAN ENABLE SWITCH (boot sequence, N19)
 

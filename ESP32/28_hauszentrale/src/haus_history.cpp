@@ -75,6 +75,50 @@ typedef struct __attribute__((packed)) {
 #define RING_VERSION 2
 
 static bool s_ring_ready = false;
+static haus_ring_stats_t s_ring_stats;
+
+/* S23.20: one pass over the ring file, only from the storage refresh path. */
+static void ring_stats_refresh(void) {
+  memset(&s_ring_stats, 0, sizeof(s_ring_stats));
+  s_ring_stats.total_bytes = SPIFFS.totalBytes();
+  s_ring_stats.used_bytes = SPIFFS.usedBytes();
+  s_ring_stats.ring_bytes = HAUS_RING_BYTES;
+  if (!s_ring_ready) return;
+
+  File f = SPIFFS.open(HAUS_RING_PATH, "r");
+  if (!f) return;
+  if (!f.seek(sizeof(RingHeader))) {
+    f.close();
+    return;
+  }
+
+  uint32_t hours = 0;
+  uint32_t oldest = 0;
+  uint32_t newest = 0;
+  RollupColumn col;
+  for (uint32_t i = 0; i < HAUS_RING_HOURS; i++) {
+    if (f.read((uint8_t*)&col, sizeof(col)) != sizeof(col)) break;
+    if (col.t == 0) continue;
+    hours++;
+    if (oldest == 0 || col.t < oldest) oldest = col.t;
+    if (col.t > newest) newest = col.t;
+  }
+  f.close();
+
+  s_ring_stats.hours = hours;
+  s_ring_stats.oldest_epoch = oldest * 60u;
+  s_ring_stats.newest_epoch = newest * 60u;
+
+  TPL_LOGI("history", "SPIFFS %u/%u B, ring %u h (ready=%d)",
+           (unsigned)s_ring_stats.used_bytes,
+           (unsigned)s_ring_stats.total_bytes, (unsigned)hours,
+           s_ring_ready ? 1 : 0);
+}
+
+void haus_history_ring_stats(haus_ring_stats_t* out) {
+  if (!out) return;
+  *out = s_ring_stats;
+}
 
 /* I/O scratch: CPU-only, never a DMA source. One allocation each, PSRAM
  * first (docs/memory_report.md, S28.22). */
@@ -324,13 +368,17 @@ static void write_daily_files(uint32_t epoch) {
   }
   s_writing = false;
 
+  /* S23.19: a card that was never present is ABSENT, not FAULTY. Only a write
+   * that fails against a card we have actually mounted (or mounted earlier)
+   * is a storage fault. */
+  const bool had_card = haus_sd_is_mounted() || haus_sd_ever_mounted();
   if (!day_ok || !rollup_ok) haus_sd_note_io_error();
 
   if (day_ok && rollup_ok) {
     s_last_rollover_epoch = epoch;
     s_fault_since_epoch = 0;
     haus_history_storage_refresh();
-  } else {
+  } else if (had_card) {
     note_fault();
   }
 }
@@ -659,6 +707,28 @@ void haus_history_sd_watchdog(uint32_t now_ms) { (void)now_ms; }
 void haus_history_storage_refresh(void) {}
 bool haus_history_sd_fault(void) { return false; }
 
+void haus_history_ring_stats(haus_ring_stats_t* out) {
+  if (!out) return;
+  memset(out, 0, sizeof(*out));
+  out->total_bytes = 3u * 1024u * 1024u;
+  out->used_bytes = HAUS_RING_BYTES;
+  out->ring_bytes = HAUS_RING_BYTES;
+
+  uint32_t hours = 0;
+  uint32_t oldest = 0;
+  uint32_t newest = 0;
+  for (size_t i = 0; i < HAUS_RING_HOURS; i++) {
+    if (s_ring_storage[i].t == 0) continue;
+    hours++;
+    if (oldest == 0 || s_ring_storage[i].t < oldest)
+      oldest = s_ring_storage[i].t;
+    if (s_ring_storage[i].t > newest) newest = s_ring_storage[i].t;
+  }
+  out->hours = hours;
+  out->oldest_epoch = oldest * 60u;
+  out->newest_epoch = newest * 60u;
+}
+
 int haus_history_retention_step(uint32_t now_epoch, int max_months) {
   if (s_test_retention_count == 0) return 0;
 
@@ -951,6 +1021,8 @@ void haus_history_storage_refresh(void) {
   uint64_t logs = 0;
   uint32_t newest = 0;
 
+  ring_stats_refresh(); /* S23.20: SPIFFS figures even with no card */
+
   if (!haus_sd_is_mounted() || !haus_sd_lock(2000)) {
     s_tier_samples_bytes = 0;
     s_tier_rollup_bytes = 0;
@@ -1085,12 +1157,24 @@ void haus_history_sd_watchdog(uint32_t now_ms) {
     return;
   }
 
+  /* S23.19: a card that has never mounted stays merely absent. Only a card
+   * that was mounted and then disappeared (or a failed write, which already
+   * called note_fault()) latches the fault. */
+  if (!haus_sd_ever_mounted()) {
+    if (haus_sd_mount() && haus_sd_selftest()) {
+      TPL_LOGI("sd", "card mounted and verified");
+    }
+    return;
+  }
+
   s_sd_fault = true;
   note_fault();
   TPL_LOGW("sd", "card lost; retrying mount");
   if (haus_sd_mount()) {
     if (haus_sd_selftest()) {
       TPL_LOGI("sd", "card remounted and verified");
+      /* The operational fault clears on a verified remount; the first-failure
+       * timestamp stays until a clean rollover (S23.10). */
       s_sd_fault = false;
     }
   }

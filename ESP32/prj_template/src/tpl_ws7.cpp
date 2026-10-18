@@ -199,6 +199,19 @@ bool tpl_ws7_can_available(void) {
   return (s_output_shadow & (1 << TPL_WS7_IO_USB_SEL)) != 0;
 }
 
+esp_err_t tpl_ws7_read_can_available(bool* can) {
+  if (!can) return ESP_ERR_INVALID_ARG;
+
+  if (tpl_ws7_i2c_lock(50) != ESP_OK) return ESP_ERR_TIMEOUT;
+  uint8_t io = 0;
+  const esp_err_t err = ws7_read_io(&io);
+  tpl_ws7_i2c_unlock();
+  if (err != ESP_OK) return err;
+
+  *can = (io & (1 << TPL_WS7_IO_USB_SEL)) != 0;
+  return ESP_OK;
+}
+
 // --- RGB panel + LVGL display (S4) ---
 
 static esp_lcd_panel_handle_t s_rgb_panel = NULL;

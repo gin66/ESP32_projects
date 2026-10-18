@@ -31,6 +31,9 @@ uint8_t haus_sensor_roles_resolve(const uint8_t rom[8]);
 /* Persist the current table (used after a role edit). */
 bool haus_sensor_roles_save(void);
 
+/* Change one binding and persist it (S23.06). */
+bool haus_sensor_roles_set(uint8_t index, uint8_t function);
+
 /* Number of entries and read access for a future editor (S23.06). */
 uint8_t haus_sensor_roles_count(void);
 const haus_sensor_role_t* haus_sensor_roles_at(uint8_t index);

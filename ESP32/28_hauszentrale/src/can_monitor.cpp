@@ -17,6 +17,8 @@
 #include <cstdio>
 #include <cstring>
 
+#include "app/sml_power.h"
+
 namespace {
 
 constexpr uint8_t kSmlHeader[8] = {0x1b, 0x1b, 0x1b, 0x1b,
@@ -178,6 +180,9 @@ void on_frame(const Frame& f) {
 
   if ((f.id & ~0x1FFu) == CAN_ID_STROMZAEHLER_INFO_BASIS) {
     sml_on_frame(f.id, f.data, f.len);
+    /* S19.06: the power decoder runs here, in the consumer, never in the
+     * TWAI RX drain loop. libsml only runs when a message completes. */
+    sml_power_on_frame(f.id, f.data, f.len);
     return;
   }
 

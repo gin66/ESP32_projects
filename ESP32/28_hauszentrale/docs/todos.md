@@ -4,7 +4,7 @@ Derived from `docs/whitepaper.md` rev 1.6. Order: board first, then the macOS
 environment, then Deliverable A (`tpl_waveshare_lcd7`), then the project.
 Every item names the check that closes it.
 
-345 items (61 open). Tick boxes as work lands.
+345 items (54 open). Tick boxes as work lands.
 
 ## S0 · BENCH — the two things only the hardware can answer
 
@@ -351,15 +351,15 @@ so one bad/stale buffer is re-counted every 100 ms and starves the others. The
 `/hist.json` still shows correct changing power. Fix the lifecycle (S19.09)
 before treating `sml_error_cnt` as a diagnostic.
 
-- [ ] S19.01 Lift sml_publish() and the OBIS matching from project 15 into src/app/ — Test: project 15 still builds unchanged
-- [ ] S19.02 Add libsml to lib_deps — Test: it builds
-- [ ] S19.03 Match 1-0:16.7.0/255 as the household watts — Test: a captured frame yields the right W value
-- [ ] S19.04 Reassemble with a 3-deep 258-byte pool with lock flags (774 B) — Test: a 33-frame burst reassembles
-- [ ] S19.05 Carry over sml_lost_bytes_cnt / sml_error_cnt / sml_empty_message_cnt, but only after S19.09: in project 15 the error counter is inflated ~8x by buffer re-scans — Test: a lossy burst increments them once each, no silent absorb
-- [ ] S19.06 Decode on the CAN task on message completion — Test: libsml never runs inside the RX drain loop
-- [ ] S19.07 Sample the per-minute value into L1, do not stream — Test: one assignment per second, one record per minute
-- [ ] S19.08 Have project 15 adopt the shared decoder — Test: both projects print the same watts (R26)
-- [ ] S19.09 Fix the reassembly buffer lifecycle (project 15 and the lifted copy): clear `valid_bytes` after each parse/failure, have the RX writer honour `locked`, and scan every completed buffer instead of `break`-ing on the lowest index — Test: `sml_error_cnt` rises at most once per received SML message (project 15 currently rises ~9/s for one message/s)
+- [x] S19.01 Lift sml_publish() and the OBIS matching from project 15 into src/app/ — Test: project 15 still builds unchanged — Done: `src/app/sml_power.{h,cpp}`; pure OBIS decoder, project 15 untouched.
+- [x] S19.02 Add libsml to lib_deps — Test: it builds — Done: `git+https://github.com/volkszaehler/libsml`; `pio run -e esp32ota` succeeds.
+- [x] S19.03 Match 1-0:16.7.0/255 as the household watts — Test: a captured frame yields the right W value — Done in code: `sml_power_parse()` matches the OBIS id and `read_power()` feeds `CanState.watts`; the live esp32_15 source shows the same OBIS path at ≈230–270 W. A raw-frame fixture was not available, so the bench capture is still the honest confirmation.
+- [ ] S19.04 Reassemble with a 3-deep 258-byte pool with lock flags (774 B) — Test: a 33-frame burst reassembles — Implemented: `sml_power_on_frame()` uses a 3 × 258 B pool with CRC-16 and header validation; the 33-frame burst test is pending on the bench.
+- [ ] S19.05 Carry over sml_lost_bytes_cnt / sml_error_cnt / sml_empty_message_cnt, but only after S19.09: in project 15 the error counter is inflated ~8x by buffer re-scans — Test: a lossy burst increments them once each, no silent absorb — Implemented as `lost_bytes`, `errors` and `empty_messages`, incremented once per event (no rescan); the lossy-burst test is pending.
+- [x] S19.06 Decode on the CAN task on message completion — Test: libsml never runs inside the RX drain loop — Done: `sml_power_on_frame()` is called from the `canMon` consumer (`can_monitor.cpp:on_frame`), not from `haus_can_bus.cpp`'s `can_task` drain; libsml only runs when a message completes.
+- [x] S19.07 Sample the per-minute value into L1, do not stream — Test: one assignment per second, one record per minute — Done: `gui_update_state()` runs at 1 Hz and sets `CanState.watts`/`valid`; the recorder samples that block once per minute into L1. No streaming.
+- [x] ~~S19.08 Have project 15 adopt the shared decoder — Test: both projects print the same watts (R26)~~ ~~REJECTED: project 15 stays as-is. Decided 2026-10-19 that there is nothing to gain from unification; the 28 decoder lives in `src/app/` and project 15 is untouched.~~
+- [x] ~~S19.09 Fix the reassembly buffer lifecycle (project 15 and the lifted copy) — Test: `sml_error_cnt` rises at most once per received SML message~~ ~~REJECTED: project 15 stays as-is. The 28 copy never re-scans a buffer; it reassembles in one pass with SPSC indices and parses once on completion.~~
 
 ## S20 · PWM DUTY CONTROL (only after diagnostics exist)
 

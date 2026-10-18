@@ -22,6 +22,7 @@
 #include <atomic>
 #include <cstring>
 
+#include "app/sml_power.h"
 #include "haus_can.h"
 #include "haus_can_bus.h"
 #include "haus_history.h"
@@ -85,10 +86,24 @@ static void read_pwm(haus_can_pwm_t* out) {
 }
 
 static void read_power(int32_t* watts, uint8_t* source) {
-  /* TODO: Read from SML decoder (0x600) or ADC (0x2C0).
-   * For now, return no data. */
-  *watts = 0;
-  *source = GUI_PWR_SRC_NONE;
+  /* S19.03: 1-0:16.7.0/255 from the lifted SML decoder. There is no local ADC
+   * power sensor on this board. */
+  const sml_power_reading_t* reading = sml_power_reading();
+  if (!reading->valid) {
+    *watts = 0;
+    *source = GUI_PWR_SRC_NONE;
+    return;
+  }
+
+  const double w = reading->current_w;
+  if (w > 2147483647.0) {
+    *watts = 2147483647;
+  } else if (w < -2147483648.0) {
+    *watts = (-2147483647 - 1);
+  } else {
+    *watts = (int32_t)(w >= 0 ? w + 0.5 : w - 0.5);
+  }
+  *source = GUI_PWR_SRC_SML;
 }
 
 static void read_living(int16_t* temp, uint16_t* hum, uint32_t* pres,
@@ -496,9 +511,10 @@ void gui_update_state(void) {
   read_power(&watts, &power_src);
   can.watts = watts;
   can.watts_last = watts;
-  can.valid = false;
+  can.valid = (power_src != GUI_PWR_SRC_NONE);
   can.power_src = power_src;
-  can.power_dw = 0;
+  uint32_t power_dw = watts > 0 ? (uint32_t)watts * 10u : 0u;
+  can.power_dw = (uint16_t)(power_dw > 65535u ? 65535u : power_dw);
 
   /* Living room — SHT45 (temperature + humidity); no pressure sensor. */
   int16_t living_temp = GUI_EMPTY;

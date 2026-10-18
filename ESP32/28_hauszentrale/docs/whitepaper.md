@@ -1224,9 +1224,11 @@ struct Sample {
   uint8_t  flags;          // VALID bits + FAULT bits, incl. climate-present + TEMP_MODELLED
   uint8_t  stale_mask;     // per-source stale bit; see below
   int16_t  target_c100;    // Soll / setpoint for the third chart series
+  uint16_t ac_rms_dc;      // 0x2C waveform RMS, 0.1 ADC count (S29.01)
+  int16_t  ac_angle_cdeg;  // 0x2C waveform angle, 0.01 degree (S29.01)
 };
-// 4 + 6 + 2 + 2 + 4 + 2 + 1 + 1 + 2 = 24 bytes, no padding.
-static_assert(sizeof(Sample) == 24, "fixed-size records enable seeking");
+// 4 + 6 + 2 + 2 + 4 + 2 + 1 + 1 + 2 + 2 + 2 = 28 bytes, no padding.
+static_assert(sizeof(Sample) == 28, "fixed-size records enable seeking");
 
 struct Recorder {
   virtual bool   open(const char *path) = 0;
@@ -1269,10 +1271,10 @@ not one per minute.
 - **Never block LVGL.** `flush()` is the only long card operation and runs on the
   recorder task. The card is not held open across a webserver read; reads are gated
   on the recorder having flushed and released (§6.7).
-- **Fixed-size records are the key decision.** With a 24-byte record, reading the
-  last 1440 samples is `seek(-1440*24, SEEK_END)` — no parsing, no scan, no index
+- **Fixed-size records are the key decision.** With a 28-byte record, reading the
+  last 1440 samples is `seek(-1440*28, SEEK_END)` — no parsing, no scan, no index
   to maintain or corrupt. §9 depends on this, and every byte figure in §9 is
-  derived from 24.
+  derived from 28.
 
 **Power source for F4 — SML, and the decoder already exists.** The source is
 `AVR/07_stromzaehler`, and **Q1 is answered**: household power comes from the SML
@@ -1704,30 +1706,32 @@ ever scans a sample file.
 
 | Tier | Granularity | Where | Size | Answers |
 | ---- | ----------- | ----- | ---- | ------- |
-| **L0** samples | 1 min | SD, one file per day | 34 652 B/day (34 560 + CRCs) | nothing directly — the durable record |
-| **L1** day buffer | 1 min | PSRAM, today only | 34 560 B | **1 day**, at full resolution |
-| **L2** rollup | 1 hour, 31 days | PSRAM, loaded at boot | 77 376 B | **1 week** and **1 month** |
-| **L2-SPIFFS** hourly mirror | 1 hour, 12 months | SPIFFS, rotating ring | 911 040 B | an independent copy of **1 week** and **1 month**, surviving SD failure |
+| **L0** samples | 1 min | SD, one file per day | 40 412 B/day (40 320 + CRCs) | nothing directly — the durable record |
+| **L1** day buffer | 1 min | PSRAM, today only | 40 320 B | **1 day**, at full resolution |
+| **L2** rollup | 1 hour, 31 days | PSRAM, loaded at boot | 98 208 B | **1 week** and **1 month** |
+| **L2-SPIFFS** hourly mirror | 1 hour, 12 months | SPIFFS, rotating ring | 1 156 320 B | an independent copy of **1 week** and **1 month**, surviving SD failure |
 
 **L2 column layout** — one column per hour, 744 of them:
 
 ```cpp
 // src/app/rollup.h
-struct RollupColumn {          // 4 + 28 + 28 + 28 + 14 + 2 = 104 B
+struct RollupColumn {          // 4 + 36 + 36 + 36 + 18 + 2 = 132 B
                                // ... target_c100 is the Soll series (S13.06b)
   uint32_t t;                  // bucket start, unix minutes
-  int32_t  mn[7];              // 28 B
-  int32_t  mx[7];              // 28 B
-  int32_t  sum[7];             // 28 B
-  uint16_t n[7];               // 14 B
+  int32_t  mn[9];              // 36 B
+  int32_t  mx[9];              // 36 B
+  int32_t  sum[9];             // 36 B
+  uint16_t n[9];               // 18 B
+  int16_t  target_c100;        // 2 B, Soll/setpoint
 };
 ```
 
-Seven series — chamber, water-in, water-out, living-room temperature, humidity,
-pressure and power — because `int32_t` min/max/sum is what makes this 104 B
-rather than a narrower `int16_t` layout. The pressure slot is kept at zero on
-this board (it carried pressure in the abandoned AHT20 + BMP280 design). Power
-is stored in decawatts, the same unit as the minute sample. The struct is
+Nine series — chamber, water-in, water-out, living-room temperature, humidity,
+pressure, power, AC RMS and AC angle — because `int32_t` min/max/sum is what
+makes this 132 B rather than a narrower `int16_t` layout. The pressure slot is
+kept at zero on this board (it carried pressure in the abandoned AHT20 + BMP280
+design). Power is stored in decawatts, the same unit as the minute sample; RMS
+is 0.1 ADC count and angle is 0.01 degree. The struct is
 written and read as a flat block with no per-field
 endianness concerns beyond the usual little-endian assumption both the ESP32 and
 the host harness share (N5).
@@ -1735,8 +1739,8 @@ the host harness share (N5).
 **Double bookkeeping, not a fallback.** The hourly rollup is written to two
 independent stores: the SD card's `/rollup.bin` at the daily rollover, and a
 rotating **SPIFFS ring** as each hour closes. SPIFFS is *not* written only when
-the card fails; both stores are primary and are written unconditionally. At 104 B
-per column a 12-month ring is 911 040 B (~890 KB), which fits comfortably in the
+the card fails; both stores are primary and are written unconditionally. At 132 B
+per column a 12-month ring is 1 156 320 B (~1.1 MB), which fits comfortably in the
 3.72 MB SPIFFS partition beside the background PNG and configuration. The ring
 advances once an hour, so it costs 24 flash writes a day rather than 1 440. If the
 card is absent or fails, the week and month views still have history; if SPIFFS
@@ -1759,7 +1763,7 @@ resolution.
 **Boot sequence.**
 
 ```
-1. mount SD (if present), open /rollup.bin   (77 424 B, ~40 ms)
+1. mount SD (if present), open /rollup.bin   (98 256 B, ~40 ms)
    — if the card is absent or the rollup is unreadable, load the SPIFFS ring
 2. read the newest /data_YYYYMMDD.bin         (34 652 B, ~20 ms, SD only)
 3. re-apply those samples to L2                -> catches up SD columns
@@ -2754,17 +2758,17 @@ first-class feature of this project, not an extra.
 
 ### 9.2 Time ranges and point budgets
 
-Base resolution is one sample per minute (§7.4), record size 24 B (§7.4). At the
+Base resolution is one sample per minute (§7.4), record size 28 B (§7.4). At the
 chart's actual width of 440 px (§8.6):
 
 | Range | Samples | Raw span | Samples / column | What the column shows |
 | ----- | ------- | -------- | ---------------- | -------------------- |
-| **1 day** | 1 440 | 34 560 B | 3.3 | min–max envelope + mean dot |
-| **1 week** | 10 080 | 241 920 B | 22.9 | min–max envelope + mean line |
-| **1 month** | 43 200 | 1 036 800 B | 98.2 | min–max envelope + mean line |
+| **1 day** | 1 440 | 40 320 B | 3.3 | min–max envelope + mean dot |
+| **1 week** | 10 080 | 282 240 B | 22.9 | min–max envelope + mean line |
+| **1 month** | 43 200 | 1 209 600 B | 98.2 | min–max envelope + mean line |
 
 "Raw span" is the size of the underlying samples. After §7.10 the week and month
-views do not read it; they rescale the rollup (§9.5). 1 440 × 24 = 34 560 exactly.
+views do not read it; they rescale the rollup (§9.5). 1 440 × 28 = 40 320 exactly.
 Earlier drafts wrote the day buffer as 33 792 (33 × 1024), which is not a whole
 number of records.
 
@@ -2773,9 +2777,9 @@ is why the chart is an **envelope**, not a polyline: a single 90 s thermostat cy
 spans a third of a column even in the one-day view, and is invisible in a plain
 average at 1 month.
 
-A raw month (1 036 800 B, thirty days of 34 560 B) fits in the 8 MB PSRAM, so it
+A raw month (1 209 600 B, thirty days of 40 320 B) fits in the 8 MB PSRAM, so it
 *could* be cached wholesale. It is deliberately not (§9.5). Retention (§9.7):
-24 months is 24 × 1 039 560 B ≈ 25 MB of daily files, plus one 77 424 B rollup,
+24 months is 24 × 1 040 412 B ≈ 25 MB of daily files, plus one 98 256 B rollup,
 which still sits under the 50 MB free-space floor.
 
 ### 9.3 Record format and downsampling
@@ -2784,7 +2788,7 @@ Two-tier. The **store** is fixed-size binary; the **view** is a downsampled
 envelope.
 
 ```
-store:  /data_YYYYMMDD.bin   1 440 × 24 B = 34 560 B, written whole at midnight (§7.10)
+store:  /data_YYYYMMDD.bin   1 440 × 28 B = 40 320 B, written whole at midnight (§7.10)
         seek within a day file: index * 24                O(1)
         week and month views do not read these files (§9.5)
 
@@ -2859,7 +2863,7 @@ views read pre-aggregated columns out of PSRAM and never touch the card.**
 
 | Range | Source | Cost | Reads SD? |
 | ----- | ------ | ---- | --------- |
-| **1 day** | L1 day buffer, 1 440 × 24 B in PSRAM | ~1 ms, no I/O | no |
+| **1 day** | L1 day buffer, 1 440 × 28 B in PSRAM | ~1 ms, no I/O | no |
 | **1 week** | L2 rollup, 168 hourly columns | <1 ms, a rescale | no |
 | **1 month** | L2 rollup, 744 hourly columns | ~1 ms, a rescale | no |
 | *boot only* | `/rollup.bin` + newest daily file | ~100 KB, ~55 ms | once, before first frame |
@@ -2918,14 +2922,14 @@ history views lose trust.
   to the **SPIFFS ring** independently of the card. A 12-month ring is ~753 KB and
   rotates oldest-first. If the card fails or is removed, the week and month views
   keep working; only the current day's minute detail is lost.
-- **Retention: 24 months on SD**, configurable in SPIFFS config, at 1 036 800 B/month ≈ 25 MB.
+- **Retention: 24 months on SD**, configurable in SPIFFS config, at 1 209 600 B/month ≈ 25 MB.
   On startup and daily, the oldest files beyond the limit are deleted. Deleting is
   never more than one file per pass, so a card with 30 stale months does not stall
   the recorder. The SPIFFS ring retains 12 months independently.
 - **Free-space guard:** if free space drops below 50 MB, retention is forced to
   3 months and the home screen's SD dot turns amber. Losing a month of history is
   acceptable; filling the card and losing *everything* is not. The floor was set
-  for the old 12-byte record and is deliberately *not* lowered for the 24-byte one
+  for the old 12-byte record and is deliberately *not* lowered for the 28-byte one
   — 50 MB is still ~3 months of headroom on a 64 GB card, and the guard exists to
   catch a genuinely full card, not to ration.
 - **Card removal mid-write:** the SD driver drops, the recorder sets a fault flag
@@ -3157,11 +3161,11 @@ and never reallocated. Nothing in this table is touched by the LVGL draw path
 | Purpose | Bytes | Notes |
 | ------- | ----- | ----- |
 | Debug ring | 1 048 576 | §7.6. `MALLOC_CAP_SPIRAM \| MALLOC_CAP_8BIT`, never freed |
-| **L1 day buffer** (minute samples, today) | 34 560 | §7.10. 1 440 × 24 B |
-| **L2 hour rollup** (31 days) | 77 376 | §7.10. 744 columns × 104 B |
+| **L1 day buffer** (minute samples, today) | 40 320 | §7.10. 1 440 × 28 B |
+| **L2 hour rollup** (31 days) | 98 208 | §7.10. 744 columns × 132 B |
 | Decoded background image | 768 000 | §8.3. RGB565, 480 × 800 |
 | LVGL chart canvas | 228 800 | §9.4. 440 × 260 × 2 B |
-| Downsampling chunk buffer | 12 288 | §9.3. 512 × 24 B |
+| Downsampling chunk buffer | 14 336 | §9.3. 512 × 28 B |
 | LVGL chart columns (build scratch) | 12 320 | §9.3. 440 × 28 B |
 | LVGL objects, styles, font bitmaps | ~65 536 | estimate, asserted after `ui_init()` |
 | WiFi + OTA + WebSocket buffers | ~65 536 | ESP-IDF / Arduino internals |
@@ -3211,12 +3215,12 @@ SD write, and phase 12's soak test fails if either drops by more than 8 KB over
 | Tier | Path | Write pattern | Size |
 | ---- | ---- | ------------- | ---- |
 | Daily samples | `/data_YYYYMMDD.bin` (SD) | **once per day**, whole file, 64-record CRC blocks | 34 652 B |
-| Rollup (L2) | `/rollup.bin` (SD) | once per day, whole file, 64-column CRC blocks | 77 424 B |
-| Hourly mirror | `/rollup_ring.bin` (SPIFFS) | one column as each hour closes | 911 040 B for 12 months |
+| Rollup (L2) | `/rollup.bin` (SD) | once per day, whole file, 64-column CRC blocks | 98 256 B |
+| Hourly mirror | `/rollup_ring.bin` (SPIFFS) | one column as each hour closes | 1 156 320 B for 12 months |
 | Log dumps | `/log_*.txt` (SD) | on demand + before every reset (§7.6) | up to 1 MB |
 | Assets | `/bg.png`, `/ui.json`, config (SPIFFS) | never or rarely | ~120 KB+ |
 
-**1 039 560 B per 30-day month** of daily files (30 × 34 652), plus one 77 424 B
+**1 040 412 B per 30-day month** of daily files (30 × 40 412), plus one 98 256 B
 rollup. At 24 months that is ≈ 25 MB, and the 50 MB free-space floor (§9.7) is
 untouched. The old 1.01 MB figure used 33 792 B/day.
 
@@ -3227,8 +3231,8 @@ and a card in a wall panel that nobody will ever think to replace should not be
 written 525 000 times a year to store data that does not change within the day.
 
 The **SPIFFS hourly ring** is the second, independent bookkeeping store. The
-partition is 0x3B0000 (3 899 392 B, 3.72 MB); 12 months of 104 B columns is
-911 040 B, leaving ample room for the background PNG and configuration. Its write
+partition is 0x3B0000 (3 899 392 B, 3.72 MB); 12 months of 132 B columns is
+1 156 320 B, leaving ample room for the background PNG and configuration. Its write
 rate is one column an hour, not one a minute. The ring is not a fallback that is
 only written when the card fails: it is always written, so the card is never the
 sole custodian of the week/month history.
@@ -3293,7 +3297,7 @@ Each of these changes the design, so none is silently decided above.
 | -- | -------- | ------ | -------------------- |
 | **Q9** | **There is no water-out temperature on the bus.** Where does the third zone's data come from? | Decides whether the third temperature is measured | **Partly answered:** option **(b)** is adopted for the display — derived from the commanded PWM duty, permanently labelled as modelled, excluded from every statistic (§7.11, F24, R24). The model function is **not yet known**; it is to be measured and supplied, behind a `WaterModel` interface with a null default. Option (a) — a 4th DS18B20 on the return line — remains the better answer and **supersedes the model automatically** when fitted (§7.11). Until either exists, the zone renders `—` |
 | **Q5** | Does the current `tpl_sd` need to keep working on this board at all, given the recorder supersedes it? | Could delete ~200 lines from `tpl_sd` for this project, or keep the file browser for convenience | Recommend keeping `/sd/list` + `/sd/download` — browsing the recorded history over HTTP is genuinely useful. See also Q20: `tpl_sd` cannot mount here as built |
-| **Q6** | Retention: 24 months at 1 036 800 B/month is ≈ 25 MB. Is more wanted? | Storage and the free-space guard threshold | Jochen; default 24 |
+| **Q6** | Retention: 24 months at 1 209 600 B/month is ≈ 25 MB. Is more wanted? | Storage and the free-space guard threshold | Jochen; default 24 |
 | **Q8** | Is EEZ Studio in scope for the home screen? | Either hand-authored LVGL (faster, more control, matches project 26's current state) or generated (draggable, but cannot express the flame/pipes) | Recommend hand-authored; EEZ cannot produce the vector heater or the envelope chart |
 | **Q10** | Should the WebSocket log sink be authenticated? | `tpl_websocket` is unauthenticated on the LAN today; log content is house telemetry | Recommend accepting it on a home LAN, consistent with the existing unauthenticated `/update` OTA endpoint. If the answer is no, the change belongs in `tpl_websocket` for all projects, not here |
 | **Q11** | Should `tpl_debug_log`'s PSRAM ring be made the template default for **all** projects, or stay opt-in? | Affects every existing project's RAM footprint | Recommend staying opt-in for now, defaulting on for boards with no console once the module is proven |
@@ -3392,7 +3396,7 @@ debugging a UI bug and an actuator bug in the same session.
 | D4 | Background PNG in SPIFFS, decoded once to static PSRAM | Embed the raw RGB565 blob | 768 KB against a 3 MB shared app slot; PNG is ~120 KB and re-encodes cheaply |
 | D5 | Vector heater via `lv_canvas` | A bitmap with baked-in colours | The flame and pipes must react to live values; a bitmap can only go stale (§8.4) |
 | D6 | Invisible `lv_obj_t` overlay buttons as zones | Coordinate tests in the read callback | Independent of the drawing; LVGL handles press, click and focus (§8.5) |
-| D7 | Fixed-size records, now 24 B | Text CSV, as `15_power_log_eink` uses | Enables `seek()` — a month window is a seek, not a scan (§7.4, §9.5) |
+| D7 | Fixed-size records, now 28 B | Text CSV, as `15_power_log_eink` uses | Enables `seek()` — a month window is a seek, not a scan (§7.4, §9.5) |
 | D8 | Streaming downsample to a per-pixel envelope | Cache the whole month in PSRAM | Bounds RAM at ~24 KB instead of ~1 MB, and keeps N6 true (R12) |
 | D9 | Gap markers rather than interpolation | Connecting points across a dropout | Asserting measurements that were never taken is the failure mode a history view must not have (R6) |
 | D10 | `HausState` copy-out + one triple buffer per producer (atomic publish index) | In-place `g_state` with a sequence counter, or direct global reads | Each reader gets a coherent block the writer cannot overwrite; no retry loop, no writer lock. Makes the threading contract explicit and keeps the host build honest (N5, §10.2) |
@@ -3418,7 +3422,7 @@ debugging a UI bug and an actuator bug in the same session.
 | D30 | Show `PWM_SRC_*` provenance as a first-class UI element | Showing only the duty value | A restored-from-EEPROM duty and a live commanded one are the same number and completely different situations; `haus_can.h:242` builds the distinction into the protocol, so hiding it wastes the only signal that has it (F20) |
 | D31 | Theme, strings, units and static-screen order live in `/ui.json`; logic stays hardcoded | Fully declarative screens; fully hardcoded screens | §4.4. The heater graphic, the envelope chart and the log window are not declarable, so a layout DSL that could express this UI would be a reimplementation of LVGL's draw pipeline — and one that could not would not be describing this application |
 | D32 | A bad or absent `/ui.json` falls back to the compiled-in UI | Letting a layout file fail the boot | With CAN enabled there is no USB console, so a panel that will not boot on a bad file can only be recovered by pushing a new SPIFFS image over OTA. Same posture as the background PNG (§4.4.3, §8.3) |
-| D33 | **Three-tier history store with double bookkeeping**: minute samples on SD by day, a 1 440-sample day buffer and a 744-column hourly rollup in PSRAM, plus a 12-month hourly ring in SPIFFS | Per-minute SD appends with on-query downsampling; SPIFFS as a failure-only fallback | Drops card writes from 1 440/day to 2, which is the difference between a card that lasts years and one that lasts months; makes week and month charts a ~1 ms rescale instead of a 500 ms card read; and keeps an independent hourly record so a damaged card cannot erase the history the panel displays. At 104 B/hour the SPIFFS ring costs only ~911 KB/year and 24 writes/day (§7.10, §9.5) |
+| D33 | **Three-tier history store with double bookkeeping**: minute samples on SD by day, a 1 440-sample day buffer and a 744-column hourly rollup in PSRAM, plus a 12-month hourly ring in SPIFFS | Per-minute SD appends with on-query downsampling; SPIFFS as a failure-only fallback | Drops card writes from 1 440/day to 2, which is the difference between a card that lasts years and one that lasts months; makes week and month charts a ~1 ms rescale instead of a 500 ms card read; and keeps an independent hourly record so a damaged card cannot erase the history the panel displays. At 132 B/hour the SPIFFS ring costs only ~1.1 MB/year and 24 writes/day (§7.10, §9.5) |
 | D34 | One **daily** file rather than one monthly | Monthly file, daily append | Makes the write atomic and the loss window exactly "since the last rollover" rather than "since the start of the month". Costs one file per month instead of one; that is 12 files a year |
 | D35 | L2 is **hourly**, and the chart says so | Minute-resolution month view | 1 MB per query is the thing D33 removes; hourly columns give 720 points for a month, which is already finer than a 440 px chart can show, and the 1-day view — where minute detail matters — is served from L1 at full resolution |
 | D36 | Household power from **SML**, decoder lifted from project 15 | Writing a new SML parser; using `0x2C0` | Project 15 already decodes `1-0:16.7.0/255` with `libsml`, so the work is a lift rather than a build. The `0x2C0` amp chain was derived from hardware that has since changed, so it is not a measurement (§7.4, Q1) |

@@ -8,6 +8,7 @@
  */
 
 #include "haus_history.h"
+#include "haus_sd.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -65,7 +66,6 @@ static bool s_test_fail_writes = false;
 #include <freertos/task.h>
 
 #include "haus_mem.h"
-#include "haus_sd.h"
 #include "tpl_debug_log.h"
 
 typedef struct __attribute__((packed)) {
@@ -75,7 +75,7 @@ typedef struct __attribute__((packed)) {
 } RingHeader;
 
 #define RING_MAGIC 0x484E4752u /* "RNGH" */
-#define RING_VERSION 3
+#define RING_VERSION 4
 
 static bool s_ring_ready = false;
 static haus_ring_stats_t s_ring_stats;
@@ -433,6 +433,10 @@ static RollupColumn* apply_sample_to_l2(const gui_sample_t* s) {
    * stale SML source is omitted. */
   if (!(stale & SAMPLE_STALE_POWER) && !(s->flags & SAMPLE_FLAG_GAP))
     add_series(col, 6, (int32_t)s->power_dw);
+  if (!(stale & SAMPLE_STALE_AC)) {
+    add_series(col, 7, (int32_t)s->ac_rms_dc);
+    add_series(col, 8, (int32_t)s->ac_angle_cdeg);
+  }
 
   return col;
 }
@@ -476,6 +480,8 @@ bool haus_history_sample(const HausState* state, uint32_t epoch_seconds) {
   uint32_t power_dw = state->can.valid ? (uint32_t)state->can.watts * 10u : 0u;
   if (power_dw > 65535u) power_dw = 65535u;
   s->power_dw = (uint16_t)power_dw;
+  s->ac_rms_dc = state->can.ac_fresh ? state->can.ac_rms_dc : 0;
+  s->ac_angle_cdeg = state->can.ac_fresh ? state->can.ac_angle_cdeg : 0;
 
   s->flags = state->can.water_modelled ? SAMPLE_FLAG_MODELLED : 0x00;
   if (living_valid) s->flags |= SAMPLE_FLAG_CLIMATE_AHT20;
@@ -503,6 +509,7 @@ bool haus_history_sample(const HausState* state, uint32_t epoch_seconds) {
   if (state->can.valid &&
       source_stale(epoch_seconds, state->can.last_update_epoch))
     stale |= SAMPLE_STALE_POWER;
+  if (!state->can.ac_fresh) stale |= SAMPLE_STALE_AC;
 
   s->stale_mask = stale;
   if (stale != 0) s->flags |= SAMPLE_FLAG_STALE;

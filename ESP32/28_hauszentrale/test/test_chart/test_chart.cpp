@@ -69,6 +69,8 @@ static void prepare_day(uint32_t start) {
         g_samples[i].temp[0] = (int16_t)(3000 + (int32_t)(i % 100u));
         g_samples[i].temp[1] = (int16_t)(4000 + (int32_t)(i % 50u));
         g_samples[i].temp[2] = HAUS_CAN_TEMP_EMPTY;
+        g_samples[i].ac_rms_dc = (uint16_t)(1300 + (i % 100u));
+        g_samples[i].ac_angle_cdeg = (int16_t)(-4500 + (int32_t)(i % 50u));
     }
 
     /* 600–659: no sensor. 800–809: source stale. */
@@ -124,6 +126,10 @@ static void test_rollups(uint32_t start) {
         g_rollups[i].mn[0] = (int32_t)(1000 + (int32_t)i);
         g_rollups[i].mx[0] = (int32_t)(2000 + (int32_t)i);
         g_rollups[i].sum[0] = (g_rollups[i].mn[0] + g_rollups[i].mx[0]) * 30;
+        g_rollups[i].n[7] = 60;
+        g_rollups[i].mn[7] = (int32_t)(1300 + (int32_t)i);
+        g_rollups[i].mx[7] = (int32_t)(1400 + (int32_t)i);
+        g_rollups[i].sum[7] = (g_rollups[i].mn[7] + g_rollups[i].mx[7]) * 30;
     }
 
     haus_chart_build_rollup(cols, start,
@@ -145,6 +151,31 @@ static void test_rollups(uint32_t start) {
           "column 60 should be a gap (hours 100-104 empty)");
 }
 
+static void test_ac(uint32_t start) {
+    SECTION("E1  AC RMS samples and rollups use their own series");
+
+    static ChartColumn cols[HAUS_CHART_COLUMNS];
+    haus_chart_build_samples(cols, start, start + DAY_SECONDS, read_samples,
+                             NULL, DAY_SAMPLES, GUI_SERIES_AC_RMS, -1);
+    uint32_t total_n = 0;
+    for (size_t i = 0; i < HAUS_CHART_COLUMNS; i++) total_n += cols[i].n[0];
+    CHECK(total_n == DAY_SAMPLES, "AC sample n = %u, want %u",
+          (unsigned)total_n, (unsigned)DAY_SAMPLES);
+    CHECK(cols[0].n[0] > 0 && cols[0].mn[0] >= 1300 &&
+              cols[0].mn[0] <= 1399,
+          "AC first min = %d", (int)cols[0].mn[0]);
+
+    haus_chart_build_rollup(cols, start,
+                            start + (uint32_t)HAUS_ROLLUP_COLUMNS * 3600u,
+                            read_rollups, NULL, HAUS_ROLLUP_COLUMNS, 8, -1);
+    total_n = 0;
+    for (size_t i = 0; i < HAUS_CHART_COLUMNS; i++) total_n += cols[i].n[0];
+    CHECK(total_n == (uint32_t)(HAUS_ROLLUP_COLUMNS - 5u) * 60u,
+          "AC rollup n = %u", (unsigned)total_n);
+    CHECK(cols[0].n[0] > 0 && cols[0].mn[0] >= 1300,
+          "AC rollup first min = %d", (int)cols[0].mn[0]);
+}
+
 int main(void) {
     CHECK(sizeof(ChartColumn) == 28u, "ChartColumn = %u",
           (unsigned)sizeof(ChartColumn));
@@ -157,6 +188,7 @@ int main(void) {
     prepare_day(start);
     test_samples(start);
     test_rollups(start);
+    test_ac(start);
 
     if (g_failures != 0u) {
         printf("%u/%u checks FAILED\n", (unsigned)g_failures,

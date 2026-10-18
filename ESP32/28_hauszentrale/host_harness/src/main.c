@@ -109,6 +109,18 @@ static void home_60(void) {
 
 static void build_water(void) { haus_ui_build_water(2); }
 
+static void build_ac(void) {
+  haus_ui_build_ac();
+  haus_ui_set_ac_series(0);
+  haus_ui_update();
+}
+
+static void build_ac_angle(void) {
+  haus_ui_build_ac();
+  haus_ui_set_ac_series(1);
+  haus_ui_update();
+}
+
 static void build_chamber_week(void) {
   haus_ui_build_detail();
   haus_ui_set_range(1);
@@ -159,6 +171,8 @@ int main(int argc, char* argv[]) {
       (void (*)(void))haus_ui_build_detail,
       (void (*)(void))haus_ui_build_power,
       (void (*)(void))haus_ui_build_living,
+      build_ac,
+      build_ac_angle,
       (void (*)(void))haus_ui_build_settings,
       (void (*)(void))haus_ui_build_storage,
       (void (*)(void))haus_ui_build_can,
@@ -172,9 +186,9 @@ int main(int argc, char* argv[]) {
       home_60,
   };
   static const char* const screen_names[] = {
-      "home", "detail", "power", "living",     "settings",    "storage",
-      "can",  "log",    "roles", "water",      "chart_week",  "chart_month",
-      "home_off", "home_40", "home_60",
+      "home",   "detail", "power",    "living",    "ac",        "ac_angle",
+      "settings", "storage", "can",   "log",       "roles",     "water",
+      "chart_week", "chart_month", "home_off", "home_40",   "home_60",
   };
 
   for (size_t i = 0; i < sizeof(build_funcs) / sizeof(build_funcs[0]); i++) {

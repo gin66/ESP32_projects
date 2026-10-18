@@ -20,9 +20,11 @@
 #include <time.h>
 
 #include <atomic>
+#include <cmath>
 #include <cstring>
 
 #include "app/sml_power.h"
+#include "can_monitor.h"
 #include "haus_can.h"
 #include "haus_can_bus.h"
 #include "haus_history.h"
@@ -31,6 +33,7 @@
 #include "haus_sensor_roles.h"
 #include "haus_sht45.h"
 #include "haus_triple_buffer.h"
+#include "haus_wave_demod.h"
 #include "tpl_debug_log.h"
 #include "tpl_ws7.h"
 
@@ -533,6 +536,26 @@ void gui_update_state(void) {
   can.requested_permille = 0xFFFF;
   can.has_pending = false;
   can.pwm_pending_since_ms = 0;
+
+  /* AC waveform (0x2C1..0x2C5): demodulate once per state update. */
+  can_monitor_adc_wave_t wave;
+  can.ac_rms_dc = 0;
+  can.ac_angle_cdeg = 0;
+  can.ac_fresh = false;
+  if (can_monitor_get_adc_wave(&wave) && wave.valid) {
+    haus_wave_demod_t demod;
+    if (haus_wave_demod(wave.slot, &demod)) {
+      long rms = lroundf(demod.rms_counts * 10.0f);
+      long angle = lroundf(demod.angle_deg * 100.0f);
+      if (rms < 0) rms = 0;
+      if (rms > 65535) rms = 65535;
+      if (angle < -32768) angle = -32768;
+      if (angle > 32767) angle = 32767;
+      can.ac_rms_dc = (uint16_t)rms;
+      can.ac_angle_cdeg = (int16_t)angle;
+      can.ac_fresh = (uint32_t)(millis() - wave.seen_ms) < 5000u;
+    }
+  }
 
   /* Household power — no SML decode yet. */
   int32_t watts = 0;

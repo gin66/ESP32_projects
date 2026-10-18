@@ -7,7 +7,7 @@
  * or host specifics.
  *
  * Data structures:
- *   gui_sample_t      — 24 bytes, one minute of sensor data
+ *   gui_sample_t      — 28 bytes, one minute of sensor data
  *   SensorFn          — the function a sensor is bound to
  *   CanState          — immutable block owned by canTask
  *   ClimateState      — immutable block owned by sensorTask
@@ -50,7 +50,7 @@ typedef enum {
   GUI_STATUS_ERROR,        /* red: fault */
 } gui_status_t;
 
-/* ─── Sample (24 bytes, static_assert on both host and device) ──────────── */
+/* ─── Sample (28 bytes, static_assert on both host and device) ──────────── */
 
 typedef struct {
   uint32_t epoch;       /* 0: minute-aligned unix time */
@@ -62,6 +62,8 @@ typedef struct {
   uint8_t flags;        /* 20: SAMPLE_FLAG_* */
   uint8_t stale_mask;   /* 21: SAMPLE_STALE_* bits, per source */
   int16_t target_c100;  /* 22: Soll / setpoint (third chart series) */
+  uint16_t ac_rms_dc;   /* 24: 0x2C waveform RMS, 0.1 ADC count */
+  int16_t ac_angle_cdeg;/* 26: 0x2C waveform angle, 0.01 degree */
 } gui_sample_t;
 
 /* Sample flags */
@@ -71,7 +73,7 @@ typedef struct {
 #define SAMPLE_FLAG_CLIMATE_AHT20 0x08
 #define SAMPLE_FLAG_CLIMATE_BMP280 0x10
 
-/* Per-source stale bits, in RollupColumn series order (0…5), plus power. */
+/* Per-source stale bits, in RollupColumn series order (0…8). */
 #define SAMPLE_STALE_CHAMBER 0x01
 #define SAMPLE_STALE_WATER_IN 0x02
 #define SAMPLE_STALE_WATER_OUT 0x04
@@ -79,13 +81,14 @@ typedef struct {
 #define SAMPLE_STALE_HUMIDITY 0x10
 #define SAMPLE_STALE_PRESSURE 0x20
 #define SAMPLE_STALE_POWER 0x40
+#define SAMPLE_STALE_AC 0x80
 
 #if defined(__cplusplus)
-static_assert(sizeof(gui_sample_t) == 24,
-              "gui_sample_t must be 24 bytes (fixed-size records)");
+static_assert(sizeof(gui_sample_t) == 28,
+              "gui_sample_t must be 28 bytes (fixed-size records)");
 #else
-_Static_assert(sizeof(gui_sample_t) == 24,
-               "gui_sample_t must be 24 bytes (fixed-size records)");
+_Static_assert(sizeof(gui_sample_t) == 28,
+               "gui_sample_t must be 28 bytes (fixed-size records)");
 #endif
 
 /* ─── Sensor function (whitepaper §10.2) ─────────────────────────────────── */
@@ -126,6 +129,9 @@ typedef struct {
   uint8_t pwm_src; /* PWM_SRC_EEPROM / _CAN / _NRF / _FAULT */
   bool pwm_fresh;  /* a 0x280 report arrived within the freshness window */
   bool active;
+  uint16_t ac_rms_dc;    /* 0x2C waveform RMS, 0.1 ADC count */
+  int16_t ac_angle_cdeg; /* 0x2C waveform angle, 0.01 degree */
+  bool ac_fresh;         /* a complete 0x2C waveform arrived recently */
   uint16_t pwm_pending; /* slider position; 0xFFFF == none pending */
   uint16_t requested_permille;
   bool has_pending;
@@ -237,6 +243,8 @@ int gui_get_history(const gui_history_request_t* req);
  * (samples) or hours (rollups). Missing records are returned zeroed with their
  * expected epoch/t filled in, so the chart builder can mark them as gaps. */
 #define GUI_SERIES_TARGET 6
+#define GUI_SERIES_AC_RMS 8
+#define GUI_SERIES_AC_ANGLE 9
 size_t gui_read_samples_chunk(uint32_t start_epoch, size_t first, size_t count,
                               gui_sample_t* out);
 size_t gui_read_rollup_chunk(uint32_t start_epoch, size_t first, size_t count,

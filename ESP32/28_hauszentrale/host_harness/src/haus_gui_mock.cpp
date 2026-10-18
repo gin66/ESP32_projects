@@ -219,6 +219,10 @@ static void init_history(void) {
     g_history[idx].pressure_pa = mock_living_pressure(t);
     g_history[idx].power_dw = 0;
     g_history[idx].target_c100 = mock_target_temp(t);
+    g_history[idx].ac_rms_dc =
+        (uint16_t)(1368 + (int)(sin(t * 0.001) * 20.0));
+    g_history[idx].ac_angle_cdeg =
+        (int16_t)(14600 - (int)((t % 3600u) / 60u) * 20);
     /* No SML/ADC power source exists yet. Do not fabricate watts: the power
      * screen must exercise the same empty state as the device. */
     g_history[idx].flags = SAMPLE_FLAG_CLIMATE_AHT20 |
@@ -349,6 +353,9 @@ void gui_update_state(void) {
   can.requested_permille = 0xFFFF;
   can.has_pending = false;
   can.pwm_pending_since_ms = 0;
+  can.ac_rms_dc = 1368;
+  can.ac_angle_cdeg = 14609;
+  can.ac_fresh = true;
 
   /* Power: no SML/ADC source yet, so no fabricated watts. */
   can.watts = 0;
@@ -534,6 +541,20 @@ size_t gui_read_rollup_chunk(uint32_t start_epoch, size_t first, size_t count,
         if (v > out[i].mx[2]) out[i].mx[2] = v;
         out[i].sum[2] += v;
         out[i].n[2]++;
+      }
+      if (!(s->stale_mask & SAMPLE_STALE_AC)) {
+        const int32_t v = s->ac_rms_dc;
+        if (out[i].n[7] == 0) out[i].mn[7] = out[i].mx[7] = v;
+        if (v < out[i].mn[7]) out[i].mn[7] = v;
+        if (v > out[i].mx[7]) out[i].mx[7] = v;
+        out[i].sum[7] += v;
+        out[i].n[7]++;
+        const int32_t a = s->ac_angle_cdeg;
+        if (out[i].n[8] == 0) out[i].mn[8] = out[i].mx[8] = a;
+        if (a < out[i].mn[8]) out[i].mn[8] = a;
+        if (a > out[i].mx[8]) out[i].mx[8] = a;
+        out[i].sum[8] += a;
+        out[i].n[8]++;
       }
     }
   }

@@ -92,6 +92,14 @@ static bool sample_value(const gui_sample_t* s, int series, int32_t* value) {
       if (s->flags & SAMPLE_FLAG_GAP) return false;
       *value = (int32_t)s->power_dw; /* deciwatts (0.1 W) */
       return true;
+    case GUI_SERIES_AC_RMS:
+      if (s->stale_mask & SAMPLE_STALE_AC) return false;
+      *value = (int32_t)s->ac_rms_dc; /* 0.1 ADC count */
+      return true;
+    case GUI_SERIES_AC_ANGLE:
+      if (s->stale_mask & SAMPLE_STALE_AC) return false;
+      *value = (int32_t)s->ac_angle_cdeg; /* 0.01 degree */
+      return true;
     default:
       return false;
   }
@@ -179,10 +187,13 @@ uint32_t haus_chart_build_samples(ChartColumn* cols, uint32_t t0, uint32_t t1,
   return newest;
 }
 
-/* Chart series 7 is power; the rollup stores it as series 6. Target (6) is
- * built separately and must not resolve to the rollup's power slot. */
+/* Chart series 7 is power; the rollup stores it as series 6. AC RMS/angle
+ * are 8 and 9 in the chart and 7 and 8 in the rollup. Target (6) is built
+ * separately and must not resolve to a rollup slot. */
 static int rollup_source(int chart_series) {
   if (chart_series == 7) return 6;
+  if (chart_series == GUI_SERIES_AC_RMS) return 7;
+  if (chart_series == GUI_SERIES_AC_ANGLE) return 8;
   if (chart_series == GUI_SERIES_TARGET) return -1;
   return chart_series;
 }

@@ -51,6 +51,8 @@ void haus_ui_smoke_step(void);
 /** Build the power and living-room detail screens. */
 lv_obj_t* haus_ui_build_power(void);
 lv_obj_t* haus_ui_build_living(void);
+lv_obj_t* haus_ui_build_ac(void);
+void haus_ui_set_ac_series(int series);
 lv_obj_t* haus_ui_build_settings(void);
 lv_obj_t* haus_ui_build_storage(void);
 lv_obj_t* haus_ui_build_can(void);

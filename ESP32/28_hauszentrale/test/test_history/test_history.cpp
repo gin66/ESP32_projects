@@ -7,6 +7,7 @@
  */
 
 #include "haus_history.h"
+#include "haus_sd.h"
 
 #include <stdio.h>
 #include <stdint.h>
@@ -29,6 +30,12 @@ static uint32_t g_failures;
     } while (0)
 
 #define SECTION(name) printf("-- %s\n", name)
+extern "C" {
+bool haus_sd_is_mounted(void) { return true; }
+bool haus_sd_ever_mounted(void) { return true; }
+void haus_sd_note_io_error(void) {}
+}
+
 
 static HausState fresh_state(uint32_t epoch) {
     HausState st;
@@ -39,6 +46,9 @@ static HausState fresh_state(uint32_t epoch) {
     st.can.pwm_permille = 500;
     st.can.watts = 1000;
     st.can.valid = true;
+    st.can.ac_fresh = true;
+    st.can.ac_rms_dc = 1368;
+    st.can.ac_angle_cdeg = -4500;
     st.can.last_update_epoch = epoch;
     st.climate.climate_flags = CLIMATE_VALID_AHT20 | CLIMATE_VALID_BMP280;
     st.climate.living_c100 = 2100;
@@ -87,6 +97,12 @@ static void test_day(uint32_t start) {
         CHECK(c.n[5] == 60 && c.sum[5] == 101325 * 60,
               "hour %u pressure n/sum = %u/%d", (unsigned)h,
               (unsigned)c.n[5], (int)c.sum[5]);
+        CHECK(c.n[7] == 60 && c.sum[7] == 1368 * 60,
+              "hour %u AC RMS n/sum = %u/%d", (unsigned)h,
+              (unsigned)c.n[7], (int)c.sum[7]);
+        CHECK(c.n[8] == 60 && c.sum[8] == -4500 * 60,
+              "hour %u AC angle n/sum = %u/%d", (unsigned)h,
+              (unsigned)c.n[8], (int)c.sum[8]);
     }
 
     const uint32_t last = start + (HAUS_L1_SAMPLES - 1u) * 60u;
@@ -116,11 +132,11 @@ static uint32_t test_rollover(uint32_t start) {
           "day bytes = %u", (unsigned)haus_history_test_day_bytes());
     CHECK(haus_history_test_rollup_bytes() == HAUS_ROLLUP_FILE_BYTES,
           "rollup bytes = %u", (unsigned)haus_history_test_rollup_bytes());
-    CHECK(HAUS_L1_BYTES == 34560u, "L1 size = %u", (unsigned)HAUS_L1_BYTES);
-    CHECK(HAUS_L2_BYTES == 77376u, "L2 size = %u", (unsigned)HAUS_L2_BYTES);
-    CHECK(HAUS_DAY_FILE_BYTES == 34652u, "day file = %u",
+    CHECK(HAUS_L1_BYTES == 40320u, "L1 size = %u", (unsigned)HAUS_L1_BYTES);
+    CHECK(HAUS_L2_BYTES == 98208u, "L2 size = %u", (unsigned)HAUS_L2_BYTES);
+    CHECK(HAUS_DAY_FILE_BYTES == 40412u, "day file = %u",
           (unsigned)HAUS_DAY_FILE_BYTES);
-    CHECK(HAUS_ROLLUP_FILE_BYTES == 77424u, "rollup file = %u",
+    CHECK(HAUS_ROLLUP_FILE_BYTES == 98256u, "rollup file = %u",
           (unsigned)HAUS_ROLLUP_FILE_BYTES);
 
     return next;
@@ -433,9 +449,9 @@ static void test_retention(uint32_t now) {
 }
 
 int main(void) {
-    CHECK(sizeof(gui_sample_t) == 24u, "gui_sample_t = %u",
+    CHECK(sizeof(gui_sample_t) == 28u, "gui_sample_t = %u",
           (unsigned)sizeof(gui_sample_t));
-    CHECK(sizeof(RollupColumn) == 104u, "RollupColumn = %u",
+    CHECK(sizeof(RollupColumn) == 132u, "RollupColumn = %u",
           (unsigned)sizeof(RollupColumn));
 
     (void)setenv("TZ", "CET-1CEST,M3.5.0/2,M10.5.0/3", 1);

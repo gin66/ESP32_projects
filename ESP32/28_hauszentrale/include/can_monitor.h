@@ -78,6 +78,7 @@ typedef struct {
 typedef struct {
   bool valid;
   uint32_t generation;
+  uint32_t seen_ms; /* millis() when the five-frame set completed */
   uint16_t slot[CAN_MONITOR_WAVE_SLOTS];
 } can_monitor_adc_wave_t;
 

@@ -201,6 +201,7 @@ void wave_on_frame(const Frame& f) {
     std::memcpy(s_wave.slot, s_wave_stage, sizeof(s_wave.slot));
     s_wave.valid = true;
     s_wave.generation++;
+    s_wave.seen_ms = millis();
     s_wave_next = 0;
   }
   portEXIT_CRITICAL(&s_data_lock);

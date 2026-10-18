@@ -91,6 +91,7 @@ void ensure(void) {
   memset(&s_wave, 0, sizeof(s_wave));
   s_wave.valid = true;
   s_wave.generation = 1;
+  s_wave.seen_ms = now_ms();
   for (int i = 0; i < CAN_MONITOR_WAVE_SLOTS; i++) {
     const double s =
         std::sin(2.0 * 3.14159265358979 * (double)i / (double)CAN_MONITOR_WAVE_SLOTS);

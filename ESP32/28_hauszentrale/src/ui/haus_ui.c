@@ -102,6 +102,7 @@ enum ui_screen_id {
   UI_SCREEN_WATER_OUT,
   UI_SCREEN_POWER,
   UI_SCREEN_LIVING,
+  UI_SCREEN_AC,
   UI_SCREEN_SETTINGS,
   UI_SCREEN_STORAGE,
   UI_SCREEN_CAN,
@@ -127,6 +128,7 @@ static int nav_index_for(int screen) {
   if (screen == UI_SCREEN_WATER_OUT) screen = UI_SCREEN_WATER_IN;
   if (screen == UI_SCREEN_STORAGE) screen = UI_SCREEN_SETTINGS;
   if (screen == UI_SCREEN_ROLES) screen = UI_SCREEN_SETTINGS;
+  if (screen == UI_SCREEN_AC) screen = UI_SCREEN_SETTINGS;
   for (int i = 0; i < NAV_TABS; i++)
     if (nav_screens[i] == screen) return i;
   return -1;
@@ -178,7 +180,9 @@ static lv_obj_t* s_water_out;
 static lv_obj_t* s_water_out_lbl;
 static lv_obj_t* s_living_temp;
 static lv_obj_t* s_living_unit;
+static lv_obj_t* s_living_temp_tol;
 static lv_obj_t* s_living_rh;
+static lv_obj_t* s_living_rh_tol;
 static lv_obj_t* s_power_num;
 static lv_obj_t* s_power_bolt;
 static lv_obj_t* s_power_src;
@@ -866,8 +870,17 @@ static void build_living(void) {
   lv_obj_align_to(s_living_unit, s_living_temp, LV_ALIGN_OUT_RIGHT_BOTTOM, 4,
                   -2);
 
-  s_living_rh = label_make(lv_screen_active(), "-- rh", 300, 604,
-                           &lv_font_montserrat_16, C_CYAN);
+  s_living_temp_tol = label_make(lv_screen_active(), "+/-0.1°C", 0, 0,
+                                 &lv_font_montserrat_16, C_FAINT);
+  lv_obj_align_to(s_living_temp_tol, s_living_unit, LV_ALIGN_OUT_RIGHT_BOTTOM,
+                  6, -2);
+
+  s_living_rh = label_make(lv_screen_active(), "-- %rH", 300, 596,
+                           &lv_font_montserrat_32, C_CYAN);
+  s_living_rh_tol = label_make(lv_screen_active(), "+/-1%", 0, 0,
+                               &lv_font_montserrat_16, C_FAINT);
+  lv_obj_align_to(s_living_rh_tol, s_living_rh, LV_ALIGN_OUT_RIGHT_BOTTOM, 6,
+                  -2);
 }
 
 static void build_power(void) {
@@ -1168,7 +1181,12 @@ void haus_ui_update(void) {
   }
   bool flow = state.can.pwm_permille > 0 && state.can.pwm_permille < 1000;
   txt(s_pump, flow ? "on" : "off");
-  snprintf(buf, sizeof(buf), "Vpp %u", state.can.pwm_permille);
+  if (state.can.ac_fresh) {
+    const double vrms = (state.can.ac_rms_dc / 10.0) * 1.1 / 1024.0;
+    snprintf(buf, sizeof(buf), "RMS %.3f V", vrms);
+  } else {
+    snprintf(buf, sizeof(buf), "RMS --");
+  }
   txt(s_pump_lbl, buf);
 
   /* Living room. */
@@ -1181,18 +1199,29 @@ void haus_ui_update(void) {
     living_changed = txt(s_living_temp, "--");
     lv_obj_set_style_text_color(s_living_temp, lv_color_hex(0x444444), 0);
   }
-  if (s_living_unit) txt(s_living_unit, s_clock_fmt >= 2 ? "°F" : "°C");
+  const bool living_f = s_clock_fmt >= 2;
+  if (s_living_unit) txt(s_living_unit, living_f ? "°F" : "°C");
+  if (s_living_temp_tol)
+    txt(s_living_temp_tol, living_f ? "+/-0.2°F" : "+/-0.1°C");
   if (living_changed && s_living_unit && s_living_temp) {
     lv_obj_align_to(s_living_unit, s_living_temp, LV_ALIGN_OUT_RIGHT_BOTTOM, 4,
                     -2);
   }
+  if (s_living_temp_tol && s_living_unit) {
+    lv_obj_align_to(s_living_temp_tol, s_living_unit,
+                    LV_ALIGN_OUT_RIGHT_BOTTOM, 6, -2);
+  }
   if (state.climate.climate_flags & CLIMATE_VALID_SHT45) {
-    snprintf(buf, sizeof(buf), "%u rh", state.climate.hum_c100 / 100);
+    snprintf(buf, sizeof(buf), "%u %%rH", state.climate.hum_c100 / 100);
     txt(s_living_rh, buf);
     lv_obj_set_style_text_color(s_living_rh, lv_color_hex(C_CYAN), 0);
   } else {
-    txt(s_living_rh, "-- rh");
+    txt(s_living_rh, "-- %rH");
     lv_obj_set_style_text_color(s_living_rh, lv_color_hex(0x444444), 0);
+  }
+  if (s_living_rh_tol && s_living_rh) {
+    lv_obj_align_to(s_living_rh_tol, s_living_rh, LV_ALIGN_OUT_RIGHT_BOTTOM, 6,
+                    -2);
   }
 
   /* Power (always watts, with the bolt glyph). */
@@ -1313,7 +1342,13 @@ void haus_ui_animate(void) {
 #define CHART_Y1 210
 
 enum ui_range { UI_RANGE_DAY = 0, UI_RANGE_WEEK, UI_RANGE_MONTH };
-enum chart_unit { CHART_UNIT_TEMP = 0, CHART_UNIT_RH, CHART_UNIT_POWER };
+enum chart_unit {
+  CHART_UNIT_TEMP = 0,
+  CHART_UNIT_RH,
+  CHART_UNIT_POWER,
+  CHART_UNIT_AC_RMS,
+  CHART_UNIT_AC_ANGLE
+};
 
 typedef struct {
   int a, b;
@@ -1375,6 +1410,8 @@ static int s_power_unit = -1; /* -1 auto, 0 W, 1 kW */
 static lv_obj_t* s_water_extra;
 static lv_obj_t* s_living_tab[2];
 static int g_living_series = 0;
+static lv_obj_t* s_ac_tab[2];
+static int g_ac_series = 0;
 
 /* PWM request UI (S20.02). No frame is transmitted yet; the requested value
  * is local and the in-force value always comes from 0x280.
@@ -1551,6 +1588,14 @@ static void chart_cfg_for(int detail, chart_cfg_t* cfg) {
       cfg->hourly_ok = 1;
       cfg->unit = (g_living_series == 0) ? CHART_UNIT_TEMP : CHART_UNIT_RH;
       cfg->color_a = C_CYAN;
+      cfg->color_b = cfg->color_a;
+      break;
+    case UI_SCREEN_AC:
+      cfg->a = (g_ac_series == 0) ? GUI_SERIES_AC_RMS : GUI_SERIES_AC_ANGLE;
+      cfg->use_target = 0;
+      cfg->hourly_ok = 1;
+      cfg->unit = (g_ac_series == 0) ? CHART_UNIT_AC_RMS : CHART_UNIT_AC_ANGLE;
+      cfg->color_a = (g_ac_series == 0) ? C_AMBER : C_VIOLET;
       cfg->color_b = cfg->color_a;
       break;
     default:
@@ -1808,6 +1853,12 @@ static void chart_format_value(char* buf, size_t n, int32_t v, int unit) {
         snprintf(buf, n, "%.2f", v / 10000.0);
       else
         snprintf(buf, n, "%d", v / 10);
+      break;
+    case CHART_UNIT_AC_RMS:
+      snprintf(buf, n, "%.3f", (v / 10.0) * 1.1 / 1024.0);
+      break;
+    case CHART_UNIT_AC_ANGLE:
+      snprintf(buf, n, "%.1f", v / 100.0);
       break;
     default:
       snprintf(buf, n, "%d", v);
@@ -2067,6 +2118,14 @@ static bool chart_live_value(int series, int32_t* out) {
       if (!st.can.valid) return false;
       *out = st.can.watts > 0 ? st.can.watts * 10 : 0;
       if (*out > 65535) *out = 65535;
+      break;
+    case GUI_SERIES_AC_RMS:
+      if (!st.can.ac_fresh) return false;
+      *out = (int32_t)st.can.ac_rms_dc;
+      break;
+    case GUI_SERIES_AC_ANGLE:
+      if (!st.can.ac_fresh) return false;
+      *out = (int32_t)st.can.ac_angle_cdeg;
       break;
     default:
       return false;
@@ -2579,6 +2638,21 @@ static void detail_value_update(void) {
       }
       txt(s_detail_value, buf);
       return;
+    case UI_SCREEN_AC:
+      if (st.can.ac_fresh) {
+        if (g_ac_series == 0) {
+          const double vrms =
+              (st.can.ac_rms_dc / 10.0) * 1.1 / 1024.0;
+          snprintf(buf, sizeof(buf), "%.3f V", vrms);
+        } else {
+          snprintf(buf, sizeof(buf), "%.1f deg",
+                   st.can.ac_angle_cdeg / 100.0);
+        }
+      } else {
+        snprintf(buf, sizeof(buf), "--");
+      }
+      txt(s_detail_value, buf);
+      return;
     default:
       return;
   }
@@ -2711,6 +2785,54 @@ static void living_tabs_build(int top) {
     lv_obj_set_width(s_living_tab[i], 140);
     lv_obj_set_style_text_align(s_living_tab[i], LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_pos(s_living_tab[i], 0, 6);
+  }
+}
+
+static void ac_series_set(int series) {
+  if (series < 0 || series > 1) return;
+  g_ac_series = series;
+  for (int i = 0; i < 2; i++) {
+    if (!s_ac_tab[i]) continue;
+    lv_obj_t* tab = lv_obj_get_parent(s_ac_tab[i]);
+    if (tab) {
+      lv_obj_set_style_bg_opa(tab, i == series ? 32 : LV_OPA_TRANSP, 0);
+      lv_obj_set_style_border_color(
+          tab, lv_color_hex(i == series ? C_ACCENT : C_LINE), 0);
+    }
+    lv_obj_set_style_text_color(s_ac_tab[i],
+                                lv_color_hex(i == series ? C_INK : C_DIM), 0);
+  }
+  s_chart_force = true;
+  chart_rebuild();
+  detail_value_update();
+}
+
+static void ac_series_cb(lv_event_t* e) {
+  ac_series_set((int)(intptr_t)lv_event_get_user_data(e));
+}
+
+static void ac_tabs_build(int top) {
+  static const char* names[2] = {"RMS", "Angle"};
+  for (int i = 0; i < 2; i++) {
+    lv_obj_t* tab = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(tab, 140, 30);
+    lv_obj_set_pos(tab, 20 + i * 148, top);
+    lv_obj_set_style_bg_opa(tab, i == g_ac_series ? 32 : LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_color(tab, lv_color_hex(C_ACCENT), 0);
+    lv_obj_set_style_border_width(tab, 1, 0);
+    lv_obj_set_style_border_color(
+        tab, lv_color_hex(i == g_ac_series ? C_ACCENT : C_LINE), 0);
+    lv_obj_set_style_radius(tab, 6, 0);
+    lv_obj_set_style_pad_all(tab, 0, 0);
+    obj_set_scrollable(tab, false);
+    obj_set_clickable(tab, true);
+    lv_obj_add_event_cb(tab, ac_series_cb, LV_EVENT_CLICKED,
+                        (void*)(intptr_t)i);
+    s_ac_tab[i] = label_make(tab, names[i], 0, 0, &lv_font_montserrat_16,
+                             i == g_ac_series ? C_INK : C_DIM);
+    lv_obj_set_width(s_ac_tab[i], 140);
+    lv_obj_set_style_text_align(s_ac_tab[i], LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(s_ac_tab[i], 0, 6);
   }
 }
 
@@ -3301,6 +3423,10 @@ static lv_obj_t* detail_build(int screen, const char* title, int nav_index,
   } else if (screen == UI_SCREEN_LIVING) {
     living_tabs_build(168);
     label_make(root, "SHT45 - H1", 20, 520, &lv_font_montserrat_16, C_FAINT);
+  } else if (screen == UI_SCREEN_AC) {
+    ac_tabs_build(168);
+    label_make(root, "0x2C1..0x2C5 - 50 Hz", 20, 520,
+               &lv_font_montserrat_16, C_FAINT);
   }
 
   s_axis_key = -1;
@@ -3368,6 +3494,15 @@ lv_obj_t* haus_ui_build_power(void) {
 lv_obj_t* haus_ui_build_living(void) {
   return detail_build(UI_SCREEN_LIVING, "LIVING ROOM", UI_SCREEN_LIVING, "I2C",
                       C_OK);
+}
+
+lv_obj_t* haus_ui_build_ac(void) {
+  return detail_build(UI_SCREEN_AC, "AC MAINS", UI_SCREEN_AC, "50 Hz",
+                      C_AMBER);
+}
+
+void haus_ui_set_ac_series(int series) {
+  ac_series_set(series);
 }
 
 static lv_obj_t* s_can_switch_lbl;
@@ -3635,6 +3770,11 @@ static void settings_open_can_cb(lv_event_t* e) {
   ui_push(UI_SCREEN_CAN);
 }
 
+static void settings_open_ac_cb(lv_event_t* e) {
+  (void)e;
+  ui_push(UI_SCREEN_AC);
+}
+
 static void settings_open_log_cb(lv_event_t* e) {
   (void)e;
   ui_push(UI_SCREEN_LOG);
@@ -3645,7 +3785,7 @@ static void settings_open_log_cb(lv_event_t* e) {
 static lv_obj_t* settings_value_row(int y, const char* title, const char* value,
                                     lv_event_cb_t cb) {
   lv_obj_t* b = lv_obj_create(lv_screen_active());
-  lv_obj_set_size(b, 440, 46);
+  lv_obj_set_size(b, 440, 42);
   lv_obj_set_pos(b, 20, y);
   lv_obj_set_style_bg_opa(b, 0, 0);
   lv_obj_set_style_border_width(b, 0, 0);
@@ -3655,13 +3795,13 @@ static lv_obj_t* settings_value_row(int y, const char* title, const char* value,
   obj_set_scrollable(b, false);
   obj_set_clickable(b, true);
   if (cb) lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, NULL);
-  label_make(b, title, 0, 12, &haus_body_21, C_INK);
+  label_make(b, title, 0, 10, &haus_body_21, C_INK);
   lv_obj_t* v =
-      label_make(b, value, 0, 12, &haus_body_21, cb ? C_ACCENT : C_DIM);
+      label_make(b, value, 0, 10, &haus_body_21, cb ? C_ACCENT : C_DIM);
   /* Actionable rows carry a chevron; static values do not. */
-  lv_obj_align(v, LV_ALIGN_TOP_RIGHT, cb ? -30 : 0, 12);
+  lv_obj_align(v, LV_ALIGN_TOP_RIGHT, cb ? -30 : 0, 10);
   if (cb)
-    label_make(b, LV_SYMBOL_RIGHT, 426, 10, &lv_font_montserrat_16, C_DIM);
+    label_make(b, LV_SYMBOL_RIGHT, 426, 8, &lv_font_montserrat_16, C_DIM);
   return v;
 }
 
@@ -3985,9 +4125,16 @@ static void can_wave_tick(void) {
     py = y;
   }
 
-  char buf[48];
-  snprintf(buf, sizeof(buf), "ADC 20 ms   %ld..%ld counts",
-           (long)((lo + 32) / 64), (long)((hi + 32) / 64));
+  char buf[64];
+  HausState st;
+  gui_get_state(&st);
+  if (st.can.ac_fresh) {
+    snprintf(buf, sizeof(buf), "ADC RMS %.1f cnt  %.1f deg",
+             st.can.ac_rms_dc / 10.0, st.can.ac_angle_cdeg / 100.0);
+  } else {
+    snprintf(buf, sizeof(buf), "ADC 20 ms   %ld..%ld counts",
+             (long)((lo + 32) / 64), (long)((hi + 32) / 64));
+  }
   txt(s_can_wave_info, buf);
   lv_obj_invalidate(s_can_wave_canvas);
 }
@@ -4285,9 +4432,11 @@ lv_obj_t* haus_ui_build_settings(void) {
   const bool mounted = strcmp(st.can.sd_card_type, "ABSENT") != 0;
   label_make(root, "tap a row with a > to open or change", 20, 122,
              &lv_font_montserrat_16, C_FAINT);
-  int y = 148;
-  const int step = 46;
+  int y = 140;
+  const int step = 44;
   settings_value_row(y, "CAN MONITOR", "live IDs", settings_open_can_cb);
+  y += step;
+  settings_value_row(y, "AC MAINS", "RMS + angle", settings_open_ac_cb);
   y += step;
   settings_value_row(y, "LOG", "ring + SD save", settings_open_log_cb);
   y += step;
@@ -4353,7 +4502,8 @@ void haus_ui_deinit(void) {
   s_cabinet_target = NULL;
   s_water_in = s_water_in_lbl = NULL;
   s_pump = s_pump_lbl = s_water_out = s_water_out_lbl = NULL;
-  s_living_temp = s_living_unit = s_living_rh = NULL;
+  s_living_temp = s_living_unit = s_living_temp_tol = s_living_rh =
+      s_living_rh_tol = NULL;
   s_power_num = s_power_bolt = s_power_src = NULL;
   memset(s_zone, 0, sizeof(s_zone));
   s_last_can_color = s_last_sd_color = s_last_wifi_color = s_last_fire_grad =
@@ -4387,6 +4537,7 @@ void haus_ui_deinit(void) {
   s_pwm_req_lbl = s_pwm_force_lbl = NULL;
   s_pwm_touched = false;
   memset(s_living_tab, 0, sizeof(s_living_tab));
+  memset(s_ac_tab, 0, sizeof(s_ac_tab));
   s_log_label = s_log_container = s_log_status = NULL;
   s_log_follow = s_log_follow_lbl = s_log_ws = NULL;
   s_log_sd = NULL;
@@ -4419,6 +4570,9 @@ static void ui_show_screen(int screen) {
       break;
     case UI_SCREEN_LIVING:
       haus_ui_build_living();
+      break;
+    case UI_SCREEN_AC:
+      haus_ui_build_ac();
       break;
     case UI_SCREEN_SETTINGS:
       haus_ui_build_settings();

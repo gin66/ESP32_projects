@@ -13,7 +13,7 @@ GXX ?= $(shell for c in g++-16 g++-15 g++-14 g++-13 g++-12 g++; do \
                  command -v $$c >/dev/null 2>&1 && echo $$c && break; done)
 
 CXXFLAGS := -std=c++17 -Wall -Wextra -Wconversion -Wshadow -Werror -g \
-            -I../../include
+            -DHAUS_HOST -I../../include
 LDLIBS   :=
 
 BIN  := test_chart

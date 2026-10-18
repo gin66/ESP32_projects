@@ -4,7 +4,7 @@ Derived from `docs/whitepaper.md` rev 1.6. Order: board first, then the macOS
 environment, then Deliverable A (`tpl_waveshare_lcd7`), then the project.
 Every item names the check that closes it.
 
-346 items (42 open). Tick boxes as work lands.
+347 items (42 open). Tick boxes as work lands.
 
 ## S0 · BENCH — the two things only the hardware can answer
 
@@ -407,7 +407,8 @@ before treating `sml_error_cnt` as a diagnostic.
 - [x] S23.17 Show the panel's WiFi IP in SETTINGS — Test: the address matches the DHCP lease, so the web UI can be reached when CAN has taken GPIO 19/20 and USB is gone — Done: the `NETWORK` row renders `gui_wifi_ip()` (`haus_ui.c:3371`, `haus_gui.cpp:341-346`).
 - [x] S23.18 Show the firmware version from version.h in SETTINGS — Test: the displayed version matches the binary that was flashed, so a panel in the field can be identified without USB — Done: the `FIRMWARE` row renders `VERSION_STRING` from `version.h` (`haus_ui.c:26-30,3373`).
 - [x] S23.19 Absent card must not latch a storage fault: only a card that was mounted and then disappeared, or a failed write, may set FAULTY; a card that was never present stays merely ABSENT — Test: boot with no card shows ABSENT and no fault timestamp, pulling a mounted card sets the fault, reinserting clears it — Done: `haus_sd_ever_mounted()` gates both the 30 s watchdog and the failed-write path; a never-present card stays ABSENT with no `note_fault()`. A verified remount clears the operational fault flag, while the first-failure timestamp stays until a clean rollover (S23.10). Verified card-less on the bench: `/sd/status` reports `"type":"ABSENT","fault_since":0`.
-- [x] S23.20 Show SPIFFS ring statistics on the Storage panel and in `/sd/status`: total/used/free, ring hours present, oldest/newest hour — Test: with no card the panel shows the ring figures and they match `/sd/status` — Done: `haus_history_ring_stats()` caches SPIFFS total/used, ring capacity, non-zero hours and oldest/newest; the Storage panel renders `SPIFFS 799 kB of 3.4 MB`, `ring 0 of 8760 hours`, and the oldest/newest lines. `gui_storage_refresh()` now publishes immediately, so the first `/sd/status` after boot matches: `"spiffs_total":3546881,"spiffs_used":818511,"ring_bytes":805920`.
+- [x] S23.20 Show SPIFFS ring statistics on the Storage panel and in `/sd/status`: total/used/free, ring hours present, oldest/newest hour — Test: with no card the panel shows the ring figures and they match `/sd/status` — Done: `haus_history_ring_stats()` caches SPIFFS total/used, ring capacity, non-zero hours and oldest/newest; the Storage panel renders `SPIFFS 799 kB of 3.4 MB`, `ring 1 of 8760 hours`, the oldest/newest lines, and record counts (`minute samples … recs`, `hourly rollup … cols`). `gui_storage_refresh()` now publishes immediately, so the first `/sd/status` after boot matches: `"spiffs_total":3546881,"spiffs_used":818511,"ring_bytes":805920`.
+- [x] S23.21 Replay the card's history when a card is inserted after a card-less boot — Test: insert a card with `rollup.bin`/day files and the week/month charts show it without a reboot — Done: the SD watchdog calls `haus_history_restore()` after a verified mount/remount and requests a redraw; the log line is `card inserted: restored N columns`. Note the day chart only shows today; a card whose newest file is yesterday fills the week/month rollup, and the day view stays empty until new samples arrive (and CAN must be on for new temperature/power samples).
 
 ## S24 · CAN ENABLE SWITCH (boot sequence, N19)
 

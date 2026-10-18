@@ -363,12 +363,12 @@ before treating `sml_error_cnt` as a diagnostic.
 
 ## S20 · PWM DUTY CONTROL (only after diagnostics exist)
 
-- [ ] S20.01 Implement the TX path for 0x240 only — Test: no other frame can be transmitted from this project. Send the AVR's own convention (1000 = off, 0 = full); the PC817 already inverts the duty, so the panel must not invert a second time.
-- [ ] S20.02 Add the slider 0-1000, **1000 at the left labelled OFF**, snapping to 5% — Test: the direction is OFF-left (1000), FULL-right (0). Bench 2026-10-18: the PC817 inverts the duty, so 1000 is off. The heater control voltage measured 0.41 V at 1000, 11.28 V at 100, and is nonlinear in between (PC817 CTR plus the input filter), so duty is a request, not a temperature. The 0.41 V off residual may be PC817 saturation/leakage or the heater input; re-measure after settling before calling it a delay.
+- [ ] S20.01 Implement the TX path for 0x240 only — Test: no other frame can be transmitted from this project. Off is the switch, not a slider position: send 1000 when off and the slider value (0–500) when on; never send 501–999. The PC817 already inverts the duty, so the panel must not invert a second time.
+- [ ] S20.02 Add an ON/OFF switch and a **500 → 0** slider, 0 = full heat, 500 = minimum heat, snapping to 5 % (50 permille) — Test: OFF always sends 1000; ON sends the slider value; the slider cannot reach 501–1000. This supersedes the whitepaper's 0–1000/0=off slider. Bench 2026-10-18: the PC817 inverts the duty; the control voltage is 0.41 V at 1000 and 11.28 V at 100, nonlinear in between (PC817 CTR plus the input filter), so duty is a request, not a temperature. The 0.41 V off residual may be PC817 saturation/leakage or the heater input; re-measure after settling before calling it a delay.
 - [ ] S20.03 Dragging changes nothing — Test: no frame is transmitted during a drag or release
 - [ ] S20.04 Show the pending value as 'requested', distinct from 'in force' — Test: the two lines are always separate
 - [ ] S20.05 Disable APPLY while requested == in force — Test: a no-op cannot be sent
-- [ ] S20.06 Modal confirm naming the value and durability — Test: text reads 'Set PWM duty to 55 %? This survives a power cut.'
+- [ ] S20.06 Modal confirm naming the requested value and durability — Test: text names the value and reads 'This survives a power cut.'
 - [ ] S20.07 Cancel returns the slider to the in-force value — Test: it snaps back
 - [ ] S20.08 Reconcile against a fresh 0x280 with a timeout — Test: sent-then-reported shows live; no report shows failed and reverts
 - [ ] S20.09 Show a conflicting writer as 'conflict' with both values, no retry loop — Test: the panel shows truth and stops
@@ -377,6 +377,10 @@ before treating `sml_error_cnt` as a diagnostic.
 - [ ] S20.12 Map TX failure to the same fault flag as a bus error — Test: never-sent is visibly different from ignored
 - [ ] S20.13 Add a test proving no gesture, long-press, timeout or auto-repeat transmits — Test: the test enumerates every input path
 - [ ] S20.14 Confirm the panel applies no ramp, clamp or dead-man (N15) — Test: code review plus a comment naming AVR/01_heizung_temp as the owner
+
+**Terminology (S20):** the temperature at which the heater cuts off is the
+**Soll** (target), not an “off” temperature. The bench table's 44/54/60/70 °C
+figures are Soll values; write them that way in the UI and the docs.
 
 ## S21 · TYPE SCALE (4 mm floor)
 

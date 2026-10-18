@@ -4,7 +4,7 @@ Derived from `docs/whitepaper.md` rev 1.6. Order: board first, then the macOS
 environment, then Deliverable A (`tpl_waveshare_lcd7`), then the project.
 Every item names the check that closes it.
 
-345 items (54 open). Tick boxes as work lands.
+345 items (52 open). Tick boxes as work lands.
 
 ## S0 · BENCH — the two things only the hardware can answer
 
@@ -354,8 +354,8 @@ before treating `sml_error_cnt` as a diagnostic.
 - [x] S19.01 Lift sml_publish() and the OBIS matching from project 15 into src/app/ — Test: project 15 still builds unchanged — Done: `src/app/sml_power.{h,cpp}`; pure OBIS decoder, project 15 untouched.
 - [x] S19.02 Add libsml to lib_deps — Test: it builds — Done: `git+https://github.com/volkszaehler/libsml`; `pio run -e esp32ota` succeeds.
 - [x] S19.03 Match 1-0:16.7.0/255 as the household watts — Test: a captured frame yields the right W value — Done in code: `sml_power_parse()` matches the OBIS id and `read_power()` feeds `CanState.watts`; the live esp32_15 source shows the same OBIS path at ≈230–270 W. A raw-frame fixture was not available, so the bench capture is still the honest confirmation.
-- [ ] S19.04 Reassemble with a 3-deep 258-byte pool with lock flags (774 B) — Test: a 33-frame burst reassembles — Implemented: `sml_power_on_frame()` uses a 3 × 258 B pool with CRC-16 and header validation; the 33-frame burst test is pending on the bench.
-- [ ] S19.05 Carry over sml_lost_bytes_cnt / sml_error_cnt / sml_empty_message_cnt, but only after S19.09: in project 15 the error counter is inflated ~8x by buffer re-scans — Test: a lossy burst increments them once each, no silent absorb — Implemented as `lost_bytes`, `errors` and `empty_messages`, incremented once per event (no rescan); the lossy-burst test is pending.
+- [x] S19.04 Reassemble with a 3-deep 258-byte pool with lock flags (774 B) — Test: a 33-frame burst reassembles — Done: `host_harness/src/test_sml_power.cpp` builds a libsml GET_LIST_RESPONSE (three OBIS values), frames it as 2-byte length + 8-byte header + body + CRC into 258 B, feeds 33 CAN frames, and asserts one parsed message, zero errors/loss, and the right W/Wh values.
+- [x] S19.05 Carry over sml_lost_bytes_cnt / sml_error_cnt / sml_empty_message_cnt, but only after S19.09: in project 15 the error counter is inflated ~8x by buffer re-scans — Test: a lossy burst increments them once each, no silent absorb — Done: the same host test asserts one empty frame → `empty_messages` 1; an orphan continuation → `lost_bytes` 8; a fourth message start → `lost_bytes` 8; one corrupt CRC → `errors` 1 (not one per frame).
 - [x] S19.06 Decode on the CAN task on message completion — Test: libsml never runs inside the RX drain loop — Done: `sml_power_on_frame()` is called from the `canMon` consumer (`can_monitor.cpp:on_frame`), not from `haus_can_bus.cpp`'s `can_task` drain; libsml only runs when a message completes.
 - [x] S19.07 Sample the per-minute value into L1, do not stream — Test: one assignment per second, one record per minute — Done: `gui_update_state()` runs at 1 Hz and sets `CanState.watts`/`valid`; the recorder samples that block once per minute into L1. No streaming.
 - [x] ~~S19.08 Have project 15 adopt the shared decoder — Test: both projects print the same watts (R26)~~ ~~REJECTED: project 15 stays as-is. Decided 2026-10-19 that there is nothing to gain from unification; the 28 decoder lives in `src/app/` and project 15 is untouched.~~

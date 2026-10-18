@@ -71,3 +71,25 @@ target_include_directories(hauszentrale_host PRIVATE
     ${CMAKE_SOURCE_DIR}/../include
     ${CMAKE_SOURCE_DIR}/../../../include
 )
+
+# Host burst test for the SML reassembly (S19.04) and the loss counters
+# (S19.05). libsml comes from the PlatformIO package cache; it is only needed
+# to build the fixture and to exercise sml_power_parse().
+set(LIBSML_ROOT
+    ${CMAKE_SOURCE_DIR}/../.pio/libdeps/esp32ota/libSML
+    CACHE PATH "libSML source tree")
+
+file(GLOB LIBSML_SOURCES ${LIBSML_ROOT}/sml/src/*.c)
+
+add_executable(sml_power_test
+    src/test_sml_power.cpp
+    ${CMAKE_SOURCE_DIR}/../src/app/sml_power.cpp
+    ${LIBSML_SOURCES}
+)
+
+target_include_directories(sml_power_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/../src
+    ${CMAKE_SOURCE_DIR}/../include
+    ${CMAKE_SOURCE_DIR}/../../../include
+    ${LIBSML_ROOT}/sml/include
+)

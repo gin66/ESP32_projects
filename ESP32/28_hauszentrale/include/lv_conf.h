@@ -172,10 +172,10 @@
  *-----------------*/
 
 /*Enable POSIX-style file system (for SPIFFS)*/
-#define LV_USE_FS_POSIX 1          /*Mount point: "/"*/
-#define LV_USE_FS_STDIO 1          /*Min cluster size: 8 sectors*/
-#define LV_FS_STDIO_LETTER '/'   /*Use / for_stdio*/
-#define LV_FS_POSIX_LETTER '/'   /*Use / for posix*/
+#define LV_USE_FS_POSIX 0          /*No LVGL file paths; app uses SPIFFS directly*/
+#define LV_USE_FS_STDIO 0
+#define LV_FS_STDIO_LETTER '\0'
+#define LV_FS_POSIX_LETTER '\0'
 
 /*Enable Windows-style file system*/
 #define LV_USE_FS_WIN32 0

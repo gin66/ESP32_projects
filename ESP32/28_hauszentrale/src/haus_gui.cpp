@@ -315,10 +315,50 @@ int gui_log_save(void) {
 
 bool gui_can_enabled(void) { return g_can_enabled; }
 
+/* Applying the CAN state switches a USB mux, delays, and installs a driver.
+ * Do it in a worker task: if it ever wedges, the UI and web server keep
+ * running instead of the whole loop task blocking. */
+static volatile bool g_can_target = false;
+static TaskHandle_t s_can_apply_task = NULL;
+
+static void can_apply_task(void* arg) {
+  (void)arg;
+  for (int attempt = 0; attempt < 5; attempt++) {
+    vTaskDelay(pdMS_TO_TICKS(500));
+    /* Apply at least once even when the reported state already matches:
+     * a failed start can leave the USB mux on the transceiver. */
+    if (attempt > 0 && haus_can_bus_running() == g_can_target) break;
+    TPL_LOGI("settings", "CAN %s (attempt %d)", g_can_target ? "on" : "off",
+             attempt + 1);
+    haus_can_bus_set_enabled(g_can_target);
+  }
+  s_can_apply_task = NULL;
+  vTaskDelete(NULL);
+}
+
+const char* gui_wifi_ip(void) {
+  static char addr[16] = "--";
+  if (WiFi.status() != WL_CONNECTED) return "--";
+  const IPAddress ip = WiFi.localIP();
+  snprintf(addr, sizeof(addr), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+  return addr;
+}
+
+static volatile bool g_redraw_requested = false;
+
+void gui_request_redraw(void) { g_redraw_requested = true; }
+
+bool gui_take_redraw(void) {
+  if (!g_redraw_requested) return false;
+  g_redraw_requested = false;
+  return true;
+}
+
 void gui_set_can_enabled(bool enabled) {
   g_can_enabled = enabled;
-  haus_can_bus_set_enabled(enabled);
-  TPL_LOGI("settings", "CAN %s", enabled ? "on" : "off");
+  g_can_target = enabled;
+  if (!s_can_apply_task)
+    xTaskCreate(can_apply_task, "canApply", 4096, NULL, 2, &s_can_apply_task);
 }
 
 void gui_storage_refresh(void) {

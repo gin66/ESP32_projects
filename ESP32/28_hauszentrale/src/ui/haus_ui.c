@@ -19,7 +19,15 @@
 #include "haus_ui.h"
 
 #include "haus_chart.h"
+#include "haus_config.h"
 #include "haus_gui.h"
+
+#if __has_include("version.h")
+#include "version.h"
+#endif
+#ifndef VERSION_STRING
+#define VERSION_STRING "dev"
+#endif
 
 LV_FONT_DECLARE(haus_mono_21);
 LV_FONT_DECLARE(haus_body_21);
@@ -620,6 +628,21 @@ static void build_clock(void) {
   lv_obj_align(s_clock, LV_ALIGN_TOP_MID, 0, 30);
 }
 
+/* True when (x,y) lies inside a rounded rectangle inset by `inset` pixels
+ * with corner radius `rad`. */
+static bool ui_round_in(int x, int y, int w, int h, int rad, int inset) {
+  if (x < inset || y < inset || x >= w - inset || y >= h - inset) return false;
+  const bool left = x < inset + rad;
+  const bool right = x >= w - inset - rad;
+  const bool top = y < inset + rad;
+  const bool bottom = y >= h - inset - rad;
+  if (!((left || right) && (top || bottom))) return true;
+  const int cx = left ? inset + rad : w - 1 - inset - rad;
+  const int cy = top ? inset + rad : h - 1 - inset - rad;
+  const int dx = x - cx, dy = y - cy;
+  return dx * dx + dy * dy <= rad * rad;
+}
+
 /* A flame tongue: a pill, wider at the base by stacking two pills. */
 static void build_heater(void) {
   /* Cabinet glow */
@@ -650,26 +673,15 @@ static void build_heater(void) {
     uint16_t bcol = lv_color_to_u16(lv_color_hex(0x6a5e54));
     /* Fill with panel colour */
     for (int i = 0; i < cw * ch; i++) ((uint16_t*)buf)[i] = pcol;
-    /* Draw the rounded-rect border */
+    /* Draw the rounded-rect border: outer rounded rect minus an inner one
+     * inset by the stroke width. Intersecting an arc with the straight edge
+     * bands (the old approach) leaves the corners empty. */
     for (int y = 0; y < ch; y++) {
       for (int x = 0; x < cw; x++) {
-        bool in_rect = (x < bw || x >= cw - bw || y < bw || y >= ch - bw);
-        if (!in_rect) continue;
-        bool outside_arc = false;
-        if (x < r && y < r) {
-          int dx = x - (r - 1), dy = y - (r - 1);
-          if (dx * dx + dy * dy > (r - 1) * (r - 1)) outside_arc = true;
-        } else if (x >= cw - r && y < r) {
-          int dx = (x - (cw - r)) - (r - 1), dy = y - (r - 1);
-          if (dx * dx + dy * dy > (r - 1) * (r - 1)) outside_arc = true;
-        } else if (x < r && y >= ch - r) {
-          int dx = x - (r - 1), dy = (y - (ch - r)) - (r - 1);
-          if (dx * dx + dy * dy > (r - 1) * (r - 1)) outside_arc = true;
-        } else if (x >= cw - r && y >= ch - r) {
-          int dx = (x - (cw - r)) - (r - 1), dy = (y - (ch - r)) - (r - 1);
-          if (dx * dx + dy * dy > (r - 1) * (r - 1)) outside_arc = true;
+        if (ui_round_in(x, y, cw, ch, r, 0) &&
+            !ui_round_in(x, y, cw, ch, r - bw, bw)) {
+          ((uint16_t*)buf)[y * cw + x] = bcol;
         }
-        if (!outside_arc) ((uint16_t*)buf)[y * cw + x] = bcol;
       }
     }
   }
@@ -931,6 +943,7 @@ lv_obj_t* haus_ui_init(void) {
 }
 
 void haus_ui_update(void) {
+  if (gui_take_redraw()) lv_obj_invalidate(lv_screen_active());
   {
     static HausState banner_st;
     gui_get_state(&banner_st);
@@ -979,6 +992,10 @@ void haus_ui_update(void) {
     txt(s_status_date, "--- -- ---");
     txt(s_clock, "--:--");
   }
+  /* Repaint the clock band every second. A flash write at the minute
+   * boundary can drop the framebuffer update, and the clock otherwise keeps
+   * the corrupted pixels until the text changes again. */
+  if (s_clock) lv_obj_invalidate(s_clock);
 
   status_dot_apply(s_can_dot, state.can.can_status, &s_last_can_color);
   duty_dot_apply(s_duty_src, state.can.duty_status, &s_last_duty_color);
@@ -2965,6 +2982,7 @@ static void settings_can_visual(bool on) {
 static void settings_can_cb(lv_event_t* e) {
   (void)e;
   const bool on = !gui_can_enabled();
+  haus_config_set_can_enabled(on);
   gui_set_can_enabled(on);
   settings_can_visual(on);
 }
@@ -3289,10 +3307,9 @@ lv_obj_t* haus_ui_build_settings(void) {
   s_diag_lbl =
       settings_value_row(y, "DIAGNOSTICS", "SAVE RING", settings_diag_cb);
   y += step;
-  settings_value_row(y, "UI FILE", "/ui.json v1", NULL);
-
-  label_make(root, "backlight off: tap anywhere to wake", 20, 668,
-             &lv_font_montserrat_16, C_FAINT);
+  settings_value_row(y, "NETWORK", gui_wifi_ip(), NULL);
+  y += step;
+  settings_value_row(y, "FIRMWARE", VERSION_STRING, NULL);
 
   nav_build(UI_SCREEN_SETTINGS);
   return root;

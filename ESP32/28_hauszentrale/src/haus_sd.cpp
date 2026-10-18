@@ -16,6 +16,7 @@
 #include <Arduino.h>
 #include <SD.h>
 #include <SPI.h>
+#include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <string.h>
@@ -122,6 +123,19 @@ void haus_sd_unlock(void) {
 
 bool haus_sd_is_mounted(void) {
   if (!s_mounted) return false;
+  /* newlib abort()s inside fopen when the FILE lock cannot be allocated.
+   * That is a reboot, not a "card missing" result. Skip the probe while
+   * internal RAM has no contiguous block for it and keep the last mount. */
+  const size_t largest =
+      heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  if (largest < 4096) {
+    static bool logged = false;
+    if (!logged) {
+      logged = true;
+      TPL_LOGW("sd", "probe skipped, internal largest %u B", (unsigned)largest);
+    }
+    return true;
+  }
   if (!haus_sd_lock(100)) return false;
 
   /* Cheap read-only probe: one byte, not a FAT scan. A pulled card makes

@@ -16,6 +16,7 @@
 #include <cstring>
 
 #include "haus_can.h"
+#include "haus_config.h"
 #include "haus_gui.h"
 #include "haus_rollup.h"
 #include "haus_triple_buffer.h"
@@ -574,6 +575,18 @@ bool gui_water_model_available(void) {
 }
 
 bool gui_can_enabled(void) { return g_can_enabled; }
+
+const char* gui_wifi_ip(void) { return "192.168.1.100"; }
+
+/* Persistence lives in the firmware's SPIFFS config; the host keeps it in
+ * memory so the Settings screen renders and toggles. */
+static bool g_cfg_can = false;
+bool haus_config_can_enabled(void) { return g_cfg_can; }
+void haus_config_set_can_enabled(bool enabled) { g_cfg_can = enabled; }
+
+void gui_request_redraw(void) {}
+
+bool gui_take_redraw(void) { return false; }
 
 void gui_set_can_enabled(bool enabled) { g_can_enabled = enabled; }
 

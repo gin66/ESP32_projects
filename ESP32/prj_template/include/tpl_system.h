@@ -90,7 +90,7 @@ extern struct tpl_config_s {
 #else
 #define TPL_STEPPER_FLAG 0x0000
 #endif
-#define SPIFFS_CONFIG_VERSION (0x0101 | TPL_STEPPER_FLAG)
+#define SPIFFS_CONFIG_VERSION (0x0102 | TPL_STEPPER_FLAG)
 #define SPIFFS_CONFIG_FNAME "/config.ini"
 class TplSpiffsConfig {
  public:
@@ -99,11 +99,15 @@ class TplSpiffsConfig {
 #ifdef HAS_STEPPERS
   uint8_t nr_steppers;
 #endif
+  /* Generic per-project flags. Bit assignments belong to the project, not
+   * to this template; one spare word avoids another format change. */
+  uint32_t app_flags;
   void init() {
     version = SPIFFS_CONFIG_VERSION;
 #ifdef HAS_STEPPERS
     nr_steppers = 0;
 #endif
+    app_flags = 0;
     need_store = true;
   }
   TplSpiffsConfig() { init(); }

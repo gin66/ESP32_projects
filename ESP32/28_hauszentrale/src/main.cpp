@@ -26,6 +26,7 @@
 #include <cassert>
 
 #include "haus_can_bus.h"
+#include "haus_config.h"
 #include "haus_gui.h"
 #include "haus_history.h"
 #include "haus_sd.h"
@@ -71,6 +72,7 @@ static lv_display_rotation_t rot_to_lvgl(int r) {
 /* Loop cadence diagnostics (S17.07): ui_hz is the LVGL handler rate, ui_gap_ms
  * the longest gap between iterations in the last window (includes the 1 Hz
  * full-frame flush). A CAN flood must not degrade either. */
+static bool s_can_start_pending = false;
 static volatile uint32_t s_ui_hz;
 static volatile uint32_t s_ui_gap_ms;
 
@@ -84,6 +86,8 @@ void setup() {
   TPL_LOGI("boot", "28_hauszentrale starting");
 
   tpl_system_setup(0);  // no deep sleep
+  haus_config_init();
+  haus_can_bus_init();
   TPL_LOGI("boot", "boot #%lu, reset %s / %s",
            (unsigned long)tpl_config.bootCount,
            tpl_config.reset_reason_cpu0 ? tpl_config.reset_reason_cpu0 : "?",
@@ -235,8 +239,14 @@ void setup() {
    * already running at this point; this only enables the optional network
    * services and the initial clock sync. */
   tpl_wifi_setup(true, true, (gpio_num_t)255);   // no status LED on this board
+  TPL_LOGI("mem", "M1 after wifi: internal %u B, largest %u B",
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
   sntp_set_sync_interval(60UL * 60UL * 1000UL);  // refresh once an hour
   tpl_webserver_setup();
+  TPL_LOGI("mem", "M2 after web: internal %u B, largest %u B",
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
   tpl_debug_log_register_endpoints();
   /* S23.14: /sd/status with the same figures the storage panel shows. */
   tpl_server.on("/sd/status", HTTP_GET, []() {
@@ -289,6 +299,14 @@ void setup() {
              (unsigned long)tpl_config.bootCount);
     tpl_server.send(200, "application/json", buf);
   });
+  /* Explicit CAN intent for headless setup/tests (S23.03/S24.04). */
+  tpl_server.on("/config/can", HTTP_GET, []() {
+    const bool on = tpl_server.hasArg("on") && tpl_server.arg("on") == "1";
+    gui_set_can_enabled(on);
+    haus_config_set_can_enabled(on);
+    tpl_server.send(200, "application/json",
+                    on ? "{\"can\":true}" : "{\"can\":false}");
+  });
   /* Light CAN-only telemetry: /sd/status refreshes the SD card, which must
    * not be hammered while the bus is under a flood (S17.07). */
   tpl_server.on("/can", HTTP_GET, []() {
@@ -300,27 +318,36 @@ void setup() {
     snprintf(buf, sizeof(buf),
              "{\"running\":%s,\"state\":%u,\"tec\":%lu,\"rec\":%lu,"
              "\"rx\":%lu,\"tx\":%lu,\"err\":%lu,\"fault\":%s,"
-             "\"ui_hz\":%lu,\"ui_gap_ms\":%lu,\"loop_stack\":%lu}",
+             "\"ui_hz\":%lu,\"ui_gap_ms\":%lu,\"loop_stack\":%lu,"
+             "\"heap\":%u}",
              haus_can_bus_running() ? "true" : "false",
              (unsigned)cs.twai_state, (unsigned long)cs.tx_error_counter,
              (unsigned long)cs.rx_error_counter, (unsigned long)cs.rx_frames,
              (unsigned long)cs.tx_frames, (unsigned long)cs.bus_errors,
              cs.bus_fault ? "true" : "false", (unsigned long)s_ui_hz,
              (unsigned long)s_ui_gap_ms,
-             (unsigned long)uxTaskGetStackHighWaterMark(NULL));
+             (unsigned long)uxTaskGetStackHighWaterMark(NULL),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
     tpl_server.send(200, "application/json", buf);
   });
   tpl_websocket_setup(NULL, NULL);
+
+  /* S24.04: the persisted intent decides whether TWAI exists at all. With
+   * CAN off, USB_SEL stays low and GPIO 19/20 remain the USB console. */
+  if (haus_config_can_enabled()) {
+    TPL_LOGI("settings", "CAN enabled in config; starting after 30 s");
+    s_can_start_pending = true;
+  } else {
+    TPL_LOGI("settings", "CAN disabled in config; USB remains");
+  }
   /* No net watchdog: WiFi is optional after boot. The WiFi manager keeps
    * retrying the link, while the panel stays fully operational offline. */
   tpl_command_setup(NULL);
 
-#ifdef HAUS_CAN_BOOT_ENABLE
-  /* Bench bring-up: CAN starts 20 s after boot (see loop), leaving a window
-   * for USB flashing/monitoring. S24 replaces this with the persisted config.
-   */
-  TPL_LOGI("can", "CAN will start 20 s after boot");
-#endif
+  /* Boot-time flash access can drop PSRAM framebuffer writes (cache off),
+   * leaving missing pixels in once-drawn art such as the cabinet outline.
+   * Repaint the whole screen once after setup has finished. */
+  gui_request_redraw();
 }
 
 /* ─── Loop ───────────────────────────────────────────────────────────────── */
@@ -334,6 +361,16 @@ void loop() {
   static uint32_t last_anim_ms = 0;
   static bool s_ota_backlight_off = false;
   const uint32_t now = millis();
+  /* S24.04: start TWAI from the loop, not setup(). Doing it inside setup()
+   * while WiFi/OTA tasks are still coming up leaves the panel unresponsive;
+   * the same call 2 s later is known-good from bench bring-up. */
+  if (s_can_start_pending && now >= 30000u) {
+    s_can_start_pending = false;
+    /* Re-read the intent: the user may have switched CAN off in Settings
+     * during the boot window. */
+    if (haus_config_can_enabled() && !haus_can_bus_running())
+      gui_set_can_enabled(true);
+  }
   const uint32_t loop_us = micros();
   const uint32_t gap_ms =
       last_loop_us ? (loop_us - last_loop_us) / 1000u : 0u;
@@ -348,16 +385,6 @@ void loop() {
     gap_max_ms = 0;
   }
 
-#ifdef HAUS_CAN_BOOT_ENABLE
-  /* Bench: keep the USB console for 20 s, then hand GPIO 19/20 to CAN. */
-  static bool can_started = false;
-  if (!can_started && now > 20000u) {
-    can_started = true;
-    gui_set_can_enabled(true);
-    TPL_LOGI("can", "CAN after 20 s: %s",
-             haus_can_bus_running() ? "running" : "failed");
-  }
-#endif
 
   /* OTA writes flash with the cache/PSRAM disabled while the RGB DMA is still
    * scanning the PSRAM framebuffer, which garbles the panel completely. Blank
@@ -374,7 +401,7 @@ void loop() {
   if (now - last_ui_ms >= 1000) {
     last_ui_ms = now;
     gui_update_state();
-    haus_ui_update();
+    if (s_disp) haus_ui_update();
   }
 
   /* Flame breathing at 20 Hz; it only touches opacity when it changes. */

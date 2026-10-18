@@ -46,6 +46,9 @@ typedef struct {
 
 /* Switch the mux to CAN, install/start TWAI and create the RX task. Idempotent.
  * Blocking for about 200 ms (mux settle). */
+/* Allocate the RX task while internal heap is still plentiful (call from
+ * setup before WiFi). Safe to call more than once. */
+void haus_can_bus_init(void);
 bool haus_can_bus_start(void);
 
 /* Stop TWAI and give GPIO 19/20 back to USB. Idempotent. */

@@ -13,6 +13,7 @@
 #include <Arduino.h>
 #include <driver/twai.h>
 #include <freertos/FreeRTOS.h>
+#include <esp_heap_caps.h>
 #include <freertos/task.h>
 
 #include <cstring>
@@ -226,10 +227,29 @@ static void can_task(void* arg) {
   }
 }
 
+void haus_can_bus_init(void) {
+  if (s_task) return;
+  const BaseType_t created =
+      xTaskCreate(can_task, "canTask", 6144, NULL, 3, &s_task);
+  if (created != pdPASS) {
+    s_task = NULL;
+    TPL_LOGE("can", "canTask create failed at boot (%d), heap %u B",
+             (int)created, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+  } else {
+    TPL_LOGI("can", "canTask pre-created, heap %u B",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+  }
+}
+
 bool haus_can_bus_start(void) {
   if (s_running) return true;
 
-  /* Route GPIO 19/20 to the transceiver, then let the mux settle (S24.03). */
+  /* S24.03: give the mux and the USB PHY 200 ms to settle before handing
+   * GPIO 19/20 to the transceiver. */
+  TPL_LOGI("can", "mux settle 200 ms before CAN");
+  vTaskDelay(pdMS_TO_TICKS(200));
+
+  /* Route GPIO 19/20 to the transceiver. */
   if (tpl_ws7_set_usb_mode(false) != ESP_OK) {
     TPL_LOGE("can", "USB_SEL switch failed");
     return false;
@@ -273,14 +293,31 @@ bool haus_can_bus_start(void) {
   }
   s_running = true;
 
-  if (!s_task) xTaskCreate(can_task, "canTask", 6144, NULL, 3, &s_task);
+  if (!s_task) haus_can_bus_init();
+  if (!s_task) {
+    twai_stop();
+    twai_driver_uninstall();
+    s_running = false;
+    snapshot_lock();
+    s_snap.running = false;
+    snapshot_unlock();
+    tpl_ws7_set_usb_mode(true);
+    return false;
+  }
 
-  TPL_LOGI("can", "TWAI running at 125 kbps");
+  TPL_LOGI("can", "TWAI running at 125 kbps (task %p, heap %u B)",
+           (void*)s_task,
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
   return true;
 }
 
 void haus_can_bus_stop(void) {
-  if (!s_running) return;
+  if (!s_running) {
+    /* Even if TWAI never started, a failed start attempt may have left the
+     * mux on the transceiver. Off means USB gets GPIO 19/20 back. */
+    tpl_ws7_set_usb_mode(true);
+    return;
+  }
   s_running = false;
   vTaskDelay(pdMS_TO_TICKS(150)); /* let the task leave twai_read_alerts */
 

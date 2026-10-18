@@ -289,6 +289,8 @@ static bool sd_write_rollup(uint32_t epoch) {
 }
 
 static void write_daily_files(uint32_t epoch) {
+  /* Falls through to a redraw request at the end: flash writes drop PSRAM
+   * framebuffer writes for their duration. */
   if (epoch == 0) return;
   s_writing = true;
   const bool day_ok = sd_write_day(epoch);
@@ -744,6 +746,7 @@ bool haus_history_ring_append(const RollupColumn* col) {
   const bool ok = f.seek(off) &&
                   (f.write((const uint8_t*)col, sizeof(*col)) == sizeof(*col));
   f.close();
+  if (ok) gui_request_redraw();
   return ok;
 }
 

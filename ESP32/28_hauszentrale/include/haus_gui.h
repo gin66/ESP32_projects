@@ -248,6 +248,15 @@ bool gui_water_model_available(void);
 /* CAN enable switch (Settings). The hardware mux is applied by the CAN
  * bring-up path; the UI only owns the persisted intent. */
 bool gui_can_enabled(void);
+
+/* Current WiFi address for the Settings row, or "--" while disconnected. */
+const char* gui_wifi_ip(void);
+
+/* Ask the UI for a full repaint after a flash write. SPIFFS writes disable
+ * the cache, so PSRAM framebuffer writes made at the same moment are lost
+ * and only reappear when the affected area is redrawn. */
+void gui_request_redraw(void);
+bool gui_take_redraw(void);
 void gui_set_can_enabled(bool enabled);
 
 /* Storage panel (S23): re-read capacity and per-tier sizes on demand. */

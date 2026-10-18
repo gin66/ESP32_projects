@@ -327,7 +327,7 @@ lv_display_t *tpl_ws7_display_init(uint8_t rotation, uint32_t *buf,
    * the PSRAM framebuffer, which is the recommended IDF setup. It also skips
    * the full-frame cache writeback that esp_lcd does when drawing straight
    * into a PSRAM frame buffer. */
-  panel_config.bounce_buffer_size_px = TPL_WS7_SCREEN_WIDTH * 10;
+  panel_config.bounce_buffer_size_px = TPL_WS7_SCREEN_WIDTH * 20;
 
   esp_err_t err = esp_lcd_new_rgb_panel(&panel_config, &s_rgb_panel);
   if (err != ESP_OK) {

@@ -196,6 +196,13 @@ esptool -p /dev/cu.usbmodem5C941561291 --chip esp32s3 read-flash 0x8000 0x5000 /
 | Boot (BOOT released) | `rst:0x1 POWERON, boot:0x8 SPI_FAST_FLASH_BOOT`, app runs | Normal path |
 | Boot (BOOT held) | `rst:0x1 POWERON, boot:0x0 DOWNLOAD(USB/UART0)` | ROM download mode; `esptool` connects immediately |
 
+**Panel inventory.** Add one row for every panel, because Q23 asks whether a
+batch can ship with 8 MB instead of 16 MB:
+
+| Unit | MAC | Flash | PSRAM | Chip | USB bridge serial | Notes |
+| ---- | --- | ----- | ----- | ---- | ----------------- | ----- |
+| Panel 1 (bench, 2026-10-18) | `28:84:85:a7:a6:78` | 16 MB Winbond `4018` | 8 MB octal | ESP32-S3 rev v0.2 | CH9102 `5C941561291` | Current development unit; DHCP reservation |
+
 **The USB path is a CH9102 UART bridge, which answers half of Q2.** No Espressif
 device (`VID 0x303A`) is present on the bus at any time — not even when the board
 sits in ROM download mode, which is when native USB CDC would be visible. The
@@ -2065,7 +2072,7 @@ reason to economise on the one thing that determines whether the panel is usable
  |                                                   |
  |        +----------------------+                   |
  |        |                      |  <- flame          |
- |  21.4  |      CHAMBER         |     ~110 px       |
+ |  21.4  |      HEATER          |     ~110 px       |
  |   degC |                      |                   |
  |        +-----------+----------+                   |
  |    62.1 degC   ^   48.6 degC                      |   pipe labels, 21 px
@@ -2410,7 +2417,7 @@ Screen current();
  +---------------------------------------------------+  712
  |                                                   |
  |     ^       ^       ^       ^      ^      ^      |   6 slots, 80 px each
- |    HOME   CHAMBER  WATER  POWER LIVING   ^      |   icons, 32 px
+ |    HOME   HEATER   WATER  POWER LIVING   ^      |   icons, 32 px
  |                                          gear   |
  |  ───────────────────────────────────────────────  |   3 px accent rule
  +---------------------------------------------------+  800
@@ -2636,7 +2643,7 @@ setting that can strand the device.
  |  UI FILE        /ui.json  v1             [edit]   |   §4.4
  |  DIAGNOSTICS    SAVE RING TO SD            [ ]     |   §7.6
  +---------------------------------------------------+  712
- |  HOME  CHAMBER  WATER  WATER  POWER LIVING   [gear]|   active: gear
+ |  HOME  HEATER   WATER  WATER  POWER LIVING   [gear]|   active: gear
  +---------------------------------------------------+  800
 ```
 

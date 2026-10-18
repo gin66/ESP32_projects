@@ -294,9 +294,11 @@ void gui_storage_refresh(void);
 bool gui_backlight_on(void);
 void gui_set_backlight(bool on);
 
-/* PWM source constants */
-#define GUI_PWM_SRC_CAN 1
-#define GUI_PWM_SRC_EEPROM 2
+/* PWM source constants (mirror PWM_SRC_* in haus_can.h) */
+#define GUI_PWM_SRC_EEPROM 0x00
+#define GUI_PWM_SRC_CAN 0x02
+#define GUI_PWM_SRC_NRF 0x04
+#define GUI_PWM_SRC_FAULT 0x06
 
 /* Power source constants */
 #define GUI_PWR_SRC_NONE 0

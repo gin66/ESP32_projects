@@ -364,18 +364,24 @@ void setup() {
     tpl_server.sendHeader("Connection", "close");
     static haus_can_snapshot_t cs;
     haus_can_bus_get(&cs);
-    static char buf[256];
+    static char buf[384];
+    const bool pwm_fresh =
+        cs.pwm_seen_ms != 0 && (uint32_t)(millis() - cs.pwm_seen_ms) < 5000u;
     snprintf(buf, sizeof(buf),
              "{\"running\":%s,\"state\":%u,\"tec\":%lu,\"rec\":%lu,"
              "\"rx\":%lu,\"tx\":%lu,\"err\":%lu,\"fault\":%s,"
+             "\"pwm_fresh\":%s,\"pwm\":%u,\"pwm_flags\":%u,"
+             "\"pwm_age_ms\":%lu,"
              "\"ui_hz\":%lu,\"ui_gap_ms\":%lu,\"loop_stack\":%lu,"
              "\"heap\":%u}",
              haus_can_bus_running() ? "true" : "false", (unsigned)cs.twai_state,
              (unsigned long)cs.tx_error_counter,
              (unsigned long)cs.rx_error_counter, (unsigned long)cs.rx_frames,
              (unsigned long)cs.tx_frames, (unsigned long)cs.bus_errors,
-             cs.bus_fault ? "true" : "false", (unsigned long)s_ui_hz,
-             (unsigned long)s_ui_gap_ms,
+             cs.bus_fault ? "true" : "false", pwm_fresh ? "true" : "false",
+             (unsigned)cs.pwm_permille, (unsigned)cs.pwm_flags,
+             cs.pwm_seen_ms ? (unsigned long)(millis() - cs.pwm_seen_ms) : 0ul,
+             (unsigned long)s_ui_hz, (unsigned long)s_ui_gap_ms,
              (unsigned long)uxTaskGetStackHighWaterMark(NULL),
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
     tpl_server.send(200, "application/json", buf);

@@ -4,7 +4,7 @@ Derived from `docs/whitepaper.md` rev 1.6. Order: board first, then the macOS
 environment, then Deliverable A (`tpl_waveshare_lcd7`), then the project.
 Every item names the check that closes it.
 
-357 items (47 open). Tick boxes as work lands.
+357 items (40 open). Tick boxes as work lands.
 
 ## S0 · BENCH — the two things only the hardware can answer
 
@@ -159,11 +159,9 @@ can be exercised. The local SHT45 path (S18b) is independent and does not wait.
 - [x] S10.06 Put the background on lv_layer_bottom() — Test: redrawing the flame does not re-decode or repaint the image
 - [x] S10.07 Draw the heater cabinet outline on an lv_canvas — Test: rounded rect with the specified stroke renders
 - [x] S10.08 Draw the firebox with warmth lerped from chamber temperature — Test: the colour tracks a replayed temperature
-- [x] S10.09 Draw 3 stacked flame arcs with a 6 s breathing cycle — Test: the animation runs and brightness tracks temperature. Implemented in `build_heater()` (three pill tongues plus core) and `haus_ui_animate()` (6 s `lv_tick_get()` phase; the opacity now tracks the Soll, see S10.12).
+- [x] S10.09 Draw 3 stacked flame arcs with a 6 s breathing cycle — Test: the animation runs and brightness tracks temperature. Implemented in `build_heater()` (three pill tongues plus core) and `haus_ui_animate()` (6 s `lv_tick_get()` phase; the opacity now tracks the Soll, see S10.20).
 - [x] S10.10 Draw in/out pipes with the shared blue-amber-red ramp — Test: a 30/60 °C sweep crosses the breakpoints
 - [x] S10.11 March 6 flow dashes along each pipe, direction by flow presence — Test: dashes animate only when duty > 0
-- [x] S10.12 Flame follows the Soll and is hidden when heating is off — Test: 40 °C and 60 °C render visibly different flames; no 0x280 frame, duty >= 500, or no target renders no flame — Done: `haus_ui_animate()` uses `chamber_target_c`, `pwm_fresh` and `pwm_permille < 500`; it also hides the glow and core, not only the three tongues. The cabinet target label is dynamic. Host renders `output_home_off.png`, `output_home_40.png`, `output_home_60.png`.
-- [ ] S10.13 Relabel the home/detail "CHAMBER" zone as ROOM — the board probe is in the room where the heater is and there is no chamber probe. Decide between ROOM and HEATER, then update the detail title, chart legend and docs — Test: no screen calls the board measurement "chamber".
 - [x] S10.12 Render the sentinel value grey, not as an extreme colour — Test: an empty slot draws grey
 - [x] S10.13 Add the living-room strip (temp, humidity, pressure) — Test: band renders at y=580 with the 76 px height
 - [x] S10.14 Add the power band with a source badge — Test: SML shows SML, no value shows —
@@ -172,6 +170,8 @@ can be exercised. The local SHT45 path (S18b) is independent and does not wait.
 - [x] S10.17 Add the PRESSED feedback (12% tint, 1.04 label scale) — Test: press state is visible
 - [x] S10.18 Add the duty provenance marker to the status strip — Test: solid for PWM_SRC_CAN, hollow for EEPROM
 - [x] S10.19 Verify the whole home screen on the host harness — Test: make run shows the same layout without hardware
+- [x] S10.20 Flame follows the Soll and is hidden when heating is off — Test: 40 °C and 60 °C render visibly different flames; no 0x280 frame, duty >= 500, or no target renders no flame — Done: `haus_ui_animate()` uses `chamber_target_c`, `pwm_fresh` and `pwm_permille < 500`; it also hides the glow and core, not only the three tongues. The cabinet target label uses the same predicate and shows `--` when the heater is off or no report is fresh. Host renders `output_home_off.png`, `output_home_40.png`, `output_home_60.png`.
+- [x] S10.21 Relabel the home/detail "CHAMBER" zone as HEATER — the board probe is in the room where the heater is and there is no chamber probe. Chose HEATER, then update the detail title, chart legend and docs — Test: no screen calls the board measurement "chamber". — Done: the detail header and sensor role/log name now say HEATER; the PWM block heading is PWM DUTY so the title is not repeated. The enum and persisted SENSOR_FN_CHAMBER id stay for compatibility. The UI mockup is updated.
 
 ## S10b · BRING-UP FIXES (2026-10-17)
 
@@ -374,11 +374,11 @@ before treating `sml_error_cnt` as a diagnostic.
 - [ ] S20.07 Cancel returns the slider to the in-force value — Test: it snaps back
 - [ ] S20.08 Reconcile against a fresh 0x280 with a timeout — Test: sent-then-reported shows live; no report shows failed and reverts
 - [ ] S20.09 Show a conflicting writer as 'conflict' with both values, no retry loop — Test: the panel shows truth and stops
-- [ ] S20.10 Render PWM_SRC_* provenance as a badge (RESTORED/live) — Test: EEPROM boot shows a distinct hollow badge
+- [x] S20.10 Render PWM_SRC_* provenance as a badge (RESTORED/live) — Test: EEPROM boot shows a distinct hollow badge — Done: `detail_update()` drives the header badge from `pwm_src` (LIVE green, NRF amber, FAULT red, RESTORED dim); the status-strip duty dot already used the hollow marker for restored values.
 - [ ] S20.11 Rate-limit commits per N16 and log old/new permille every send — Test: the log shows both values and the PWM_SRC_CAN expectation
 - [ ] S20.12 Map TX failure to the same fault flag as a bus error — Test: never-sent is visibly different from ignored
 - [ ] S20.13 Add a test proving no gesture, long-press, timeout or auto-repeat transmits — Test: the test enumerates every input path
-- [ ] S20.14 Confirm the panel applies no ramp, clamp or dead-man (N15) — Test: code review plus a comment naming AVR/01_heizung_temp as the owner
+- [x] S20.14 Confirm the panel applies no ramp, clamp or dead-man (N15) — Test: code review plus a comment naming AVR/01_heizung_temp as the owner — Done: review found no ramp, clamp or dead-man in the panel output path. The slider bounds only the request to 0..500; the comment at the PWM UI names AVR/01_heizung_temp as the owner of output safety (N15).
 - [ ] S20.15 Replace the hardcoded 60 °C Soll — the panel currently sets `chamber_target_c = 6000` in `gui_update_state()`; it is not on CAN and is not derived from the duty. Either receive the AVR's real setpoint or map the requested duty through the measured off-temperature table (500→42, 400→44, 300→54, 200→60, 100→70 °C), and show `--` when neither is available — Test: changing the duty changes the Soll on home and in the chart legend; unplugging CAN does not leave a fabricated 60 °C.
 
 **Terminology (S20):** the temperature at which the heater cuts off is the
@@ -421,7 +421,7 @@ figures are Soll values; write them that way in the UI and the docs.
 
 - [x] S23.24 Chart audit: fix the remaining time/data mismatches — Test: the 1-day chart uses today's L1, `now` matches the header, and scrubbing a power/RH chart formats the right unit — Done: the 1-day window is local midnight .. now (L1 is today only; a rolling 24 h window was reading tomorrow's slots), `now` uses the live value instead of the last bucket mean, `data age` uses the newest sample, scrub formatting uses the chart unit, RH readouts keep one decimal, the readout sum is 64-bit, the target series is aligned to the reader's rounded base, allocation failures no longer dereference NULL, and the x grid has three divisions matching the four labels.
 - [x] S23.25 Add power to L2 so the 1 week / 1 month power charts have a source — Test: with more than one day of power samples, the week/month power charts plot them; the 1-day chart still uses L1 — Done: `RollupColumn` now has seven series (series 6 = power, decawatts), `apply_sample_to_l2()` records valid, non-gap power, and `chart_cfg_for(POWER)` uses the rollup. The chart's series 7 (power) maps to rollup series 6. `RING_VERSION` is 3 and an old `/rollup.bin` size is rejected, so the first boot after this change rebuilds the ring and ignores the old SD rollup layout (one-time loss of the existing month chart; the day file still restores L1).
-- [ ] S23.26 The chart scrub bubble's timestamp is the bucket start, not the sample time — the bubble appears while you press and drag on a chart and shows `HH:MM  min / mean / max`. At 1 day the bucket starts up to 3 min 16 s before the samples it aggregates; at 1 month up to ~98 min. Either show the bucket range (`10:00-10:03`) or state that the time is the bucket start.
+- [x] S23.26 The chart scrub bubble's timestamp is the bucket start, not the sample time — the bubble appears while you press and drag on a chart and shows `HH:MM  min / mean / max`. At 1 day the bucket starts up to 3 min 16 s before the samples it aggregates; at 1 month up to ~98 min. Either show the bucket range (`10:00-10:03`) or state that the time is the bucket start. — Done: the bubble now shows the bucket range (`10:00-10:03`), with the end clamped to the chart end; the bubble widened to 300 px and is clamped inside the chart.
 - [ ] S23.27 "above target" adds a whole bucket's duration when the bucket mean is above the target mean — it does not know how many individual minutes were above, so a bucket with one hot sample and 59 cold ones still counts as fully above. Scale by the number of samples or accumulate per-sample above/below time.
 
 ## S24 · CAN ENABLE SWITCH (boot sequence, N19)
@@ -465,7 +465,7 @@ figures are Soll values; write them that way in the UI and the docs.
 - [ ] S27.01 Split §6 into prj_template/docs/waveshare_lcd7_board_abstraction.md — Test: §6 becomes a pointer
 - [ ] S27.02 Update the whitepaper's open-questions table with the resolved answers — Test: Q13/Q21/Q22/Q24 carry outcomes
 - [ ] S27.03 Add the README with build, flash, OTA and recovery instructions — Test: a reader can get the panel running from it
-- [ ] S27.04 Record the measured flash size, MAC and PSRAM for the panel — Test: a small identity table exists for future panels (Q23)
+- [x] S27.04 Record the measured flash size, MAC and PSRAM for the panel — Test: a small identity table exists for future panels (Q23) — Done: added a panel inventory table under §3.1.1 (unit, MAC, flash, PSRAM, chip revision, USB bridge serial) for every panel added.
 - [ ] S27.05 Run make fmt and make links one final time — Test: clean tree, all symlinks present
 
 ## S28 · INTERNAL RAM — `docs/memory_report.md` remediation
@@ -499,8 +499,8 @@ question (S23.19).
 - [x] S28.14 Reduce `bounce_buffer_size_px` once the buffer count is known (currently `TPL_WS7_SCREEN_WIDTH × 20` = 32,000 B per buffer) — Test: no tearing and the internal heap rises by the predicted amount — Done: `TPL_WS7_BOUNCE_LINES=10`; 64,000 → 32,000 B runtime DMA RAM.
 - [x] S28.15 Evaluate one shared internal line buffer for the LVGL partial draw and the RGB bounce — Test: the flush callback is provably done before DMA reads, or the item is rejected in writing — Rejected: the RGB bounce is consumed by DMA while the next LVGL band may already be drawn; sharing needs a proven completion barrier that is not worth the risk now.
 - [x] S28.16 Confirm the software-rotation scratch is in PSRAM — Test: `esp_ptr_external()` on the scratch passes — Confirmed in code: `tpl_ws7.cpp` allocates `s_rot_buf` with `MALLOC_CAP_SPIRAM`.
-- [ ] S28.17 Drop a Montserrat size a screen does not need (16/24/32) — Test: every screen still renders its largest string without clipping
-- [ ] S28.18 Turn off LVGL features this UI never calls — Test: IRAM use falls and no screen loses a used feature
+- [x] S28.17 Drop a Montserrat size a screen does not need (16/24/32) — Test: every screen still renders its largest string without clipping — Done: only Montserrat 16, 24, 32 and 48 are enabled and all four are used (16 body/secondary, 24 headings/icons, 32 values, 48 power value); the host renders every screen without clipping.
+- [x] S28.18 Turn off LVGL features this UI never calls — Test: IRAM use falls and no screen loses a used feature — Done: emoji fonts and the unused ARC, BUTTON, CHART, CHECKBOX, IMAGE_BUTTON, LIST, MENU, MESSAGE_BOX, SPAN, PAGE, TABLE, TABVIEW, TOOLTIP and TREE_VIEW widgets are disabled; BAR stays because the slider needs it, CANVAS/IMAGE because the screens draw on them. All 11 host screens render; `firmware.bin` shrank from 2,099,824 B to 2,053,424 B (−46,400 B); IRAM was not separately measured.
 
 ### S28c · Move CPU-only statics to PSRAM
 

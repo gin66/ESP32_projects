@@ -976,6 +976,14 @@ lv_obj_t* haus_ui_init(void) {
   return root;
 }
 
+/* One predicate for the flame and the Soll text: both are only meaningful
+ * while the heater reports that it is on. The board probe is the room
+ * temperature; there is no chamber sensor. */
+static bool heater_on(const CanState* can) {
+  return can->pwm_fresh && can->pwm_permille < 500 &&
+         can->chamber_target_c > 0;
+}
+
 void haus_ui_update(void) {
   if (gui_take_redraw()) lv_obj_invalidate(lv_screen_active());
   {
@@ -1079,10 +1087,12 @@ void haus_ui_update(void) {
                     4, -2);
   }
 
-  /* Soll comes from the control loop; it is the target, not a measurement. */
+  /* Soll comes from the control loop; it is the target, not a measurement.
+   * It is only shown while the heater is on, so it cannot disagree with the
+   * flame (same predicate). */
   if (s_cabinet_target) {
     char tb[16];
-    if (state.can.chamber_target_c > 0)
+    if (heater_on(&state.can))
       snprintf(tb, sizeof(tb), "%d°C", state.can.chamber_target_c / 100);
     else
       snprintf(tb, sizeof(tb), "--");
@@ -1244,9 +1254,9 @@ void haus_ui_animate(void) {
    * only while the heater is on and a 0x280 report is fresh. No frame, a
    * duty >= 500, or no target means no flame. */
   const int16_t target = state.can.chamber_target_c;
-  const bool heating = state.can.pwm_fresh && state.can.pwm_permille < 500;
+  const bool heating = heater_on(&state.can);
 
-  if (!heating || target <= 0) {
+  if (!heating) {
     for (int i = 0; i < 3; i++) {
       if (!s_flame[i]) continue;
       if (s_last_flame_opa[i] != 0) {
@@ -1367,7 +1377,12 @@ static lv_obj_t* s_living_tab[2];
 static int g_living_series = 0;
 
 /* PWM request UI (S20.02). No frame is transmitted yet; the requested value
- * is local and the in-force value always comes from 0x280. */
+ * is local and the in-force value always comes from 0x280.
+ *
+ * S20.14: the panel applies no ramp, clamp or dead-man to the output.
+ * AVR/01_heizung_temp owns PWM safety (N15); the switch and slider only bound
+ * the request to 0..500 permille (S20.01/S20.02). Nothing here shapes the
+ * duty over time. */
 static lv_obj_t* s_pwm_switch;
 static lv_obj_t* s_pwm_switch_lbl;
 static lv_obj_t* s_pwm_slider;
@@ -2200,10 +2215,15 @@ static void chart_scrub_cb(lv_event_t* e) {
     txt(s_scrub_text, "no data");
   } else {
     time_t t = (time_t)s_cols[col].t;
-    struct tm tm;
+    const uint32_t span = s_chart_t1 > s_chart_t0 ? s_chart_t1 - s_chart_t0 : 0;
+    uint32_t col_s = span / HAUS_CHART_COLUMNS;
+    time_t te = (time_t)((uint32_t)t + col_s);
+    if ((uint32_t)te > s_chart_t1) te = (time_t)s_chart_t1;
+    struct tm tm, tme;
     char when[24] = "";
-    if (localtime_r(&t, &tm))
-      snprintf(when, sizeof(when), "%02d:%02d", tm.tm_hour, tm.tm_min);
+    if (localtime_r(&t, &tm) && localtime_r(&te, &tme))
+      snprintf(when, sizeof(when), "%02d:%02d-%02d:%02d", tm.tm_hour,
+               tm.tm_min, tme.tm_hour, tme.tm_min);
     chart_cfg_t cfg;
     chart_cfg_for(g_detail_screen, &cfg);
     char mn[16], mean[16], mx[16], line[80];
@@ -2214,7 +2234,11 @@ static void chart_scrub_cb(lv_event_t* e) {
     snprintf(line, sizeof(line), "%s  %s / %s / %s", when, mn, mean, mx);
     txt(s_scrub_text, line);
   }
-  const int bx = x > 140 ? x - 140 : 0;
+  const int bw = 300;
+  int bx = x - bw / 2;
+  if (bx < 0) bx = 0;
+  const int chart_w = lv_obj_get_width(chart);
+  if (bx + bw > chart_w) bx = chart_w - bw;
   lv_obj_set_pos(s_scrub_bubble, bx, CHART_Y0 - 4);
   obj_set_hidden(s_scrub_bubble, false);
 }
@@ -2281,7 +2305,7 @@ static void chart_build_widgets(int top) {
   obj_set_hidden(s_scrub_line, true);
 
   s_scrub_bubble = lv_obj_create(c);
-  lv_obj_set_size(s_scrub_bubble, 270, 34);
+  lv_obj_set_size(s_scrub_bubble, 300, 34);
   lv_obj_set_pos(s_scrub_bubble, 0, CHART_Y0 - 4);
   lv_obj_set_style_bg_color(s_scrub_bubble, lv_color_hex(C_PANEL), 0);
   lv_obj_set_style_bg_opa(s_scrub_bubble, 235, 0);
@@ -2425,7 +2449,7 @@ static void pwm_control_build(int top) {
   lv_obj_t* root = lv_screen_active();
   hline(root, top, C_LINE);
 
-  label_make(root, "HEATER", 20, top + 18, &haus_body_21, C_INK);
+  label_make(root, "PWM DUTY", 20, top + 18, &haus_body_21, C_INK);
 
   s_pwm_switch = lv_obj_create(root);
   lv_obj_set_size(s_pwm_switch, 80, 38);
@@ -2576,7 +2600,25 @@ static void chart_rebuild(void) {
 static void detail_update(void) {
   if (!s_detail_value) return;
   detail_value_update();
-  if (g_detail_screen == UI_SCREEN_CHAMBER) pwm_control_update();
+  if (g_detail_screen == UI_SCREEN_CHAMBER) {
+    pwm_control_update();
+    HausState st;
+    gui_get_state(&st);
+    switch (st.can.pwm_src) {
+      case PWM_SRC_CAN:
+        header_badge_set("LIVE", C_OK);
+        break;
+      case PWM_SRC_NRF:
+        header_badge_set("NRF", C_AMBER);
+        break;
+      case PWM_SRC_FAULT:
+        header_badge_set("FAULT", C_HOT);
+        break;
+      default:
+        header_badge_set("RESTORED", C_DIM);
+        break;
+    }
+  }
 
   if (g_detail_screen == UI_SCREEN_LIVING) {
     HausState st;
@@ -3309,7 +3351,7 @@ void haus_ui_set_range(int range) {
 }
 
 lv_obj_t* haus_ui_build_detail(void) {
-  return detail_build(UI_SCREEN_CHAMBER, "CHAMBER", UI_SCREEN_CHAMBER,
+  return detail_build(UI_SCREEN_CHAMBER, "HEATER", UI_SCREEN_CHAMBER,
                       "RESTORED", C_DIM);
 }
 
@@ -3466,7 +3508,7 @@ static const uint8_t k_role_cycle[] = {
 static const char* role_fn_name(uint8_t fn) {
   switch (fn) {
     case SENSOR_FN_CHAMBER:
-      return "CHAMBER";
+      return "HEATER";
     case SENSOR_FN_WATER_IN:
       return "WATER IN (PIPE)";
     case SENSOR_FN_WATER_OUT:

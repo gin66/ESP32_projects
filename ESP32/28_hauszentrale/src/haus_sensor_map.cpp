@@ -10,7 +10,7 @@
 const char* haus_sensor_fn_name(uint8_t function) {
   switch (function) {
     case SENSOR_FN_CHAMBER:
-      return "chamber";
+      return "heater";
     case SENSOR_FN_WATER_IN:
       return "water-in";
     case SENSOR_FN_WATER_OUT:

@@ -185,14 +185,14 @@
  *---------------------*/
 
 /*Enable Unicode emoji short code getter*/
-#define LV_USE_FONT_EMOJI 1
+#define LV_USE_FONT_EMOJI 0
 #define LV_FONT_EMOJI_UNICODE_RANGE 0xE000..0xF8FF
 
 /*Enable Unicode high code (4.32 MB)*/
-#define LV_USE_FONT_EMOJI_UNICODE 1
+#define LV_USE_FONT_EMOJI_UNICODE 0
 
 /*Enable Unicode high code (4.32 MB)*/
-#define LV_USE_FONT_EMOJI_EXTENDED 1
+#define LV_USE_FONT_EMOJI_EXTENDED 0
 
 /*------------------
  * STORAGE CONFIG
@@ -268,12 +268,29 @@
 /*Enable container widget*/
 #define LV_USE_CONTAINER 1
 
+/* Unused widgets: the panel builds every screen from obj, label, line,
+ * canvas and slider only (S28.18). */
+#define LV_USE_ANIMIMG 0
+#define LV_USE_BUTTONMATRIX 0
+#define LV_USE_DROPDOWN 0
+#define LV_USE_KEYBOARD 0
+#define LV_USE_LED 0
+#define LV_USE_ROLLER 0
+#define LV_USE_SPINBOX 0
+#define LV_USE_TEXTAREA 0
+#define LV_USE_TILEVIEW 0
+#define LV_USE_WIN 0
+#define LV_USE_SWITCH 0
+
 /*------------------
  * ARC CONFIG
  *-----------------*/
 
 /*Enable arc widget*/
-#define LV_USE_ARC 1
+#define LV_USE_ARC 0
+
+/*Enable spinner widget (unused; it also depends on arc)*/
+#define LV_USE_SPINNER 0
 
 /*------------------
  * BAR CONFIG
@@ -287,14 +304,14 @@
  *-----------------*/
 
 /*Enable button widget*/
-#define LV_USE_BUTTON 1
+#define LV_USE_BUTTON 0
 
 /*------------------
  * CHART CONFIG
  *-----------------*/
 
 /*Enable chart widget (we use canvas instead, but keep for compatibility)*/
-#define LV_USE_CHART 1
+#define LV_USE_CHART 0
 
 /*------------------
  * COLOR SWATCH CONFIG
@@ -322,7 +339,7 @@
  *-----------------*/
 
 /*Enable checkbox widget*/
-#define LV_USE_CHECKBOX 1
+#define LV_USE_CHECKBOX 0
 
 /*------------------
  * DATE SELECTOR CONFIG
@@ -352,7 +369,8 @@
  *-----------------*/
 
 /*Enable image_button widget*/
-#define LV_USE_IMAGE_BUTTON 1
+#define LV_USE_IMAGE_BUTTON 0
+#define LV_USE_IMAGEBUTTON 0
 
 /*------------------
  * IMAGE CONFIG
@@ -384,14 +402,14 @@
  *-----------------*/
 
 /*Enable list widget*/
-#define LV_USE_LIST 1
+#define LV_USE_LIST 0
 
 /*------------------
  * MENU CONFIG
  *-----------------*/
 
 /*Enable menu widget*/
-#define LV_USE_MENU 1
+#define LV_USE_MENU 0
 
 /*------------------
  * METER CONFIG
@@ -405,21 +423,22 @@
  *-----------------*/
 
 /*Enable message_box widget*/
-#define LV_USE_MESSAGE_BOX 1
+#define LV_USE_MESSAGE_BOX 0
+#define LV_USE_MSGBOX 0
 
 /*------------------
  * SPAN CONFIG
  *-----------------*/
 
 /*Enable span widget*/
-#define LV_USE_SPAN 1
+#define LV_USE_SPAN 0
 
 /*------------------
  * PAGE CONFIG
  *-----------------*/
 
 /*Enable page widget*/
-#define LV_USE_PAGE 1
+#define LV_USE_PAGE 0
 
 /*------------------
  * PHOTO BOX CONFIG
@@ -447,28 +466,28 @@
  *-----------------*/
 
 /*Enable table widget*/
-#define LV_USE_TABLE 1
+#define LV_USE_TABLE 0
 
 /*------------------
  * TAB VIEW CONFIG
  *-----------------*/
 
 /*Enable tab_view widget*/
-#define LV_USE_TABVIEW 1
+#define LV_USE_TABVIEW 0
 
 /*------------------
  * TOOLTIP CONFIG
  *-----------------*/
 
 /*Enable tooltip*/
-#define LV_USE_TOOLTIP 1
+#define LV_USE_TOOLTIP 0
 
 /*------------------
  * TREE VIEW CONFIG
  *-----------------*/
 
 /*Enable tree_view widget*/
-#define LV_USE_TREE_VIEW 1
+#define LV_USE_TREE_VIEW 0
 
 /*------------------
  * ANIMATION CONFIG

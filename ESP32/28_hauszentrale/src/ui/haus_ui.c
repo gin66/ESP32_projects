@@ -933,7 +933,7 @@ static void build_zones(void) {
   }
 }
 
-static void ensure_chart_buffers(void);
+static bool ensure_chart_buffers(void);
 static void can_wave_tick(void);
 
 lv_obj_t* haus_ui_init(void) {
@@ -1301,11 +1301,12 @@ static int32_t* s_target_sum = NULL;
 #define TARGET_N_BYTES (HAUS_CHART_COLUMNS * sizeof(uint8_t))
 #define TARGET_SUM_BYTES (HAUS_CHART_COLUMNS * sizeof(int32_t))
 
-static void ensure_chart_buffers(void) {
+static bool ensure_chart_buffers(void) {
   if (!s_cols) s_cols = (ChartColumn*)haus_mem_alloc(CHART_SET_BYTES);
   if (!s_target) s_target = (int16_t*)haus_mem_alloc(TARGET_BYTES);
   if (!s_target_n) s_target_n = (uint8_t*)haus_mem_alloc(TARGET_N_BYTES);
   if (!s_target_sum) s_target_sum = (int32_t*)haus_mem_alloc(TARGET_SUM_BYTES);
+  return s_cols && s_target && s_target_n && s_target_sum;
 }
 
 static lv_obj_t* s_chart_canvas;
@@ -1375,12 +1376,13 @@ static bool s_chart_force = true;
 static uint32_t s_chart_last_sample;
 static bool s_chart_hourly;
 static uint32_t s_chart_t0, s_chart_t1;
+static uint32_t s_chart_now;
 static uint32_t s_chart_newest;
 
 static void ui_show_screen(int screen);
 static void ui_pop(void);
 static void chart_rebuild(void);
-static void ensure_chart_buffers(void);
+static bool ensure_chart_buffers(void);
 
 static uint16_t c565(uint32_t c) { return lv_color_to_u16(lv_color_hex(c)); }
 
@@ -1531,7 +1533,7 @@ static size_t chart_rollup_reader(void* ctx, size_t first, size_t count,
 }
 
 static void chart_build_target(uint32_t t0, uint32_t t1, bool hourly) {
-  ensure_chart_buffers();
+  if (!ensure_chart_buffers()) return;
   memset(s_target, 0, TARGET_BYTES);
   memset(s_target_n, 0, TARGET_N_BYTES);
   memset(s_target_sum, 0, TARGET_SUM_BYTES);
@@ -1544,7 +1546,8 @@ static void chart_build_target(uint32_t t0, uint32_t t1, bool hourly) {
       gui_read_target_hours_chunk(t0, first, n, chunk);
       for (size_t i = 0; i < n; i++) {
         if (chunk[i] == HAUS_CAN_TEMP_EMPTY || chunk[i] == GUI_EMPTY) continue;
-        const uint32_t t = t0 + (uint32_t)(first + i) * 3600u;
+        const uint32_t t =
+            (t0 - t0 % 3600u) + (uint32_t)(first + i) * 3600u;
         const size_t col = chart_col_for(t, t0, t1);
         s_target_sum[col] += chunk[i];
         s_target_n[col]++;
@@ -1560,7 +1563,8 @@ static void chart_build_target(uint32_t t0, uint32_t t1, bool hourly) {
       gui_read_target_samples_chunk(t0, first, n, chunk);
       for (size_t i = 0; i < n; i++) {
         if (chunk[i] == HAUS_CAN_TEMP_EMPTY || chunk[i] == GUI_EMPTY) continue;
-        const uint32_t t = t0 + (uint32_t)(first + i) * 60u;
+        const uint32_t t =
+            (t0 - t0 % 60u) + (uint32_t)(first + i) * 60u;
         const size_t col = chart_col_for(t, t0, t1);
         s_target_sum[col] += chunk[i];
         s_target_n[col]++;
@@ -1575,18 +1579,40 @@ static void chart_build_target(uint32_t t0, uint32_t t1, bool hourly) {
   }
 }
 
+static uint32_t local_midnight(uint32_t now) {
+  time_t t = (time_t)now;
+  struct tm tm;
+  if (localtime_r(&t, &tm)) {
+    tm.tm_hour = 0;
+    tm.tm_min = 0;
+    tm.tm_sec = 0;
+    tm.tm_isdst = -1;
+    const time_t m = mktime(&tm);
+    if (m > 0) return (uint32_t)m;
+  }
+  return now > 86400u ? now - 86400u : 0;
+}
+
 static void chart_build(void) {
   HausState st;
   gui_get_state(&st);
   uint32_t now = st.can.timestamp;
   if (now == 0) now = (uint32_t)time(NULL);
   if (now == 0) return;
+  if (!ensure_chart_buffers()) return;
 
-  const uint32_t span = (g_range == UI_RANGE_DAY)    ? 86400u
-                        : (g_range == UI_RANGE_WEEK) ? 7u * 86400u
-                                                     : 30u * 86400u;
-  const uint32_t t0 = now > span ? now - span : 0;
+  /* L1 is today's minute buffer. A rolling 24 h window would read
+   * yesterday's slots as today's future slots, so the 1-day view is
+   * local midnight .. now. The week/month view still rolls. */
+  uint32_t t0;
   const uint32_t t1 = now;
+  if (g_range == UI_RANGE_DAY) {
+    t0 = local_midnight(now);
+  } else {
+    const uint32_t span = (g_range == UI_RANGE_WEEK) ? 7u * 86400u
+                                                     : 30u * 86400u;
+    t0 = now > span ? now - span : 0;
+  }
 
   chart_cfg_t cfg;
   chart_cfg_for(g_detail_screen, &cfg);
@@ -1608,6 +1634,7 @@ static void chart_build(void) {
   s_chart_hourly = hourly;
   s_chart_t0 = t0;
   s_chart_t1 = t1;
+  s_chart_now = now;
   s_chart_newest = newest_epoch;
   s_chart_last_sample = gui_history_newest_epoch();
   s_chart_force = false;
@@ -1730,7 +1757,7 @@ static void chart_format_value(char* buf, size_t n, int32_t v, int unit) {
       temp_text((int16_t)v, buf, n, false);
       break;
     case CHART_UNIT_RH:
-      snprintf(buf, n, "%d", v / 100);
+      snprintf(buf, n, "%.1f", v / 100.0);
       break;
     case CHART_UNIT_POWER:
       if (v >= 10000)
@@ -1793,7 +1820,7 @@ static void chart_labels(chart_cfg_t* cfg) {
 }
 
 static void chart_draw(void) {
-  if (!s_chart_pixels) return;
+  if (!s_chart_pixels || !s_cols) return;
   /* Hide the setpoint label before the no-data early return; otherwise the
    * power screen keeps a stale "Soll" legend. */
   if (s_chart_target_lbl) obj_set_hidden(s_chart_target_lbl, true);
@@ -1807,12 +1834,14 @@ static void chart_draw(void) {
     const int y = CHART_Y0 + i * (CHART_Y1 - CHART_Y0) / 4;
     chart_hline(CHART_X0, CHART_X1, y, line);
   }
-  for (int i = 0; i <= 4; i++) {
-    const int x = CHART_X0 + i * (CHART_X1 - CHART_X0) / 4;
+  /* Three divisions to match the four x labels below the chart. */
+  for (int i = 0; i <= 3; i++) {
+    const int x = CHART_X0 + i * (CHART_X1 - CHART_X0) / 3;
     chart_vline(x, CHART_Y0, CHART_Y1, line);
   }
   chart_hline(CHART_X0, CHART_X1, CHART_Y1, c565(C_DIM));
   chart_vline(CHART_X0, CHART_Y0, CHART_Y1, c565(C_DIM));
+  chart_vline(CHART_X1, CHART_Y0, CHART_Y1, c565(C_DIM));
 
   chart_cfg_t cfg;
   chart_cfg_for(g_detail_screen, &cfg);
@@ -1848,7 +1877,8 @@ static void chart_draw(void) {
     const ChartColumn* c = &s_cols[i];
     const int x = CHART_X0 + (int)((uint64_t)i * (CHART_X1 - CHART_X0) /
                                    (HAUS_CHART_COLUMNS - 1));
-    const bool gap = (c->n[0] == 0) && (cfg.b < 0 || c->n[1] == 0);
+    const bool gap = (c->n[0] == 0) && (cfg.b < 0 || c->n[1] == 0) &&
+                     !(cfg.use_target && s_target_n[i]);
     if (gap) {
       /* Only mark dropouts between real data. Leading and trailing empty
        * columns are "no data yet", not a gap, and must stay clean. */
@@ -1964,10 +1994,48 @@ static void chart_draw(void) {
   lv_obj_invalidate(s_chart_canvas);
 }
 
+static bool chart_live_value(int series, int32_t* out) {
+  if (!out) return false;
+  HausState st;
+  gui_get_state(&st);
+  switch (series) {
+    case 0:
+      *out = st.can.temp_by_fn[SENSOR_FN_CHAMBER];
+      break;
+    case 1:
+      *out = st.can.temp_by_fn[SENSOR_FN_WATER_IN];
+      break;
+    case 2:
+      *out = st.can.temp_by_fn[SENSOR_FN_WATER_OUT];
+      break;
+    case 3:
+      if (!(st.climate.climate_flags & CLIMATE_VALID_SHT45)) return false;
+      *out = st.climate.living_c100;
+      break;
+    case 4:
+      if (!(st.climate.climate_flags & CLIMATE_VALID_SHT45)) return false;
+      *out = (int32_t)st.climate.hum_c100;
+      break;
+    case GUI_SERIES_TARGET:
+      *out = st.can.chamber_target_c;
+      break;
+    case 7:
+      if (!st.can.valid) return false;
+      *out = st.can.watts > 0 ? st.can.watts * 10 : 0;
+      if (*out > 65535) *out = 65535;
+      break;
+    default:
+      return false;
+  }
+  return *out != HAUS_CAN_TEMP_EMPTY && *out != GUI_EMPTY;
+}
+
 static void chart_update_readouts(void) {
+  if (!s_cols || !s_chart_readout) return;
   chart_cfg_t cfg;
   chart_cfg_for(g_detail_screen, &cfg);
-  int32_t mn = 0, mx = 0, sum = 0;
+  int32_t mn = 0, mx = 0;
+  int64_t sum = 0;
   uint32_t n = 0;
   int32_t now = 0;
   bool have_now = false;
@@ -1986,13 +2054,16 @@ static void chart_update_readouts(void) {
     have_now = true;
   }
 
+  int32_t live = 0;
+  if (chart_live_value(cfg.a, &live)) now = live;
+
   char a[24], b[24], c[24], d[24];
   if (n == 0) {
     txt(s_chart_readout, "no data in this range");
   } else {
     chart_format_axis(a, sizeof(a), mn, cfg.unit);
     chart_format_axis(b, sizeof(b), mx, cfg.unit);
-    chart_format_axis(c, sizeof(c), sum / (int32_t)n, cfg.unit);
+    chart_format_axis(c, sizeof(c), (int32_t)(sum / (int64_t)n), cfg.unit);
     chart_format_axis(d, sizeof(d), now, cfg.unit);
     char line[120];
     snprintf(line, sizeof(line), "min %s   max %s   mean %s   now %s", a, b, c,
@@ -2014,7 +2085,7 @@ static void chart_update_readouts(void) {
     return;
   }
 
-  const uint32_t age = s_chart_t1 > newest ? s_chart_t1 - newest : 0;
+  const uint32_t age = s_chart_now > newest ? s_chart_now - newest : 0;
   char agebuf[96];
   if (age < 90)
     snprintf(agebuf, sizeof(agebuf), "data age now");
@@ -2099,11 +2170,13 @@ static void chart_scrub_cb(lv_event_t* e) {
     char when[24] = "";
     if (localtime_r(&t, &tm))
       snprintf(when, sizeof(when), "%02d:%02d", tm.tm_hour, tm.tm_min);
+    chart_cfg_t cfg;
+    chart_cfg_for(g_detail_screen, &cfg);
     char mn[16], mean[16], mx[16], line[80];
-    chart_format_value(mn, sizeof(mn), s_cols[col].mn[0], CHART_UNIT_TEMP);
+    chart_format_value(mn, sizeof(mn), s_cols[col].mn[0], cfg.unit);
     chart_format_value(mean, sizeof(mean),
-                       s_cols[col].sum[0] / s_cols[col].n[0], CHART_UNIT_TEMP);
-    chart_format_value(mx, sizeof(mx), s_cols[col].mx[0], CHART_UNIT_TEMP);
+                       s_cols[col].sum[0] / s_cols[col].n[0], cfg.unit);
+    chart_format_value(mx, sizeof(mx), s_cols[col].mx[0], cfg.unit);
     snprintf(line, sizeof(line), "%s  %s / %s / %s", when, mn, mean, mx);
     txt(s_scrub_text, line);
   }

@@ -4,7 +4,7 @@ Derived from `docs/whitepaper.md` rev 1.6. Order: board first, then the macOS
 environment, then Deliverable A (`tpl_waveshare_lcd7`), then the project.
 Every item names the check that closes it.
 
-349 items (42 open). Tick boxes as work lands.
+353 items (45 open). Tick boxes as work lands.
 
 ## S0 · BENCH — the two things only the hardware can answer
 
@@ -415,6 +415,11 @@ figures are Soll values; write them that way in the UI and the docs.
 - [x] S23.21 Replay the card's history when a card is inserted after a card-less boot, and show occupancy evidence — Test: insert a card with `rollup.bin`/day files and the week/month charts show it without a reboot; STORAGE shows how many entries exist and since when — Done: the SD watchdog calls `haus_history_restore()` after a verified mount/remount and requests a redraw; the log reads `restored 4 columns from SD rollup` and `boot restore: 4 columns`. STORAGE now renders `today N / 1440 last <time>`, `rollup N / 744 since <time>`, `restored N columns`, and `/sd/status` carries `l1_count`, `l2_count`, `l1_first/last`, `l2_first/last`, `restored`. Verified on the card: `l1_count` rose 3 → 5 in 70 s while `l2_count` stayed 5, so sampling and restore are both live.
 - [x] S23.22 Living-room samples must not inherit CAN staleness — Test: with CAN off, `stale_mask` clears for living/humidity and the living chart plots new SHT45 points — Done: `climate.last_update_epoch` is now the wall clock at the SHT45 read, not `can.timestamp`; with CAN off the stale mask is `0x00` and `l1_count` grows. Restored samples recorded before this fix may still carry the old stale bits; only new samples plot.
 - [x] S23.23 Report data age from the newest contributing sample, not the chart bucket start — Test: LIVING ROOM says `data age now` while samples are current and only ages after they stop — Done: `haus_chart_build_samples`/`haus_chart_build_rollup` return the newest source epoch and the detail screen uses it. The 440 columns span 86 400 s, so a bucket start was up to 3 min 16 s old and made fresh data look stale. The host mock's history now ends at the simulated current minute.
+
+- [x] S23.24 Chart audit: fix the remaining time/data mismatches — Test: the 1-day chart uses today's L1, `now` matches the header, and scrubbing a power/RH chart formats the right unit — Done: the 1-day window is local midnight .. now (L1 is today only; a rolling 24 h window was reading tomorrow's slots), `now` uses the live value instead of the last bucket mean, `data age` uses the newest sample, scrub formatting uses the chart unit, RH readouts keep one decimal, the readout sum is 64-bit, the target series is aligned to the reader's rounded base, allocation failures no longer dereference NULL, and the x grid has three divisions matching the four labels.
+- [ ] S23.25 Power at 1 week / 1 month has no rollup source — L2 carries six series but no power, and power sets `hourly_ok = 0`, so the week/month power charts read L1 (today only) and show a fragment. Decide: add power to L2 (format, writer, reader), limit power to 1 day, or read the SD day files.
+- [ ] S23.26 The scrub bubble labels the column's bucket start — at 1 day that is up to 3 min 16 s before the samples it aggregates. The whitepaper says the bubble is a column aggregate, so either show the bucket range or accept the start explicitly.
+- [ ] S23.27 "above target" counts a whole bucket when its mean exceeds the target mean — partial buckets and buckets with few samples are overcounted; scale by the sample count or accumulate per-sample above/below time.
 
 ## S24 · CAN ENABLE SWITCH (boot sequence, N19)
 

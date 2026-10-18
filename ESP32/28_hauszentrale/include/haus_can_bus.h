@@ -31,6 +31,7 @@ typedef struct {
   uint16_t pwm_permille;
   uint16_t frequency_hz;
   uint8_t pwm_flags;
+  uint32_t pwm_seen_ms; /* millis() of the last 0x280 frame, 0 = never */
   uint32_t rx_frames;
   uint32_t tx_frames;
   uint32_t bus_errors;

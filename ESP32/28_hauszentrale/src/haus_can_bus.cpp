@@ -103,6 +103,7 @@ static void decode_frame(const twai_message_t* msg) {
     s_snap.pwm_permille = pwm.duty_permille;
     s_snap.frequency_hz = pwm.frequency_hz;
     s_snap.pwm_flags = pwm.flags;
+    s_snap.pwm_seen_ms = now_ms;
   }
 
   /* A good frame clears the sticky bus fault (S17.05). */

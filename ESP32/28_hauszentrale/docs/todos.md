@@ -4,7 +4,7 @@ Derived from `docs/whitepaper.md` rev 1.6. Order: board first, then the macOS
 environment, then Deliverable A (`tpl_waveshare_lcd7`), then the project.
 Every item names the check that closes it.
 
-355 items (46 open). Tick boxes as work lands.
+357 items (47 open). Tick boxes as work lands.
 
 ## S0 · BENCH — the two things only the hardware can answer
 
@@ -159,9 +159,11 @@ can be exercised. The local SHT45 path (S18b) is independent and does not wait.
 - [x] S10.06 Put the background on lv_layer_bottom() — Test: redrawing the flame does not re-decode or repaint the image
 - [x] S10.07 Draw the heater cabinet outline on an lv_canvas — Test: rounded rect with the specified stroke renders
 - [x] S10.08 Draw the firebox with warmth lerped from chamber temperature — Test: the colour tracks a replayed temperature
-- [x] S10.09 Draw 3 stacked flame arcs with a 6 s breathing cycle — Test: the animation runs and brightness tracks temperature. Implemented in `build_heater()` (three pill tongues plus core) and `haus_ui_animate()` (6 s `lv_tick_get()` phase, opacity scaled by chamber temperature).
+- [x] S10.09 Draw 3 stacked flame arcs with a 6 s breathing cycle — Test: the animation runs and brightness tracks temperature. Implemented in `build_heater()` (three pill tongues plus core) and `haus_ui_animate()` (6 s `lv_tick_get()` phase; the opacity now tracks the Soll, see S10.12).
 - [x] S10.10 Draw in/out pipes with the shared blue-amber-red ramp — Test: a 30/60 °C sweep crosses the breakpoints
 - [x] S10.11 March 6 flow dashes along each pipe, direction by flow presence — Test: dashes animate only when duty > 0
+- [x] S10.12 Flame follows the Soll and is hidden when heating is off — Test: 40 °C and 60 °C render visibly different flames; no 0x280 frame, duty >= 500, or no target renders no flame — Done: `haus_ui_animate()` uses `chamber_target_c`, `pwm_fresh` and `pwm_permille < 500`; it also hides the glow and core, not only the three tongues. The cabinet target label is dynamic. Host renders `output_home_off.png`, `output_home_40.png`, `output_home_60.png`.
+- [ ] S10.13 Relabel the home/detail "CHAMBER" zone as ROOM — the board probe is in the room where the heater is and there is no chamber probe. Decide between ROOM and HEATER, then update the detail title, chart legend and docs — Test: no screen calls the board measurement "chamber".
 - [x] S10.12 Render the sentinel value grey, not as an extreme colour — Test: an empty slot draws grey
 - [x] S10.13 Add the living-room strip (temp, humidity, pressure) — Test: band renders at y=580 with the 76 px height
 - [x] S10.14 Add the power band with a source badge — Test: SML shows SML, no value shows —
@@ -233,7 +235,7 @@ can be exercised. The local SHT45 path (S18b) is independent and does not wait.
 - [x] S13.04 Detail 1 chamber: target line dashed and labelled — Test: the reference line renders at the configured target. Soll is drawn as a dashed series and labelled at the right edge.
 - [x] S13.05 Detail 1 chamber: time above target over the range — Test: computed from samples, not a snapshot. The line above the chart accumulates whole columns whose mean exceeds that column's Soll.
 - [x] S13.06 Detail 2 water in: delta to chamber plus a 20% alpha min/max band — Test: delta reads correctly. The combined water screen shows delta/rise and uses a min/max band for both water series.
-- [x] S13.06b **One combined water chart with three series: water-in, water-out and Soll.** Soll is a real series (future automatic control), not a reference line. `target_c100` lives in the two formerly-padding bytes of `gui_sample_t` (still 24 B) and in `RollupColumn` (now 104 B, carried through the SD rollup and the 12-month SPIFFS ring). The chart builds a separate `int16_t target[440]`; the WATER tab opens the same screen. Tests: all three lines render at 1 d/1 w/1 m; target history is restored with the rollup after reboot.
+- [x] S13.06b **One combined water chart with three series: water-in, water-out and Soll.** Soll is a real series (future automatic control), not a reference line. `target_c100` lives in the two formerly-padding bytes of `gui_sample_t` (still 24 B) and in `RollupColumn` (now 104 B, carried through the SD rollup and the 12-month SPIFFS ring). The chart builds a separate `int16_t target[440]`; the WATER tab opens the same screen. Tests: all three lines render at 1 d/1 w/1 m; target history is restored with the rollup after reboot. The numeric readouts below the chart now have one row for water-in and one for water-out over the selected range.
 - [x] S13.07 Detail 3 water out: rise metric plus a faint water-in overlay — Test: both lines render, the overlay is faint. The combined water screen draws water-in and water-out plus rise.
 - [x] S13.08 Detail 4 power: auto kW/W toggle with manual override — Test: the unit switches at the right magnitude. The header/chart auto-select kW above 1000 W; the header `auto/W/kW` button cycles the manual override.
 - [x] S13.09 Detail 4 power: SML/— source badge (ADC removed — no ADC power sensor on this board) — Test: badge matches the source. The header badge follows `CanState.power_src`.

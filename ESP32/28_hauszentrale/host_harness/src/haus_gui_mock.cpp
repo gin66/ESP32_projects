@@ -45,6 +45,18 @@
  * 3 min ago" that was an artefact of the harness, not the device.
  * Start at 08:00 on Oct 14, 2024 (epoch = 1728892800). */
 static uint32_t g_sim_time = 1728892800u; /* 2024-10-14 08:00:00 UTC */
+
+/* Home-screen variants: -1 keeps the synthetic model. */
+static int g_target_override = -1;
+static int g_pwm_override = -1;
+static bool g_pwm_fresh_override = true;
+
+extern "C" void mock_set_home_case(int target_c100, int pwm_permille,
+                                   bool fresh) {
+  g_target_override = target_c100;
+  g_pwm_override = pwm_permille;
+  g_pwm_fresh_override = fresh;
+}
 static const uint32_t DAY_SECONDS = 86400u;
 
 /* Get time-of-day in seconds (0–86399). */
@@ -326,11 +338,13 @@ void gui_update_state(void) {
   can.temp_by_fn[SENSOR_FN_WATER_OUT] = can.temp_c100[2];
 
   /* PWM. */
-  uint16_t duty = mock_pwm_duty(g_sim_time);
+  uint16_t duty = (g_pwm_override >= 0) ? (uint16_t)g_pwm_override
+                                        : mock_pwm_duty(g_sim_time);
   can.pwm_permille = duty;
   can.frequency_hz = 20000; /* 20 kHz */
-  can.pwm_src = PWM_SRC_CAN;
-  can.active = (duty > 0 && duty < 1000);
+  can.pwm_fresh = g_pwm_fresh_override;
+  can.pwm_src = can.pwm_fresh ? PWM_SRC_CAN : PWM_SRC_EEPROM;
+  can.active = can.pwm_fresh && (duty < 1000);
   can.pwm_pending = 0xFFFF;
   can.requested_permille = 0xFFFF;
   can.has_pending = false;
@@ -383,7 +397,9 @@ void gui_update_state(void) {
   can.last_restore_columns = 168;
 
   /* Chamber target. */
-  can.chamber_target_c = mock_target_temp(g_sim_time);
+  can.chamber_target_c = (g_target_override >= 0)
+                             ? (int16_t)g_target_override
+                             : mock_target_temp(g_sim_time);
 
   /* Water model. */
   can.water_modelled = true;

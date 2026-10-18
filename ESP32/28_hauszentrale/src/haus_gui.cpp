@@ -526,7 +526,9 @@ void gui_update_state(void) {
   can.pwm_permille = pwm.duty_permille;
   can.frequency_hz = pwm.frequency_hz;
   can.pwm_src = (uint8_t)haus_can_pwm_source(pwm.flags);
-  can.active = (can.pwm_permille > 0 && can.pwm_permille < 1000);
+  can.pwm_fresh = (snap.pwm_seen_ms != 0) &&
+                  ((uint32_t)(millis() - snap.pwm_seen_ms) < 5000u);
+  can.active = can.pwm_fresh && (can.pwm_permille < 1000);
   can.pwm_pending = 0xFFFF;
   can.requested_permille = 0xFFFF;
   can.has_pending = false;

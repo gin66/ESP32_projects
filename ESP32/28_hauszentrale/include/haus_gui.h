@@ -124,6 +124,7 @@ typedef struct {
   uint16_t pwm_permille; /* reported by 0x280, never what we sent */
   uint16_t frequency_hz;
   uint8_t pwm_src; /* PWM_SRC_EEPROM / _CAN / _NRF / _FAULT */
+  bool pwm_fresh;  /* a 0x280 report arrived within the freshness window */
   bool active;
   uint16_t pwm_pending; /* slider position; 0xFFFF == none pending */
   uint16_t requested_permille;

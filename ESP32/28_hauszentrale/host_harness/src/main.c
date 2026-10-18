@@ -11,6 +11,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -89,6 +90,23 @@ static int render_to_png(const char* filename) {
 
 /* ─── Screen wrappers ────────────────────────────────────────────────────── */
 
+void mock_set_home_case(int target_c100, int pwm_permille, bool fresh);
+
+static void home_off(void) {
+  mock_set_home_case(6000, 1000, false);
+  haus_ui_init();
+}
+
+static void home_40(void) {
+  mock_set_home_case(4000, 300, true);
+  haus_ui_init();
+}
+
+static void home_60(void) {
+  mock_set_home_case(6000, 200, true);
+  haus_ui_init();
+}
+
 static void build_water(void) { haus_ui_build_water(2); }
 
 static void build_chamber_week(void) {
@@ -149,10 +167,14 @@ int main(int argc, char* argv[]) {
       build_water,
       build_chamber_week,
       build_chamber_month,
+      home_off,
+      home_40,
+      home_60,
   };
   static const char* const screen_names[] = {
       "home", "detail", "power", "living",     "settings",    "storage",
       "can",  "log",    "roles", "water",      "chart_week",  "chart_month",
+      "home_off", "home_40", "home_60",
   };
 
   for (size_t i = 0; i < sizeof(build_funcs) / sizeof(build_funcs[0]); i++) {

@@ -165,8 +165,11 @@ static lv_obj_t* s_cabinet;
 static uint8_t* s_cabinet_buf;
 static lv_obj_t* s_fire;
 static lv_obj_t* s_flame[3];
+static lv_obj_t* s_flame_glow;
+static lv_obj_t* s_flame_core;
 static lv_obj_t* s_chamber_temp;
 static lv_obj_t* s_chamber_unit;
+static lv_obj_t* s_cabinet_target;
 static lv_obj_t* s_water_in;
 static lv_obj_t* s_water_in_lbl;
 static lv_obj_t* s_pump;
@@ -726,14 +729,14 @@ static void build_heater(void) {
   obj_set_scrollable(s_fire, false);
 
   /* Flame: a soft glow plus three tongues and a bright core. */
-  lv_obj_t* glow2 = lv_obj_create(s_fire);
-  lv_obj_set_size(glow2, 84, 92);
-  lv_obj_align(glow2, LV_ALIGN_BOTTOM_MID, 0, 4);
-  lv_obj_set_style_bg_color(glow2, lv_color_hex(0xc06a2a), 0);
-  lv_obj_set_style_radius(glow2, 42, 0);
-  lv_obj_set_style_border_width(glow2, 0, 0);
-  lv_obj_set_style_opa(glow2, 90, 0);
-  obj_set_clickable(glow2, false);
+  s_flame_glow = lv_obj_create(s_fire);
+  lv_obj_set_size(s_flame_glow, 84, 92);
+  lv_obj_align(s_flame_glow, LV_ALIGN_BOTTOM_MID, 0, 4);
+  lv_obj_set_style_bg_color(s_flame_glow, lv_color_hex(0xc06a2a), 0);
+  lv_obj_set_style_radius(s_flame_glow, 42, 0);
+  lv_obj_set_style_border_width(s_flame_glow, 0, 0);
+  lv_obj_set_style_opa(s_flame_glow, 90, 0);
+  obj_set_clickable(s_flame_glow, false);
 
   const int fw[3] = {26, 40, 26};
   const int fh[3] = {54, 88, 54};
@@ -750,19 +753,19 @@ static void build_heater(void) {
     obj_set_clickable(s_flame[i], false);
   }
   /* Bright core. */
-  lv_obj_t* core = lv_obj_create(s_fire);
-  lv_obj_set_size(core, 16, 46);
-  lv_obj_align(core, LV_ALIGN_BOTTOM_MID, 0, 6);
-  lv_obj_set_style_bg_color(core, lv_color_hex(0xffe0a0), 0);
-  lv_obj_set_style_radius(core, 8, 0);
-  lv_obj_set_style_border_width(core, 0, 0);
-  lv_obj_set_style_opa(core, 240, 0);
-  obj_set_clickable(core, false);
+  s_flame_core = lv_obj_create(s_fire);
+  lv_obj_set_size(s_flame_core, 16, 46);
+  lv_obj_align(s_flame_core, LV_ALIGN_BOTTOM_MID, 0, 6);
+  lv_obj_set_style_bg_color(s_flame_core, lv_color_hex(0xffe0a0), 0);
+  lv_obj_set_style_radius(s_flame_core, 8, 0);
+  lv_obj_set_style_border_width(s_flame_core, 0, 0);
+  lv_obj_set_style_opa(s_flame_core, 240, 0);
+  obj_set_clickable(s_flame_core, false);
 
   /* Soll / target (below the fire, inside the cabinet) */
-  lv_obj_t* target =
-      label_make(s_cabinet, "60°C", 0, 0, &lv_font_montserrat_32, C_INK);
-  lv_obj_align(target, LV_ALIGN_BOTTOM_MID, 0, -6);
+  s_cabinet_target =
+      label_make(s_cabinet, "--", 0, 0, &lv_font_montserrat_32, C_INK);
+  lv_obj_align(s_cabinet_target, LV_ALIGN_BOTTOM_MID, 0, -6);
 
   lv_obj_t* soll =
       label_make(s_cabinet, "Soll", 0, 0, &lv_font_montserrat_16, C_DIM);
@@ -1076,6 +1079,16 @@ void haus_ui_update(void) {
                     4, -2);
   }
 
+  /* Soll comes from the control loop; it is the target, not a measurement. */
+  if (s_cabinet_target) {
+    char tb[16];
+    if (state.can.chamber_target_c > 0)
+      snprintf(tb, sizeof(tb), "%d°C", state.can.chamber_target_c / 100);
+    else
+      snprintf(tb, sizeof(tb), "--");
+    txt(s_cabinet_target, tb);
+  }
+
   /* Pipes: colour follows a blue → amber → red ramp based on chamber temp.
    *  < 30 °C (3000) → C_COLD (blue)
    *  30–60 °C (3000–6000) → C_AMBER (amber)
@@ -1199,8 +1212,7 @@ void haus_ui_update(void) {
    * Left pipe (water in) flows rightward, right pipe (water out) flows
    * leftward. Dashes are hidden when duty = 0 or duty = 1000. */
   if (s_flow_dash[0]) {
-    bool flowing =
-        (state.can.pwm_permille > 0 && state.can.pwm_permille < 1000);
+    const bool flowing = state.can.pwm_fresh && state.can.pwm_permille < 500;
     /* Phase: 0–1200 ms cycle, dashes shift by 22 px per step. */
     uint32_t phase = lv_tick_get() % 1200;
     int offset = (int)(phase / 200) * 22; /* 6 steps × 22 px */
@@ -1228,9 +1240,13 @@ void haus_ui_animate(void) {
 
   HausState state;
   gui_get_state(&state);
-  const int16_t chamber = state.can.temp_by_fn[SENSOR_FN_CHAMBER];
+  /* There is no chamber temperature sensor. The flame shows the *Soll* and
+   * only while the heater is on and a 0x280 report is fresh. No frame, a
+   * duty >= 500, or no target means no flame. */
+  const int16_t target = state.can.chamber_target_c;
+  const bool heating = state.can.pwm_fresh && state.can.pwm_permille < 500;
 
-  if (chamber == HAUS_CAN_TEMP_EMPTY) {
+  if (!heating || target <= 0) {
     for (int i = 0; i < 3; i++) {
       if (!s_flame[i]) continue;
       if (s_last_flame_opa[i] != 0) {
@@ -1238,10 +1254,16 @@ void haus_ui_animate(void) {
         lv_obj_set_style_opa(s_flame[i], LV_OPA_0, 0);
       }
     }
+    if (s_flame_glow) lv_obj_set_style_opa(s_flame_glow, LV_OPA_0, 0);
+    if (s_flame_core) lv_obj_set_style_opa(s_flame_core, LV_OPA_0, 0);
+    if (s_fire && s_last_fire_grad != 0) {
+      s_last_fire_grad = 0;
+      lv_obj_set_style_bg_grad_color(s_fire, lv_color_hex(0x1a1412), 0);
+    }
     return;
   }
 
-  double t = (chamber / 100.0 - 20.0) / 60.0;
+  double t = (target / 100.0 - 20.0) / 60.0;
   if (t < 0) t = 0;
   if (t > 1) t = 1;
   uint32_t warm = ((uint32_t)(0x30 + 0x1a * t) << 16) |
@@ -1249,6 +1271,12 @@ void haus_ui_animate(void) {
   if (s_fire && warm != s_last_fire_grad) {
     s_last_fire_grad = warm;
     lv_obj_set_style_bg_grad_color(s_fire, lv_color_hex(warm), 0);
+  }
+  if (s_flame_glow) {
+    lv_obj_set_style_opa(s_flame_glow, (lv_opa_t)(40 + 60 * t), 0);
+  }
+  if (s_flame_core) {
+    lv_obj_set_style_opa(s_flame_core, (lv_opa_t)(190 + 50 * t), 0);
   }
 
   /* 6 s breathing cycle, driven from the LVGL tick so the host and the
@@ -1315,6 +1343,7 @@ static lv_obj_t* s_chart_nodata;
 static lv_obj_t* s_chart_stale;
 static lv_obj_t* s_chart_target_lbl;
 static lv_obj_t* s_chart_readout;
+static lv_obj_t* s_chart_readout_b;
 static lv_obj_t* s_chart_age;
 static lv_obj_t* s_axis_lbl[5];
 static lv_obj_t* s_x_lbl[4];
@@ -2030,47 +2059,52 @@ static bool chart_live_value(int series, int32_t* out) {
   return *out != HAUS_CAN_TEMP_EMPTY && *out != GUI_EMPTY;
 }
 
-static void chart_update_readouts(void) {
-  if (!s_cols || !s_chart_readout) return;
+static void chart_readout_line(lv_obj_t* label, int slot, int series,
+                               const char* prefix) {
+  if (!label) return;
   chart_cfg_t cfg;
   chart_cfg_for(g_detail_screen, &cfg);
-  int32_t mn = 0, mx = 0;
+  int32_t mn = 0, mx = 0, now = 0;
   int64_t sum = 0;
   uint32_t n = 0;
-  int32_t now = 0;
-  bool have_now = false;
 
   for (size_t i = 0; i < HAUS_CHART_COLUMNS; i++) {
-    if (!s_cols[i].n[0]) continue;
+    if (!s_cols[i].n[slot]) continue;
     if (n == 0) {
-      mn = s_cols[i].mn[0];
-      mx = s_cols[i].mx[0];
+      mn = s_cols[i].mn[slot];
+      mx = s_cols[i].mx[slot];
     }
-    if (s_cols[i].mn[0] < mn) mn = s_cols[i].mn[0];
-    if (s_cols[i].mx[0] > mx) mx = s_cols[i].mx[0];
-    sum += s_cols[i].sum[0];
-    n += s_cols[i].n[0];
-    now = s_cols[i].sum[0] / s_cols[i].n[0];
-    have_now = true;
+    if (s_cols[i].mn[slot] < mn) mn = s_cols[i].mn[slot];
+    if (s_cols[i].mx[slot] > mx) mx = s_cols[i].mx[slot];
+    sum += s_cols[i].sum[slot];
+    n += s_cols[i].n[slot];
+    now = s_cols[i].sum[slot] / s_cols[i].n[slot];
   }
 
   int32_t live = 0;
-  if (chart_live_value(cfg.a, &live)) now = live;
+  if (chart_live_value(series, &live)) now = live;
 
-  char a[24], b[24], c[24], d[24];
+  char a[24], b[24], c[24], d[24], line[120];
   if (n == 0) {
-    txt(s_chart_readout, "no data in this range");
+    snprintf(line, sizeof(line), "%sno data in this range", prefix);
   } else {
     chart_format_axis(a, sizeof(a), mn, cfg.unit);
     chart_format_axis(b, sizeof(b), mx, cfg.unit);
     chart_format_axis(c, sizeof(c), (int32_t)(sum / (int64_t)n), cfg.unit);
     chart_format_axis(d, sizeof(d), now, cfg.unit);
-    char line[120];
-    snprintf(line, sizeof(line), "min %s   max %s   mean %s   now %s", a, b, c,
-             d);
-    txt(s_chart_readout, line);
+    snprintf(line, sizeof(line), "%smin %s   max %s   mean %s   now %s",
+             prefix, a, b, c, d);
   }
-  (void)have_now;
+  txt(label, line);
+}
+
+static void chart_update_readouts(void) {
+  if (!s_cols || !s_chart_readout) return;
+  chart_cfg_t cfg;
+  chart_cfg_for(g_detail_screen, &cfg);
+
+  chart_readout_line(s_chart_readout, 0, cfg.a, cfg.b >= 0 ? "in  " : "");
+  if (cfg.b >= 0) chart_readout_line(s_chart_readout_b, 1, cfg.b, "out ");
 
   uint32_t newest = s_chart_newest;
   if (!newest) {
@@ -3235,7 +3269,13 @@ static lv_obj_t* detail_build(int screen, const char* title, int nav_index,
   const int ry = water ? 488 : 470;
   s_chart_readout = label_make(root, "min --   max --   mean --   now --", 20,
                                ry, &lv_font_montserrat_16, C_DIM);
-  s_chart_age = label_make(root, "data age --", 20, ry + 26,
+  s_chart_readout_b = NULL;
+  if (water) {
+    s_chart_readout_b =
+        label_make(root, "min --   max --   mean --   now --", 20, ry + 26,
+                   &lv_font_montserrat_16, C_DIM);
+  }
+  s_chart_age = label_make(root, "data age --", 20, ry + (water ? 52 : 26),
                            &lv_font_montserrat_16, C_FAINT);
 
   if (screen == UI_SCREEN_CHAMBER) pwm_control_build(524);
@@ -4266,7 +4306,10 @@ void haus_ui_deinit(void) {
   s_sd_low_lbl = NULL;
   s_cabinet = s_fire = NULL;
   memset(s_flame, 0, sizeof(s_flame));
-  s_chamber_temp = s_chamber_unit = s_water_in = s_water_in_lbl = NULL;
+  s_flame_glow = s_flame_core = NULL;
+  s_chamber_temp = s_chamber_unit = NULL;
+  s_cabinet_target = NULL;
+  s_water_in = s_water_in_lbl = NULL;
   s_pump = s_pump_lbl = s_water_out = s_water_out_lbl = NULL;
   s_living_temp = s_living_unit = s_living_rh = NULL;
   s_power_num = s_power_bolt = s_power_src = NULL;
@@ -4285,7 +4328,7 @@ void haus_ui_deinit(void) {
   }
   s_can_wave_canvas = s_can_wave_info = NULL;
   s_chart_canvas = s_chart_nodata = s_chart_stale = NULL;
-  s_chart_target_lbl = s_chart_readout = s_chart_age = NULL;
+  s_chart_target_lbl = s_chart_readout = s_chart_readout_b = s_chart_age = NULL;
   memset(s_axis_lbl, 0, sizeof(s_axis_lbl));
   memset(s_x_lbl, 0, sizeof(s_x_lbl));
   s_scrub_line = s_scrub_bubble = s_scrub_text = NULL;

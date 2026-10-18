@@ -4,7 +4,7 @@ Derived from `docs/whitepaper.md` rev 1.6. Order: board first, then the macOS
 environment, then Deliverable A (`tpl_waveshare_lcd7`), then the project.
 Every item names the check that closes it.
 
-357 items (39 open). Tick boxes as work lands.
+357 items (33 open). Tick boxes as work lands.
 
 ## S0 · BENCH — the two things only the hardware can answer
 
@@ -365,19 +365,19 @@ before treating `sml_error_cnt` as a diagnostic.
 
 ## S20 · PWM DUTY CONTROL (only after diagnostics exist)
 
-- [ ] S20.01 Implement the TX path for 0x240 only — Test: no other frame can be transmitted from this project. Off is the switch, not a slider position: send 1000 when off and the slider value (0–500) when on; never send 501–999. The PC817 already inverts the duty, so the panel must not invert a second time.
-- [ ] S20.02 Add an ON/OFF switch and a **500 → 0** slider, 0 = full heat, 500 = minimum heat, snapping to 5 % (50 permille) — Test: OFF always sends 1000; ON sends the slider value; the slider cannot reach 501–1000. UI preview done on the chamber screen (switch, slider, requested/in-force lines) and rendered as `host_harness/output_detail.png`; transmission still follows S20.01. This supersedes the whitepaper's 0–1000/0=off slider. Bench 2026-10-18: the PC817 inverts the duty; the control voltage is 0.41 V at 1000 and 11.28 V at 100, nonlinear in between (PC817 CTR plus the input filter), so duty is a request, not a temperature. The 0.41 V off residual may be PC817 saturation/leakage or the heater input; re-measure after settling before calling it a delay.
-- [ ] S20.03 Dragging changes nothing — Test: no frame is transmitted during a drag or release
+- [x] S20.01 Implement the TX path for 0x240 only — Test: no other frame can be transmitted from this project. Off is the switch, not a slider position: send 1000 when off and the slider value (0–500) when on; never send 501–999. The PC817 already inverts the duty, so the panel must not invert a second time. — Done: `haus_can_bus_send_pwm()` is the only 0x240 sender; it accepts only 0..500 or 1000 and is called from the detail-page switch/slider callbacks only (2026-10-18 decision).
+- [ ] S20.02 Add an ON/OFF switch and a **500 → 0** slider, 0 = full heat, 500 = minimum heat, snapping to 5 % (50 permille) — Test: OFF always sends 1000; ON sends the slider value; the slider cannot reach 501–1000. UI preview done on the chamber screen (switch, slider, requested/in-force lines) and rendered as `host_harness/output_detail.png`; transmission now follows S20.01. This supersedes the whitepaper's 0–1000/0=off slider. Bench 2026-10-18: the PC817 inverts the duty; the control voltage is 0.41 V at 1000 and 11.28 V at 100, nonlinear in between (PC817 CTR plus the input filter), so duty is a request, not a temperature. The 0.41 V off residual may be PC817 saturation/leakage or the heater input; re-measure after settling before calling it a delay.
+- [x] ~~S20.03 Dragging changes nothing — Test: no frame is transmitted during a drag or release~~ ~~REJECTED 2026-10-18: any slider change on the detail page transmits immediately; there is no drag/release gate.~~
 - [ ] S20.04 Show the pending value as 'requested', distinct from 'in force' — Test: the two lines are always separate
-- [ ] S20.05 Disable APPLY while requested == in force — Test: a no-op cannot be sent
-- [ ] S20.06 Modal confirm naming the requested value and durability — Test: text names the value and reads 'This survives a power cut.'
-- [ ] S20.07 Cancel returns the slider to the in-force value — Test: it snaps back
+- [x] ~~S20.05 Disable APPLY while requested == in force — Test: a no-op cannot be sent~~ ~~REJECTED 2026-10-18: there is no APPLY button; unchanged values are suppressed by `s_pwm_last_tx`.~~
+- [x] ~~S20.06 Modal confirm naming the requested value and durability — Test: text names the value and reads 'This survives a power cut.'~~ ~~REJECTED 2026-10-18: changes send immediately; no confirmation modal.~~
+- [x] ~~S20.07 Cancel returns the slider to the in-force value — Test: it snaps back~~ ~~REJECTED 2026-10-18: no modal, no cancel.~~
 - [ ] S20.08 Reconcile against a fresh 0x280 with a timeout — Test: sent-then-reported shows live; no report shows failed and reverts
 - [ ] S20.09 Show a conflicting writer as 'conflict' with both values, no retry loop — Test: the panel shows truth and stops
 - [x] S20.10 Render PWM_SRC_* provenance as a badge (RESTORED/live) — Test: EEPROM boot shows a distinct hollow badge — Done: `detail_update()` drives the header badge from `pwm_src` (LIVE green, NRF amber, FAULT red, RESTORED dim); the status-strip duty dot already used the hollow marker for restored values.
 - [ ] S20.11 Rate-limit commits per N16 and log old/new permille every send — Test: the log shows both values and the PWM_SRC_CAN expectation
 - [ ] S20.12 Map TX failure to the same fault flag as a bus error — Test: never-sent is visibly different from ignored
-- [ ] S20.13 Add a test proving no gesture, long-press, timeout or auto-repeat transmits — Test: the test enumerates every input path
+- [x] ~~S20.13 Add a test proving no gesture, long-press, timeout or auto-repeat transmits — Test: the test enumerates every input path~~ ~~REJECTED 2026-10-18: transmission on any slider/switch change is the intended behaviour.~~
 - [x] S20.14 Confirm the panel applies no ramp, clamp or dead-man (N15) — Test: code review plus a comment naming AVR/01_heizung_temp as the owner — Done: review found no ramp, clamp or dead-man in the panel output path. The slider bounds only the request to 0..500; the comment at the PWM UI names AVR/01_heizung_temp as the owner of output safety (N15).
 - [ ] S20.15 Replace the hardcoded 60 °C Soll — the panel currently sets `chamber_target_c = 6000` in `gui_update_state()`; it is not on CAN and is not derived from the duty. Either receive the AVR's real setpoint or map the requested duty through the measured off-temperature table (500→42, 400→44, 300→54, 200→60, 100→70 °C), and show `--` when neither is available — Test: changing the duty changes the Soll on home and in the chart legend; unplugging CAN does not leave a fabricated 60 °C.
 

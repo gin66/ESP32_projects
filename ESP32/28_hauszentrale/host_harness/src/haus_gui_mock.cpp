@@ -656,3 +656,7 @@ static bool g_backlight_on = true;
 bool gui_backlight_on(void) { return g_backlight_on; }
 
 void gui_set_backlight(bool on) { g_backlight_on = on; }
+
+bool gui_send_pwm(uint16_t duty_permille) {
+  return duty_permille <= 500 || duty_permille == 1000;
+}

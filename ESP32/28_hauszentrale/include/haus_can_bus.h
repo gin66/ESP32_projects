@@ -60,6 +60,11 @@ bool haus_can_bus_running(void);
 /* Copy the latest decode snapshot. Never blocks the caller. */
 void haus_can_bus_get(haus_can_snapshot_t *out);
 
+/* Send one CAN_ID_PWM_SET (0x240) frame. Only 0..500 (on) and 1000 (off) are
+ * accepted, so the panel can never command 501..999. Returns false when CAN is
+ * not running or the frame could not be queued. */
+bool haus_can_bus_send_pwm(uint16_t duty_permille);
+
 /* Enable/disable from Settings. */
 void haus_can_bus_set_enabled(bool enabled);
 

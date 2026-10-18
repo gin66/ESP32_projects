@@ -420,6 +420,10 @@ void gui_set_backlight(bool on) {
   TPL_LOGI("settings", "backlight %s", on ? "on" : "off");
 }
 
+bool gui_send_pwm(uint16_t duty_permille) {
+  return haus_can_bus_send_pwm(duty_permille);
+}
+
 bool gui_water_model_available(void) {
   /* TODO: Return true if WaterModel is installed and active.
    * For now, false — water-out shows "—". */

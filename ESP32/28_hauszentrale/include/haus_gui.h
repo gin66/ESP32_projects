@@ -302,6 +302,10 @@ void gui_storage_refresh(void);
 bool gui_backlight_on(void);
 void gui_set_backlight(bool on);
 
+/* Send one PWM command (0x240). Only 0..500 and 1000 are valid; the UI calls
+ * this from the detail page when the switch or slider changes. */
+bool gui_send_pwm(uint16_t duty_permille);
+
 /* PWM source constants (mirror PWM_SRC_* in haus_can.h) */
 #define GUI_PWM_SRC_EEPROM 0x00
 #define GUI_PWM_SRC_CAN 0x02

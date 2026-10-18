@@ -111,6 +111,44 @@ static void decode_frame(const twai_message_t* msg) {
   snapshot_unlock();
 }
 
+bool haus_can_bus_send_pwm(uint16_t duty_permille) {
+  /* Off is the switch, not a slider position: 1000. On is the 0..500 request.
+   * Refusing 501..999 here keeps every caller inside the S20.01 contract. */
+  if (!s_running || (duty_permille > 500 && duty_permille != 1000)) {
+    return false;
+  }
+
+  uint8_t data[8] = {0};
+  haus_can_pwm_t pwm = {0};
+  pwm.duty_permille = duty_permille;
+  haus_can_set_pwm(data, &pwm);
+
+  twai_message_t msg;
+  memset(&msg, 0, sizeof(msg));
+  msg.identifier = CAN_ID_PWM_SET;
+  msg.data_length_code = sizeof(data);
+  msg.flags = TWAI_MSG_FLAG_NONE;
+  memcpy(msg.data, data, sizeof(data));
+
+  const esp_err_t err = twai_transmit(&msg, 0);
+  snapshot_lock();
+  if (err == ESP_OK) {
+    s_snap.tx_frames++;
+    snapshot_unlock();
+    return true;
+  }
+  s_snap.bus_errors++;
+  s_snap.bus_fault = true;
+  snapshot_unlock();
+
+  static uint32_t last_err_log_ms = 0;
+  if ((uint32_t)millis() - last_err_log_ms > 5000u) {
+    last_err_log_ms = (uint32_t)millis();
+    TPL_LOGW("can", "0x240 TX failed: %s", esp_err_to_name(err));
+  }
+  return false;
+}
+
 static void tx_timestamp(void) {
   const time_t now = time(nullptr);
   haus_can_timestamp_t ts = {0, 0, 0, 0};

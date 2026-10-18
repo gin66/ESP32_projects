@@ -1413,8 +1413,9 @@ static int g_living_series = 0;
 static lv_obj_t* s_ac_tab[2];
 static int g_ac_series = 0;
 
-/* PWM request UI (S20.02). No frame is transmitted yet; the requested value
- * is local and the in-force value always comes from 0x280.
+/* PWM request UI (S20.01/S20.02). A user change on the detail page sends one
+ * 0x240 frame immediately: 1000 for OFF, 0..500 while ON. The in-force value
+ * still comes from 0x280; the UI never sends on page entry or on a report.
  *
  * S20.14: the panel applies no ramp, clamp or dead-man to the output.
  * AVR/01_heizung_temp owns PWM safety (N15); the switch and slider only bound
@@ -1428,6 +1429,7 @@ static lv_obj_t* s_pwm_force_lbl;
 static bool s_pwm_on;
 static bool s_pwm_touched;
 static uint16_t s_pwm_duty = 500;
+static uint16_t s_pwm_last_tx = 0xFFFF;
 
 static lv_obj_t* s_log_label;
 static lv_obj_t* s_log_container;
@@ -2439,7 +2441,8 @@ static void range_build(int top) {
  * OFF is the switch, not a slider position: it sends 1000. ON sends the
  * 500..0 slider value. The slider's left end is 500 (minimum heat) and its
  * right end is 0 (full heat); internally it runs 0..500 so the knob moves
- * toward "more heat" to the right. Nothing is transmitted yet. */
+ * toward "more heat" to the right. A change sends immediately, but only while
+ * the detail page is the current screen. */
 
 static void pwm_control_visual(void) {
   if (s_pwm_switch_lbl) txt(s_pwm_switch_lbl, s_pwm_on ? "ON" : "OFF");
@@ -2465,11 +2468,19 @@ static void pwm_control_visual(void) {
   }
 }
 
+static void pwm_send_if_changed(void) {
+  if (g_current_screen != UI_SCREEN_CHAMBER) return;
+  const uint16_t permille = s_pwm_on ? s_pwm_duty : 1000;
+  if (permille == s_pwm_last_tx) return;
+  if (gui_send_pwm(permille)) s_pwm_last_tx = permille;
+}
+
 static void pwm_switch_cb(lv_event_t* e) {
   (void)e;
   s_pwm_touched = true;
   s_pwm_on = !s_pwm_on;
   pwm_control_visual();
+  pwm_send_if_changed();
 }
 
 static void pwm_slider_cb(lv_event_t* e) {
@@ -2478,6 +2489,7 @@ static void pwm_slider_cb(lv_event_t* e) {
   s_pwm_touched = true;
   s_pwm_duty = (uint16_t)(500 - lv_slider_get_value(s_pwm_slider));
   pwm_control_visual();
+  pwm_send_if_changed();
 }
 
 static void pwm_force_text(uint16_t f) {
@@ -2498,6 +2510,7 @@ static void pwm_control_update(void) {
   if (!s_pwm_touched) {
     s_pwm_on = (f <= 500);
     s_pwm_duty = (f <= 500) ? f : 500;
+    s_pwm_last_tx = f;
     lv_slider_set_value(s_pwm_slider, 500 - s_pwm_duty, LV_ANIM_OFF);
     pwm_control_visual();
   }
@@ -2556,6 +2569,7 @@ static void pwm_control_build(int top) {
   const uint16_t f = st.can.pwm_permille;
   s_pwm_on = (f <= 500);
   s_pwm_duty = (f <= 500) ? f : 500;
+  s_pwm_last_tx = f;
   lv_slider_set_value(s_pwm_slider, 500 - s_pwm_duty, LV_ANIM_OFF);
   pwm_control_visual();
   pwm_force_text(f);
@@ -4536,6 +4550,7 @@ void haus_ui_deinit(void) {
   s_pwm_switch = s_pwm_switch_lbl = s_pwm_slider = NULL;
   s_pwm_req_lbl = s_pwm_force_lbl = NULL;
   s_pwm_touched = false;
+  s_pwm_last_tx = 0xFFFF;
   memset(s_living_tab, 0, sizeof(s_living_tab));
   memset(s_ac_tab, 0, sizeof(s_ac_tab));
   s_log_label = s_log_container = s_log_status = NULL;

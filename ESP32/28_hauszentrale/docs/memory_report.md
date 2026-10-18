@@ -304,3 +304,59 @@ rule.
   the web server (`M1`, `M2` in `main.cpp`).
 * Treat about 24 KB free, and a largest block of at least 4 KB, as the
   minimum before `fopen`, HTTP, or mDNS. Below that, skip the call.
+
+## 2026-10-18 remediation results (S28)
+
+Image at `mem/internal-ram-baseline-a9610a96`, flashed over USB, panel on, SD
+card fitted, SHT45 at `0x44` fitted, CAN off in config, CAN monitor attached
+to the bus. Linker figures from `.pio/build/esp32usb/firmware.elf`:
+
+| Occupant | Before | After |
+| --- | --- | --- |
+| `.bss` | 118,760 | 53,088 |
+| `.data` | 23,756 | 23,836 |
+| DIRAM used | — | 145,803 of 341,760 (42.66 %) |
+| Baseline heap before panel | 165,560 | 269,932 |
+| `lv_init` delta | 8,740 | 7,036 |
+| After `ui_init` | 62,624 | 229,240 |
+| UI delta (`ui_init`) | 94,196 | 33,656 |
+| `M1` after WiFi | 4,036 | 170,940 |
+| `M2` after web server | 1,244 | 163,420 |
+| Largest block at `M2` | 948 | 122,868 |
+| PSRAM delta across `ui_init` | 1,007,036 | 1,073,848 |
+
+The panel now runs with the web server. `/version`, `/serverIndex`, `/can` and
+`/sd/status` all return HTTP 200. Steady-state `ui_hz` is 173–182 with a
+100–125 ms worst-case loop gap, and the first full-frame flush takes 290 ms.
+
+What produced the change:
+
+* Custom LVGL allocator (`src/haus_lv_mem.cpp`, `LV_STDLIB_CUSTOM`) takes PSRAM
+  first. `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL` was left at 4096.
+* Draw buffer reduced from 20 to 10 lines (32,000 → 16,000 B static). The RGB
+  bounce buffer is `TPL_WS7_BOUNCE_LINES=10`; the IDF header confirms
+  `esp_lcd` allocates **two** DRAM bounce buffers, so this is 64,000 → 32,000 B
+  of runtime internal DMA RAM.
+* `s_cols`, `s_target*`, the log line tables/recolor buffer, the chart chunks,
+  the history I/O blocks and the WebSocket buffers moved to PSRAM
+  (`haus_mem.h`). The log line table is still 2,048 entries, but only the log
+  screen opens it.
+* `canTask` (6,144 B plus TCB) is created by `haus_can_bus_start()`, not at
+  boot.
+* The 1 Hz SD probe is gone from the render path (`haus_sd_present()`); a
+  failed rollover write marks the card absent and the 30 s watchdog remounts.
+* The extra 10 s `waitOTA` loop is gone (`ArduinoOTA.handle()` already runs on
+  the WiFi task).
+* `internal_heap_ok()` logs the 24 KB / 4 KB threshold after `ui_init`, after
+  WiFi and after the web server.
+
+Still open from the proposal list: fewer LVGL features, font pruning,
+`const` tables, WiFi RX/lwIP pool tuning (needs a rebuilt sdkconfig), the
+remaining task-stack reductions, and dropping the coredump stack. Bluetooth is
+still linked (`libbt.a` / `libbtdm_app.a` appear in the map) and dropping it
+needs a rebuilt `qio_opi` core.
+
+CAN test note: with the monitor attached the controller reached TEC 128 and
+BUS_OFF with zero RX frames, so the bus itself still needs an ACK source or
+termination check. The panel stayed responsive (`ui_hz` 173–174) while TWAI was
+running.

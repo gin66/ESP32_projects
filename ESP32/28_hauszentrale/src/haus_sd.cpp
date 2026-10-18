@@ -167,6 +167,16 @@ bool haus_sd_space_get(uint64_t* total_bytes, uint64_t* used_bytes) {
 
 const char* haus_sd_card_type(void) { return s_card_type; }
 
+bool haus_sd_present(void) { return s_mounted; }
+
+void haus_sd_note_io_error(void) {
+  if (!s_mounted) return;
+  TPL_LOGW("sd", "I/O error; marking card absent until remount");
+  s_mounted = false;
+  s_space_valid = false;
+  snprintf(s_card_type, sizeof(s_card_type), "ABSENT");
+}
+
 bool haus_sd_selftest(void) {
   if (!s_mounted) return false;
 

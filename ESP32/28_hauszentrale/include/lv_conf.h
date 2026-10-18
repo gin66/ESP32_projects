@@ -72,9 +72,11 @@
  *=========================*/
 
 /* The built-in allocator uses a fixed 64 KB pool, which cannot hold the
- * heater canvas (232x214x2 = 99 KB) or the 2x scaled clock layer. Use the C
- * library allocator so large blocks land in PSRAM (allocations > 4 KB). */
-#define LV_USE_STDLIB_MALLOC   LV_STDLIB_CLIB
+ * heater canvas (232x214x2 = 99 KB) or the 2x scaled clock layer. Use a
+ * custom PSRAM-first allocator (src/haus_lv_mem.cpp): most LVGL objects are
+ * under the 4 KB CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL line and would otherwise
+ * stay in internal SRAM (docs/memory_report.md, S28.07). */
+#define LV_USE_STDLIB_MALLOC   LV_STDLIB_CUSTOM
 #define LV_USE_STDLIB_STRING   LV_STDLIB_CLIB
 #define LV_USE_STDLIB_SPRINTF  LV_STDLIB_CLIB
 

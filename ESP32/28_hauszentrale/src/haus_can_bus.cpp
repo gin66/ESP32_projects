@@ -228,17 +228,24 @@ static void can_task(void* arg) {
 }
 
 void haus_can_bus_init(void) {
-  if (s_task) return;
+  /* The RX/TX task is created by haus_can_bus_start(), i.e. only when CAN is
+   * actually enabled. With CAN off it used to cost 6 KB of internal RAM plus
+   * its TCB on every boot (docs/memory_report.md, S28.33). */
+}
+
+static bool can_task_create(void) {
+  if (s_task) return true;
   const BaseType_t created =
-      xTaskCreate(can_task, "canTask", 6144, NULL, 3, &s_task);
+      xTaskCreate(can_task, "canTask", 4096, NULL, 3, &s_task);
   if (created != pdPASS) {
     s_task = NULL;
-    TPL_LOGE("can", "canTask create failed at boot (%d), heap %u B",
-             (int)created, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
-  } else {
-    TPL_LOGI("can", "canTask pre-created, heap %u B",
+    TPL_LOGE("can", "canTask create failed (%d), heap %u B", (int)created,
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    return false;
   }
+  TPL_LOGI("can", "canTask created, heap %u B",
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+  return true;
 }
 
 bool haus_can_bus_start(void) {
@@ -293,7 +300,7 @@ bool haus_can_bus_start(void) {
   }
   s_running = true;
 
-  if (!s_task) haus_can_bus_init();
+  if (!can_task_create())
   if (!s_task) {
     twai_stop();
     twai_driver_uninstall();

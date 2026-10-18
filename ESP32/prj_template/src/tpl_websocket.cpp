@@ -1,9 +1,11 @@
 #include "tpl_websocket.h"
 
+#include <esp_heap_caps.h>
+
 #include "tpl_command.h"
+#include "tpl_debug_log.h"
 #include "tpl_system.h"
 #include "tpl_wifi.h"
-#include "tpl_debug_log.h"
 #include "version.h"
 #ifdef IS_ESP32CAM
 #include "tpl_esp_camera.h"
@@ -87,7 +89,15 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload,
 #ifndef WS_BUFLEN
 #define WS_BUFLEN 4096
 #endif
-char ws_buffer[WS_BUFLEN];
+/* JSON and ring-drain buffers are CPU-only. Put them in PSRAM when it exists
+ * so they do not consume internal SRAM (S28.23). */
+static char* ws_alloc(size_t bytes) {
+  char* p = (char*)heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!p)
+    p = (char*)heap_caps_malloc(bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  return p;
+}
+static char* ws_buffer = NULL;
 static DynamicJsonDocument* ws_json = NULL;
 
 void TaskWebSocketCore0(void* pvParameters) {
@@ -102,14 +112,19 @@ void TaskWebSocketCore0(void* pvParameters) {
     vTaskDelete(NULL);
     return;
   }
+  if (!ws_buffer) ws_buffer = ws_alloc(WS_BUFLEN);
+  if (!ws_buffer) {
+    TPL_LOGI("ws", "Failed to allocate WebSocket text buffer");
+    vTaskDelete(NULL);
+    return;
+  }
 
   TPL_LOGI("ws", "WebSocket Task started");
   webSocket.begin();
   webSocket.onEvent(webSocketEvent);
 
-  tpl_wifi_register_reconnect([](unsigned long current_ms) {
-    s_reinit_requested = true;
-  });
+  tpl_wifi_register_reconnect(
+      [](unsigned long current_ms) { s_reinit_requested = true; });
 
   for (;;) {
     if (s_reinit_requested) {
@@ -182,12 +197,14 @@ void TaskWebSocketCore0(void* pvParameters) {
         /* S7.09/S7.10/S7.11: drain the ring per connected client. Each client
          * has its own cursor, so a newly attached tailer gets a backlog and a
          * slow one is told how many bytes it missed. */
-        static char ring_chunk[8192 + 64];
+        static char* ring_chunk = NULL;
+        if (!ring_chunk) ring_chunk = ws_alloc(8192 + 64);
+        const size_t ring_cap = 8192 + 64;
+        if (!ring_chunk) continue;
         for (uint8_t num = 0; num < WEBSOCKETS_SERVER_CLIENT_MAX; num++) {
           if (!webSocket.clientIsConnected(num)) continue;
           uint32_t dropped = 0;
-          int n = tpl_debug_ring_ws_drain(num, ring_chunk,
-                                          sizeof(ring_chunk), &dropped);
+          int n = tpl_debug_ring_ws_drain(num, ring_chunk, ring_cap, &dropped);
           if (n > 0) {
             webSocket.sendTXT(num, ring_chunk, n);
           }

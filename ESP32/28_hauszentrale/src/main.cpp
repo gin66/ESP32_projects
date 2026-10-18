@@ -35,8 +35,9 @@
 #include "haus_ui.h"
 #include "template.h"
 
-/* S4.03: RGB565 draw buffer in internal RAM (not PSRAM) */
-static uint8_t s_draw_buf0[800 * 20 * 2];
+/* S4.03: RGB565 draw buffer in internal RAM (not PSRAM). Ten lines instead of
+ * twenty returns 16 KB before main() runs (docs/memory_report.md, S28.12). */
+static uint8_t s_draw_buf0[TPL_WS7_SCREEN_WIDTH * TPL_WS7_DRAW_LINES * 2];
 
 /* LVGL 9.2 needs a millisecond tick source */
 static uint32_t lv_tick_cb(void) { return (uint32_t)millis(); }
@@ -75,6 +76,25 @@ static lv_display_rotation_t rot_to_lvgl(int r) {
 static bool s_can_start_pending = false;
 static volatile uint32_t s_ui_hz;
 static volatile uint32_t s_ui_gap_ms;
+
+/* S28.03/S28.04: one acceptance threshold for internal RAM. Below it, a
+ * later fopen(), HTTP request or mDNS packet can abort the chip. Log loudly
+ * instead of discovering it in lock_init_generic. */
+static bool internal_heap_ok(const char* point) {
+  const size_t free_size = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  const size_t largest =
+      heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  if (free_size < 24u * 1024u || largest < 4096u) {
+    TPL_LOGE("mem",
+             "S28.03 %s: internal low (free %u B, largest %u B; need 24 KB / "
+             "4 KB)",
+             point, (unsigned)free_size, (unsigned)largest);
+    return false;
+  }
+  TPL_LOGI("mem", "S28.03 %s: internal OK (free %u B, largest %u B)", point,
+           (unsigned)free_size, (unsigned)largest);
+  return true;
+}
 
 void setup() {
   Serial.begin(115200);
@@ -219,6 +239,7 @@ void setup() {
              (unsigned)heap_after, heap_delta, lvlg_boot_delta);
     if (heap_delta > 64 * 1024)
       TPL_LOGE("mem", "S26.03 ui heap delta %d B > 64 KB", heap_delta);
+    internal_heap_ok("after ui_init");
 
     /* S26.04: PSRAM use after ui_init (background decode + LVGL objects).
      * The §10.5.1 table expects roughly 1.3 MB committed at this point and
@@ -238,15 +259,17 @@ void setup() {
   /* WiFi + webserver + websocket (standard template setup). The panel is
    * already running at this point; this only enables the optional network
    * services and the initial clock sync. */
-  tpl_wifi_setup(true, true, (gpio_num_t)255);   // no status LED on this board
+  tpl_wifi_setup(true, false, (gpio_num_t)255);  // no status LED on this board
   TPL_LOGI("mem", "M1 after wifi: internal %u B, largest %u B",
            (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
            (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+  internal_heap_ok("after wifi");
   sntp_set_sync_interval(60UL * 60UL * 1000UL);  // refresh once an hour
   tpl_webserver_setup();
   TPL_LOGI("mem", "M2 after web: internal %u B, largest %u B",
            (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
            (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+  internal_heap_ok("after web");
   tpl_debug_log_register_endpoints();
   /* S23.14: /sd/status with the same figures the storage panel shows. */
   tpl_server.on("/sd/status", HTTP_GET, []() {
@@ -320,8 +343,8 @@ void setup() {
              "\"rx\":%lu,\"tx\":%lu,\"err\":%lu,\"fault\":%s,"
              "\"ui_hz\":%lu,\"ui_gap_ms\":%lu,\"loop_stack\":%lu,"
              "\"heap\":%u}",
-             haus_can_bus_running() ? "true" : "false",
-             (unsigned)cs.twai_state, (unsigned long)cs.tx_error_counter,
+             haus_can_bus_running() ? "true" : "false", (unsigned)cs.twai_state,
+             (unsigned long)cs.tx_error_counter,
              (unsigned long)cs.rx_error_counter, (unsigned long)cs.rx_frames,
              (unsigned long)cs.tx_frames, (unsigned long)cs.bus_errors,
              cs.bus_fault ? "true" : "false", (unsigned long)s_ui_hz,
@@ -372,8 +395,7 @@ void loop() {
       gui_set_can_enabled(true);
   }
   const uint32_t loop_us = micros();
-  const uint32_t gap_ms =
-      last_loop_us ? (loop_us - last_loop_us) / 1000u : 0u;
+  const uint32_t gap_ms = last_loop_us ? (loop_us - last_loop_us) / 1000u : 0u;
   last_loop_us = loop_us;
   if (gap_ms > gap_max_ms) gap_max_ms = gap_ms;
   loops++;
@@ -384,7 +406,6 @@ void loop() {
     loops = 0;
     gap_max_ms = 0;
   }
-
 
   /* OTA writes flash with the cache/PSRAM disabled while the RGB DMA is still
    * scanning the PSRAM framebuffer, which garbles the panel completely. Blank

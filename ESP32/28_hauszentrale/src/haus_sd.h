@@ -26,6 +26,14 @@ void haus_sd_unmount(void);
  * suitable for the 1 Hz status poll. */
 bool haus_sd_is_mounted(void);
 
+/* Last known mount state without touching the card. Use this on the 1 Hz
+ * render path; a failed write, or the 30 s watchdog, updates the real state. */
+bool haus_sd_present(void);
+
+/* A write/read I/O error is the card-gone signal on this board. Drop the
+ * mounted flag; the 30 s watchdog remounts when the card comes back. */
+void haus_sd_note_io_error(void);
+
 /* Serialize card access between the 1 Hz probe and the recorder task. */
 bool haus_sd_lock(uint32_t timeout_ms);
 void haus_sd_unlock(void);

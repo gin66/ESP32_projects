@@ -61,6 +61,7 @@ static bool s_test_fail_writes = false;
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
+#include "haus_mem.h"
 #include "haus_sd.h"
 #include "tpl_debug_log.h"
 
@@ -74,6 +75,25 @@ typedef struct __attribute__((packed)) {
 #define RING_VERSION 2
 
 static bool s_ring_ready = false;
+
+/* I/O scratch: CPU-only, never a DMA source. One allocation each, PSRAM
+ * first (docs/memory_report.md, S28.22). */
+static gui_sample_t* s_io_samples = NULL;
+static RollupColumn* s_io_rollup = NULL;
+
+static gui_sample_t* io_samples(void) {
+  if (!s_io_samples)
+    s_io_samples = (gui_sample_t*)haus_mem_alloc(sizeof(gui_sample_t) *
+                                                 HAUS_BLOCK_RECORDS);
+  return s_io_samples;
+}
+
+static RollupColumn* io_rollup(void) {
+  if (!s_io_rollup)
+    s_io_rollup = (RollupColumn*)haus_mem_alloc(sizeof(RollupColumn) *
+                                                HAUS_BLOCK_RECORDS);
+  return s_io_rollup;
+}
 
 #endif /* HAUS_HOST */
 
@@ -257,7 +277,8 @@ static bool sd_write_rollup(uint32_t epoch) {
 
   File f = SD.open("/rollup.bin", FILE_WRITE);
   bool ok = (bool)f;
-  static RollupColumn block[HAUS_BLOCK_RECORDS];
+  RollupColumn* block = io_rollup();
+  if (!block) ok = false;
   for (size_t base = 0; ok && base < HAUS_L2_COLUMNS;
        base += HAUS_BLOCK_RECORDS) {
     size_t n = HAUS_L2_COLUMNS - base;
@@ -302,6 +323,8 @@ static void write_daily_files(uint32_t epoch) {
     TPL_LOGW("history", "rollup not written");
   }
   s_writing = false;
+
+  if (!day_ok || !rollup_ok) haus_sd_note_io_error();
 
   if (day_ok && rollup_ok) {
     s_last_rollover_epoch = epoch;
@@ -819,7 +842,9 @@ static void restore_day_file(const char* path, uint32_t now_epoch) {
   File f = SD.open(path, FILE_READ);
   if (!f) return;
 
-  static gui_sample_t block[HAUS_BLOCK_RECORDS];
+  static gui_sample_t* block = NULL;
+  if (!block) block = io_samples();
+  if (!block) return;
   for (size_t base = 0; base < HAUS_L1_SAMPLES; base += HAUS_BLOCK_RECORDS) {
     size_t n = HAUS_L1_SAMPLES - base;
     if (n > HAUS_BLOCK_RECORDS) n = HAUS_BLOCK_RECORDS;
@@ -972,7 +997,12 @@ size_t haus_history_restore(uint32_t now_epoch) {
   if (haus_sd_is_mounted() && haus_sd_lock(2000)) {
     File f = SD.open("/rollup.bin", FILE_READ);
     if (f) {
-      static RollupColumn block[HAUS_BLOCK_RECORDS];
+      RollupColumn* block = io_rollup();
+      if (!block) {
+        f.close();
+        haus_sd_unlock();
+        return 0;
+      }
       for (size_t base = 0; base < HAUS_L2_COLUMNS;
            base += HAUS_BLOCK_RECORDS) {
         size_t n = HAUS_L2_COLUMNS - base;

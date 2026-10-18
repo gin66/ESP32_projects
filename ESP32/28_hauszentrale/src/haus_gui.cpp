@@ -539,7 +539,7 @@ void gui_update_state(void) {
   can.sd_fault_since_epoch = haus_history_fault_since_epoch();
   can.sd_newest_file_epoch = haus_history_newest_file_epoch();
   can.sd_writing = haus_history_writing();
-  can.sd_status = !haus_sd_is_mounted()
+  can.sd_status = !haus_sd_present()
                       ? GUI_STATUS_INACTIVE
                       : (can.sd_writing ? GUI_STATUS_ERROR : GUI_STATUS_OK);
 

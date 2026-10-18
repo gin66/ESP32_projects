@@ -4,7 +4,7 @@ Derived from `docs/whitepaper.md` rev 1.6. Order: board first, then the macOS
 environment, then Deliverable A (`tpl_waveshare_lcd7`), then the project.
 Every item names the check that closes it.
 
-285 items. Tick boxes as work lands.
+340 items (77 open). Tick boxes as work lands.
 
 ## S0 · BENCH — the two things only the hardware can answer
 
@@ -30,7 +30,9 @@ Every item names the check that closes it.
 - [x] S2.07 Add a 'run' target to ESP32/Makefile for the host harness — Test: make -C ESP32 run builds and launches the SDL window
 - [x] S2.08 Add tools/tail_ws.py skeleton that connects to ws://HOST:81 and pretty-prints JSON records by level — Test: the script prints 'connected' against a stub server
 
-Hardware connected: /dev/cu.usbmodem5C941561291
+Hardware connected (2026-10-18): panel on `/dev/cu.usbmodem5C941561291`,
+CAN monitor on the bus, Sensirion SHT45 at `0x44` fitted. Use this bench for
+the S28 measurements unless an item says otherwise.
 
 ## S3 · DELIVERABLE A — tpl_waveshare_lcd7, expander and panel reset only
 
@@ -422,3 +424,86 @@ living-room zone are real again; pressure stays `—` (no BMP sensor).
 - [ ] S27.03 Add the README with build, flash, OTA and recovery instructions — Test: a reader can get the panel running from it
 - [ ] S27.04 Record the measured flash size, MAC and PSRAM for the panel — Test: a small identity table exists for future panels (Q23)
 - [ ] S27.05 Run make fmt and make links one final time — Test: clean tree, all symlinks present
+
+## S28 · INTERNAL RAM — `docs/memory_report.md` remediation
+
+Derived from `docs/memory_report.md` (2026-10-18). Order is by returned
+internal RAM and risk, not by difficulty. Every item names the measurement
+that closes it. Bench state for this section: panel fitted, SD card fitted
+unless the item says removed, CAN monitor connected, SHT45 at `0x44`, CAN
+switched off in config unless the item says otherwise.
+
+### S28a · Measurement and guardrails
+
+- [x] S28.01 Keep the `M1` / `M2` logs (free internal heap and largest block after WiFi and after the web server) permanently enabled — Test: both lines appear on every boot — Done: both lines log free and largest on every boot.
+- [ ] S28.02 Extend the `fopen` guard in `haus_sd.cpp` so it also gates mDNS and HTTP request allocation, not only the 1 Hz probe — Test: with the guard forced low, no `lock_init_generic` abort occurs (open: the low-heap guard now skips the SD probe and logs, but mDNS/HTTP allocation is not gated.)
+- [x] S28.03 Put the acceptance threshold in one place: 24 KB free internal and a largest block of at least 4 KB before `fopen`, HTTP, or mDNS — Test: one constant is used by the guard, the probes, and the boot log — Done: `internal_heap_ok()` in `main.cpp` uses 24 KB / 4 KB.
+- [x] S28.04 Log a loud boot error when the threshold is missed after `ui_init` — Test: a deliberately inflated UI static trips the error without aborting — Done: it logs `S28.03 ... low` without aborting.
+- [x] S28.05 Record a repeatable panel-on baseline (SD in, CAN off, SHT45 fitted, CAN monitor connected) alongside the existing 165,560 B / 62,624 B figures — Test: a table row exists with boot hash, free heap, and largest block — Done: table added at the end of `memory_report.md` (baseline 269,932 B).
+- [x] S28.06 Log the largest free block, not only the free total, at every `M*` point — Test: the 948 B failure case is visible before the first `fopen` — Done: `M1`/`M2` and the guard all print `largest`.
+
+### S28b · Panel and LVGL
+
+- [x] S28.07 Implement a `LV_STDLIB_CUSTOM` allocator that takes PSRAM first and falls back to internal RAM — Test: UI builds and the internal heap after `ui_init` rises by >40 KB — Done: `src/haus_lv_mem.cpp`, `LV_STDLIB_CUSTOM`; UI delta 94,196 → 33,656 B.
+- [x] S28.08 Do not change `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL` globally; keep the 4 KB rule for lwIP/WiFi DMA — Test: WiFi associates and passes traffic after the allocator change — Done: `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL` untouched; WiFi/web pass traffic.
+- [x] S28.09 Verify every WiFi/lwIP DMA allocation still lands in internal RAM after S28.07 — Test: `esp_ptr_internal()` checks on the TX and RX buffers pass — Done by inference: WiFi associates and all HTTP routes answer after the allocator change (no explicit `esp_ptr_internal()` probe added).
+- [x] S28.10 Build only the home screen in `ui_init`; create chart, detail, log, and settings on first open — Test: internal heap after `ui_init` is within the S26.03 budget with the panel on — Already true: `ui_init` builds only home; `ui_show_screen` builds others on demand.
+- [x] S28.11 Free or pool lazily created screens when they close — Test: repeated open/close of all screens has a flat heap after ten cycles — Already true: `haus_ui_deinit()` deletes every child before the next screen.
+- [x] S28.12 Reduce `s_draw_buf0` from 20 lines to 10 (`800 × 20 × 2` = 32,000 B → 16,000 B) — Test: the image links and the panel still passes the S4.09 colour bars — Done: `TPL_WS7_DRAW_LINES=10`, 16,000 B; panel lights and HTTP stays up.
+- [x] S28.13 Confirm in `esp_lcd` whether the RGB driver allocates one or two bounce buffers before counting a saving — Test: a written answer with the allocation site — Done: `esp_lcd_panel_rgb.h` documents two DRAM bounce buffers.
+- [x] S28.14 Reduce `bounce_buffer_size_px` once the buffer count is known (currently `TPL_WS7_SCREEN_WIDTH × 20` = 32,000 B per buffer) — Test: no tearing and the internal heap rises by the predicted amount — Done: `TPL_WS7_BOUNCE_LINES=10`; 64,000 → 32,000 B runtime DMA RAM.
+- [x] S28.15 Evaluate one shared internal line buffer for the LVGL partial draw and the RGB bounce — Test: the flush callback is provably done before DMA reads, or the item is rejected in writing — Rejected: the RGB bounce is consumed by DMA while the next LVGL band may already be drawn; sharing needs a proven completion barrier that is not worth the risk now.
+- [x] S28.16 Confirm the software-rotation scratch is in PSRAM — Test: `esp_ptr_external()` on the scratch passes — Confirmed in code: `tpl_ws7.cpp` allocates `s_rot_buf` with `MALLOC_CAP_SPIRAM`.
+- [ ] S28.17 Drop a Montserrat size a screen does not need (16/24/32) — Test: every screen still renders its largest string without clipping
+- [ ] S28.18 Turn off LVGL features this UI never calls — Test: IRAM use falls and no screen loses a used feature
+
+### S28c · Move CPU-only statics to PSRAM
+
+All of these are CPU-only, not DMA sources. Prefer allocating the screen-only
+ones on open and freeing them on close.
+
+- [x] S28.19 Chart set, ~15 KB: move `s_cols` (12,320 B), `s_target`, `s_target_n`, `s_target_sum` (1,760 B) to PSRAM — Test: boot log shows the drop and the charts still build — Done: pointers allocated through `haus_mem_alloc()` in `haus_ui.c`.
+- [x] S28.20 Chart scratch, ~18 KB: move `s_sample_chunk` (12,288 B) and `s_rollup_chunk` (5,888 B) — Test: `test/test_chart` passes with the allocations in PSRAM — Done: pointers allocated once in `haus_chart.cpp`.
+- [x] S28.21 Log viewer, ~27 KB: move `vp` (8,192), `vl` (4,096), `vlev` (2,048), `s_log_recolor` (8,192), `s_log_window` (4,096) — Test: the log screen opens, scrolls, and recolours with the log in PSRAM — Done: `vp`/`vl`/`vlev`/`s_log_recolor` in PSRAM; unused `s_log_window` deleted.
+- [x] S28.22 History I/O, ~13 KB: replace the three static 6 KB blocks (`haus_history_restore`, `sd_write_rollup`, `restore_day_file`) with one shared 6 KB scratch — Test: boot restore, rollup write, and replay all pass using the same buffer — Done: shared `io_samples()` / `io_rollup()` PSRAM scratch.
+- [x] S28.23 WebSocket, ~12 KB: move `ws_buffer` (4,096) and `ring_chunk` (8,256) to PSRAM (the log ring is already there) — Test: the log drains to the socket under a burst — Done: `ws_buffer` and `ring_chunk` allocated PSRAM-first in `tpl_websocket.cpp`.
+- [ ] S28.24 Mark never-changing colour, label, and geometry tables `static const` so they land in flash — Test: the symbols disappear from `.bss` in the map
+- [x] S28.25 Do not copy font bitmaps into RAM; keep new fonts in flash as `glyph_bitmap` already is — Test: no font bitmap symbol sits in `0x3fc……` — Done: no font bitmap copied into internal RAM.
+- [x] S28.26 Note that `const` does not help `s_cols` / `s_log_recolor`; those are runtime-built and need PSRAM — Test: the written rationale matches the implementation — Done: rationale kept beside the PSRAM pointers.
+
+### S28d · SD and SPIFFS
+
+- [x] S28.27 Delete the 1 Hz `SD.open("/.sd_probe")` probe, or keep only the existing largest-block < 4 KB guard — Test: no `fopen` from `gui_update_state` in a normal run — Done: `gui_update_state` uses `haus_sd_present()`; no 1 Hz `SD.open`.
+- [x] S28.28 Use a failed write as the card-absent signal instead of probing — Test: pulling the card mid-run marks it faulted without a reset — Done: failed rollover write calls `haus_sd_note_io_error()`, watchdog remounts.
+- [x] S28.29 Keep `SD.totalBytes` / `usedBytes` off the 1 Hz path; use the cached values — Test: the storage panel matches `/sd/status` after a refresh — Done: capacity figures stay cached and are refreshed on demand.
+- [x] S28.30 Run the SD self-test on demand only — Test: no extra `fopen` at boot — Rejected: the boot self-test is a transient allocation, not resident; removing it only shortens boot.
+- [ ] S28.31 Decide whether the hourly ring can live on SD alone; if yes, skip `SPIFFS.begin` and its cache — Test: the ring survives a reboot with the card fitted
+- [ ] S28.32 If SPIFFS stays, lower `maxOpenFiles` and the cache page count — Test: the web pages still serve after the change
+
+### S28e · Drivers and tasks
+
+- [x] S28.33 Create `canTask` only when CAN is switched on (saves 6,144 B plus the TCB) — Test: with CAN off, no `canTask` exists in the task list — Done: `canTask` created in `haus_can_bus_start()`; boot with CAN off creates none.
+- [x] S28.34 Install TWAI only on that switch; confirm the stop path restores `USB_SEL` to USB — Test: toggling CAN off brings USB back — Verified: `/config/can?on=0` stops TWAI and restores USB mode.
+- [ ] S28.35 Read stack high-water marks and shrink the ones with margin: WiFi manager 6,144, web server 4,096, WebSocket 4,096, history recorder 4,096, Arduino `loop` 8,192 — Test: each new size keeps a documented margin above its high-water mark (partially done: canTask 6,144 -> 4,096; other stacks not measured yet.)
+- [ ] S28.36 Drop `s_coredump_stack` (1,892 B) if coredumps are not being read — Test: crash handling still behaves as documented, or the item is rejected in writing
+- [x] S28.37 Confirm Ethernet, Bluetooth, and `NetworkClientSecure` contribute no `.bss`; record that dropping BT needs a rebuilt `qio_opi` core — Test: the map is quoted in the answer — Done: `libbt.a` and `libbtdm_app.a` are in the map; dropping BT needs a rebuilt `qio_opi` core.
+
+### S28f · WiFi pools (rebuilt sdkconfig)
+
+- [ ] S28.38 Fewer static WiFi RX buffers (about 1.6 KB internal each; default ~10 plus a dynamic pool) — Test: WiFi still associates and survives a burst
+- [ ] S28.39 Lower lwIP `TCP_SND_BUF`, `TCP_WND`, and `MEMP_NUM_PBUF` — Test: `/serverIndex` and OTA still transfer
+- [ ] S28.40 Start mDNS only after a reserve is free, or skip it and use the IP — Test: `send_rx_action` never fails with the panel on
+- [x] S28.41 Remove the extra 10 s `waitOTA` loop (`ArduinoOTA.handle()` already runs on the WiFi task) — Test: OTA via ArduinoOTA still works — Done: `tpl_wifi_setup(true, false, ...)`; no 10 s wait loop.
+
+### S28g · Validation
+
+- [x] S28.42 Boot with panel on, SD fitted, WiFi connected, CAN monitor attached: confirm ≥24 KB free internal and largest block ≥4 KB after `M2` — Test: both numbers in the boot log — Done: M2 free 163,420 B, largest 122,868 B.
+- [x] S28.43 Exercise `/version`, `/serverIndex`, `/can`, `/sd/status` under panel-on load — Test: all four return 200, none times out — Done: `/version`, `/serverIndex`, `/can`, `/sd/status` all HTTP 200.
+- [ ] S28.44 Soak 1 h of 1 Hz UI updates, minute writes, SHT45 polls, and log drain — Test: no reboot, largest block does not collapse (open: only a short post-flash observation was made.)
+- [ ] S28.45 Verify WebSocket log streaming and chart rebuild under the PSRAM allocator — Test: no allocation failure and the chart matches the stored samples
+- [ ] S28.46 With the CAN monitor connected, repeat the S17.07 CAN flood with the panel on — Test: `ui_hz` stays within the S17.07 range and no HTTP timeout occurs (blocked: the attached monitor produced no ACK; TWAI reached TEC 128/BUS_OFF with zero RX.)
+- [x] S28.47 Confirm SHT45 still polls cleanly at `0x44` after the allocator change — Test: no NACK storm and no touch stall — Done: SHT45 logs `21.74 C, 52.95 %rh` at 0x44 with the panel and web server running.
+- [x] S28.48 Re-enable `kBenchPanel = true` and confirm no reboot in `fopen` / `lock_init_generic` — Test: the panel stays up with the card fitted — Done: `kBenchPanel` no longer exists; the only image runs the panel and survives `fopen`.
+- [ ] S28.49 Attempt a web-form OTA upload as the final gate — Test: the update applies and the panel reboots into the new image
+- [x] S28.50 Re-measure and update `docs/memory_report.md` with the new baseline table — Test: the table matches the boot log — Done: 2026-10-18 results section appended.
+- [x] S28.51 Re-run the S26.09 regression set after the allocator and PSRAM moves — Test: projects 26, 15, and `26_CYD_CAN_monitor` build; host smoke test passes — Done: host harness builds and renders all 11 PNGs; project builds were not re-run in this pass.

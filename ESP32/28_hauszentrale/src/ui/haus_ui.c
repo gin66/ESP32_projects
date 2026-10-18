@@ -21,6 +21,7 @@
 #include "haus_chart.h"
 #include "haus_config.h"
 #include "haus_gui.h"
+#include "haus_mem.h"
 
 #if __has_include("version.h")
 #include "version.h"
@@ -576,8 +577,8 @@ static void build_fault_banner(void) {
   lv_obj_set_style_radius(b, 8, 0);
   lv_obj_set_style_pad_all(b, 0, 0);
   obj_set_clickable(b, false);
-  s_fault_banner_lbl = label_make(b, "CAN BUS FAULT", 0, 0,
-                                   &lv_font_montserrat_16, C_INK);
+  s_fault_banner_lbl =
+      label_make(b, "CAN BUS FAULT", 0, 0, &lv_font_montserrat_16, C_INK);
   lv_obj_center(s_fault_banner_lbl);
   s_fault_banner = b;
   obj_set_hidden(b, true);
@@ -906,7 +907,10 @@ static void build_zones(void) {
   }
 }
 
+static void ensure_chart_buffers(void);
+
 lv_obj_t* haus_ui_init(void) {
+  ensure_chart_buffers();
   g_current_screen = UI_SCREEN_HOME;
   screen_lock_scroll();
   /* Create a dark background object as the very first child of the screen.
@@ -1248,10 +1252,24 @@ typedef struct {
 static int g_range = UI_RANGE_DAY;
 static int g_detail_screen = UI_SCREEN_CHAMBER;
 
-static ChartColumn s_cols[HAUS_CHART_COLUMNS];
-static int16_t s_target[HAUS_CHART_COLUMNS];
-static uint8_t s_target_n[HAUS_CHART_COLUMNS];
-static int32_t s_target_sum[HAUS_CHART_COLUMNS];
+/* CPU-only buffers: 25 KB here used to sit in internal .bss. PSRAM keeps
+ * internal SRAM for WiFi/DMA (docs/memory_report.md, S28.19–S28.21). */
+static ChartColumn* s_cols = NULL;
+static int16_t* s_target = NULL;
+static uint8_t* s_target_n = NULL;
+static int32_t* s_target_sum = NULL;
+
+#define CHART_SET_BYTES (HAUS_CHART_COLUMNS * sizeof(ChartColumn))
+#define TARGET_BYTES (HAUS_CHART_COLUMNS * sizeof(int16_t))
+#define TARGET_N_BYTES (HAUS_CHART_COLUMNS * sizeof(uint8_t))
+#define TARGET_SUM_BYTES (HAUS_CHART_COLUMNS * sizeof(int32_t))
+
+static void ensure_chart_buffers(void) {
+  if (!s_cols) s_cols = (ChartColumn*)haus_mem_alloc(CHART_SET_BYTES);
+  if (!s_target) s_target = (int16_t*)haus_mem_alloc(TARGET_BYTES);
+  if (!s_target_n) s_target_n = (uint8_t*)haus_mem_alloc(TARGET_N_BYTES);
+  if (!s_target_sum) s_target_sum = (int32_t*)haus_mem_alloc(TARGET_SUM_BYTES);
+}
 
 static lv_obj_t* s_chart_canvas;
 static uint8_t* s_chart_pixels;
@@ -1299,8 +1317,9 @@ static int s_log_last_len = -1;
 static int s_log_last_scroll = -1;
 static uint8_t s_log_last_mask = 0xFF;
 static bool s_log_last_follow = false;
-static char s_log_window[4096];
-static char s_log_recolor[8192];
+#define LOG_LINES_MAX 2048
+#define LOG_RECOLOR_BYTES 8192
+static char* s_log_recolor = NULL;
 
 static double s_axis_lo, s_axis_hi;
 static int s_axis_key = -1;
@@ -1312,6 +1331,7 @@ static uint32_t s_chart_t0, s_chart_t1;
 static void ui_show_screen(int screen);
 static void ui_pop(void);
 static void chart_rebuild(void);
+static void ensure_chart_buffers(void);
 
 static uint16_t c565(uint32_t c) { return lv_color_to_u16(lv_color_hex(c)); }
 
@@ -1462,9 +1482,10 @@ static size_t chart_rollup_reader(void* ctx, size_t first, size_t count,
 }
 
 static void chart_build_target(uint32_t t0, uint32_t t1, bool hourly) {
-  memset(s_target, 0, sizeof(s_target));
-  memset(s_target_n, 0, sizeof(s_target_n));
-  memset(s_target_sum, 0, sizeof(s_target_sum));
+  ensure_chart_buffers();
+  memset(s_target, 0, TARGET_BYTES);
+  memset(s_target_n, 0, TARGET_N_BYTES);
+  memset(s_target_sum, 0, TARGET_SUM_BYTES);
 
   if (hourly) {
     const size_t total = (size_t)((t1 - t0) / 3600u) + 1u;
@@ -2406,9 +2427,16 @@ static void log_rebuild(void) {
     if (begin < (size_t)len) begin++;
   }
 
-  static const char* vp[2048];
-  static uint16_t vl[2048];
-  static char vlev[2048];
+  static const char** vp = NULL;
+  static uint16_t* vl = NULL;
+  static char* vlev = NULL;
+  if (!vp) {
+    vp = (const char**)haus_mem_alloc(sizeof(*vp) * LOG_LINES_MAX);
+    vl = (uint16_t*)haus_mem_alloc(sizeof(*vl) * LOG_LINES_MAX);
+    vlev = (char*)haus_mem_alloc(sizeof(*vlev) * LOG_LINES_MAX);
+    s_log_recolor = (char*)haus_mem_alloc(LOG_RECOLOR_BYTES);
+    if (!vp || !vl || !vlev || !s_log_recolor) return;
+  }
   int count = 0;
 
   size_t i = begin;
@@ -2425,10 +2453,10 @@ static void log_rebuild(void) {
         while (off < llen) {
           size_t take = llen - off;
           if (take > 38) take = 38;
-          if (count == 2048) {
-            memmove(vp, vp + 1, sizeof(vp[0]) * 2047);
-            memmove(vl, vl + 1, sizeof(vl[0]) * 2047);
-            memmove(vlev, vlev + 1, 2047);
+          if (count == LOG_LINES_MAX) {
+            memmove(vp, vp + 1, sizeof(vp[0]) * (LOG_LINES_MAX - 1));
+            memmove(vl, vl + 1, sizeof(vl[0]) * (LOG_LINES_MAX - 1));
+            memmove(vlev, vlev + 1, LOG_LINES_MAX - 1);
             count--;
           }
           vp[count] = line + off;
@@ -2458,17 +2486,17 @@ static void log_rebuild(void) {
     for (int k = start; k < count && k < start + visible; k++) {
 #if LVGL_VERSION_MAJOR >= 10
       const uint32_t col = log_color(vlev[k]);
-      int n = snprintf(s_log_recolor + o, sizeof(s_log_recolor) - o, "#%06x ",
+      int n = snprintf(s_log_recolor + o, LOG_RECOLOR_BYTES - o, "#%06x ",
                        (unsigned)col);
       if (n < 0) break;
       o += (size_t)n;
-      if (o + vl[k] + 4 >= sizeof(s_log_recolor)) break;
+      if (o + vl[k] + 4 >= LOG_RECOLOR_BYTES) break;
       memcpy(s_log_recolor + o, vp[k], vl[k]);
       o += vl[k];
       s_log_recolor[o++] = '#';
       s_log_recolor[o++] = '\n';
 #else
-      if (o + vl[k] + 2 >= sizeof(s_log_recolor)) break;
+      if (o + vl[k] + 2 >= LOG_RECOLOR_BYTES) break;
       memcpy(s_log_recolor + o, vp[k], vl[k]);
       o += vl[k];
       s_log_recolor[o++] = '\n';

@@ -1,4 +1,5 @@
 #include "tpl_ws7.h"
+
 #include "tpl_debug_log.h"
 
 #ifdef IS_WAVESHARE_LCD7
@@ -14,9 +15,9 @@
 #include <esp_log.h>
 #include <lvgl.h>
 
-static const char *TAG = "tpl_ws7";
+static const char* TAG = "tpl_ws7";
 
-static uint16_t s_output_shadow = 0; // 12-bit shadow of CH422G output
+static uint16_t s_output_shadow = 0;  // 12-bit shadow of CH422G output
 
 /*
  * CH422G uses four different I2C addresses (8-bit):
@@ -30,7 +31,7 @@ static uint16_t s_output_shadow = 0; // 12-bit shadow of CH422G output
  */
 
 static esp_err_t ws7_write_set(uint8_t data) {
-  Wire.beginTransmission(0x24); // 7-bit: 0x48 >> 1
+  Wire.beginTransmission(0x24);  // 7-bit: 0x48 >> 1
   Wire.write(data);
   esp_err_t err = (Wire.endTransmission() == 0) ? ESP_OK : ESP_FAIL;
   if (err != ESP_OK) {
@@ -40,7 +41,7 @@ static esp_err_t ws7_write_set(uint8_t data) {
 }
 
 static esp_err_t ws7_write_oc(uint8_t data) {
-  Wire.beginTransmission(0x23); // 7-bit: 0x46 >> 1
+  Wire.beginTransmission(0x23);  // 7-bit: 0x46 >> 1
   Wire.write(data);
   esp_err_t err = (Wire.endTransmission() == 0) ? ESP_OK : ESP_FAIL;
   if (err != ESP_OK) {
@@ -50,7 +51,7 @@ static esp_err_t ws7_write_oc(uint8_t data) {
 }
 
 static esp_err_t ws7_write_io(uint8_t data) {
-  Wire.beginTransmission(0x38); // 7-bit: 0x70 >> 1
+  Wire.beginTransmission(0x38);  // 7-bit: 0x70 >> 1
   Wire.write(data);
   esp_err_t err = (Wire.endTransmission() == 0) ? ESP_OK : ESP_FAIL;
   if (err != ESP_OK) {
@@ -59,8 +60,8 @@ static esp_err_t ws7_write_io(uint8_t data) {
   return err;
 }
 
-static esp_err_t ws7_read_io(uint8_t *data) {
-  Wire.beginTransmission(0x26); // 7-bit: 0x4D >> 1
+static esp_err_t ws7_read_io(uint8_t* data) {
+  Wire.beginTransmission(0x26);  // 7-bit: 0x4D >> 1
   if (Wire.endTransmission() != 0) {
     return ESP_FAIL;
   }
@@ -74,15 +75,13 @@ static esp_err_t ws7_read_io(uint8_t *data) {
 
 static esp_err_t ws7_init_ch422g(void) {
   // Write the three initialization registers (matching power-on defaults)
-  esp_err_t err = ws7_write_set(0x01); // WR-SET: IO_OE=1 (output mode)
-  if (err != ESP_OK)
-    return err;
+  esp_err_t err = ws7_write_set(0x01);  // WR-SET: IO_OE=1 (output mode)
+  if (err != ESP_OK) return err;
 
-  err = ws7_write_oc(0x0F); // WR-OC: default
-  if (err != ESP_OK)
-    return err;
+  err = ws7_write_oc(0x0F);  // WR-OC: default
+  if (err != ESP_OK) return err;
 
-  return ws7_write_io(0xFF); // WR-IO: all outputs high
+  return ws7_write_io(0xFF);  // WR-IO: all outputs high
 }
 
 static esp_err_t ws7_update_bit(uint8_t bit, bool value) {
@@ -151,13 +150,13 @@ esp_err_t tpl_ws7_backlight(bool on) {
 }
 
 esp_err_t tpl_ws7_touch_reset_assert(void) {
-  return ws7_update_bit(TPL_WS7_IO_TP_RST, false); // LOW = assert reset
+  return ws7_update_bit(TPL_WS7_IO_TP_RST, false);  // LOW = assert reset
 }
 
 esp_err_t tpl_ws7_touch_reset_release(void) {
-  esp_err_t err = ws7_update_bit(TPL_WS7_IO_TP_RST, true); // HIGH = release
+  esp_err_t err = ws7_update_bit(TPL_WS7_IO_TP_RST, true);  // HIGH = release
   if (err == ESP_OK) {
-    vTaskDelay(pdMS_TO_TICKS(50)); // Wait for GT911 to stabilize
+    vTaskDelay(pdMS_TO_TICKS(50));  // Wait for GT911 to stabilize
   }
   return err;
 }
@@ -171,13 +170,13 @@ esp_err_t tpl_ws7_panel_reset(void) {
   esp_err_t err = ws7_update_bit(TPL_WS7_IO_LCD_RST, true);
   if (err == ESP_OK) {
     vTaskDelay(pdMS_TO_TICKS(10));
-    err = ws7_update_bit(TPL_WS7_IO_LCD_RST, false); // LOW = assert reset
+    err = ws7_update_bit(TPL_WS7_IO_LCD_RST, false);  // LOW = assert reset
   }
   if (err == ESP_OK) {
     vTaskDelay(pdMS_TO_TICKS(20));
-    err = ws7_update_bit(TPL_WS7_IO_LCD_RST, true); // HIGH = release
+    err = ws7_update_bit(TPL_WS7_IO_LCD_RST, true);  // HIGH = release
     if (err == ESP_OK) {
-      vTaskDelay(pdMS_TO_TICKS(200)); // panel initialization time
+      vTaskDelay(pdMS_TO_TICKS(200));  // panel initialization time
     }
   }
   return err;
@@ -203,15 +202,15 @@ bool tpl_ws7_can_available(void) {
 // --- RGB panel + LVGL display (S4) ---
 
 static esp_lcd_panel_handle_t s_rgb_panel = NULL;
-static lv_display_t *s_lv_display = NULL;
+static lv_display_t* s_lv_display = NULL;
 
 /* Scratch buffer for rotating a flushed band from the logical (rotated)
  * coordinate space into the panel's native orientation. LVGL hands a custom
  * flush callback un-rotated pixels and expects the driver to rotate. */
-static uint8_t *s_rot_buf = NULL;
+static uint8_t* s_rot_buf = NULL;
 
-static void ws7_rgb_flush_cb(lv_display_t *disp, const lv_area_t *area,
-                             uint8_t *px_map) {
+static void ws7_rgb_flush_cb(lv_display_t* disp, const lv_area_t* area,
+                             uint8_t* px_map) {
   if (!s_rgb_panel) {
     lv_display_flush_ready(disp);
     return;
@@ -242,7 +241,7 @@ static void ws7_rgb_flush_cb(lv_display_t *disp, const lv_area_t *area,
   lv_display_flush_ready(disp);
 }
 
-lv_display_t *tpl_ws7_display_init(uint8_t rotation, uint32_t *buf,
+lv_display_t* tpl_ws7_display_init(uint8_t rotation, uint32_t* buf,
                                    size_t buf_size) {
   if (!buf || buf_size == 0) {
     ESP_LOGW(TAG, "No draw buffer provided, returning NULL");
@@ -254,21 +253,21 @@ lv_display_t *tpl_ws7_display_init(uint8_t rotation, uint32_t *buf,
    * which would leave the panel in landscape. */
   lv_display_rotation_t lv_rotation;
   switch (rotation) {
-  case 0:
-    lv_rotation = LV_DISPLAY_ROTATION_90;
-    break; // portrait
-  case 1:
-    lv_rotation = LV_DISPLAY_ROTATION_0;
-    break; // landscape
-  case 2:
-    lv_rotation = LV_DISPLAY_ROTATION_270;
-    break; // portrait, 180°
-  case 3:
-    lv_rotation = LV_DISPLAY_ROTATION_180;
-    break; // landscape, mirrored
-  default:
-    lv_rotation = LV_DISPLAY_ROTATION_90;
-    break;
+    case 0:
+      lv_rotation = LV_DISPLAY_ROTATION_90;
+      break;  // portrait
+    case 1:
+      lv_rotation = LV_DISPLAY_ROTATION_0;
+      break;  // landscape
+    case 2:
+      lv_rotation = LV_DISPLAY_ROTATION_270;
+      break;  // portrait, 180°
+    case 3:
+      lv_rotation = LV_DISPLAY_ROTATION_180;
+      break;  // landscape, mirrored
+    default:
+      lv_rotation = LV_DISPLAY_ROTATION_90;
+      break;
   }
 
   ESP_LOGI(TAG, "Initializing RGB panel (ST7262, %dx%d, 16 MHz)",
@@ -286,8 +285,8 @@ lv_display_t *tpl_ws7_display_init(uint8_t rotation, uint32_t *buf,
   panel_config.timings.vsync_pulse_width = 4;
   panel_config.timings.vsync_back_porch = 8;
   panel_config.timings.vsync_front_porch = 8;
-  panel_config.timings.flags.hsync_idle_low = 0; // active high
-  panel_config.timings.flags.vsync_idle_low = 0; // active high
+  panel_config.timings.flags.hsync_idle_low = 0;  // active high
+  panel_config.timings.flags.vsync_idle_low = 0;  // active high
   panel_config.timings.flags.de_idle_high = 0;
   panel_config.timings.flags.pclk_active_neg = 0;
   panel_config.timings.flags.pclk_idle_high = 1;
@@ -316,18 +315,23 @@ lv_display_t *tpl_ws7_display_init(uint8_t rotation, uint32_t *buf,
     panel_config.data_gpio_nums[i] = data_pins[i];
   }
 
-  panel_config.disp_gpio_num = -1; // no display-enable GPIO
+  panel_config.disp_gpio_num = -1;  // no display-enable GPIO
 #if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
   panel_config.on_frame_trans_done = NULL;
   panel_config.user_ctx = NULL;
 #endif
   panel_config.flags.fb_in_psram =
-      1; // framebuffer in PSRAM (750 KB won't fit SRAM)
+      1;  // framebuffer in PSRAM (750 KB won't fit SRAM)
   /* Bounce buffers: the RGB DMA reads from internal RAM instead of streaming
    * the PSRAM framebuffer, which is the recommended IDF setup. It also skips
    * the full-frame cache writeback that esp_lcd does when drawing straight
-   * into a PSRAM frame buffer. */
-  panel_config.bounce_buffer_size_px = TPL_WS7_SCREEN_WIDTH * 20;
+   * into a PSRAM frame buffer. esp_lcd allocates TWO of these, so each line
+   * costs 2 × width × 2 B of internal DMA RAM. */
+#ifndef TPL_WS7_BOUNCE_LINES
+#define TPL_WS7_BOUNCE_LINES 10
+#endif
+  panel_config.bounce_buffer_size_px =
+      TPL_WS7_SCREEN_WIDTH * TPL_WS7_BOUNCE_LINES;
 
   esp_err_t err = esp_lcd_new_rgb_panel(&panel_config, &s_rgb_panel);
   if (err != ESP_OK) {
@@ -349,8 +353,8 @@ lv_display_t *tpl_ws7_display_init(uint8_t rotation, uint32_t *buf,
   // buffer itself is not a DMA source. DIRAM has only a few KB free after the
   // static image, which is why this lives in PSRAM.
   if (lv_rotation != LV_DISPLAY_ROTATION_0 && s_rot_buf == NULL) {
-    s_rot_buf = (uint8_t *)heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM |
-                                                          MALLOC_CAP_8BIT);
+    s_rot_buf = (uint8_t*)heap_caps_malloc(buf_size,
+                                           MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (s_rot_buf == NULL) {
       ESP_LOGW(TAG, "Rotation buffer alloc failed; rotation will be skipped");
     }
@@ -363,7 +367,7 @@ lv_display_t *tpl_ws7_display_init(uint8_t rotation, uint32_t *buf,
                            LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_flush_cb(s_lv_display, ws7_rgb_flush_cb);
     lv_display_set_rotation(s_lv_display, lv_rotation);
-    lv_display_set_default(s_lv_display); // S4.05
+    lv_display_set_default(s_lv_display);  // S4.05
 
     ESP_LOGI(TAG,
              "LVGL display created (%dx%d native, rotation idx %d -> lvgl %d)",
@@ -439,7 +443,7 @@ esp_err_t tpl_ws7_touch_init(void) {
 }
 
 /* Read a single touch point from GT911 via I2C (S5.01) */
-static bool gt911_read_point(int16_t *x, int16_t *y) {
+static bool gt911_read_point(int16_t* x, int16_t* y) {
   s_touch_points = 0;
   if (s_touch_addr == 0) {
     return false;
@@ -463,8 +467,7 @@ static bool gt911_read_point(int16_t *x, int16_t *y) {
   }
 
   uint8_t status = Wire.read();
-  if ((status & 0x80) != 0)
-    s_touch_points = (uint8_t)(status & 0x0F);
+  if ((status & 0x80) != 0) s_touch_points = (uint8_t)(status & 0x0F);
 
   /* Register map from 0x814E:
    *   0x814E status, 0x814F track id, 0x8150 Xlow, 0x8151 Xhigh,
@@ -505,7 +508,7 @@ static bool gt911_read_point(int16_t *x, int16_t *y) {
  * native coordinate space and applies the display rotation itself. */
 int tpl_ws7_touch_points(void) { return (int)s_touch_points; }
 
-void tpl_ws7_touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
+void tpl_ws7_touch_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
   (void)indev;
   int16_t raw_x = 0, raw_y = 0;
 
@@ -514,14 +517,10 @@ void tpl_ws7_touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
      * raw coordinates are already native panel pixels. Clamp defensively. */
     int32_t nx = raw_x;
     int32_t ny = raw_y;
-    if (nx < 0)
-      nx = 0;
-    if (nx > TPL_WS7_SCREEN_WIDTH - 1)
-      nx = TPL_WS7_SCREEN_WIDTH - 1;
-    if (ny < 0)
-      ny = 0;
-    if (ny > TPL_WS7_SCREEN_HEIGHT - 1)
-      ny = TPL_WS7_SCREEN_HEIGHT - 1;
+    if (nx < 0) nx = 0;
+    if (nx > TPL_WS7_SCREEN_WIDTH - 1) nx = TPL_WS7_SCREEN_WIDTH - 1;
+    if (ny < 0) ny = 0;
+    if (ny > TPL_WS7_SCREEN_HEIGHT - 1) ny = TPL_WS7_SCREEN_HEIGHT - 1;
 
     data->point.x = nx;
     data->point.y = ny;
@@ -562,7 +561,7 @@ esp_err_t tpl_ws7_sd_cs_enable_oc_pp(void) {
   // Configure bit 4 (SD_CS) as push-pull via WR-OC register
   // WR-OC: 1 = push-pull, 0 = open-collector
   // Bit 4 = 0x10 for SD_CS
-  s_output_shadow |= (1 << (TPL_WS7_IO_SD_CS + 8)); // Set OC bit 4
+  s_output_shadow |= (1 << (TPL_WS7_IO_SD_CS + 8));  // Set OC bit 4
   uint8_t wr_oc = (uint8_t)((s_output_shadow >> 8) & 0xFF);
   return ws7_write_oc(wr_oc);
 }
@@ -593,4 +592,4 @@ spi_host_device_t tpl_ws7_sd_bus(void) {
   return s_sd_bus_handle;
 }
 
-#endif // IS_WAVESHARE_LCD7
+#endif  // IS_WAVESHARE_LCD7

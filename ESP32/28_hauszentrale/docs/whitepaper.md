@@ -810,10 +810,12 @@ Decisions:
   The buffer size is a `-D` flag (`TPL_WS7_DRAW_LINES`, default 20) so the S3's
   512 KB of internal SRAM is spent deliberately. This is the opposite of the CYD
   boards, where a tenth-of-a-screen PSRAM buffer is fine.
-- **Timing** is fixed by the panel: 16 MHz pixel clock, 4/8/8 horizontal and
-  4/8/8 vertical porches, `hsync_idle_low`/`vsync_idle_low` off (active high),
-  `de_idle_high` off, pixel clock idle high. These go in as constants in the
-  header rather than magic numbers at the call site.
+- **Timing** defaults to 16 MHz pixel clock, 10/20/16 horizontal and vertical
+  pulse/back/front values, `hsync_idle_low`/`vsync_idle_low` off (active high),
+  `de_idle_high` off, pixel clock idle low. Every value is a `TPL_WS7_*` macro
+  with an `#ifndef` guard, so a project can tune it in `platformio.ini` rather
+  than editing the template. `28_hauszentrale` sets the back/front porches to
+  20/16 and `TPL_WS7_PCLK_IDLE_HIGH=0` explicitly.
 - **`RGB_BOUNCE_LINES = 10`** and `RGB_TRAINING_LINES = 16` are kept from the
   Waveshare reference; the latter matters because the first lines after a reset
   are not valid on this panel.
@@ -3116,8 +3118,8 @@ as a success, which is why F18, F21 and §8.6.1 all phrase everything in terms o
 
 The one hard number is the panel's scan-out. 800 × 480 = 384 000 px, and the
 pixel clock is 16 MHz, so the active pixels take 384 000 / 16e6 = **24 ms**
-(41.7 Hz). The porches in §6.3 add (4+8+8) by (4+8+8), so a full frame is
-820 × 500 = 410 000 clocks ≈ **26 ms**. An earlier draft divided the same pixels
+(41.7 Hz). The blanking in §6.3 adds (10+20+16) by (10+20+16), so a full
+frame is 846 × 526 = 444 996 clocks ≈ **27.8 ms** (36 Hz). An earlier draft divided the same pixels
 by 16 MHz and got 38 ms, then treated a 20 Hz full-screen flush (20 × 38 ms ≈ 76 %
 of a core) as the cost of the animated regions. Both the number and the
 assumption were wrong: LVGL invalidates the flame and the dashes, not the frame.

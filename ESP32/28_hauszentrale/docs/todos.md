@@ -55,7 +55,7 @@ the S28 measurements unless an item says otherwise.
 ## S4 · RGB PANEL — the display actually lights up
 
 - [x] S4.01 Bring up esp_lcd_rgb_panel with the fixed timings from §6.3 — Test: panel shows a solid colour without a reboot loop (IDF 4.4 `esp_lcd_new_rgb_panel`)
-- [x] S4.02 Set pclk 16 MHz, h/v porches 4/8/8, active-high sync, bounce 10, training 16 — Test: no visible tearing or rolling bar (bounce/training are IDF 5.x only; N/A on this core)
+- [x] S4.02 Set pclk 16 MHz, h/v pulse/porch 10/20/16 (was 4/8/8; now overridable via TPL_WS7_*), active-high sync, pixel clock idle low, bounce 10, training 16 — Test: no visible tearing or rolling bar (bounce/training are IDF 5.x only; N/A on this core)
 - [x] S4.03 Declare two 800x20 RGB565 draw buffers in INTERNAL ram, not PSRAM — Test: address check shows them below 0x3FC80000
 - [x] S4.04 Create the LVGL display with a custom flush calling draw_bitmap, DIRECT mode — Test: full-screen flush completes and lv_task_handler stays responsive (used PARTIAL mode with a rotation scratch buffer, not DIRECT)
 - [x] S4.05 Call lv_display_set_default() in tpl_ws7_display() — Test: lv_indev_create() no longer errors 'no display was created'

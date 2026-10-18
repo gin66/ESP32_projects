@@ -17,6 +17,31 @@
 
 static const char* TAG = "tpl_ws7";
 
+/* RGB timing defaults. A project can override any of these in platformio.ini,
+ * e.g. -DTPL_WS7_HSYNC_BACK_PORCH=20. The Waveshare 7" panel is tolerant, but
+ * larger porches give the single-buffered RGB DMA more headroom after OTA. */
+#ifndef TPL_WS7_HSYNC_PULSE_WIDTH
+#define TPL_WS7_HSYNC_PULSE_WIDTH 10
+#endif
+#ifndef TPL_WS7_HSYNC_BACK_PORCH
+#define TPL_WS7_HSYNC_BACK_PORCH 20
+#endif
+#ifndef TPL_WS7_HSYNC_FRONT_PORCH
+#define TPL_WS7_HSYNC_FRONT_PORCH 16
+#endif
+#ifndef TPL_WS7_VSYNC_PULSE_WIDTH
+#define TPL_WS7_VSYNC_PULSE_WIDTH 10
+#endif
+#ifndef TPL_WS7_VSYNC_BACK_PORCH
+#define TPL_WS7_VSYNC_BACK_PORCH 20
+#endif
+#ifndef TPL_WS7_VSYNC_FRONT_PORCH
+#define TPL_WS7_VSYNC_FRONT_PORCH 16
+#endif
+#ifndef TPL_WS7_PCLK_IDLE_HIGH
+#define TPL_WS7_PCLK_IDLE_HIGH 0
+#endif
+
 static uint16_t s_output_shadow = 0;  // 12-bit shadow of CH422G output
 
 /*
@@ -292,17 +317,17 @@ lv_display_t* tpl_ws7_display_init(uint8_t rotation, uint32_t* buf,
   panel_config.timings.pclk_hz = 16 * 1000 * 1000;
   panel_config.timings.h_res = TPL_WS7_SCREEN_WIDTH;
   panel_config.timings.v_res = TPL_WS7_SCREEN_HEIGHT;
-  panel_config.timings.hsync_pulse_width = 4;
-  panel_config.timings.hsync_back_porch = 8;
-  panel_config.timings.hsync_front_porch = 8;
-  panel_config.timings.vsync_pulse_width = 4;
-  panel_config.timings.vsync_back_porch = 8;
-  panel_config.timings.vsync_front_porch = 8;
+  panel_config.timings.hsync_pulse_width = TPL_WS7_HSYNC_PULSE_WIDTH;
+  panel_config.timings.hsync_back_porch = TPL_WS7_HSYNC_BACK_PORCH;
+  panel_config.timings.hsync_front_porch = TPL_WS7_HSYNC_FRONT_PORCH;
+  panel_config.timings.vsync_pulse_width = TPL_WS7_VSYNC_PULSE_WIDTH;
+  panel_config.timings.vsync_back_porch = TPL_WS7_VSYNC_BACK_PORCH;
+  panel_config.timings.vsync_front_porch = TPL_WS7_VSYNC_FRONT_PORCH;
   panel_config.timings.flags.hsync_idle_low = 0;  // active high
   panel_config.timings.flags.vsync_idle_low = 0;  // active high
   panel_config.timings.flags.de_idle_high = 0;
   panel_config.timings.flags.pclk_active_neg = 0;
-  panel_config.timings.flags.pclk_idle_high = 1;
+  panel_config.timings.flags.pclk_idle_high = TPL_WS7_PCLK_IDLE_HIGH;
   panel_config.data_width = 16;
 #if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
   panel_config.sram_trans_align = 4;

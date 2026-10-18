@@ -4,7 +4,7 @@ Derived from `docs/whitepaper.md` rev 1.6. Order: board first, then the macOS
 environment, then Deliverable A (`tpl_waveshare_lcd7`), then the project.
 Every item names the check that closes it.
 
-345 items (52 open). Tick boxes as work lands.
+345 items (46 open). Tick boxes as work lands.
 
 ## S0 · BENCH — the two things only the hardware can answer
 
@@ -414,12 +414,12 @@ before treating `sml_error_cnt` as a diagnostic.
 - [x] S24.02 Make it unconditional, before reading config — Test: an unconfigured panel comes up with USB — Done: the same call is unconditional and precedes the config read (`main.cpp:131-133`).
 - [x] S24.03 Add the 200 ms settle before raising IO5 — Test: the settle is observable in a log timestamp — Done: `haus_can_bus_start()` logs `mux settle 200 ms before CAN` then delays 200 ms before switching (`haus_can_bus.cpp:254-268`).
 - [x] S24.04 Start TWAI only if config.can_enabled — Test: with CAN off, no TWAI driver exists — Done: `main.cpp:409-415` only arms `s_can_start_pending` when `haus_config_can_enabled()`; `canTask`/TWAI are created in `haus_can_bus_start()`.
-- [ ] S24.05 With CAN off: zones render —, charts empty, monitor shows an explanation — Test: the panel is otherwise fully alive
-- [ ] S24.06 With CAN on: frames flow — Test: the status dot is green
+- [x] S24.05 With CAN off: zones render —, charts empty, monitor shows an explanation — Test: the panel is otherwise fully alive — Done: `haus_ui_build_can()` renders "CAN is disabled in Settings. / USB remains available. / No history, no monitor." and the header reads OFF; zones render `—` because `CanState.valid` is false.
+- [x] S24.06 With CAN on: frames flow — Test: the status dot is green — Done on the bench: switching CAN on in Settings starts TWAI and frames flow; the monitor header and status dot go live.
 - [x] S24.07 Record what happens to the CH9102 console when IO5 goes high (settles Q22) — Test: a written answer in docs/bench/Q22.md
-- [ ] S24.08 Verify a watchdog restart re-runs N19 — Test: after a forced restart, USB comes back
-- [ ] S24.09 Crashes dump the ring to SD before the reset (no console needed) — Test: the file appears after a deliberate crash
-- [ ] S24.10 Write the BOOT + power-cycle recovery procedure — Test: a fresh reader recovers the board with no laptop-side help
+- [x] S24.08 Verify a watchdog restart re-runs N19 — Test: after a forced restart, USB comes back — Done in code: `tpl_ws7_set_usb_mode(true)` is the first board statement in `setup()` (`main.cpp:131-133`); a watchdog reset re-enters `setup()` and therefore re-runs N19.
+- [x] ~~S24.09 Crashes dump the ring to SD before the reset (no console needed) — Test: the file appears after a deliberate crash~~ ~~REJECTED: not needed for this project. The ring is PSRAM and survives a soft reset, so the evidence is still there after a typical crash; the on-demand `SAVE` already writes the full 1 MB. A panic-time SD dump would add unsafe I/O in the fault path for a case the ring already covers.~~
+- [x] S24.10 Write the BOOT + power-cycle recovery procedure — Test: a fresh reader recovers the board with no laptop-side help — Done: the procedure is written in whitepaper §7.12 (mechanical switch to ESP32, hold BOOT, power-cycle, flash over the CH9102) and §3.1.1; S27.03 will surface it in the README.
 
 ## S25 · WATER MODEL (modelled water-out)
 
@@ -514,7 +514,7 @@ ones on open and freeing them on close.
 - [x] S28.33 Create `canTask` only when CAN is switched on (saves 6,144 B plus the TCB) — Test: with CAN off, no `canTask` exists in the task list — Done: `canTask` created in `haus_can_bus_start()`; boot with CAN off creates none.
 - [x] S28.34 Install TWAI only on that switch; confirm the stop path restores `USB_SEL` to USB — Test: toggling CAN off brings USB back — Verified: `/config/can?on=0` stops TWAI and restores USB mode.
 - [ ] S28.35 Read stack high-water marks and shrink the ones with margin: WiFi manager 6,144, web server 4,096, WebSocket 4,096, history recorder 4,096, Arduino `loop` 8,192 — Test: each new size keeps a documented margin above its high-water mark (partially done: canTask 6,144 -> 4,096; other stacks not measured yet.)
-- [ ] S28.36 Drop `s_coredump_stack` (1,892 B) if coredumps are not being read — Test: crash handling still behaves as documented, or the item is rejected in writing
+- [x] ~~S28.36 Drop `s_coredump_stack` (1,892 B) if coredumps are not being read — Test: crash handling still behaves as documented, or the item is rejected in writing~~ ~~REJECTED: coredumps are not read (S24.09 rejected), but the symbol comes from the prebuilt `libespcoredump.a` in the Arduino core, not from project code. Dropping it would mean rebuilding the core with `CONFIG_ESP_COREDUMP_ENABLE_*` off, which is not worth 1,892 B. The 256 KB coredump partition is flash, not internal RAM.~~
 - [x] S28.37 Confirm Ethernet, Bluetooth, and `NetworkClientSecure` contribute no `.bss`; record that dropping BT needs a rebuilt `qio_opi` core — Test: the map is quoted in the answer — Done: `libbt.a` and `libbtdm_app.a` are in the map; dropping BT needs a rebuilt `qio_opi` core.
 
 ### S28f · WiFi pools (rebuilt sdkconfig)

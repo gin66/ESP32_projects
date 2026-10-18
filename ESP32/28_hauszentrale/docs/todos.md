@@ -4,7 +4,7 @@ Derived from `docs/whitepaper.md` rev 1.6. Order: board first, then the macOS
 environment, then Deliverable A (`tpl_waveshare_lcd7`), then the project.
 Every item names the check that closes it.
 
-357 items (23 open). Tick boxes as work lands.
+357 items (16 open). Tick boxes as work lands.
 
 ## S0 · BENCH — the two things only the hardware can answer
 
@@ -366,7 +366,7 @@ before treating `sml_error_cnt` as a diagnostic.
 ## S20 · PWM DUTY CONTROL (only after diagnostics exist)
 
 - [x] S20.01 Implement the TX path for 0x240 only — Test: no other frame can be transmitted from this project. Off is the switch, not a slider position: send 1000 when off and the slider value (0–500) when on; never send 501–999. The PC817 already inverts the duty, so the panel must not invert a second time. — Done: `haus_can_bus_send_pwm()` is the only 0x240 sender; it accepts only 0..500 or 1000 and is called from the detail-page switch/slider callbacks only (2026-10-18 decision).
-- [ ] S20.02 Add an ON/OFF switch and a **500 → 0** slider, 0 = full heat, 500 = minimum heat, snapping to 5 % (50 permille) — Test: OFF always sends 1000; ON sends the slider value; the slider cannot reach 501–1000. UI preview done on the chamber screen (switch, slider, requested/in-force lines) and rendered as `host_harness/output_detail.png`; transmission now follows S20.01. This supersedes the whitepaper's 0–1000/0=off slider. Bench 2026-10-18: the PC817 inverts the duty; the control voltage is 0.41 V at 1000 and 11.28 V at 100, nonlinear in between (PC817 CTR plus the input filter), so duty is a request, not a temperature. The 0.41 V off residual may be PC817 saturation/leakage or the heater input; re-measure after settling before calling it a delay.
+- [x] S20.02 Add an ON/OFF switch and a **500 → 0** slider, 0 = full heat, 500 = minimum heat, snapping to 5 % (50 permille) — Done: switch, 500→0 slider and requested/in-force values are on the HEATER detail page; 50‰ snapping waived by the user on 2026-10-18. — Test: OFF always sends 1000; ON sends the slider value; the slider cannot reach 501–1000. UI preview done on the chamber screen (switch, slider, requested/in-force lines) and rendered as `host_harness/output_detail.png`; transmission now follows S20.01. This supersedes the whitepaper's 0–1000/0=off slider. Bench 2026-10-18: the PC817 inverts the duty; the control voltage is 0.41 V at 1000 and 11.28 V at 100, nonlinear in between (PC817 CTR plus the input filter), so duty is a request, not a temperature. The 0.41 V off residual may be PC817 saturation/leakage or the heater input; re-measure after settling before calling it a delay.
 - [x] ~~S20.03 Dragging changes nothing — Test: no frame is transmitted during a drag or release~~ ~~REJECTED 2026-10-18: any slider change on the detail page transmits immediately; there is no drag/release gate.~~
 - [x] S20.04 Show the pending value as 'requested', distinct from 'in force' — Test: the two lines are always separate — Done: the detail page already renders `requested …` from the switch/slider and `in force …` from the received 0x280 report.
 - [x] ~~S20.05 Disable APPLY while requested == in force — Test: a no-op cannot be sent~~ ~~REJECTED 2026-10-18: there is no APPLY button; unchanged values are suppressed by `s_pwm_last_tx`.~~
@@ -422,7 +422,7 @@ figures are Soll values; write them that way in the UI and the docs.
 - [x] S23.24 Chart audit: fix the remaining time/data mismatches — Test: the 1-day chart uses today's L1, `now` matches the header, and scrubbing a power/RH chart formats the right unit — Done: the 1-day window is local midnight .. now (L1 is today only; a rolling 24 h window was reading tomorrow's slots), `now` uses the live value instead of the last bucket mean, `data age` uses the newest sample, scrub formatting uses the chart unit, RH readouts keep one decimal, the readout sum is 64-bit, the target series is aligned to the reader's rounded base, allocation failures no longer dereference NULL, and the x grid has three divisions matching the four labels.
 - [x] S23.25 Add power to L2 so the 1 week / 1 month power charts have a source — Test: with more than one day of power samples, the week/month power charts plot them; the 1-day chart still uses L1 — Done: `RollupColumn` now has nine series (series 6 = power, decawatts; 7/8 = AC RMS/angle after S29.01), `apply_sample_to_l2()` records valid, non-gap power, and `chart_cfg_for(POWER)` uses the rollup. The chart's series 7 (power) maps to rollup series 6. `RING_VERSION` was 3 then (now 4 after S29.01) and an old `/rollup.bin` size is rejected, so the first boot after this change rebuilds the ring and ignores the old SD rollup layout (one-time loss of the existing month chart; the day file still restores L1).
 - [x] S23.26 The chart scrub bubble's timestamp is the bucket start, not the sample time — the bubble appears while you press and drag on a chart and shows `HH:MM  min / mean / max`. At 1 day the bucket starts up to 3 min 16 s before the samples it aggregates; at 1 month up to ~98 min. Either show the bucket range (`10:00-10:03`) or state that the time is the bucket start. — Done: the bubble now shows the bucket range (`10:00-10:03`), with the end clamped to the chart end; the bubble widened to 300 px and is clamped inside the chart.
-- [ ] S23.27 "above target" adds a whole bucket's duration when the bucket mean is above the target mean — it does not know how many individual minutes were above, so a bucket with one hot sample and 59 cold ones still counts as fully above. Scale by the number of samples or accumulate per-sample above/below time.
+- [x] S23.27 "above target" adds a whole bucket's duration when the bucket mean is above the target mean — it does not know how many individual minutes were above, so a bucket with one hot sample and 59 cold ones still counts as fully above. Scale by the number of samples or accumulate per-sample above/below time. — Done: day view counts each minute's `temp[0]` against its own `target_c100`; week/month scale the hourly min/max fraction instead of the bucket mean.
 
 ## S24 · CAN ENABLE SWITCH (boot sequence, N19)
 
@@ -445,7 +445,7 @@ figures are Soll values; write them that way in the UI and the docs.
 - [x] S25.04 Draw the modelled series dashed against solid measured lines — Test: the distinction survives a screenshot — Done: the water-out mean line is drawn with `chart_dash_line()` when `water_modelled`; host `output_water.png` shows MODELLED and `~` values.
 - [x] S25.05 Add the ~ glyph on the home zone and a MODELLED badge on detail 3 — Test: both render — Done: home water-out is `~62.5 °C`; water-out detail carries the MODELLED badge and `~` headline.
 - [x] S25.06 Prefix min/mean/max readouts with ~ — Test: all three carry it — Done: the water-out readout line prefixes min/max/mean/now with `~`; delta/rise also carry `~`.
-- [ ] S25.07 Tag modelled values in the log at ! amber — Test: they are visually distinct
+- [x] S25.07 Tag modelled values in the log at ! amber — Test: they are visually distinct — Done: `gui_update_state()` logs `! modelled water-out ~… C` at warning level on a 0.5 °C move or every five minutes, so the log screen shows it in amber.
 - [x] S25.08 Exclude modelled values from every statistic — Test: 'time above target' is unchanged by the model — Done: the above-target calculation stays on measured samples and the target series; modelled water-out only feeds the labelled chart/readouts.
 
 ## S26 · POLISH, MEMORY VERIFICATION, SOAK
@@ -462,11 +462,11 @@ figures are Soll values; write them that way in the UI and the docs.
 
 ## S27 · DOCS AND HANDOFF
 
-- [ ] S27.01 Split §6 into prj_template/docs/waveshare_lcd7_board_abstraction.md — Test: §6 becomes a pointer
-- [ ] S27.02 Update the whitepaper's open-questions table with the resolved answers — Test: Q13/Q21/Q22/Q24 carry outcomes
-- [ ] S27.03 Add the README with build, flash, OTA and recovery instructions — Test: a reader can get the panel running from it
+- [x] S27.01 Split §6 into prj_template/docs/waveshare_lcd7_board_abstraction.md — Test: §6 becomes a pointer — Done: the full 6.1–6.7 text lives in the template doc; whitepaper §6 is a pointer.
+- [x] S27.02 Update the whitepaper's open-questions table with the resolved answers — Test: Q13/Q21/Q22/Q24 carry outcomes — Done: Q13 (3.3 V), Q21 (pioarduino/IDF 5.5.5), Q22 (`USB_SEL` does not gate the CH9102), Q24 (SHT45 at 0x44); Q9 also records the off-table model.
+- [x] S27.03 Add the README with build, flash, OTA and recovery instructions — Test: a reader can get the panel running from it — Done: `README.md` covers build, OTA, USB recovery, the UART switch, panel reset, runtime notes and the host harness.
 - [x] S27.04 Record the measured flash size, MAC and PSRAM for the panel — Test: a small identity table exists for future panels (Q23) — Done: added a panel inventory table under §3.1.1 (unit, MAC, flash, PSRAM, chip revision, USB bridge serial) for every panel added.
-- [ ] S27.05 Run make fmt and make links one final time — Test: clean tree, all symlinks present
+- [x] S27.05 Run make fmt and make links one final time — Test: clean tree, all symlinks present — Done: `make fmt` succeeds after making the prettier step skip symlinked HTML; `make links` recreated every template symlink.
 
 ## S28 · INTERNAL RAM — `docs/memory_report.md` remediation
 

@@ -2,7 +2,7 @@ fmt: node_modules/prettier/package.json links
 	clang-format --style=Google -i `find */src */include -name '*.h' -type f`
 	clang-format --style=Google -i `find */src */include -name '*.c' -type f`
 	clang-format --style=Google -i `find */src */include -name '*.cpp' -type f`
-	npx prettier --write */data/*.html
+	npx prettier --write `find */data -maxdepth 1 -type f -name '*.html'`
 	find . -name wifi_secrets.cpp -delete
 
 links:

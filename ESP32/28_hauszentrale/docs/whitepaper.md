@@ -721,289 +721,12 @@ Three decisions worth naming up front:
 
 ## 6. Deliverable A — `tpl_waveshare_lcd7` in `prj_template`
 
-### 6.1 Why a new module and not an extension of `tpl_display`
-
-Extending `tpl_display` would be the smaller diff and is the wrong move.
-
-| Aspect | `tpl_display` (CYD) | Waveshare LCD-7 | Same abstraction? |
-| ------ | -------------------- | --------------- | ---------------- |
-| Panel bus | SPI, TFT_eSPI owns it | RGB parallel, LCD peripheral owns it | **No** — different driver stacks, different flush model |
-| Panel IO | 6 GPIOs | 20 GPIOs incl. a generated PCLK | No |
-| Touch | XPT2046, resistive, own SPI | GT911, capacitive, I2C | No — calibration model is entirely different |
-| Peripheral enables | Direct GPIO + LEDC | I2C expander, active-low CS, no PWM | No |
-| Colour inversion | Board-dependent quirk to work around | Not applicable (RGB panel) | No |
-
-The only shared surface is the *shape* of the API — init display, init touch,
-read touch with logical coordinates, backlight, set default display. That shape is
-what projects program against, so it is what is worth reusing; the mechanism
-behind it is not. `tpl_display` stays untouched and CYD projects are unaffected.
-
-What is genuinely shared and should be factored out is the **LVGL host
-initialisation recipe** (`lv_init()` → create display → `lv_display_set_default()`
-→ create indev → set read callback). That is a four-line sequence duplicated in
-`19`, `26` and `27`, and it is a candidate for a tiny shared helper (§14).
-
-### 6.2 Module API
-
-The naming mirrors `tpl_display` so that a reader who knows one knows the other,
-but the `tpl_cyd_` prefix becomes `tpl_ws7_` because these are not CYDs.
-
-```cpp
-// ---- lifecycle -----------------------------------------------------------
-esp_err_t tpl_ws7_setup(uint8_t rotation);          // expander, panel, backlight, touch
-lv_display_t *tpl_ws7_display(void *buf, size_t buf_size);  // uses the rotation from setup(); calls lv_display_set_default()
-lv_indev_t   *tpl_ws7_touch(lv_display_t *disp);     // lv_indev_create() needs the display
-
-// ---- geometry ------------------------------------------------------------
-#define TPL_WS7_SCREEN_WIDTH   800    // native panel
-#define TPL_WS7_SCREEN_HEIGHT  480
-#define TPL_WS7_WIDTH          /* rotated logical width  */
-#define TPL_WS7_HEIGHT         /* rotated logical height */
-
-// ---- expander-backed signals (named; no raw register access) ---------------
-esp_err_t tpl_ws7_backlight(bool on);                // CH422G IO2 → AP3032 EN
-esp_err_t tpl_ws7_touch_reset_assert(void);         // CH422G IO1
-esp_err_t tpl_ws7_touch_reset_release(void);
-esp_err_t tpl_ws7_panel_reset(void);                // CH422G IO3
-
-// ---- SD card chip select (active LOW on the expander) --------------------
-esp_err_t tpl_ws7_sd_select(bool select);            // IO4; true drives it LOW
-SPIClass    *tpl_ws7_sd_bus(void);                   // the SPI the module started: MOSI 11, SCLK 12, MISO 13
-
-// ---- CAN / USB mux -------------------------------------------------------
-esp_err_t tpl_ws7_set_usb_mode(bool usb);           // IO5; usb=true -> CAN disabled
-bool     tpl_ws7_can_available(void);                // IO5 high?
-```
-
-There is no `tpl_ws7_gpio19_20_mode()`. On the ESP32-S3, GPIO 19/20 are the native
-USB pins, and USB-Serial-JTAG or USB-OTG claims them only while that peripheral is
-initialised. There is no IOMUX switch to flip at runtime. The decision is
-compile-time: `ARDUINO_USB_CDC_ON_BOOT=0` and `ARDUINO_USB_MODE=0` in §7.1, and no
-call to `HWCDC` / `USB.begin()` anywhere in this project. TWAI then takes GPIO
-19/20 as ordinary GPIOs. Q2 is that choice, confirmed against the CH9102 bench
-(§3.1.1).
-
-`rotation` is an argument of `setup()` only. `display()` reads the value `setup()`
-stored. Passing it twice was a way to get the touch layer mirrored relative to the
-panel.
-
-### 6.3 Display pipeline (RGB panel + LVGL)
-
-Driver stack: `esp_lcd_rgb_panel` (or the board's `esp_lcd` RGB panel component)
-→ `esp_lcd_panel_io_additions` → LVGL 9.2 `lv_display_create` with a custom flush
-callback that calls `esp_lcd_panel_draw_bitmap()`.
-
-Decisions:
-
-- **`LV_COLOR_DEPTH = 16` (RGB565).** 16-bit is what the panel takes; 32-bit would
-  double the bandwidth for no visible gain and eat the PSRAM headroom.
-- **`LV_COLOR_16_SWAP = 0`.** RGB565 is sent big-endian (high byte first) per the
-  panel spec; LVGL's default byte order already matches. Left at the default
-  deliberately — no `LV_COLOR_16_SWAP` anywhere in this project.
-- **Draw buffer: two line buffers, not a full-screen buffer.** With RGB panels the
-  flush is a DMA transfer and the driver can write back into the buffer it just
-  flushed, so LVGL's `LV_DISPLAY_RENDER_MODE_DIRECT` with a pair of
-  **panel-width** strips is the memory-efficient choice. The strip is 800 px
-  (the panel), not 480 px (the rotated logical width). For 800 × 20 px at
-  RGB565 that is 32 000 B per buffer in internal RAM — it must *not* be in PSRAM,
-  because the DMA cannot cross the PSRAM boundary on an octal PSRAM part.
-  The buffer size is a `-D` flag (`TPL_WS7_DRAW_LINES`, default 20) so the S3's
-  512 KB of internal SRAM is spent deliberately. This is the opposite of the CYD
-  boards, where a tenth-of-a-screen PSRAM buffer is fine.
-- **Timing** defaults to 12 MHz pixel clock in this project (`TPL_WS7_PCLK_HZ`;
-  the template default is 16 MHz), 4/8/8 horizontal and vertical
-  pulse/back/front values, `hsync_idle_low`/`vsync_idle_low` off (active high),
-  `de_idle_high` off, pixel clock idle high. Every value is a `TPL_WS7_*`
-  macro with an `#ifndef` guard, so it can be overridden in `platformio.ini`
-  without editing the template. Wider porches were tried and made the OTA
-  stripes worse, so 4/8/8 is the shipped default.
-- **`RGB_BOUNCE_LINES = 10`** and `RGB_TRAINING_LINES = 16` are kept from the
-  Waveshare reference; the latter matters because the first lines after a reset
-  are not valid on this panel.
-
-### 6.4 Touch pipeline (GT911)
-
-The GT911 comes up through `esp_lcd_touch_gt911`, on the same I²C port as the
-CH422G, at `0x5D` (the address the board README's map marks; the other legal
-address is `0x14`). Reset and interrupt are not ESP32 GPIOs:
-
-```cpp
-// rst_gpio_num = -1    reset is CH422G IO1, sequenced by tpl_ws7_touch_reset_*()
-// int_gpio_num = -1    no INT line is broken out; the controller is polled
-```
-
-The field names above are the component's. An earlier draft of this section
-invented `control_panel_io` and `esp_lcd_touch_panel_io_i2c_config_t`. Those are
-not in `esp_lcd`. Phase 3 copies the struct from the version of
-`esp_lcd_touch_gt911` that Q21's core actually resolves.
-
-The interesting consequence: **the GT911 has neither a reset line nor an interrupt
-line on an ESP32 GPIO.** Both are routed through the CH422G, and the reference
-configuration reads the touch controller by polling. That means:
-
-- `tpl_ws7_touch_reset_*()` must run before the controller is addressed, and the
-  I2C bus must tolerate the controller's NACK while it is held in reset.
-- The read callback must tolerate `ESP_ERR_TIMEOUT` from the GT911 as the normal
-  "no finger" case, not as an error worth logging. `26_CYD_CAN_monitor` has the
-  same problem in a milder form with the XPT2046 and solves it with a 40 ms
-  debounce; here the poll itself is the mechanism, so the debounce moves into the
-  module.
-- Coordinate space is already panel-native — no ADC calibration table, no
-  `map()`-and-`constrain()` dance. **Portrait is therefore cheap**: with
-  `LV_DRAW_TRANSFORM_USE_MATRIX = 1` and `lv_display_set_rotation(disp,
-  LV_DISPLAY_ROTATION_90)`, LVGL rotates during rendering and the panel is never
-  re-programmed. The GT911's reported coordinates rotate with the same constant,
-  so no touch remap function is needed at all.
-
-This is the one place where the Waveshare board is *simpler* than the CYDs, and the
-module should not pretend otherwise by carrying a dead calibration code path.
-
-### 6.5 CH422G Ownership Model
-
-**Built on `esp_io_expander`, not on hand-rolled register pokes.** Espressif ships
-an official component for exactly this, and it is what the Waveshare examples
-already use (`boards/WAVESHARE-ESP32-S3-Touch-LCD-7-7inch/source/esp_io_expander_ch422g.{c,h}`,
-`esp_expander_ch422g.hpp`). It supplies the three things that were previously going
-to be re-derived badly:
-
-| Need | Provided by the component |
-| ---- | ------------------------- |
-| The device's own pin map | documented in `esp_expander_ch422g.hpp` — IO0–IO7 plus OC0–OC3 as pins 8–––11 |
-| Direction control | `enableAllIO_Output()` / `enableAllIO_Input()`, which correctly handles the fact that IO0–IO7 direction is **all-or-nothing** |
-| Open-drain vs push-pull | `enableOC_PushPull()` / `enableOC_OpenDrain()` — typed, named, and exactly the choice SD_CS needs |
-| Writing several pins at once | `Base::multiSetIO()`, one transaction for a set of pins |
-
-That last one matters more than it looks. A per-pin `setIO()` is a read-modify-write
-over I²C — **two transactions per named setter** — on a bus the GT911 poll and the
-sensor task also contend for (N13). Rev 1.2's "must not go through `esp_io_expander`"
-was too strong; the component is the right foundation and the transaction cost is
-avoidable *within* it by batching.
-
-**What the module adds on top is policy, not mechanism.** Three layers:
-
-```
-  esp_io_expander / esp_expander::CH422G     mechanism: pin map, direction, OC mode
-        |
-  tpl_waveshare_lcd7                          policy: shadow, mutex, named setters
-        |
-  project code                                never sees a pin number
-```
-
-1. **A cached shadow of the 12-bit pattern.** The component re-reads before every
-   write; the module holds the pattern itself, so `tpl_ws7_set_usb_mode()` is a
-   **single** I²C write and cannot lose an update to another task's concurrent
-   read-modify-write. This is the one thing the module genuinely needs that the
-   component does not provide.
-2. **The one bus mutex from N13, taken with a bounded timeout.** Not a second
-   lock. The expander, the GT911, the SHT45 and the SD chip-select all share
-   GPIO 8/9; two mutexes would deadlock the moment the touch poll and a setter
-   nest. The touch poll is the caller that may not wait (§10.1).
-3. **Named, board-meaningful setters.** Projects call `tpl_ws7_sd_select(true)`,
-   never `setIO(4, …)`. The pin numbers live in one place, and §3.4's table is what
-   that place is derived from.
-
-**Two traps in the component that the module must document rather than fix:**
-
-- **`write_output_reg()` skips a zero byte.** The CH422G driver writes WR-OC and
-  WR-IO only `if (the computed byte)` is non-zero, so a pattern that computes to
-  `0x00` is silently not sent. The design never needs an all-zero pattern (every
-  named signal has a defined idle level — SD_CS idles *high*), but the module must
-  **assert the pattern is non-zero** before calling, so the assumption is checked
-  rather than remembered. Phase 1's exit criterion includes a **read-back test** of
-  every named setter, because "the write was skipped" is otherwise invisible.
-- **`begin()` leaves IO0–IO7 output HIGH.** USB_SEL is IO5, so the component's
-  documented default puts the board in **CAN mode with USB dead**. This is not an
-  edge case — it is the documented behaviour of the library we are building on,
-  and it is why §7.12's boot sequence (N19) is not optional politeness. See §3.3.
-
-**The invariant, in a comment in the header:** *after bring-up, `USB_SEL` (IO5) is
-the only bit any project may want to change, and the CAN path must always be able to
-put it back.*
-
-### 6.6 Portrait orientation
-
-Portrait is the only supported orientation for this project, but the module
-supports 0–3 because it costs one macro and keeps the abstraction honest.
-
-| rotation | logical size | panel | note |
-| -------- | ------------ | ----- | ---- |
-| 0 | 480 × 800 | 800 × 480 native | portrait. LVGL `LV_DISPLAY_ROTATION_90`, **not** `LV_DISPLAY_ROTATION_0` |
-| 1 | 800 × 480 | 800 × 480 native | landscape, LVGL rotation 0, no transform |
-| 2 | 480 × 800 | 800 × 480 | portrait, 180° (LVGL rotation 270) |
-| 3 | 800 × 480 | 800 × 480 | landscape, mirrored (LVGL rotation 180) |
-
-`TPL_WS7_ROTATION` is this table, not the LVGL enum. Passing `0` to
-`lv_display_set_rotation()` would leave the panel in landscape. `tpl_ws7_display()`
-is the only place that translates.
-
-`TPL_WS7_WIDTH`/`TPL_WS7_HEIGHT` are defined from `TPL_WS7_ROTATION` so that UI
-code writes `TPL_WS7_WIDTH` and gets the truth.
-
-### 6.7 Integration points in `template.h`, `tpl_system.h`, `tpl_sd`
-
-**`template.h`** — add `#include "tpl_waveshare_lcd7.h"`. The header is guarded
-internally by `#if defined(IS_WAVESHARE_LCD7)` so non-Waveshare projects — which is
-all of the existing ones — pull in nothing and link unchanged. Same discipline as
-`tpl_display.h`.
-
-**`tpl_system.h`** — add a block that defines **no** LED pins:
-
-```cpp
-#ifdef IS_WAVESHARE_LCD7
-// No status LED is fitted (the board README's onboard list is BOOT, RESET,
-// battery, USB-C, the PH2.0 headers and CAN termination).
-// Do not #define tpl_ledPin, tpl_ledPin_R/G/B or tpl_backlightPin:
-//   GPIO 2  is RGB DATA12. A backlight alias there corrupts a whole colour bit.
-//   GPIO 17 is RGB DATA3.  That is tpl_ledPin_B on both CYD boards.
-//   GPIO 16 is tpl_ledPin_G on both CYD boards and is not an LED here.
-//   GPIO 4  is outside the RGB/I²C/SD/CAN/UART map. It stays unclaimed so Q17
-//           (CAN force-USB strap) and Q19 (LEDC backlight) can compete for it
-//           without a template macro already driving it.
-// tpl_wifi_setup() treats led pin 255 as "no LED" (tpl_wifi.cpp). Pass 255.
-#endif
-```
-
-An undefined `tpl_backlightPin` is a compile error at the one call site that
-names it. A `#define` of GPIO 2 is silent pixel corruption. The backlight setter
-is `tpl_ws7_backlight()` (§6.2), which drives CH422G IO2.
-
-**`tpl_sd`** — this needs a real change, not just a define. `tpl_sd` assumes a
-directly-driven CS pin (`TPL_SD_CS`, default 5). Here the CS comes from the CH422G
-and there is no GPIO at all. Options considered:
-
-| Option | Verdict |
-| ------ | ------- |
-| A. Add a `TPL_SD_CS_VIA_EXPANDER` flag to `tpl_sd` | Rejected — pushes CH422G register knowledge into a generic module, and the SD backend still would not do recording. |
-| B. Give `tpl_sd` a settable "pre-select" hook | Rejected — an untyped function pointer for a two-call sequence is worse than duplication. |
-| **C. New `recorder` service (§7.4) with its own SD backend; leave `tpl_sd` alone** | **Chosen.** |
-
-`tpl_sd` stays as the *browser* for files (`/sd/list`, `/sd/read`, `/sd/download`)
-and the recorder owns *writing*. Both use the same physical card and cooperate by
-never holding the card open across a flush — the recorder flushes and closes before
-`loop()` may call a read endpoint, and reads are opened O_RDONLY.
-
-**The `.cpp` is guarded, not just the header.** `ESP32/Makefile` symlinks every
-`prj_template/src/*.cpp` into every project. A new file therefore lands in
-projects 01–27 the next time anyone runs `make links`. None of them define
-`IS_WAVESHARE_LCD7`, so the translation unit is empty for them:
-
-```cpp
-#include "tpl_waveshare_lcd7.h"
-
-#ifdef IS_WAVESHARE_LCD7
-// ... entire implementation ...
-#endif
-```
-
-The header guard already noted above is load-bearing for the same reason: the
-Makefile also symlinks every template header into every project. Phase 1 does
-not exit until `cd ESP32/26_CYD_CAN_monitor && pio run -e esp32ota` still passes
-after both files exist.
-
-**Symlinks.** `make links` regenerates `include/`, `src/`, `data/`, `tools/`
-symlinks for every project; `tpl_waveshare_lcd7.{h,cpp}` are picked up by the
-existing wildcard, which is why the guard has to be inside the file rather than
-in the Makefile.
+The board abstraction is documented separately:
+`ESP32/prj_template/docs/waveshare_lcd7_board_abstraction.md` (§6.1–§6.7).
+It owns the RGB panel, GT911 touch, CH422G, SD bus, reset/backlight and the
+runtime panel-timing reset. This whitepaper keeps only the project-facing
+contract: `tpl_ws7_*` is included through `template.h` when
+`IS_WAVESHARE_LCD7` is defined.
 
 ## 7. Deliverable B — Project `ESP32/28_hauszentrale`
 
@@ -1370,6 +1093,11 @@ Requirements that follow:
 - **Boot-time settle.** Leave `USB_SEL` low for the first ~200 ms after boot. The
   Waveshare examples flip it immediately; a short settle reduces the class of
   "worked over USB, dead over CAN" surprises during bring-up.
+- **Post-OTA vertical stripes.** The ST7262 can come out of an OTA reboot with
+  the RGB DMA out of sync (vertical stripes or a shifted image). The touchscreen
+  remedy is **Settings → PANEL RESET**, which recreates the ESP32 RGB panel from
+  the compile-time timing and pulses the panel reset through CH422G IO3. A power
+  cycle is the fallback. See the board abstraction §6.3.
 
 ### 7.6 Diagnostics — PSRAM log ring and on-panel access
 
@@ -3299,25 +3027,25 @@ Each of these changes the design, so none is silently decided above.
 
 | ID | Question | Impact | How it gets answered |
 | -- | -------- | ------ | -------------------- |
-| **Q9** | **There is no water-out temperature on the bus.** Where does the third zone's data come from? | Decides whether the third temperature is measured | **Partly answered:** option **(b)** is adopted for the display — derived from the commanded PWM duty, permanently labelled as modelled, excluded from every statistic (§7.11, F24, R24). The model function is **not yet known**; it is to be measured and supplied, behind a `WaterModel` interface with a null default. Option (a) — a 4th DS18B20 on the return line — remains the better answer and **supersedes the model automatically** when fitted (§7.11). Until either exists, the zone renders `—` |
+| **Q9** | **There is no water-out temperature on the bus.** Where does the third zone's data come from? | Decides whether the third temperature is measured | **Answered for now:** option **(b)** is implemented. `WaterModel` v1 uses the measured duty → off/Soll table (100→70, 200→60, 300→54, 400→44, 500→42 °C) and is permanently labelled MODELLED (`~`, dashed line, flag) and excluded from statistics. A real return-line DS18B20 still supersedes it automatically when fitted (§7.11). |
 | **Q5** | Does the current `tpl_sd` need to keep working on this board at all, given the recorder supersedes it? | Could delete ~200 lines from `tpl_sd` for this project, or keep the file browser for convenience | Recommend keeping `/sd/list` + `/sd/download` — browsing the recorded history over HTTP is genuinely useful. See also Q20: `tpl_sd` cannot mount here as built |
 | **Q6** | Retention: 24 months at 1 209 600 B/month is ≈ 25 MB. Is more wanted? | Storage and the free-space guard threshold | Jochen; default 24 |
 | **Q8** | Is EEZ Studio in scope for the home screen? | Either hand-authored LVGL (faster, more control, matches project 26's current state) or generated (draggable, but cannot express the flame/pipes) | Recommend hand-authored; EEZ cannot produce the vector heater or the envelope chart |
 | **Q10** | Should the WebSocket log sink be authenticated? | `tpl_websocket` is unauthenticated on the LAN today; log content is house telemetry | Recommend accepting it on a home LAN, consistent with the existing unauthenticated `/update` OTA endpoint. If the answer is no, the change belongs in `tpl_websocket` for all projects, not here |
 | **Q11** | Should `tpl_debug_log`'s PSRAM ring be made the template default for **all** projects, or stay opt-in? | Affects every existing project's RAM footprint | Recommend staying opt-in for now, defaulting on for boards with no console once the module is proven |
 | **Q12** | **Where does a tighter PWM clamp belong?** `pwm_out_set()` already saturates at 1000, drives 0 and 1000 as solid levels, and pulls 1…9 and 991…999 into 10…990 (`pwm_out.cpp:106`, `:121-139`). Full-on is still legal. The panel offers 0…1000 | Decides whether 1000 permille is an acceptable command, and from which node a lower ceiling would be enforced | **Jochen + the AVR firmware, not this project.** A lower ceiling in `pwm_out_set()` protects every controller; one in the panel protects only the panel. The slider follows `0x280`, so the answer can arrive after the panel is built |
-| **Q13** | Is the H2 I²C voltage jumper (`I2C 3V3 5V`, silkscreen 默认贴 3V3) actually 3V3 on the assembled board? | The SHT45 is a 3.3 V-only part; on 5 V it is destroyed | Bench, phase 1: measure the bus with H1 unplugged. Cheap to check, expensive to get wrong |
+| **Q13** | Is the H2 I²C voltage jumper (`I2C 3V3 5V`, silkscreen 默认贴 3V3) actually 3V3 on the assembled board? | The SHT45 is a 3.3 V-only part; on 5 V it is destroyed | **Answered (bench):** with H1 unplugged, SDA/SCL sit at 3.3 V (S0.02). The fitted SHT45 runs safely; the jumper is not a 5 V setting on this board. |
 | **Q14** | Is a `0x2C0` amp figure wanted on the wall at all? | The current chain in `AVR/01_heizung_temp/README.md` was derived from a resistor network since changed to 1k/1k/1k + 18k, so the counts no longer map to amps | Jochen. Recommend **no** until the chain is re-derived: show `0x2C0` as a unitless activity indicator, which is honest and still useful, rather than a kW or A figure that is merely plausible |
 | **Q16** | Is a **once-a-day** SD write acceptable, given it loses up to 24 h of minute history on a power cut? | Card write endurance versus recovery granularity. 1 440 writes/day versus 2 | Jochen. Recommendation on record: accept. An SD card in an unattended wall panel fails from write count long before capacity, and the loss renders as honest gaps (§9.3) rather than as fabricated data. If the answer is no, revert to per-minute appends and reinstate §9.5's asynchronous chart build |
 | **Q17** | Is a **hardware strap on GPIO 4** to force `USB_SEL` low acceptable — i.e. may the board be modified? | Matters only if Q22 says `USB_SEL` gates the CH9102. GPIO 4 is not claimed by `tpl_ledPin` (§6.7). It is also the pin Q19 wants | Jochen. Useful only after Q22. The CH9102 path already accepted esptool with BOOT held (§3.1.1) |
 | **Q18** | Should the **CAN-enable liveness fallback** exist — drop back to USB if CAN is enabled but silent for N seconds? | Turns a silent bus into automatic USB recovery, but also silently disables the panel's main job and fights the user's stated intent | Recommend **off by default**, configurable. It is a real convenience and a real hazard; the hazard is why it cannot be the default |
 | **Q19** | **GPIO 4 is wanted by two hardware mods.** §7.12 wants it as a CAN force-USB strap; §7.13 option D wants it for LEDC on the AP3032 EN pin. GPIO 15 and 16 are also absent from the published pin budget and are not yet ruled in or out | Both mods are board changes. R52 has to come off for option D | Jochen. Dimming removes a permanent UX limit. The strap matters only if Q22 says the CH9102 is behind `USB_SEL`. Phase 1 looks at GPIO 15 and 16 before this is treated as a one-pin choice |
 | **Q20** | Does the SD **file browser** (`/sd/list`, `/sd/download`) survive on this board? | §6.7 rejected giving `tpl_sd` a CS hook, which leaves no browser at all | Jochen. Options: (a) move the browser into the recorder service, which owns the card anyway; (b) revisit the hook, which looks better now that `tpl_ws7_sd_select()` is a typed named accessor rather than a bare function pointer; (c) accept no browser and rely on the on-panel log SAVE (§8.12). Recommend (b) — it is the smallest change and keeps one SD implementation |
-| **Q21** | **Arduino core 3.3+ (IDF 5.3) or `framework = esp-idf`?** | §6.3/§6.4/§6.5 all need managed components, and `esp_lcd_rgb_panel` requires IDF v5.2+ — above PlatformIO's default Arduino core 2.0.17 (IDF 4.4.4), where **none** of this stack exists | Jochen, in phase 0–1. Recommend **Arduino 3.3+ with the component manager**: it clears v5.2 while keeping the Arduino-based `tpl_*` template. `esp-idf` is the fallback but needs a template audit. Until this is answered the display bring-up cannot start |
+| **Q21** | **Arduino core 3.3+ (IDF 5.3) or `framework = esp-idf`?** | §6.3/§6.4/§6.5 all need managed components, and `esp_lcd_rgb_panel` requires IDF v5.2+ — above PlatformIO's default Arduino core 2.0.17 (IDF 4.4.4), where **none** of this stack exists | **Answered:** pioarduino platform `55.03.312-1`, Arduino core 3.3.12, ESP-IDF 5.5.5, `framework = arduino`. The panel, touch, CH422G and OTA all build and run on that stack; `framework = esp-idf` is not used. |
 | **Q15** | If a second wall panel is ever added, who wins? | Both would write the same durable duty with no arbitration, and "last writer wins" would make the outcome depend on which person touched a screen last | Not blocking. Answer when a second panel exists; a last-writer-wins with an explicit badge (§7.9) is probably enough for a two-panel house, but it should be a decision rather than an accident |
-| **Q22** | **What exactly does the board's mechanical UART switch switch?** §3.3 models one mux — FSUSB42UMX under CH422G IO5. The bench found a *physical* switch that silently kills the CH9102 console, which means either a second gate or the same gate with a manual override | Decides whether N19 (drive `USB_SEL` low first thing in `setup()`) is **sufficient**, or whether firmware can be defeated by a switch position the operator set months ago. Also decides the runbook wording and whether §7.12's strap (Q17) fixes anything | **Jochen, bench, phase 0.** Read the schematic against the switch's silkscreen, then verify by toggling it and watching whether `USB_SEL`/`IO5` changes state. Cheap to answer and it sits under R1, which is the project's recovery guarantee |
+| **Q22** | **What exactly does the board's mechanical UART switch switch?** §3.3 models one mux — FSUSB42UMX under CH422G IO5. The bench found a *physical* switch that silently kills the CH9102 console, which means either a second gate or the same gate with a manual override | Decides whether N19 (drive `USB_SEL` low first thing in `setup()`) is **sufficient**, or whether firmware can be defeated by a switch position the operator set months ago. Also decides the runbook wording and whether §7.12's strap (Q17) fixes anything | **Answered (bench, `docs/bench/Q22.md`):** `USB_SEL` only steers GPIO 19/20. HIGH selects the TJA1051 CAN transceiver; LOW selects the native USB pair. The CH9102 is on UART0/GPIO 43/44 and is **not** gated by IO5; it kept logging and accepted an esptool upload while CAN was active. The mechanical switch remains a separate operator gate. |
 | **Q23** | Is the 16 MB part **always** 16 MB, or does the board ship in variants? | §3.1.1 measured one board. The whitepaper is now written against 16 MB, and a batch with 8 MB would silently cap the OTA slots | Jochen. The `esp_lcd`/display stack does not care, but the partition table does. Record the MAC of every panel added, not just this one |
-| **Q24** | **How does a living-room humidity sensor attach?** | An AHT20 at `0x38` collides with CH422G WR-IO (§7.8, R30) | **Resolved:** a **Sensirion SHT45** at I²C **`0x44`** is fitted on H1. The address is outside `{0x23, 0x24, 0x26, 0x38, 0x5D, 0x14}`, so no collision exists. It measures temperature and humidity; **no pressure sensor is fitted**. |
+| **Q24** | **How does a living-room humidity sensor attach?** | An AHT20 at `0x38` collides with CH422G WR-IO (§7.8, R30) | **Resolved:** a **Sensirion SHT45** at I²C **`0x44`** is fitted on H1 and is read by the panel. The address is outside `{0x23, 0x24, 0x26, 0x38, 0x5D, 0x14}`, so no collision exists. It measures temperature and humidity; **no pressure sensor is fitted**. |
 | **Q25** | **May the board be modified to silence the battery indicators** — i.e. is removing R31 (4.7K), which extinguishes both charge LEDs and nothing else, acceptable, and is it decided once for all panels? (§3.7, R31) | Cosmetic only, but permanent and it touches a wall-mounted unit. `PWR1` is a separate 3V3 indicator and needs its own decision | Jochen, at fitting time rather than in firmware. Two viable answers: **remove R31** during assembly (keeps the LEDs, one part, charging unaffected) or **hide them** in the bezel, which is reversible and free. Note the CS8501 datasheet is not in the repo, so the no-cell behaviour in §3.7 is topology-derived and unverified
 
 ## 13. Implementation Plan

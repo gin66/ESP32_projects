@@ -363,8 +363,8 @@ before treating `sml_error_cnt` as a diagnostic.
 
 ## S20 · PWM DUTY CONTROL (only after diagnostics exist)
 
-- [ ] S20.01 Implement the TX path for 0x240 only — Test: no other frame can be transmitted from this project
-- [ ] S20.02 Add the slider 0-1000, 0 at the left labelled OFF, snapping to 5% — Test: the direction is OFF-left, FULL-right
+- [ ] S20.01 Implement the TX path for 0x240 only — Test: no other frame can be transmitted from this project. Send the AVR's own convention (1000 = off, 0 = full); the PC817 already inverts the duty, so the panel must not invert a second time.
+- [ ] S20.02 Add the slider 0-1000, **1000 at the left labelled OFF**, snapping to 5% — Test: the direction is OFF-left (1000), FULL-right (0). Bench 2026-10-18: the PC817 inverts the duty, so 1000 is off. The heater control voltage measured 0.41 V at 1000, 11.28 V at 100, and is nonlinear in between (PC817 CTR plus the input filter), so duty is a request, not a temperature. The 0.41 V off residual may be PC817 saturation/leakage or the heater input; re-measure after settling before calling it a delay.
 - [ ] S20.03 Dragging changes nothing — Test: no frame is transmitted during a drag or release
 - [ ] S20.04 Show the pending value as 'requested', distinct from 'in force' — Test: the two lines are always separate
 - [ ] S20.05 Disable APPLY while requested == in force — Test: a no-op cannot be sent

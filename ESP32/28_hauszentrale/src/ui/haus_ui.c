@@ -933,6 +933,7 @@ static void build_zones(void) {
 }
 
 static void ensure_chart_buffers(void);
+static void can_wave_tick(void);
 
 lv_obj_t* haus_ui_init(void) {
   ensure_chart_buffers();
@@ -1222,6 +1223,8 @@ void haus_ui_update(void) {
 }
 
 void haus_ui_animate(void) {
+  if (g_current_screen == UI_SCREEN_CAN) can_wave_tick();
+
   HausState state;
   gui_get_state(&state);
   const int16_t chamber = state.can.temp_by_fn[SENSOR_FN_CHAMBER];
@@ -3143,7 +3146,7 @@ static void settings_can_cb(lv_event_t* e) {
   obj_set_scrollable(s_can_modal, false);
 
   lv_obj_t* panel = lv_obj_create(s_can_modal);
-  lv_obj_set_size(panel, 580, 270);
+  lv_obj_set_size(panel, 440, 300);
   lv_obj_center(panel);
   lv_obj_set_style_bg_color(panel, lv_color_hex(C_PANEL), 0);
   lv_obj_set_style_radius(panel, 12, 0);
@@ -3159,12 +3162,12 @@ static void settings_can_cb(lv_event_t* e) {
          : "USB returns; there will be no CAN data, no history and no monitor "
            "until you turn it back on.",
       20, 70, &lv_font_montserrat_16, C_DIM);
-  lv_obj_set_width(body, 540);
+  lv_obj_set_width(body, 400);
   lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
 
   lv_obj_t* yes = lv_obj_create(panel);
-  lv_obj_set_size(yes, 160, 52);
-  lv_obj_set_pos(yes, 40, 190);
+  lv_obj_set_size(yes, 150, 52);
+  lv_obj_set_pos(yes, 50, 210);
   lv_obj_set_style_bg_color(yes, lv_color_hex(on ? C_OK : C_HOT), 0);
   lv_obj_set_style_bg_opa(yes, 200, 0);
   lv_obj_set_style_border_width(yes, 0, 0);
@@ -3175,8 +3178,8 @@ static void settings_can_cb(lv_event_t* e) {
                            &lv_font_montserrat_16, C_INK));
 
   lv_obj_t* no = lv_obj_create(panel);
-  lv_obj_set_size(no, 160, 52);
-  lv_obj_set_pos(no, 380, 190);
+  lv_obj_set_size(no, 150, 52);
+  lv_obj_set_pos(no, 240, 210);
   lv_obj_set_style_bg_opa(no, 0, 0);
   lv_obj_set_style_border_width(no, 1, 0);
   lv_obj_set_style_border_color(no, lv_color_hex(C_LINE), 0);
@@ -3558,14 +3561,20 @@ lv_obj_t* haus_ui_build_storage(void) {
 }
 
 /* ─── CAN scope (S16) ─────────────────────────────────────────────────────
- * 13 live rows at 50 px / 21 px. Tapping a row opens a full-screen overlay on
+ * 12 live rows at 44 px / 21 px, plus the last 20 ms ADC waveform at the
+ * bottom. Tapping a row opens a full-screen overlay on
  * lv_layer_top() (not a separate LVGL screen). The header carries the bus
  * fault banner; there is deliberately no range selector.
  */
 
 #define CAN_ROWS 12
-#define CAN_ROW_H 50
+#define CAN_ROW_H 44
 #define CAN_ROWS_Y 80
+
+/* Last 20 ms ADC waveform (0x2C1..0x2C5) below the scope rows. */
+#define CAN_WAVE_W 440
+#define CAN_WAVE_H 64
+#define CAN_WAVE_Y 630
 
 static lv_obj_t* s_can_id_lbl[CAN_ROWS];
 static lv_obj_t* s_can_type_lbl[CAN_ROWS];
@@ -3574,6 +3583,116 @@ static lv_obj_t* s_can_stats;
 static lv_obj_t* s_can_fault_bar;
 static lv_obj_t* s_can_overlay;
 static uint32_t s_can_next_ms;
+static lv_obj_t* s_can_wave_canvas;
+static lv_obj_t* s_can_wave_info;
+static uint8_t* s_can_wave_pixels;
+static uint32_t s_can_wave_gen;
+static bool s_can_wave_empty;
+
+static void can_wave_px(int x, int y, uint16_t c) {
+  if (!s_can_wave_pixels || x < 0 || y < 0 || x >= CAN_WAVE_W ||
+      y >= CAN_WAVE_H) {
+    return;
+  }
+  ((uint16_t*)s_can_wave_pixels)[y * CAN_WAVE_W + x] = c;
+}
+
+static void can_wave_line(int x0, int y0, int x1, int y1, uint16_t c) {
+  const int dx = x1 > x0 ? x1 - x0 : x0 - x1;
+  const int sx = x0 < x1 ? 1 : -1;
+  const int dy = y1 > y0 ? y0 - y1 : y1 - y0;
+  const int sy = y0 < y1 ? 1 : -1;
+  int err = dx + dy;
+  for (;;) {
+    can_wave_px(x0, y0, c);
+    if (x0 == x1 && y0 == y1) break;
+    const int e2 = 2 * err;
+    if (e2 >= dy) {
+      err += dy;
+      x0 += sx;
+    }
+    if (e2 <= dx) {
+      err += dx;
+      y0 += sy;
+    }
+  }
+}
+
+static void can_wave_clear(uint16_t bg) {
+  if (!s_can_wave_pixels) return;
+  uint16_t* p = (uint16_t*)s_can_wave_pixels;
+  for (int i = 0; i < CAN_WAVE_W * CAN_WAVE_H; i++) p[i] = bg;
+}
+
+/* Poll the assembled waveform at 20 Hz. Redraws only when a new set arrived,
+ * so the single-buffered RGB panel is not invalidated continuously. */
+static void can_wave_tick(void) {
+  if (!s_can_wave_canvas || !s_can_wave_pixels) return;
+
+  can_monitor_adc_wave_t w;
+  const bool ok = can_monitor_get_adc_wave(&w);
+  if (ok) {
+    if (w.generation == s_can_wave_gen) return;
+    s_can_wave_gen = w.generation;
+    s_can_wave_empty = false;
+  } else {
+    if (s_can_wave_empty) return;
+    s_can_wave_empty = true;
+  }
+
+  const uint16_t bg = c565(C_BG);
+  can_wave_clear(bg);
+
+  if (!ok) {
+    txt(s_can_wave_info, "ADC 20 ms   waiting for waveform");
+    lv_obj_invalidate(s_can_wave_canvas);
+    return;
+  }
+
+  /* Work in the node's Q6 units (1/64 count) and auto-scale to the observed
+   * span, with a 4-count minimum so a flat signal does not turn noise into a
+   * full-height trace. A typical coil waveform spans under 10 counts. */
+  int32_t v[CAN_MONITOR_WAVE_SLOTS];
+  int32_t lo = 65535;
+  int32_t hi = 0;
+  for (int i = 0; i < CAN_MONITOR_WAVE_SLOTS; i++) {
+    v[i] = (int32_t)w.slot[i];
+    if (v[i] < lo) lo = v[i];
+    if (v[i] > hi) hi = v[i];
+  }
+  int32_t span = hi - lo;
+  if (span < 4 * 64) span = 4 * 64;
+  const int32_t mid = (lo + hi) / 2;
+  const int32_t top = mid + span / 2;
+  const int32_t bottom = mid - span / 2;
+  const int32_t denom = top - bottom;
+
+  const uint16_t grid = c565(0x262626);
+  for (int gy = CAN_WAVE_H / 4; gy < CAN_WAVE_H; gy += CAN_WAVE_H / 4) {
+    for (int x = 0; x < CAN_WAVE_W; x++) can_wave_px(x, gy, grid);
+  }
+  for (int gx = CAN_WAVE_W / 4; gx < CAN_WAVE_W; gx += CAN_WAVE_W / 4) {
+    for (int y = 0; y < CAN_WAVE_H; y++) can_wave_px(gx, y, grid);
+  }
+
+  const uint16_t line = c565(C_AMBER);
+  int px = 0;
+  int py = (int)((top - v[0]) * (CAN_WAVE_H - 1) / denom);
+  for (int i = 1; i < CAN_MONITOR_WAVE_SLOTS; i++) {
+    const int x = i * (CAN_WAVE_W - 1) / (CAN_MONITOR_WAVE_SLOTS - 1);
+    const int y = (int)((top - v[i]) * (CAN_WAVE_H - 1) / denom);
+    can_wave_line(px, py, x, y, line);
+    px = x;
+    py = y;
+  }
+
+  char buf[48];
+  snprintf(buf, sizeof(buf), "ADC 20 ms   %ld..%ld counts",
+           (long)((lo + 32) / 64), (long)((hi + 32) / 64));
+  txt(s_can_wave_info, buf);
+  lv_obj_invalidate(s_can_wave_canvas);
+}
+
 
 static void can_overlay_close(void) {
   if (s_can_overlay) {
@@ -3747,6 +3866,11 @@ lv_obj_t* haus_ui_build_can(void) {
 
   s_can_stats = NULL;
   s_can_fault_bar = NULL;
+  s_can_wave_canvas = NULL;
+  s_can_wave_info = NULL;
+  s_can_wave_pixels = NULL;
+  s_can_wave_gen = 0;
+  s_can_wave_empty = false;
   for (int i = 0; i < CAN_ROWS; i++) {
     s_can_id_lbl[i] = NULL;
     s_can_type_lbl[i] = NULL;
@@ -3805,6 +3929,19 @@ lv_obj_t* haus_ui_build_can(void) {
     lv_label_set_long_mode(s_can_type_lbl[i], LV_LABEL_LONG_DOT);
     lv_label_set_long_mode(s_can_text_lbl[i], LV_LABEL_LONG_DOT);
   }
+
+  s_can_wave_info = label_make(root, "ADC 20 ms   waiting for waveform", 20,
+                               CAN_WAVE_Y - 20, &lv_font_montserrat_16, C_DIM);
+  s_can_wave_canvas = lv_canvas_create(root);
+  lv_obj_set_size(s_can_wave_canvas, CAN_WAVE_W, CAN_WAVE_H);
+  lv_obj_set_pos(s_can_wave_canvas, 20, CAN_WAVE_Y);
+  s_can_wave_pixels = (uint8_t*)lv_malloc(CAN_WAVE_W * CAN_WAVE_H * 2);
+  if (s_can_wave_pixels) {
+    lv_canvas_set_buffer(s_can_wave_canvas, s_can_wave_pixels, CAN_WAVE_W,
+                         CAN_WAVE_H, LV_COLOR_FORMAT_RGB565);
+  }
+  obj_set_clickable(s_can_wave_canvas, false);
+  can_wave_tick();
 
   nav_build(UI_SCREEN_SETTINGS);
   can_screen_update();
@@ -3925,6 +4062,11 @@ void haus_ui_deinit(void) {
     lv_free(s_chart_pixels);
     s_chart_pixels = NULL;
   }
+  if (s_can_wave_pixels) {
+    lv_free(s_can_wave_pixels);
+    s_can_wave_pixels = NULL;
+  }
+  s_can_wave_canvas = s_can_wave_info = NULL;
   s_chart_canvas = s_chart_nodata = s_chart_stale = NULL;
   s_chart_target_lbl = s_chart_readout = s_chart_age = NULL;
   memset(s_axis_lbl, 0, sizeof(s_axis_lbl));

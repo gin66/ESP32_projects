@@ -44,6 +44,9 @@ portMUX_TYPE s_data_lock = portMUX_INITIALIZER_UNLOCKED;
 can_id_entry_t s_table[CAN_MONITOR_MAX_IDS];
 int s_count = 0;
 sml_reassembly_t s_sml[CAN_MONITOR_SML_SLOTS];
+can_monitor_adc_wave_t s_wave;
+uint16_t s_wave_stage[CAN_MONITOR_WAVE_SLOTS];
+uint8_t s_wave_next = 0; /* 0 => no set in progress, else next part 1..4 */
 can_monitor_counters_t s_counters;
 bool s_task_started = false;
 volatile bool s_reset_pending = false;
@@ -171,12 +174,51 @@ void sml_on_frame(uint32_t id, const uint8_t* data, uint8_t len) {
   portEXIT_CRITICAL(&s_data_lock);
 }
 
+/* ── ADC waveform (0x2C1..0x2C5) ─────────────────────────────────────────── */
+
+/* Assemble the five parts. A part 0 starts a new set; parts must then arrive
+ * in order. An incomplete or out-of-order set is dropped and the last complete
+ * waveform stays visible, so a lost frame does not blank the display. */
+void wave_on_frame(const Frame& f) {
+  const uint8_t part = (uint8_t)(f.id - CAN_ID_ADC_WAVE0);
+  if (part >= CAN_ID_ADC_WAVE_COUNT || f.len < 8) return;
+
+  portENTER_CRITICAL(&s_data_lock);
+  if (part == 0) s_wave_next = 0;
+  if (part != s_wave_next) {
+    s_wave_next = 0;
+    portEXIT_CRITICAL(&s_data_lock);
+    s_counters.wave_dropped++;
+    return;
+  }
+
+  haus_can_adc_wave_t w;
+  haus_can_get_adc_wave(f.data, &w);
+  std::memcpy(&s_wave_stage[part * 4u], w.bin, sizeof(w.bin));
+  s_wave_next = (uint8_t)(part + 1u);
+
+  if (s_wave_next == CAN_ID_ADC_WAVE_COUNT) {
+    std::memcpy(s_wave.slot, s_wave_stage, sizeof(s_wave.slot));
+    s_wave.valid = true;
+    s_wave.generation++;
+    s_wave_next = 0;
+  }
+  portEXIT_CRITICAL(&s_data_lock);
+}
+
 /* ── Consumer ────────────────────────────────────────────────────────────── */
 
 void on_frame(const Frame& f) {
   s_counters.rx_frames++;
 
   table_update(f);
+
+  if (f.id >= CAN_ID_ADC_WAVE0 &&
+      f.id < CAN_ID_ADC_WAVE0 + CAN_ID_ADC_WAVE_COUNT) {
+    wave_on_frame(f);
+    s_counters.proto_wave++;
+    return;
+  }
 
   if ((f.id & ~0x1FFu) == CAN_ID_STROMZAEHLER_INFO_BASIS) {
     sml_on_frame(f.id, f.data, f.len);
@@ -239,6 +281,9 @@ void can_monitor_task(void*) {
       portENTER_CRITICAL(&s_data_lock);
       std::memset(s_table, 0, sizeof(s_table));
       std::memset(s_sml, 0, sizeof(s_sml));
+      std::memset(&s_wave, 0, sizeof(s_wave));
+      std::memset(s_wave_stage, 0, sizeof(s_wave_stage));
+      s_wave_next = 0;
       std::memset(&s_counters, 0, sizeof(s_counters));
       s_count = 0;
       portEXIT_CRITICAL(&s_data_lock);
@@ -303,6 +348,14 @@ bool can_monitor_get_sml(int slot, sml_reassembly_t* out) {
   *out = s_sml[slot];
   portEXIT_CRITICAL(&s_data_lock);
   return true;
+}
+
+bool can_monitor_get_adc_wave(can_monitor_adc_wave_t* out) {
+  if (!out) return false;
+  portENTER_CRITICAL(&s_data_lock);
+  *out = s_wave;
+  portEXIT_CRITICAL(&s_data_lock);
+  return out->valid;
 }
 
 const can_monitor_counters_t* can_monitor_counters(void) { return &s_counters; }
@@ -418,6 +471,25 @@ void can_monitor_decode(uint32_t id, const uint8_t* data, uint8_t len,
         std::snprintf(out->decoded, sizeof(out->decoded),
                       "max=%u min=%u pp=%u flags=0x%02X", a.max_count,
                       a.min_count, a.pp_count, a.flags);
+      }
+      return;
+    }
+
+    case HAUS_PROTO_HEIZUNG_ADC_WAVE:
+    case HAUS_PROTO_HEIZUNG_ADC_WAVE + 1:
+    case HAUS_PROTO_HEIZUNG_ADC_WAVE + 2:
+    case HAUS_PROTO_HEIZUNG_ADC_WAVE + 3:
+    case HAUS_PROTO_HEIZUNG_ADC_WAVE + 4: {
+      const unsigned part = (unsigned)((uint16_t)proto - CAN_ID_ADC_WAVE0);
+      std::snprintf(out->label, sizeof(out->label), "WAVE%u", part);
+      if (len >= 8) {
+        haus_can_adc_wave_t w;
+        haus_can_get_adc_wave(data, &w);
+        std::snprintf(out->decoded, sizeof(out->decoded), "%u %u %u %u",
+                      (unsigned)((w.bin[0] + 32u) >> 6),
+                      (unsigned)((w.bin[1] + 32u) >> 6),
+                      (unsigned)((w.bin[2] + 32u) >> 6),
+                      (unsigned)((w.bin[3] + 32u) >> 6));
       }
       return;
     }

@@ -11,6 +11,7 @@
 
 #include <lvgl.h>
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -18,9 +19,10 @@
 
 namespace {
 
-can_id_entry_t s_entries[9];
+can_id_entry_t s_entries[16];
 int s_count = 0;
 sml_reassembly_t s_sml[CAN_MONITOR_SML_SLOTS];
+can_monitor_adc_wave_t s_wave;
 can_monitor_counters_t s_counters;
 bool s_ready = false;
 
@@ -84,6 +86,27 @@ void ensure(void) {
   haus_can_set_adc(d, &adc);
   add(0x2C0, false, sizeof(haus_can_adc_t), d);
 
+  /* One 20 ms waveform, split into the five CAN parts. */
+  uint16_t bins[CAN_MONITOR_WAVE_SLOTS];
+  memset(&s_wave, 0, sizeof(s_wave));
+  s_wave.valid = true;
+  s_wave.generation = 1;
+  for (int i = 0; i < CAN_MONITOR_WAVE_SLOTS; i++) {
+    const double s =
+        std::sin(2.0 * 3.14159265358979 * (double)i / (double)CAN_MONITOR_WAVE_SLOTS);
+    int counts = 428 + (int)(380.0 * s);
+    if (counts < 0) counts = 0;
+    if (counts > 1023) counts = 1023;
+    bins[i] = (uint16_t)(counts * 64);
+    s_wave.slot[i] = bins[i];
+  }
+  for (int p = 0; p < CAN_ID_ADC_WAVE_COUNT; p++) {
+    haus_can_adc_wave_t w;
+    memcpy(w.bin, &bins[p * 4], sizeof(w.bin));
+    haus_can_set_adc_wave(d, &w);
+    add((uint32_t)CAN_ID_ADC_WAVE0 + (uint32_t)p, false, 8, d);
+  }
+
   haus_can_stats_t stats;
   memset(&stats, 0, sizeof(stats));
   stats.sent = 1200;
@@ -129,6 +152,7 @@ void ensure(void) {
   s_counters.proto_ts = 42;
   s_counters.proto_temp = 8;
   s_counters.proto_pwm = 4;
+  s_counters.proto_wave = CAN_ID_ADC_WAVE_COUNT;
 }
 
 }  // namespace
@@ -156,6 +180,13 @@ bool can_monitor_get_sml(int slot, sml_reassembly_t* out) {
   if (!out || slot < 0 || slot >= CAN_MONITOR_SML_SLOTS) return false;
   *out = s_sml[slot];
   return true;
+}
+
+bool can_monitor_get_adc_wave(can_monitor_adc_wave_t* out) {
+  ensure();
+  if (!out) return false;
+  *out = s_wave;
+  return out->valid;
 }
 
 const can_monitor_counters_t* can_monitor_counters(void) {
@@ -198,6 +229,23 @@ void can_monitor_decode(uint32_t id, const uint8_t* data, uint8_t len,
       snprintf(out->decoded, sizeof(out->decoded),
                "max=812 min=44 pp=768 flags=0x00");
       return;
+    case 0x2C1:
+    case 0x2C2:
+    case 0x2C3:
+    case 0x2C4:
+    case 0x2C5: {
+      out->protocol = (haus_protocol_t)base;
+      snprintf(out->label, sizeof(out->label), "WAVE%u",
+               (unsigned)(base - CAN_ID_ADC_WAVE0));
+      haus_can_adc_wave_t w;
+      haus_can_get_adc_wave(data, &w);
+      snprintf(out->decoded, sizeof(out->decoded), "%u %u %u %u",
+               (unsigned)((w.bin[0] + 32u) >> 6),
+               (unsigned)((w.bin[1] + 32u) >> 6),
+               (unsigned)((w.bin[2] + 32u) >> 6),
+               (unsigned)((w.bin[3] + 32u) >> 6));
+      return;
+    }
     case 0x300:
       out->protocol = HAUS_PROTO_HEIZUNG_STATS;
       snprintf(out->label, sizeof(out->label), "STATS");

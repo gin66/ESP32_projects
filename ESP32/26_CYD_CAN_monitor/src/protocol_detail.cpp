@@ -287,6 +287,26 @@ static void get_protocol_info(uint32_t id, const uint8_t* data, uint8_t len,
       return;
     }
 
+    case HAUS_PROTO_HEIZUNG_ADC_WAVE:
+    case HAUS_PROTO_HEIZUNG_ADC_WAVE + 1:
+    case HAUS_PROTO_HEIZUNG_ADC_WAVE + 2:
+    case HAUS_PROTO_HEIZUNG_ADC_WAVE + 3:
+    case HAUS_PROTO_HEIZUNG_ADC_WAVE + 4: {
+      const unsigned part =
+          (unsigned)((uint16_t)proto - (uint16_t)CAN_ID_ADC_WAVE0);
+      snprintf(label, label_size, "WAVE%u", part);
+      if (len >= 8) {
+        haus_can_adc_wave_t w;
+        haus_can_get_adc_wave(data, &w);
+        snprintf(decoded, decoded_size, "%u %u %u %u",
+                 (unsigned)((w.bin[0] + 32u) >> 6),
+                 (unsigned)((w.bin[1] + 32u) >> 6),
+                 (unsigned)((w.bin[2] + 32u) >> 6),
+                 (unsigned)((w.bin[3] + 32u) >> 6));
+      }
+      return;
+    }
+
     case HAUS_PROTO_HEIZUNG_EE: {
       snprintf(label, label_size, "EEPROM");
       if (len >= 8) {

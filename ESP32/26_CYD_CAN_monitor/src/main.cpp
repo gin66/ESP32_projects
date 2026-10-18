@@ -136,6 +136,7 @@ static uint32_t g_proto_heizung_id_cnt = 0;
 static uint32_t g_proto_heizung_temp_cnt = 0;
 static uint32_t g_proto_heizung_pwm_cnt = 0;
 static uint32_t g_proto_heizung_adc_cnt = 0;
+static uint32_t g_proto_heizung_wave_cnt = 0;
 static uint32_t g_proto_heizung_stats_cnt = 0;
 static uint32_t g_proto_heizung_ee_cnt = 0;
 /* Set when an EEPROM report arrives with the PWM-fault flag, and by the
@@ -233,6 +234,7 @@ extern "C" void clear_all_counters() {
   g_proto_heizung_temp_cnt = 0;
   g_proto_heizung_pwm_cnt = 0;
   g_proto_heizung_adc_cnt = 0;
+  g_proto_heizung_wave_cnt = 0;
   g_proto_heizung_stats_cnt = 0;
   g_proto_heizung_ee_cnt = 0;
   g_proto_heizung_pwmfail = 0;
@@ -408,6 +410,30 @@ static void decode_protocol(uint32_t id, const uint8_t* data, uint8_t len,
                  a.pp_count, a.flags);
       }
       g_proto_heizung_adc_cnt++;
+      return;
+    }
+
+    /* ── ADC waveform (0x2C1..0x2C5) ─────────────────────────────────────
+     * One 20 ms waveform split into five frames, part 0..4. Each frame carries
+     * four 1 ms slot averages in units of 1/64 ADC count. */
+    case HAUS_PROTO_HEIZUNG_ADC_WAVE:
+    case HAUS_PROTO_HEIZUNG_ADC_WAVE + 1:
+    case HAUS_PROTO_HEIZUNG_ADC_WAVE + 2:
+    case HAUS_PROTO_HEIZUNG_ADC_WAVE + 3:
+    case HAUS_PROTO_HEIZUNG_ADC_WAVE + 4: {
+      const unsigned part =
+          (unsigned)((uint16_t)proto - (uint16_t)CAN_ID_ADC_WAVE0);
+      snprintf(info->label, sizeof(info->label), "WAVE%u", part);
+      if (len >= 8) {
+        haus_can_adc_wave_t w;
+        haus_can_get_adc_wave(data, &w);
+        snprintf(info->decoded, sizeof(info->decoded), "%u %u %u %u",
+                 (unsigned)((w.bin[0] + 32u) >> 6),
+                 (unsigned)((w.bin[1] + 32u) >> 6),
+                 (unsigned)((w.bin[2] + 32u) >> 6),
+                 (unsigned)((w.bin[3] + 32u) >> 6));
+      }
+      g_proto_heizung_wave_cnt++;
       return;
     }
 
@@ -666,11 +692,12 @@ static void update_can_display(void) {
   if (g_proto_display_mode == PROTO_MODE_ANALYZER) {
     snprintf(stats_buf, sizeof(stats_buf),
              "Proto: TS:%lu SML:%lu TB:%lu HID:%lu HTmp:%lu "
-             "HPWM:%lu HADC:%lu HSt:%lu HEE:%lu%s%s Ukn:%lu",
+             "HPWM:%lu HADC:%lu HWv:%lu HSt:%lu HEE:%lu%s%s Ukn:%lu",
              g_proto_timestamp_cnt, g_proto_sml_cnt, g_proto_time_broadcast_cnt,
              g_proto_heizung_id_cnt, g_proto_heizung_temp_cnt,
              g_proto_heizung_pwm_cnt, g_proto_heizung_adc_cnt,
-             g_proto_heizung_stats_cnt, g_proto_heizung_ee_cnt,
+             g_proto_heizung_wave_cnt, g_proto_heizung_stats_cnt,
+             g_proto_heizung_ee_cnt,
              g_proto_heizung_ee_anom ? " EE-ANOM" : "",
              g_proto_heizung_pwmfail ? " PWMFAIL" : "", g_proto_unknown_cnt);
   } else {
@@ -764,6 +791,11 @@ static void update_can_display(void) {
                                         lv_color_hex(0xFF99FF), LV_PART_MAIN);
             break;
           case HAUS_PROTO_HEIZUNG_ADC:
+          case HAUS_PROTO_HEIZUNG_ADC_WAVE:
+          case HAUS_PROTO_HEIZUNG_ADC_WAVE + 1:
+          case HAUS_PROTO_HEIZUNG_ADC_WAVE + 2:
+          case HAUS_PROTO_HEIZUNG_ADC_WAVE + 3:
+          case HAUS_PROTO_HEIZUNG_ADC_WAVE + 4:
             lv_obj_set_style_text_color(objects.lblData[i],
                                         lv_color_hex(0xFFCC66), LV_PART_MAIN);
             lv_obj_set_style_text_color(objects.lblTime[i],

@@ -68,6 +68,19 @@ typedef struct {
   uint8_t buffer[CAN_MONITOR_SML_BYTES];
 } sml_reassembly_t;
 
+/** One complete 20 ms ADC waveform (0x2C1..0x2C5).
+ *
+ * Slots are in units of 1/64 ADC count (the node shifts the 10-bit value left
+ * by 6). generation increments each time a complete five-frame set is
+ * published; the renderer redraws only when it changes.
+ */
+#define CAN_MONITOR_WAVE_SLOTS 20
+typedef struct {
+  bool valid;
+  uint32_t generation;
+  uint16_t slot[CAN_MONITOR_WAVE_SLOTS];
+} can_monitor_adc_wave_t;
+
 /** Decoded view of one identifier. Pure: no counters, no side effects. */
 typedef struct {
   haus_protocol_t protocol;
@@ -86,6 +99,8 @@ typedef struct {
   uint32_t proto_temp;
   uint32_t proto_pwm;
   uint32_t proto_adc;
+  uint32_t proto_wave;
+  uint32_t wave_dropped;
   uint32_t proto_ee;
   uint32_t proto_stats;
   uint32_t proto_ts;
@@ -119,6 +134,10 @@ int can_monitor_count(void);
 
 /** Copy SML state for slot 0 (0x600) / 1 (0x700). */
 bool can_monitor_get_sml(int slot, sml_reassembly_t* out);
+
+/** Copy the latest complete ADC waveform. Returns false until five in-order
+ *  frames (0x2C1..0x2C5) have been assembled. */
+bool can_monitor_get_adc_wave(can_monitor_adc_wave_t* out);
 
 /** Snapshot of the counters (read-only, updated by the consumer). */
 const can_monitor_counters_t* can_monitor_counters(void);

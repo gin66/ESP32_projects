@@ -145,28 +145,6 @@ static uint16_t mock_pwm_duty(uint32_t epoch) {
   return (uint16_t)duty;
 }
 
-/* ─── SML power ─────────────────────────────────────────────────────────────
- *
- *  Household watts from smart meter. Correlates with PWM duty
- *  (higher duty = higher power), with some noise.
- */
-static int32_t mock_sml_watts(uint32_t epoch) {
-  uint16_t duty = mock_pwm_duty(epoch);
-
-  /* Base load ~200W (controls, pumps) + boiler power proportional to duty.
-   * Max boiler power ~3000W at full duty. */
-  double base = 200.0;
-  double boiler = 3000.0 * (duty / 1000.0);
-
-  /* Add noise and some random spikes. */
-  double noise = sin(epoch * 0.02) * 50.0 + sin(epoch * 0.07) * 30.0;
-
-  int32_t watts = (int32_t)(base + boiler + noise);
-  if (watts < 0) watts = 0;
-
-  return watts;
-}
-
 /* ─── Living room (synthetic on host; no sensors on the real board) ─────────
  *
  *  The physical panel has no usable local sensors (whitepaper Q24), so the
@@ -214,10 +192,6 @@ static void init_history(void) {
   for (uint32_t t = start_epoch; t <= now; t += 60) {
     if (idx >= MAX_HISTORY_SAMPLES) break;
 
-    int32_t watts = mock_sml_watts(t);
-    uint32_t power_dw = (uint32_t)watts * 10u;
-    if (power_dw > 65535u) power_dw = 65535u;
-
     g_history[idx].epoch = t;
     g_history[idx].temp[0] = mock_chamber_temp(t);
     g_history[idx].temp[1] = mock_water_in_temp(t);
@@ -225,16 +199,17 @@ static void init_history(void) {
     g_history[idx].living_c100 = mock_living_temp(t);
     g_history[idx].hum_c100 = mock_living_humidity(t);
     g_history[idx].pressure_pa = mock_living_pressure(t);
-    g_history[idx].power_dw = (uint16_t)power_dw;
+    g_history[idx].power_dw = 0;
     g_history[idx].target_c100 = mock_target_temp(t);
-    g_history[idx].flags =
-        SAMPLE_FLAG_CLIMATE_AHT20 | SAMPLE_FLAG_CLIMATE_BMP280;
+    /* No SML/ADC power source exists yet. Do not fabricate watts: the power
+     * screen must exercise the same empty state as the device. */
+    g_history[idx].flags = SAMPLE_FLAG_CLIMATE_AHT20 |
+                           SAMPLE_FLAG_CLIMATE_BMP280 | SAMPLE_FLAG_GAP;
     g_history[idx].stale_mask = 0;
 
     /* Simulate occasional gaps (card removal, SD errors). */
     if (tod(t) > 50000 && tod(t) < 51000) {
       g_history[idx].flags |= SAMPLE_FLAG_GAP;
-      g_history[idx].power_dw = 0;
     }
 
     idx++;
@@ -356,13 +331,12 @@ void gui_update_state(void) {
   can.has_pending = false;
   can.pwm_pending_since_ms = 0;
 
-  /* Power. */
-  int32_t watts = mock_sml_watts(g_sim_time);
-  can.watts = watts;
-  can.watts_last = mock_sml_watts(g_sim_time - 60);
-  can.valid = (watts > 0);
-  can.power_src = GUI_PWR_SRC_SML;
-  can.power_dw = (uint16_t)(watts * 10 > 65535 ? 65535 : watts * 10);
+  /* Power: no SML/ADC source yet, so no fabricated watts. */
+  can.watts = 0;
+  can.watts_last = 0;
+  can.valid = false;
+  can.power_src = GUI_PWR_SRC_NONE;
+  can.power_dw = 0;
 
   /* Living room (synthetic values for host UI verification). */
   climate.living_c100 = mock_living_temp(g_sim_time);
@@ -485,6 +459,7 @@ size_t gui_read_samples_chunk(uint32_t start_epoch, size_t first, size_t count,
       out[i].temp[0] = out[i].temp[1] = out[i].temp[2] = GUI_EMPTY;
       out[i].living_c100 = GUI_EMPTY;
       out[i].target_c100 = GUI_EMPTY;
+      out[i].flags = SAMPLE_FLAG_GAP;
     }
   }
   return count;

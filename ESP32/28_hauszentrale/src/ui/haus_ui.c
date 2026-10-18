@@ -1645,7 +1645,7 @@ static void chart_axis(chart_cfg_t* cfg) {
 
   if (!have) {
     s_axis_lo = 0;
-    s_axis_hi = 1;
+    s_axis_hi = (cfg->unit == CHART_UNIT_POWER) ? 10000 : 1;
     s_axis_key = key;
     return;
   }
@@ -1743,6 +1743,9 @@ static void chart_labels(chart_cfg_t* cfg) {
 
 static void chart_draw(void) {
   if (!s_chart_pixels) return;
+  /* Hide the setpoint label before the no-data early return; otherwise the
+   * power screen keeps a stale "Soll" legend. */
+  if (s_chart_target_lbl) obj_set_hidden(s_chart_target_lbl, true);
 
   const uint16_t bg = c565(C_BG);
   for (int i = 0; i < CHART_W * CHART_H; i++)
@@ -1805,16 +1808,33 @@ static void chart_draw(void) {
       continue;
     }
 
-    /* Waterfall fill for the first series. */
+    /* Waterfall fill for the first series. Power is special: fill from the
+     * zero line towards the value, red for import and green for export, so
+     * the visual area is the quantity, not an arbitrary gradient to the
+     * bottom of the plot. */
     if (c->n[0]) {
       const int32_t mean = c->sum[0] / c->n[0];
-      const int y = chart_value_y(mean);
-      for (int yy = y; yy <= CHART_Y1; yy++) {
-        const double f =
-            (CHART_Y1 > y) ? (double)(yy - y) / (double)(CHART_Y1 - y) : 1.0;
-        const uint8_t a = (uint8_t)(70.0 * (1.0 - f));
-        for (int dx = -1; dx <= 1; dx++)
-          chart_blend_px(x + dx, yy, cfg.color_a, a);
+      if (cfg.unit == CHART_UNIT_POWER) {
+        const int zero_y = chart_value_y(0);
+        const int y = chart_value_y(mean);
+        const uint32_t fill = mean >= 0 ? 0xd4553a : 0x5caf6e;
+        const int from = y < zero_y ? y : zero_y;
+        const int to = y < zero_y ? zero_y : y;
+        const int span = to - from;
+        for (int yy = from; yy <= to; yy++) {
+          const int d = yy < zero_y ? zero_y - yy : yy - zero_y;
+          const uint8_t a = span > 0 ? (uint8_t)(90 * d / span) : (uint8_t)90;
+          for (int dx = -1; dx <= 1; dx++) chart_blend_px(x + dx, yy, fill, a);
+        }
+      } else {
+        const int y = chart_value_y(mean);
+        for (int yy = y; yy <= CHART_Y1; yy++) {
+          const double f =
+              (CHART_Y1 > y) ? (double)(yy - y) / (double)(CHART_Y1 - y) : 1.0;
+          const uint8_t a = (uint8_t)(70.0 * (1.0 - f));
+          for (int dx = -1; dx <= 1; dx++)
+            chart_blend_px(x + dx, yy, cfg.color_a, a);
+        }
       }
     }
 
@@ -2318,11 +2338,18 @@ static void living_series_set(int series) {
   g_living_series = series;
   for (int i = 0; i < 2; i++) {
     if (!s_living_tab[i]) continue;
+    lv_obj_t* tab = lv_obj_get_parent(s_living_tab[i]);
+    if (tab) {
+      lv_obj_set_style_bg_opa(tab, i == series ? 32 : LV_OPA_TRANSP, 0);
+      lv_obj_set_style_border_color(
+          tab, lv_color_hex(i == series ? C_ACCENT : C_LINE), 0);
+    }
     lv_obj_set_style_text_color(s_living_tab[i],
                                 lv_color_hex(i == series ? C_INK : C_DIM), 0);
   }
   s_chart_force = true;
   chart_rebuild();
+  detail_value_update();
 }
 
 static void living_series_cb(lv_event_t* e) {
@@ -2338,7 +2365,8 @@ static void living_tabs_build(int top) {
     lv_obj_set_style_bg_opa(tab, i == g_living_series ? 32 : LV_OPA_TRANSP, 0);
     lv_obj_set_style_bg_color(tab, lv_color_hex(C_ACCENT), 0);
     lv_obj_set_style_border_width(tab, 1, 0);
-    lv_obj_set_style_border_color(tab, lv_color_hex(C_LINE), 0);
+    lv_obj_set_style_border_color(
+        tab, lv_color_hex(i == g_living_series ? C_ACCENT : C_LINE), 0);
     lv_obj_set_style_radius(tab, 6, 0);
     lv_obj_set_style_pad_all(tab, 0, 0);
     obj_set_scrollable(tab, false);
@@ -2854,6 +2882,11 @@ static void power_bars_update(void) {
   for (int i = 0; i < s_power_bin_count; i++) {
     if (!s_power_bars[i]) continue;
     const int32_t v = ns[i] ? (int32_t)(sums[i] / (int32_t)ns[i]) : 0;
+    if (v <= 0) {
+      obj_set_hidden(s_power_bars[i], true);
+      continue;
+    }
+    obj_set_hidden(s_power_bars[i], false);
     int h = (int)((int64_t)v * 100 / mx);
     if (h < 2) h = 2;
     lv_obj_set_height(s_power_bars[i], h);

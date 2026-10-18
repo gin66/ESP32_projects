@@ -402,6 +402,11 @@ lv_display_t* tpl_ws7_display_init(uint8_t rotation, uint32_t* buf,
 static volatile uint8_t s_touch_points = 0;
 static uint8_t s_touch_addr = 0;
 
+/* Last raw point for touch diagnostics/calibration. */
+static volatile int16_t s_last_raw_x = 0;
+static volatile int16_t s_last_raw_y = 0;
+static volatile bool s_last_raw_valid = false;
+
 /* Probe for an ACKing device. beginTransmission/endTransmission do not log on
  * NACK (unlike requestFrom), so a bus scan stays quiet. */
 static bool ws7_i2c_probe(uint8_t addr) {
@@ -445,6 +450,7 @@ esp_err_t tpl_ws7_touch_init(void) {
 /* Read a single touch point from GT911 via I2C (S5.01) */
 static bool gt911_read_point(int16_t* x, int16_t* y) {
   s_touch_points = 0;
+  s_last_raw_valid = false;
   if (s_touch_addr == 0) {
     return false;
   }
@@ -501,6 +507,16 @@ static bool gt911_read_point(int16_t* x, int16_t* y) {
 
   *x = (int16_t)(((x_h << 8) | x_l) & 0x0FFF);
   *y = (int16_t)(((y_h << 8) | y_l) & 0x0FFF);
+  s_last_raw_x = *x;
+  s_last_raw_y = *y;
+  s_last_raw_valid = true;
+  return true;
+}
+
+bool tpl_ws7_touch_last_raw(int16_t* x, int16_t* y) {
+  if (!s_last_raw_valid) return false;
+  if (x) *x = s_last_raw_x;
+  if (y) *y = s_last_raw_y;
   return true;
 }
 
@@ -514,9 +530,17 @@ void tpl_ws7_touch_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
 
   if (gt911_read_point(&raw_x, &raw_y)) {
     /* The GT911 is configured for the panel resolution (800x480), so its
-     * raw coordinates are already native panel pixels. Clamp defensively. */
-    int32_t nx = raw_x;
-    int32_t ny = raw_y;
+     * raw coordinates are already native panel pixels. A small constant
+     * offset corrects the panel/bezel mapping; with rotation index 0 LVGL
+     * maps logical y to native x, so the y correction is an x offset. */
+#ifndef TPL_WS7_TOUCH_X_OFFSET
+#define TPL_WS7_TOUCH_X_OFFSET 0
+#endif
+#ifndef TPL_WS7_TOUCH_Y_OFFSET
+#define TPL_WS7_TOUCH_Y_OFFSET 0
+#endif
+    int32_t nx = raw_x + TPL_WS7_TOUCH_X_OFFSET;
+    int32_t ny = raw_y + TPL_WS7_TOUCH_Y_OFFSET;
     if (nx < 0) nx = 0;
     if (nx > TPL_WS7_SCREEN_WIDTH - 1) nx = TPL_WS7_SCREEN_WIDTH - 1;
     if (ny < 0) ny = 0;

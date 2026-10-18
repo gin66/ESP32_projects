@@ -32,6 +32,7 @@
 #include "haus_sd.h"
 #include "haus_sensor_roles.h"
 #include "haus_sht45.h"
+#include "haus_touch_test.h"
 #include "haus_ui.h"
 #include "template.h"
 
@@ -156,15 +157,12 @@ void setup() {
   }
 
   /* L1/L2 plus the independent SPIFFS hourly ring. Failure here is logged,
-   * but the panel still boots. */
-  if (!haus_history_init()) {
-    TPL_LOGW("history", "history store unavailable");
-  } else {
-    /* S11.08/S11.09: restore before the first frame is ever drawn. */
-    const size_t restored = haus_history_restore((uint32_t)time(nullptr));
-    TPL_LOGI("history", "boot restore: %u columns", (unsigned)restored);
-    haus_history_start_recorder();
-  }
+   * but the panel still boots. The day file cannot be replayed until SNTP has
+   * set the clock: before that `now_epoch` is 0, so `is_today` is false and
+   * today's minute samples would be silently skipped. Restore after the WiFi
+   * setup below, once time() is valid. */
+  const bool history_ok = haus_history_init();
+  if (!history_ok) TPL_LOGW("history", "history store unavailable");
 
   /* S9.03: ROM -> function table (seeded on first boot). */
   haus_sensor_roles_init();
@@ -207,6 +205,11 @@ void setup() {
       lv_obj_set_style_radius(cursor, LV_RADIUS_CIRCLE, 0);
       lv_obj_set_style_bg_color(cursor, lv_color_hex(0xFF0000), 0);
       lv_obj_set_style_bg_opa(cursor, LV_OPA_COVER, 0);
+      /* LVGL positions the cursor by its top-left corner. Centre the dot on
+       * the actual touch point instead of drawing it down-right of the
+       * finger. */
+      lv_obj_set_style_translate_x(cursor, -12, 0);
+      lv_obj_set_style_translate_y(cursor, -12, 0);
       lv_obj_add_flag(cursor, LV_OBJ_FLAG_HIDDEN);
       lv_indev_set_cursor(indev, cursor);
 
@@ -260,6 +263,13 @@ void setup() {
    * already running at this point; this only enables the optional network
    * services and the initial clock sync. */
   tpl_wifi_setup(true, false, (gpio_num_t)255);  // no status LED on this board
+  /* Now that SNTP has run, today's day file can be replayed into L1 and the
+   * recorder can start. Doing this before WiFi dropped the 1-day chart. */
+  if (history_ok) {
+    const size_t restored = haus_history_restore((uint32_t)time(nullptr));
+    TPL_LOGI("history", "boot restore: %u columns", (unsigned)restored);
+    haus_history_start_recorder();
+  }
   TPL_LOGI("mem", "M1 after wifi: internal %u B, largest %u B",
            (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
            (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
@@ -353,6 +363,46 @@ void setup() {
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
     tpl_server.send(200, "application/json", buf);
   });
+  /* Diagnostic: what is actually in L1, and would the 1-day chart see it? */
+  tpl_server.on("/history/stats", HTTP_GET, []() {
+    static char buf[320];
+    gui_sample_t* l1 = haus_history_l1();
+    int total = 0;
+    int climate = 0;
+    int living = 0;
+    uint32_t newest = 0;
+    uint32_t newest_living = 0;
+    if (l1) {
+      for (size_t i = 0; i < HAUS_L1_SAMPLES; i++) {
+        const gui_sample_t* s = &l1[i];
+        if (s->epoch == 0) continue;
+        total++;
+        if (s->epoch > newest) newest = s->epoch;
+        if (s->flags & SAMPLE_FLAG_CLIMATE_AHT20) climate++;
+        if (s->living_c100 != HAUS_CAN_TEMP_EMPTY &&
+            s->living_c100 != GUI_EMPTY) {
+          living++;
+          if (s->epoch > newest_living) newest_living = s->epoch;
+        }
+      }
+    }
+    snprintf(buf, sizeof(buf),
+             "{\"l1_total\":%d,\"climate_flag\":%d,\"living_value\":%d,"
+             "\"newest\":%lu,\"newest_living\":%lu,\"now\":%lu}",
+             total, climate, living, (unsigned long)newest,
+             (unsigned long)newest_living, (unsigned long)time(nullptr));
+    tpl_server.send(200, "application/json", buf);
+  });
+  /* Guided GT911 calibration: five rounds of four cross points. */
+  tpl_server.on("/touch/test", HTTP_GET, []() {
+    haus_touch_test_request();
+    tpl_server.send(200, "application/json", "{\"started\":true}");
+  });
+  tpl_server.on("/touch/stats", HTTP_GET, []() {
+    const char* stats = haus_touch_test_last_stats();
+    tpl_server.send(200, "application/json",
+                    (stats && stats[0]) ? stats : "{\"n\":0}");
+  });
   tpl_websocket_setup(NULL, NULL);
 
   /* S24.04: the persisted intent decides whether TWAI exists at all. With
@@ -376,6 +426,7 @@ void setup() {
 /* ─── Loop ───────────────────────────────────────────────────────────────── */
 
 void loop() {
+  haus_touch_test_poll();
   static uint32_t last_ui_ms = 0;
   static uint32_t last_loop_us = 0;
   static uint32_t loops = 0;
@@ -431,7 +482,7 @@ void loop() {
     haus_ui_animate();
   }
 
-  if (tpl_ws7_touch_points() >= 3) {
+  if (!haus_touch_test_active() && tpl_ws7_touch_points() >= 3) {
     haus_ui_three_finger();
   }
 

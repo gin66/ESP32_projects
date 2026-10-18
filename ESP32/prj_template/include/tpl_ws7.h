@@ -87,14 +87,19 @@ esp_err_t tpl_ws7_sd_cs_enable_oc_pp(void);
 spi_host_device_t tpl_ws7_sd_bus(void);
 
 // RGB panel + LVGL display (S4)
-lv_display_t *tpl_ws7_display_init(uint8_t rotation, uint32_t *buf,
+lv_display_t* tpl_ws7_display_init(uint8_t rotation, uint32_t* buf,
                                    size_t buf_size);
 
 // GT911 touch (S5)
 esp_err_t tpl_ws7_touch_init(void);
-void tpl_ws7_touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data);
+void tpl_ws7_touch_read_cb(lv_indev_t* indev, lv_indev_data_t* data);
 
 /* Number of touch points in the last GT911 frame (for three-finger Home). */
 int tpl_ws7_touch_points(void);
 
-#endif // IS_WAVESHARE_LCD7
+/* Last raw native GT911 point, without offsets or clamping. Returns false
+ * when the last frame had no touch point. Used by the touch calibration test.
+ */
+bool tpl_ws7_touch_last_raw(int16_t* x, int16_t* y);
+
+#endif  // IS_WAVESHARE_LCD7

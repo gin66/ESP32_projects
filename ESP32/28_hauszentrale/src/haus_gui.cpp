@@ -188,6 +188,8 @@ size_t gui_read_samples_chunk(uint32_t start_epoch, size_t first, size_t count,
       out[i].temp[0] = out[i].temp[1] = out[i].temp[2] = HAUS_CAN_TEMP_EMPTY;
       out[i].living_c100 = HAUS_CAN_TEMP_EMPTY;
       out[i].target_c100 = HAUS_CAN_TEMP_EMPTY;
+      /* A missing minute is a gap, not a measured 0 W. */
+      out[i].flags = SAMPLE_FLAG_GAP;
     }
   }
   return count;

@@ -425,6 +425,9 @@ bool haus_history_sample(const HausState* state, uint32_t epoch_seconds) {
   s->flags = state->can.water_modelled ? SAMPLE_FLAG_MODELLED : 0x00;
   if (living_valid) s->flags |= SAMPLE_FLAG_CLIMATE_AHT20;
   if (pressure_valid) s->flags |= SAMPLE_FLAG_CLIMATE_BMP280;
+  /* No SML/ADC power source: do not store a zero as a measured sample. The
+   * power chart would otherwise draw a synthetic zero line. */
+  if (!state->can.valid) s->flags |= SAMPLE_FLAG_GAP;
 
   uint8_t stale = 0;
   if (s->temp[0] != HAUS_CAN_TEMP_EMPTY &&

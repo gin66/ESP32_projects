@@ -107,7 +107,7 @@ static void home_60(void) {
   haus_ui_init();
 }
 
-static void build_water(void) { haus_ui_build_water(2); }
+static void build_water(void) { haus_ui_build_water(3); /* UI_SCREEN_WATER_OUT */ }
 
 static void build_ac(void) {
   haus_ui_build_ac();

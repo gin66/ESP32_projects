@@ -28,6 +28,7 @@
 #include "haus_can.h"
 #include "haus_can_bus.h"
 #include "haus_history.h"
+#include "haus_water_model.h"
 #include "haus_rollup.h"
 #include "haus_sd.h"
 #include "haus_sensor_roles.h"
@@ -431,9 +432,7 @@ bool gui_reset_panel(void) {
 }
 
 bool gui_water_model_available(void) {
-  /* TODO: Return true if WaterModel is installed and active.
-   * For now, false — water-out shows "—". */
-  return false;
+  return water_model_default() != nullptr;
 }
 
 /* ─── Update function (called from task, NOT from UI thread) ────────────────
@@ -441,6 +440,19 @@ bool gui_water_model_available(void) {
  *  Call gui_update_state() from a low-priority task (~1 Hz) to refresh the
  *  producer blocks. The UI calls gui_get_state(), which copies them out.
  */
+
+/* S20.15: the AVR has no setpoint frame. Derive the Soll from the duty that
+ * 0x280 reports, using the bench table (duty permille -> Soll c100):
+ *   500 -> 42, 400 -> 44, 300 -> 54, 200 -> 60, 100 -> 70 °C.
+ * Outside that measured domain, or without a fresh report, there is no Soll. */
+static int16_t target_from_duty(uint16_t duty) {
+  int16_t out = 0;
+  const WaterModel* model = water_model_default();
+  if (!model ||
+      !model->estimate(HAUS_CAN_TEMP_EMPTY, duty, HAUS_CAN_TEMP_EMPTY, &out))
+    return 0;
+  return out;
+}
 
 void gui_update_state(void) {
   CanState& can = g_can.write();
@@ -654,8 +666,22 @@ void gui_update_state(void) {
                         ? GUI_STATUS_OK
                         : GUI_STATUS_INACTIVE;
 
-  can.chamber_target_c = 6000; /* 60 °C default */
+  can.chamber_target_c =
+      can.pwm_fresh ? target_from_duty(can.pwm_permille) : 0;
+
+  /* Water-out is modelled only when no measured return sensor is bound. The
+   * model is labelled everywhere; a real sensor always wins. */
   can.water_modelled = false;
+  const WaterModel* water_model = water_model_default();
+  int16_t modelled_out = HAUS_CAN_TEMP_EMPTY;
+  if (water_model && can.pwm_fresh &&
+      can.temp_by_fn[SENSOR_FN_WATER_OUT] == HAUS_CAN_TEMP_EMPTY &&
+      water_model->estimate(can.temp_by_fn[SENSOR_FN_WATER_IN],
+                            can.pwm_permille,
+                            can.temp_by_fn[SENSOR_FN_BOARD], &modelled_out)) {
+    can.temp_by_fn[SENSOR_FN_WATER_OUT] = modelled_out;
+    can.water_modelled = true;
+  }
   can.uptime_seconds = millis() / 1000;
 
   /* CAN counters and fault flags come from the RX task snapshot. */

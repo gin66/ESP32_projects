@@ -1172,7 +1172,10 @@ void haus_ui_update(void) {
   if (wout != HAUS_CAN_TEMP_EMPTY) {
     char tb[24];
     temp_text(wout, tb, sizeof(tb), true);
-    snprintf(buf, sizeof(buf), "~%s", tb);
+    if (state.can.water_modelled)
+      snprintf(buf, sizeof(buf), "~%s", tb);
+    else
+      snprintf(buf, sizeof(buf), "%s", tb);
     txt(s_water_out, buf);
     lv_obj_set_style_text_color(s_water_out, lv_color_hex(C_HOT), 0);
   } else {
@@ -1356,6 +1359,7 @@ typedef struct {
   int unit;
   int hourly_ok;
   int band;
+  int lines_only; /* no area fill and no envelope shading */
   uint32_t color_a, color_b;
 } chart_cfg_t;
 
@@ -1428,6 +1432,7 @@ static lv_obj_t* s_pwm_req_lbl;
 static lv_obj_t* s_pwm_force_lbl;
 static bool s_pwm_on;
 static bool s_pwm_touched;
+static bool s_pwm_can_ok;
 static uint16_t s_pwm_duty = 500;
 static uint16_t s_pwm_last_tx = 0xFFFF;
 
@@ -1572,8 +1577,9 @@ static void chart_cfg_for(int detail, chart_cfg_t* cfg) {
       cfg->use_target = 1;
       cfg->hourly_ok = 1;
       cfg->band = 1;
+      cfg->lines_only = 1;
       cfg->unit = CHART_UNIT_TEMP;
-      cfg->color_a = C_AMBER;
+      cfg->color_a = C_CYAN;
       cfg->color_b = C_HOT;
       break;
     case UI_SCREEN_POWER:
@@ -1990,7 +1996,7 @@ static void chart_draw(void) {
      * zero line towards the value, red for import and green for export, so
      * the visual area is the quantity, not an arbitrary gradient to the
      * bottom of the plot. */
-    if (c->n[0]) {
+    if (c->n[0] && !cfg.lines_only) {
       const int32_t mean = c->sum[0] / c->n[0];
       if (cfg.unit == CHART_UNIT_POWER) {
         const int zero_y = chart_value_y(0);
@@ -2016,8 +2022,8 @@ static void chart_draw(void) {
       }
     }
 
-    /* Envelope treatment. */
-    if (c->n[0]) {
+    /* Envelope treatment. Water is lines-only: no shaded envelope. */
+    if (!cfg.lines_only && c->n[0]) {
       const int y0 = chart_value_y(c->mn[0]);
       const int y1 = chart_value_y(c->mx[0]);
       if (g_range == UI_RANGE_DAY && !cfg.band) {
@@ -2027,7 +2033,7 @@ static void chart_draw(void) {
         for (int y = y0; y <= y1; y++) chart_blend_px(x, y, cfg.color_a, 64);
       }
     }
-    if (cfg.b >= 0 && c->n[1]) {
+    if (!cfg.lines_only && cfg.b >= 0 && c->n[1]) {
       const int y0 = chart_value_y(c->mn[1]);
       const int y1 = chart_value_y(c->mx[1]);
       if (g_range == UI_RANGE_DAY && !cfg.band) {
@@ -2038,6 +2044,9 @@ static void chart_draw(void) {
       }
     }
   }
+
+  HausState chart_state;
+  gui_get_state(&chart_state);
 
   /* Mean lines. */
   for (int s = 0; s < 2; s++) {
@@ -2052,7 +2061,12 @@ static void chart_draw(void) {
       const int x = CHART_X0 + (int)((uint64_t)i * (CHART_X1 - CHART_X0) /
                                      (HAUS_CHART_COLUMNS - 1));
       const int y = chart_value_y(s_cols[i].sum[slot] / s_cols[i].n[slot]);
-      if (px >= 0) chart_line(px, py, x, y, s == 0 ? ca : cb);
+      if (px >= 0) {
+        if (s == 1 && chart_state.can.water_modelled)
+          chart_dash_line(px, py, x, y, cb);
+        else
+          chart_line(px, py, x, y, s == 0 ? ca : cb);
+      }
       px = x;
       py = y;
     }
@@ -2114,6 +2128,7 @@ static bool chart_live_value(int series, int32_t* out) {
       *out = (int32_t)st.climate.hum_c100;
       break;
     case GUI_SERIES_TARGET:
+      if (st.can.chamber_target_c <= 0) return false;
       *out = st.can.chamber_target_c;
       break;
     case 7:
@@ -2160,6 +2175,14 @@ static void chart_readout_line(lv_obj_t* label, int slot, int series,
   int32_t live = 0;
   if (chart_live_value(series, &live)) now = live;
 
+  bool modelled = false;
+  if (series == 2) {
+    HausState st;
+    gui_get_state(&st);
+    modelled = st.can.water_modelled;
+  }
+  const char* tilde = modelled ? "~" : "";
+
   char a[24], b[24], c[24], d[24], line[120];
   if (n == 0) {
     snprintf(line, sizeof(line), "%sno data in this range", prefix);
@@ -2168,8 +2191,9 @@ static void chart_readout_line(lv_obj_t* label, int slot, int series,
     chart_format_axis(b, sizeof(b), mx, cfg.unit);
     chart_format_axis(c, sizeof(c), (int32_t)(sum / (int64_t)n), cfg.unit);
     chart_format_axis(d, sizeof(d), now, cfg.unit);
-    snprintf(line, sizeof(line), "%smin %s   max %s   mean %s   now %s",
-             prefix, a, b, c, d);
+    snprintf(line, sizeof(line),
+             "%smin %s%s   max %s%s   mean %s%s   now %s%s", prefix, tilde, a,
+             tilde, b, tilde, c, tilde, d);
   }
   txt(label, line);
 }
@@ -2447,20 +2471,28 @@ static void range_build(int top) {
 static void pwm_control_visual(void) {
   if (s_pwm_switch_lbl) txt(s_pwm_switch_lbl, s_pwm_on ? "ON" : "OFF");
   if (s_pwm_switch) {
+    if (s_pwm_can_ok)
+      lv_obj_clear_state(s_pwm_switch, LV_STATE_DISABLED);
+    else
+      lv_obj_add_state(s_pwm_switch, LV_STATE_DISABLED);
+    lv_obj_set_style_opa(s_pwm_switch, s_pwm_can_ok ? LV_OPA_COVER : 120, 0);
     lv_obj_set_style_bg_color(s_pwm_switch,
                               lv_color_hex(s_pwm_on ? C_OK : C_OFF), 0);
     lv_obj_set_style_bg_opa(s_pwm_switch, s_pwm_on ? 220 : 80, 0);
   }
   if (s_pwm_slider) {
-    if (s_pwm_on)
+    if (s_pwm_can_ok && s_pwm_on)
       lv_obj_clear_state(s_pwm_slider, LV_STATE_DISABLED);
     else
       lv_obj_add_state(s_pwm_slider, LV_STATE_DISABLED);
-    lv_obj_set_style_opa(s_pwm_slider, s_pwm_on ? LV_OPA_COVER : 120, 0);
+    lv_obj_set_style_opa(s_pwm_slider,
+                         (s_pwm_can_ok && s_pwm_on) ? LV_OPA_COVER : 120, 0);
   }
   if (s_pwm_req_lbl) {
     char b[40];
-    if (s_pwm_on)
+    if (!s_pwm_can_ok)
+      snprintf(b, sizeof(b), "CAN not ready");
+    else if (s_pwm_on)
       snprintf(b, sizeof(b), "requested %u / 1000", (unsigned)s_pwm_duty);
     else
       snprintf(b, sizeof(b), "requested OFF (1000)");
@@ -2469,7 +2501,7 @@ static void pwm_control_visual(void) {
 }
 
 static void pwm_send_if_changed(void) {
-  if (g_current_screen != UI_SCREEN_CHAMBER) return;
+  if (g_current_screen != UI_SCREEN_CHAMBER || !s_pwm_can_ok) return;
   const uint16_t permille = s_pwm_on ? s_pwm_duty : 1000;
   if (permille == s_pwm_last_tx) return;
   if (gui_send_pwm(permille)) s_pwm_last_tx = permille;
@@ -2507,6 +2539,11 @@ static void pwm_control_update(void) {
   HausState st;
   gui_get_state(&st);
   const uint16_t f = st.can.pwm_permille;
+  const bool can_ok = st.can.can_status == GUI_STATUS_OK;
+  if (can_ok != s_pwm_can_ok) {
+    s_pwm_can_ok = can_ok;
+    pwm_control_visual();
+  }
   if (!s_pwm_touched) {
     s_pwm_on = (f <= 500);
     s_pwm_duty = (f <= 500) ? f : 500;
@@ -2567,6 +2604,7 @@ static void pwm_control_build(int top) {
   HausState st;
   gui_get_state(&st);
   const uint16_t f = st.can.pwm_permille;
+  s_pwm_can_ok = st.can.can_status == GUI_STATUS_OK;
   s_pwm_on = (f <= 500);
   s_pwm_duty = (f <= 500) ? f : 500;
   s_pwm_last_tx = f;
@@ -2671,10 +2709,16 @@ static void detail_value_update(void) {
       return;
   }
 
-  if (v != HAUS_CAN_TEMP_EMPTY)
-    temp_text(v, buf, sizeof(buf), true);
-  else
+  if (v != HAUS_CAN_TEMP_EMPTY) {
+    char tb[24];
+    temp_text(v, tb, sizeof(tb), true);
+    if (g_detail_screen == UI_SCREEN_WATER_OUT && st.can.water_modelled)
+      snprintf(buf, sizeof(buf), "~%s", tb);
+    else
+      snprintf(buf, sizeof(buf), "%s", tb);
+  } else {
     snprintf(buf, sizeof(buf), "--");
+  }
   txt(s_detail_value, buf);
 }
 
@@ -2735,8 +2779,12 @@ static void detail_update(void) {
     char b[64];
     if (wi != HAUS_CAN_TEMP_EMPTY && ch != HAUS_CAN_TEMP_EMPTY &&
         wo != HAUS_CAN_TEMP_EMPTY) {
-      snprintf(b, sizeof(b), "delta %.1f   rise %.1f", (wi - ch) / 100.0,
-               (wo - wi) / 100.0);
+      if (st.can.water_modelled)
+        snprintf(b, sizeof(b), "delta ~%.1f   rise ~%.1f", (wi - ch) / 100.0,
+                 (wo - wi) / 100.0);
+      else
+        snprintf(b, sizeof(b), "delta %.1f   rise %.1f", (wi - ch) / 100.0,
+                 (wo - wi) / 100.0);
     } else {
       snprintf(b, sizeof(b), "delta --   rise --");
     }
@@ -3496,9 +3544,11 @@ lv_obj_t* haus_ui_build_detail(void) {
 }
 
 lv_obj_t* haus_ui_build_water(int nav_index) {
-  return detail_build(nav_index == UI_SCREEN_WATER_OUT ? UI_SCREEN_WATER_OUT
-                                                       : UI_SCREEN_WATER_IN,
-                      "WATER", nav_index, "Soll", C_ACCENT);
+  const bool out = nav_index == UI_SCREEN_WATER_OUT;
+  return detail_build(out ? UI_SCREEN_WATER_OUT : UI_SCREEN_WATER_IN, "WATER",
+                      nav_index,
+                      out && gui_water_model_available() ? "MODELLED" : "Soll",
+                      out && gui_water_model_available() ? C_VIOLET : C_ACCENT);
 }
 
 lv_obj_t* haus_ui_build_power(void) {
@@ -4471,8 +4521,11 @@ lv_obj_t* haus_ui_build_settings(void) {
                      st.can.sd_low_space ? "3 months" : "24 months", NULL);
   y += step;
   char tbuf[24];
-  snprintf(tbuf, sizeof(tbuf), "%d.%d degC", st.can.chamber_target_c / 100,
-           (st.can.chamber_target_c % 100 + 100) % 100);
+  if (st.can.chamber_target_c > 0)
+    snprintf(tbuf, sizeof(tbuf), "%d.%d degC", st.can.chamber_target_c / 100,
+             (st.can.chamber_target_c % 100 + 100) % 100);
+  else
+    snprintf(tbuf, sizeof(tbuf), "--");
   settings_value_row(y, "HEATER TARGET", tbuf, NULL);
   y += step;
   uint8_t sensors = 0;
@@ -4560,6 +4613,7 @@ void haus_ui_deinit(void) {
   s_pwm_switch = s_pwm_switch_lbl = s_pwm_slider = NULL;
   s_pwm_req_lbl = s_pwm_force_lbl = NULL;
   s_pwm_touched = false;
+  s_pwm_can_ok = false;
   s_pwm_last_tx = 0xFFFF;
   memset(s_living_tab, 0, sizeof(s_living_tab));
   memset(s_ac_tab, 0, sizeof(s_ac_tab));

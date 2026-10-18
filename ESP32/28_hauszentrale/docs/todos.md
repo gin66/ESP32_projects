@@ -4,7 +4,7 @@ Derived from `docs/whitepaper.md` rev 1.6. Order: board first, then the macOS
 environment, then Deliverable A (`tpl_waveshare_lcd7`), then the project.
 Every item names the check that closes it.
 
-357 items (33 open). Tick boxes as work lands.
+357 items (23 open). Tick boxes as work lands.
 
 ## S0 · BENCH — the two things only the hardware can answer
 
@@ -368,18 +368,18 @@ before treating `sml_error_cnt` as a diagnostic.
 - [x] S20.01 Implement the TX path for 0x240 only — Test: no other frame can be transmitted from this project. Off is the switch, not a slider position: send 1000 when off and the slider value (0–500) when on; never send 501–999. The PC817 already inverts the duty, so the panel must not invert a second time. — Done: `haus_can_bus_send_pwm()` is the only 0x240 sender; it accepts only 0..500 or 1000 and is called from the detail-page switch/slider callbacks only (2026-10-18 decision).
 - [ ] S20.02 Add an ON/OFF switch and a **500 → 0** slider, 0 = full heat, 500 = minimum heat, snapping to 5 % (50 permille) — Test: OFF always sends 1000; ON sends the slider value; the slider cannot reach 501–1000. UI preview done on the chamber screen (switch, slider, requested/in-force lines) and rendered as `host_harness/output_detail.png`; transmission now follows S20.01. This supersedes the whitepaper's 0–1000/0=off slider. Bench 2026-10-18: the PC817 inverts the duty; the control voltage is 0.41 V at 1000 and 11.28 V at 100, nonlinear in between (PC817 CTR plus the input filter), so duty is a request, not a temperature. The 0.41 V off residual may be PC817 saturation/leakage or the heater input; re-measure after settling before calling it a delay.
 - [x] ~~S20.03 Dragging changes nothing — Test: no frame is transmitted during a drag or release~~ ~~REJECTED 2026-10-18: any slider change on the detail page transmits immediately; there is no drag/release gate.~~
-- [ ] S20.04 Show the pending value as 'requested', distinct from 'in force' — Test: the two lines are always separate
+- [x] S20.04 Show the pending value as 'requested', distinct from 'in force' — Test: the two lines are always separate — Done: the detail page already renders `requested …` from the switch/slider and `in force …` from the received 0x280 report.
 - [x] ~~S20.05 Disable APPLY while requested == in force — Test: a no-op cannot be sent~~ ~~REJECTED 2026-10-18: there is no APPLY button; unchanged values are suppressed by `s_pwm_last_tx`.~~
 - [x] ~~S20.06 Modal confirm naming the requested value and durability — Test: text names the value and reads 'This survives a power cut.'~~ ~~REJECTED 2026-10-18: changes send immediately; no confirmation modal.~~
 - [x] ~~S20.07 Cancel returns the slider to the in-force value — Test: it snaps back~~ ~~REJECTED 2026-10-18: no modal, no cancel.~~
 - [ ] S20.08 Reconcile against a fresh 0x280 with a timeout — Test: sent-then-reported shows live; no report shows failed and reverts
 - [ ] S20.09 Show a conflicting writer as 'conflict' with both values, no retry loop — Test: the panel shows truth and stops
 - [x] S20.10 Render PWM_SRC_* provenance as a badge (RESTORED/live) — Test: EEPROM boot shows a distinct hollow badge — Done: `detail_update()` drives the header badge from `pwm_src` (LIVE green, NRF amber, FAULT red, RESTORED dim); the status-strip duty dot already used the hollow marker for restored values.
-- [ ] S20.11 Rate-limit commits per N16 and log old/new permille every send — Test: the log shows both values and the PWM_SRC_CAN expectation
-- [ ] S20.12 Map TX failure to the same fault flag as a bus error — Test: never-sent is visibly different from ignored
+- [x] ~~S20.11 Rate-limit commits per N16 and log old/new permille every send — Test: the log shows both values and the PWM_SRC_CAN expectation~~ ~~REJECTED 2026-10-18: the user does not want rate limiting; changes send immediately.~~
+- [x] S20.12 Map TX failure to the same fault flag as a bus error — Test: never-sent is visibly different from ignored — Done: a 0x240 send failure raises `bus_fault` and the detail controls are disabled whenever `can_status` is not green (CAN off or bus fault).
 - [x] ~~S20.13 Add a test proving no gesture, long-press, timeout or auto-repeat transmits — Test: the test enumerates every input path~~ ~~REJECTED 2026-10-18: transmission on any slider/switch change is the intended behaviour.~~
 - [x] S20.14 Confirm the panel applies no ramp, clamp or dead-man (N15) — Test: code review plus a comment naming AVR/01_heizung_temp as the owner — Done: review found no ramp, clamp or dead-man in the panel output path. The slider bounds only the request to 0..500; the comment at the PWM UI names AVR/01_heizung_temp as the owner of output safety (N15).
-- [ ] S20.15 Replace the hardcoded 60 °C Soll — the panel currently sets `chamber_target_c = 6000` in `gui_update_state()`; it is not on CAN and is not derived from the duty. Either receive the AVR's real setpoint or map the requested duty through the measured off-temperature table (500→42, 400→44, 300→54, 200→60, 100→70 °C), and show `--` when neither is available — Test: changing the duty changes the Soll on home and in the chart legend; unplugging CAN does not leave a fabricated 60 °C.
+- [x] S20.15 Replace the hardcoded 60 °C Soll — the panel currently sets `chamber_target_c = 6000` in `gui_update_state()`; it is not on CAN and is not derived from the duty. Either receive the AVR's real setpoint or map the requested duty through the measured off-temperature table (500→42, 400→44, 300→54, 200→60, 100→70 °C), and show `--` when neither is available — Test: changing the duty changes the Soll on home and in the chart legend; unplugging CAN does not leave a fabricated 60 °C. — Done: `target_from_duty()` interpolates the measured table; outside 100..500 permille or without a fresh 0x280 the Soll is 0, and home/chart/Settings render `--`.
 
 **Terminology (S20):** the temperature at which the heater cuts off is the
 **Soll** (target), not an “off” temperature. The bench table's 44/54/60/70 °C
@@ -439,14 +439,14 @@ figures are Soll values; write them that way in the UI and the docs.
 
 ## S25 · WATER MODEL (modelled water-out)
 
-- [ ] S25.01 Define the WaterModel interface with a null default — Test: with no model the zone is —
-- [ ] S25.02 estimate() returns false out of domain — Test: nonsense inputs render —, never a guess
+- [x] S25.01 Define the WaterModel interface with a null default — Test: with no model the zone is — — Done: `include/haus_water_model.h` with `estimate()`/`provenance()`; `water_model_default()` returns the installed model.
+- [x] S25.02 estimate() returns false out of domain — Test: nonsense inputs render —, never a guess — Done: the off-table model accepts only 100..500 permille; `test/test_water_model` covers 99/501/1000 and a null output.
 - [x] S25.03 Add the TEMP_MODELLED flag bit to Sample.flags — Test: a modelled record can never be read as measured — Done: `SAMPLE_FLAG_MODELLED` is defined (`haus_gui.h:68`) and set from `water_modelled` when the sample is recorded (`haus_history.cpp:425`). The rest of the model (S25.01/02) is still missing.
-- [ ] S25.04 Draw the modelled series dashed against solid measured lines — Test: the distinction survives a screenshot
-- [ ] S25.05 Add the ~ glyph on the home zone and a MODELLED badge on detail 3 — Test: both render
-- [ ] S25.06 Prefix min/mean/max readouts with ~ — Test: all three carry it
+- [x] S25.04 Draw the modelled series dashed against solid measured lines — Test: the distinction survives a screenshot — Done: the water-out mean line is drawn with `chart_dash_line()` when `water_modelled`; host `output_water.png` shows MODELLED and `~` values.
+- [x] S25.05 Add the ~ glyph on the home zone and a MODELLED badge on detail 3 — Test: both render — Done: home water-out is `~62.5 °C`; water-out detail carries the MODELLED badge and `~` headline.
+- [x] S25.06 Prefix min/mean/max readouts with ~ — Test: all three carry it — Done: the water-out readout line prefixes min/max/mean/now with `~`; delta/rise also carry `~`.
 - [ ] S25.07 Tag modelled values in the log at ! amber — Test: they are visually distinct
-- [ ] S25.08 Exclude modelled values from every statistic — Test: 'time above target' is unchanged by the model
+- [x] S25.08 Exclude modelled values from every statistic — Test: 'time above target' is unchanged by the model — Done: the above-target calculation stays on measured samples and the target series; modelled water-out only feeds the labelled chart/readouts.
 
 ## S26 · POLISH, MEMORY VERIFICATION, SOAK
 

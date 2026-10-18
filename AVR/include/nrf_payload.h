@@ -44,6 +44,7 @@ static const uint16_t NRF_MAGIC_ADC    = 0xABD1;  // ADC peak-to-peak window
 static const uint16_t NRF_MAGIC_STATS  = 0xABD2;  // CAN bus health
 static const uint16_t NRF_MAGIC_EE     = 0xABD3;  // EEPROM restore-point log status
 static const uint16_t NRF_MAGIC_SYS    = 0xABD4;  // diagnostic command, receiver -> transmitter
+static const uint16_t NRF_MAGIC_WAVE   = 0xABD5;  // 20-bin waveform, part 0..4 in order
 static const int16_t  ERR_FLAG       = -32768;  // INT16_MIN — no sensor in slot
 static const uint8_t  NRF_MAX_SENSORS = 4;
 
@@ -92,6 +93,20 @@ struct __attribute__((packed)) AdcFrame {
     uint16_t pp;         // max - min, the peak-to-peak span
     uint16_t readings;   // readings folded in; saturates at 0xFFFF
     uint8_t  flags;      // ADC_FLAG_* (haus_can.h)
+    uint16_t crc;        // CRC-CCITT over all preceding fields
+};
+
+// ─── Pipe 0: 20-bin waveform, one part (13 bytes, packed) ───────────────────
+//
+// Five of these follow the min/max frame, part 0 then 1 then 2 then 3 then 4.
+// A part 0 starts a new measurement; drop any unfinished previous set.
+// bin[] is that 1 ms slot's running average in units of 1/64 ADC count
+// (ad << 6): the first conversion seeds it, later ones move it by 1/32 of the
+// difference. Divide by 64 for counts.
+struct __attribute__((packed)) WaveFrame {
+    uint16_t magic;      // NRF_MAGIC_WAVE
+    uint8_t  part;       // 0..4
+    uint16_t bin[4];     // four slots, little-endian
     uint16_t crc;        // CRC-CCITT over all preceding fields
 };
 
@@ -223,6 +238,7 @@ static_assert(sizeof(TempFrame) == NRF_FRAME_SIZE, "TempFrame size drift");
 static_assert(sizeof(IdFrame)   == NRF_FRAME_SIZE, "IdFrame size drift");
 static_assert(sizeof(PwmFrame)  == NRF_FRAME_SIZE, "PwmFrame size drift");
 static_assert(sizeof(AdcFrame)  == NRF_FRAME_SIZE, "AdcFrame size drift");
+static_assert(sizeof(WaveFrame) == NRF_FRAME_SIZE, "WaveFrame size drift");
 static_assert(sizeof(StatsFrame)== NRF_FRAME_SIZE, "StatsFrame size drift");
 static_assert(sizeof(EeFrame)   == NRF_FRAME_SIZE, "EeFrame size drift");
 static_assert(sizeof(SysCmdFrame)== NRF_FRAME_SIZE, "SysCmdFrame size drift");

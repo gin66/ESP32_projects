@@ -7,6 +7,7 @@
 # behind /usr/bin/gcc does produce a .dSYM bundle for -g builds.
 *.o
 *.dSYM/
+test/test_adc_wave/test_adc_wave
 test/test_eeprom_log/test_eeprom_log
 test/test_eeprom_log/test_eeprom_log_san
 test/test_pwm_fault/test_pwm_fault

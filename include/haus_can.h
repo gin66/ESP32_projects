@@ -23,8 +23,11 @@
  *   0x241–0x27F  Reserved (future)
  *   0x280      PWM report (state)
  *   0x281–0x2BF  Reserved (future)
- *   0x2C0      ADC report
- *   0x2C1–0x2FF  Reserved (future)
+ *   0x2C0      ADC report (min/max/peak-to-peak, spikes)
+ *   0x2C1–0x2C5  ADC waveform, five frames in order (four bins each)
+ *   0x2C6–0x2C7  Reserved (future)
+ *   0x2C8      EEPROM restore-point log
+ *   0x2C9–0x2FF  Reserved (future)
  *   0x300      CAN bus health report
  *   0x301–0x554  Reserved (future)
  *   0x555      Timestamp broadcast                       [ESP32/15_power_log,
@@ -311,6 +314,41 @@ static inline void haus_can_get_adc(const uint8_t* buf, haus_can_adc_t* a) {
   a->flags = buf[6];
 }
 
+/* 0x2C1..0x2C5 — one 20 ms waveform, five frames, always in this order.
+ *
+ *  Each value is that 1 ms slot's running average in units of 1/64 ADC count:
+ *  the 10-bit conversion is shifted left by 6, so the full 16-bit field is
+ *  used. Divide by 64 (with rounding) for counts. The first conversion in an
+ *  empty slot seeds it; later ones move it by 1/32 of the difference. Slot 0 is
+ *  the start of the board's 20 ms quartz cycle. A new measurement restarts at
+ *  0x2C1, so a receiver that sees 0x2C1 drops any unfinished previous set.
+ *
+ *  0x2C1 bins 0..3, 0x2C2 bins 4..7, 0x2C3 bins 8..11,
+ *  0x2C4 bins 12..15, 0x2C5 bins 16..19.
+ *  Each frame is four uint16 little-endian values. DLC 8.
+ */
+#define CAN_ID_ADC_WAVE0 0x2C1
+#define CAN_ID_ADC_WAVE_COUNT 5
+
+typedef struct __attribute__((packed)) {
+  uint16_t bin[4];
+} haus_can_adc_wave_t;
+
+static inline void haus_can_set_adc_wave(uint8_t* buf, const haus_can_adc_wave_t* w) {
+  uint8_t i;
+  for (i = 0; i < 4; i++) {
+    buf[i * 2] = (uint8_t)(w->bin[i] & 0xFF);
+    buf[i * 2 + 1] = (uint8_t)(w->bin[i] >> 8);
+  }
+}
+
+static inline void haus_can_get_adc_wave(const uint8_t* buf, haus_can_adc_wave_t* w) {
+  uint8_t i;
+  for (i = 0; i < 4; i++) {
+    w->bin[i] = (uint16_t)buf[i * 2] | ((uint16_t)buf[i * 2 + 1] << 8);
+  }
+}
+
 /* 0x300  —  CAN bus health report (slow, ~5 s)
  *
  *  Payload (8 bytes):
@@ -471,6 +509,7 @@ typedef enum : uint16_t {
   HAUS_PROTO_HEIZUNG_PWM = CAN_ID_PWM_SET,           /* 0x240 */
   HAUS_PROTO_HEIZUNG_PWM_RPT = CAN_ID_PWM_REPORT,    /* 0x280 */
   HAUS_PROTO_HEIZUNG_ADC = CAN_ID_ADC_REPORT,        /* 0x2C0 */
+  HAUS_PROTO_HEIZUNG_ADC_WAVE = CAN_ID_ADC_WAVE0,    /* 0x2C1, first of five */
   HAUS_PROTO_HEIZUNG_EE = CAN_ID_EE_REPORT,          /* 0x2C8 */
   HAUS_PROTO_HEIZUNG_STATS = CAN_ID_STATS_REPORT,    /* 0x300 */
   HAUS_PROTO_TIMESTAMP = CAN_ID_TIMESTAMP,           /* 0x555 */

@@ -57,6 +57,12 @@ bool can_send_pwm(uint16_t duty_permille, uint16_t hz, uint8_t flags);
 // a bandgap's absolute accuracy, so no scaling is applied here.
 bool can_send_adc(uint16_t max_count, uint16_t min_count, uint16_t pp, uint8_t flags);
 
+// Low-priority submit on TXB2 only. Returns false immediately when that
+// buffer is still busy — the caller waits for the next loop pass. Does not
+// count a busy buffer as a dropped frame. One frame in this buffer at a
+// time, so later waveform frames cannot overtake earlier ones.
+bool can_submit_low(uint16_t id, const uint8_t data[8]);
+
 // Report: bus health, so it can be watched over the radio rather than by having
 // a scope on CAN. Fields are counters since boot plus the live register values.
 //   [0..1] accepted for transmission

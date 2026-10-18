@@ -1057,49 +1057,97 @@ static bool send_temperatures(TempFrame& f)
 }
 
 // ─── Publish one ADC window ──────────────────────────────────────────────────
-// The window is min/max, not an average, because the input is a 50 Hz current
-// coil and the interesting quantity is the envelope. A mean of a sine wave would
-// report a number that moves with the load but not with the current amplitude.
-static void send_adc_stats()
+// Min/max is the spike report. The waveform is twenty quartz-timed slots,
+// sent one low-priority CAN frame per loop pass.
+static AdcFrame  wave_spike;
+static WaveFrame wave_part[ADC_WAVE_FRAMES];
+static uint8_t   wave_step;
+static bool      wave_on;
+
+static void wave_arm()
 {
     AdcStats s;
-    if (!adc_monitor_take(&s)) return;   // no readings at all — say nothing
+    uint16_t bins[ADC_WAVE_BINS];
+    uint8_t i;
+    uint16_t mean;
 
-    AdcFrame f;
-    f.magic  = NRF_MAGIC_ADC;
-    f.max    = s.max;
-    f.min    = s.min;
-    f.pp     = (uint16_t)(s.max - s.min);
-    f.flags  = s.flags | ADC_FLAG_INTERNAL_REF;
-    // Saturate rather than wrap: a wrapped count would read as a nearly empty
-    // window, which is the opposite of what an unusually busy loop means.
-    f.readings = (uint16_t)(s.readings > 0xFFFFUL ? 0xFFFF : s.readings);
-    f.crc    = frame_crc16(&f, sizeof(f));
+    if (!adc_monitor_take(&s, bins)) return;
 
-#if !CAN_QUIET_RADIO
-    radio_send(&f, sizeof(f));
-#endif
-#if !CAN_LISTEN_ONLY
-    can_send_adc(f.max, f.min, f.pp, f.flags);
-#endif
+    memset(&wave_spike, 0, sizeof(wave_spike));
+    wave_spike.magic    = NRF_MAGIC_ADC;
+    wave_spike.max      = s.max;
+    wave_spike.min      = s.min;
+    wave_spike.pp       = (uint16_t)(s.max - s.min);
+    wave_spike.flags    = s.flags | ADC_FLAG_INTERNAL_REF;
+    wave_spike.readings = (uint16_t)(s.readings > 0xFFFFUL ? 0xFFFF : s.readings);
+    wave_spike.crc      = frame_crc16(&wave_spike, sizeof(wave_spike));
 
-    // The mean is here to distinguish a quiet signal from a noisy one: pp on its
-    // own cannot tell a stable DC level from an AC signal with the same span.
-    uint16_t mean = (uint16_t)(s.sum / (s.readings ? s.readings : 1));
+    for (i = 0; i < ADC_WAVE_FRAMES; i++) {
+        memset(&wave_part[i], 0, sizeof(wave_part[i]));
+        wave_part[i].magic = NRF_MAGIC_WAVE;
+        wave_part[i].part  = i;
+        memcpy(wave_part[i].bin, bins + (uint8_t)(i * 4u), sizeof(wave_part[i].bin));
+        wave_part[i].crc = frame_crc16(&wave_part[i], sizeof(wave_part[i]));
+    }
 
+    // New buffer: start the five waveform frames (and the spike frame) over.
+    wave_step = 0;
+    wave_on   = true;
+
+    mean = (uint16_t)(s.sum / (s.readings ? s.readings : 1));
     Serial.print("[TX] adc  min=");
-    Serial.print(f.min);
+    Serial.print(wave_spike.min);
     Serial.print(" max=");
-    Serial.print(f.max);
+    Serial.print(wave_spike.max);
     Serial.print(" pp=");
-    Serial.print(f.pp);
+    Serial.print(wave_spike.pp);
     Serial.print(" mean=");
     Serial.print(mean);
-    if (f.flags & ADC_FLAG_RAILED) {
-        Serial.print(" RAILED");
-    }
+    if (wave_spike.flags & ADC_FLAG_RAILED) Serial.print(" RAILED");
     Serial.print("  n=");
-    Serial.println(f.readings);
+    Serial.println(wave_spike.readings);
+
+    Serial.print("[TX] wave");
+    for (i = 0; i < ADC_WAVE_BINS; i++) {
+        Serial.print(' ');
+        Serial.print(bins[i]);
+    }
+    Serial.println();
+}
+
+// One step per call. Returns without advancing when CAN is down or TXB2 is busy.
+static void wave_pump()
+{
+    uint8_t d[8];
+
+    if (!wave_on) return;
+
+#if !CAN_LISTEN_ONLY
+    if (!can_ready()) return;
+
+    if (wave_step == 0u) {
+        haus_can_adc_t a;
+        a.max_count = wave_spike.max;
+        a.min_count = wave_spike.min;
+        a.pp_count  = wave_spike.pp;
+        a.flags     = wave_spike.flags;
+        haus_can_set_adc(d, &a);
+        if (!can_submit_low(CAN_ID_ADC_REPORT, d)) return;
+    } else {
+        haus_can_adc_wave_t w;
+        memcpy(w.bin, wave_part[wave_step - 1u].bin, sizeof(w.bin));
+        haus_can_set_adc_wave(d, &w);
+        if (!can_submit_low((uint16_t)(CAN_ID_ADC_WAVE0 + (wave_step - 1u)), d)) return;
+    }
+#endif
+
+#if !CAN_QUIET_RADIO
+    if (wave_step == 0u) radio_send(&wave_spike, sizeof(wave_spike));
+    else                 radio_send(&wave_part[wave_step - 1u], sizeof(wave_part[0]));
+#endif
+
+    wave_step++;
+    if (wave_step > ADC_WAVE_FRAMES) wave_on = false;
 }
 
 // ─── Publish EEPROM restore-point log status ─────────────────────────────────
@@ -1470,6 +1518,7 @@ void loop()
     if (!pwmFailover || (++failoverPoll >= 8u)) {
         if (pwmFailover) failoverPoll = 0u;
         can_pump();
+        wave_pump();
     }
 
     // One unguarded read of the last completed conversion. Called as early in
@@ -1482,7 +1531,7 @@ void loop()
     pwm_liveness_tick();
 
     if (adc_monitor_due()) {
-        send_adc_stats();
+        wave_arm();
     }
 
     /* The stats report is a long block of Serial at 115200 — tens of

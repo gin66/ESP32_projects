@@ -44,6 +44,7 @@ static const uint16_t NRF_MAGIC_ID      = 0xABCE;  /* identity frame */
 static const uint16_t NRF_MAGIC_PWM     = 0xABCF;  /* PWM output state */
 static const uint16_t NRF_MAGIC_PWM_CMD = 0xABD0;  /* duty command to TX */
 static const uint16_t NRF_MAGIC_ADC     = 0xABD1;  /* ADC window */
+static const uint16_t NRF_MAGIC_WAVE    = 0xABD5;  /* 20-bin waveform, part 0..4 */
 static const uint16_t NRF_MAGIC_STATS   = 0xABD2;  /* CAN bus health */
 static const int16_t  NRF_ERR_FLAG      = INT16_MIN;  /* no sensor in slot */
 static const uint8_t  NRF_MAX_SENSORS  = HAUS_CAN_MAX_SENSORS;
@@ -121,6 +122,24 @@ typedef struct __attribute__((packed)) {
 } haus_nrf_adc_frame_t;
 
 /* ═══════════════════════════════════════════════════════════════════════════
+ *  Waveform frame (13 bytes, packed). Five frames, part 0..4, always in order.
+ *
+ *  [0..1]  magic (NRF_MAGIC_WAVE)
+ *  [2]     part 0..4. Part 0 starts a new measurement.
+ *  [3..10] four uint16 slot averages in units of 1/64 ADC count (ad << 6)
+ *  [11..12] CRC-CCITT
+ *
+ *  Each slot is a running average: the first conversion seeds it, later ones
+ *  move it by 1/32 of the difference. Divide by 64 for counts.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+typedef struct __attribute__((packed)) {
+    uint16_t magic;      /* NRF_MAGIC_WAVE */
+    uint8_t  part;       /* 0..4 */
+    uint16_t bin[4];     /* four 1 ms slots */
+    uint16_t crc;        /* CRC-CCITT over preceding fields */
+} haus_nrf_wave_frame_t;
+
+/* ═══════════════════════════════════════════════════════════════════════════
  *  CAN bus health frame (13 bytes, packed)
  *
  *  [0..1]  magic (NRF_MAGIC_STATS)
@@ -163,6 +182,8 @@ static_assert(sizeof(haus_nrf_pwm_frame_t)  == NRF_FRAME_SIZE,
               "haus_nrf_pwm_frame_t size drift");
 static_assert(sizeof(haus_nrf_adc_frame_t)  == NRF_FRAME_SIZE,
               "haus_nrf_adc_frame_t size drift");
+static_assert(sizeof(haus_nrf_wave_frame_t) == NRF_FRAME_SIZE,
+              "haus_nrf_wave_frame_t size drift");
 static_assert(sizeof(haus_nrf_stats_frame_t)== NRF_FRAME_SIZE,
               "haus_nrf_stats_frame_t size drift");
 

@@ -372,10 +372,13 @@ void loop()
     #define RXK_ADC   3u
     #define RXK_STATS 4u
     #define RXK_EE    5u
-    #define RXK_COUNT 6u
+    #define RXK_WAVE  6u
+    #define RXK_COUNT 7u
 
     static unsigned long seenAt[RXK_COUNT] = { 0 };
-    static const char*    seenName[RXK_COUNT] = { "temp", "id", "pwm", "adc", "can-stats", "eeprom" };
+    static const char*    seenName[RXK_COUNT] = {
+        "temp", "id", "pwm", "adc", "can-stats", "eeprom", "wave"
+    };
 
     /* How long each frame type may go unseen before it is worth reporting.
      * Per type, because the node does not send everything at one rate: the ADC
@@ -393,6 +396,7 @@ void loop()
         10000UL,    /* adc        1 s  */
         20000UL,    /* can-stats  5 s  */
         150000UL,   /* eeprom    60 s  */
+        10000UL,    /* wave      ~1 s  */
     };
     static unsigned long lastFrameMs = 0;
     static unsigned long pwmfailSinceMs = 0;
@@ -425,6 +429,7 @@ static uint8_t  stat_eflg = 0;          // live MCP2515 error flags
             else if (magic == NRF_MAGIC_ADC)   k = RXK_ADC;
             else if (magic == NRF_MAGIC_STATS) k = RXK_STATS;
             else if (magic == NRF_MAGIC_EE)    k = RXK_EE;
+            else if (magic == NRF_MAGIC_WAVE)  k = RXK_WAVE;
 
             if (k < RXK_COUNT) {
                 seenAt[k] = millis();
@@ -505,6 +510,43 @@ static uint8_t  stat_eflg = 0;          // live MCP2515 error flags
             } else {
                 rejected++;
                 Serial.print("[RX] adc rejected: crc got=");
+                Serial.print(f.crc, HEX);
+                Serial.print(" exp=");
+                Serial.println(frame_crc16(&f, sizeof(f)), HEX);
+            }
+
+        } else if (magic == NRF_MAGIC_WAVE) {
+            WaveFrame f;
+            memcpy(&f, buf, sizeof(f));
+
+            if (f.crc == frame_crc16(&f, sizeof(f))) {
+                static uint16_t wave[CAN_ID_ADC_WAVE_COUNT * 4];
+                static uint8_t  wave_next = 0;
+                uint8_t i;
+
+                // Part 0 is a new measurement. Anything else must follow it.
+                if (f.part == 0u) {
+                    memcpy(wave, f.bin, sizeof(f.bin));
+                    wave_next = 1u;
+                } else if (f.part == wave_next &&
+                           wave_next < CAN_ID_ADC_WAVE_COUNT) {
+                    memcpy(wave + (uint8_t)(wave_next * 4u), f.bin, sizeof(f.bin));
+                    wave_next++;
+                    if (wave_next == CAN_ID_ADC_WAVE_COUNT) {
+                        Serial.print("[RX] wave");
+                        for (i = 0; i < CAN_ID_ADC_WAVE_COUNT * 4u; i++) {
+                            Serial.print(' ');
+                            Serial.print(wave[i]);
+                        }
+                        Serial.println();
+                        wave_next = 0u;
+                    }
+                } else {
+                    wave_next = 0u;
+                }
+            } else {
+                rejected++;
+                Serial.print("[RX] wave rejected: crc got=");
                 Serial.print(f.crc, HEX);
                 Serial.print(" exp=");
                 Serial.println(frame_crc16(&f, sizeof(f)), HEX);

@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include "adc_monitor.h"
+#include "adc_wave.h"
 
 // ─── Channel ─────────────────────────────────────────────────────────────────
 // A0 is ADC0 on the ATmega328p. MUX is programmed once in begin() rather than
@@ -10,7 +11,9 @@
 // Full-scale count. A conversion reading this has pinned against AREF.
 #define ADC_FULL_SCALE 1023
 
-static AdcStats    win;
+static AdcStats     win;
+static AdcBins      wave;
+static AdcWaveClock wave_clk;
 static unsigned long windowStartMs;
 static bool        priming;    // discard the first conversion after REFS changes
 
@@ -70,6 +73,8 @@ void adc_monitor_begin()
 
     windowStartMs = millis();
     priming       = true;
+    adc_wave_bins_clear(&wave);
+    adc_wave_clock_reset(&wave_clk, (uint32_t)micros());
 
     ADCSRA |= _BV(ADSC);
 }
@@ -89,6 +94,10 @@ static void accumulate(uint16_t v)
     win.readings++;
 
     if (v >= ADC_FULL_SCALE) win.flags |= ADC_FLAG_RAILED;
+
+    // Same kept samples as min/max. The slot comes from the quartz phase, so a
+    // slow pass drops samples and does not slide the 20 ms waveform.
+    adc_wave_add(&wave, &wave_clk, v, (uint32_t)micros());
 }
 
 void adc_monitor_tick()
@@ -106,11 +115,15 @@ bool adc_monitor_due()
     return (unsigned long)(millis() - windowStartMs) >= ADC_WINDOW_MS;
 }
 
-bool adc_monitor_take(AdcStats* out)
+bool adc_monitor_take(AdcStats* out, uint16_t bins[ADC_WAVE_BINS])
 {
-    if (out == nullptr) return false;
+    if (out == nullptr || bins == nullptr) return false;
 
     *out = win;
+
+    // The waveform is a running average, so a report is a snapshot and the
+    // averages keep smoothing instead of being cleared here.
+    adc_wave_snapshot(&wave, bins);
 
     win.max      = 0;
     win.min      = 0xFFFF;

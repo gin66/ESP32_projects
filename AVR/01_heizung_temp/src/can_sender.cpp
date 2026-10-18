@@ -559,6 +559,22 @@ bool can_send_adc(uint16_t max_count, uint16_t min_count, uint16_t pp, uint8_t f
     return submit(CAN_ID_ADC_REPORT, d);
 }
 
+bool can_submit_low(uint16_t id, const uint8_t data[8])
+{
+    struct can_frame f;
+
+    if (!ready) return false;
+    if (spi_read_reg(REG_TXB2CTRL) & TXB_TXREQ) return false;
+
+    f.can_id  = id & CAN_SFF_MASK;
+    f.can_dlc = 8;
+    memcpy(f.data, data, 8);
+
+    if (mcp.sendMessage(MCP2515::TXB2, &f) != MCP2515::ERROR_OK) return false;
+    sent++;
+    return true;
+}
+
 bool can_send_pwm(uint16_t duty_permille, uint16_t hz, uint8_t flags)
 {
     uint8_t d[8] = { 0 };

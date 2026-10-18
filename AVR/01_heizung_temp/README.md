@@ -178,7 +178,8 @@ They are **13 bytes** each.
 | Temperature | `0xABCD` | 4 × centidegree + presence bitmask | ~5.8 s |
 | Identity | `0xABCE` | rank + full 8-byte DS18B20 ROM | burst at boot, then 60 s |
 | PWM state | `0xABCF` | duty, frequency, flags | on change, then ~5.8 s |
-| ADC window | `0xABD1` | min, max, peak-to-peak, reading count, flags | 1 s |
+| ADC window | `0xABD1` | min, max, peak-to-peak, reading count, flags | ~1 s |
+| ADC waveform | `0xABD5` | part 0..4, four slot averages each (1/64 count) | with the window, in order |
 | CAN health | `0xABD2` | sent, received, refused, EFLG, CANSTAT | 5 s |
 
 **Why identity is a separate frame.** Four full ROMs need 32 bytes before any
@@ -209,6 +210,7 @@ four centidegree readings.
 | `0x240` | 8 | **in** | PWM duty command |
 | `0x280` | 8 | out | PWM duty report |
 | `0x2C0` | 8 | out | ADC window: max, min, peak-to-peak, flags |
+| `0x2C1`–`0x2C5` | 8 | out | ADC waveform, five frames in order, four bins each |
 | `0x300` | 8 | out | CAN health: sent, received, refused, EFLG, CANSTAT |
 
 Both PWM identifiers use the same 8-byte layout:
@@ -539,7 +541,23 @@ The CAN frame at `0x2C0` is DLC 8:
 [7]     reserved
 ```
 
-The radio frame is the same values plus the reading count, which is why it is 13
+The same window also fills twenty 1 ms slots. A slot is the sample's place in
+the board's 20 ms quartz cycle, so a slow loop drops samples and does not slide
+the waveform. Each slot keeps a running average in a 16-bit value: the 10-bit
+conversion is shifted left by 6, then the first conversion in an empty slot
+seeds it and later ones move it by 1/32 of the difference. The pump current is
+steady, so the averages settle quickly and can be snapshotted at any time; a
+slot with no conversion for a while simply keeps its last value. Values are in
+units of 1/64 ADC count; divide by 64 for counts. Min/max stays on `0x2C0` for
+spikes.
+
+The twenty values go out as five frames, `0x2C1` then `0x2C2` then `0x2C3` then
+`0x2C4` then `0x2C5`, four little-endian uint16 values each. They are low
+priority: the loop sends the next one only when CAN transmit buffer 2 is free,
+and waits for the next pass when it is not. A new window restarts the sequence
+at `0x2C1`. The radio copy is `0xABD5`, part 0 through 4, in the same order.
+
+The radio frame is the same min/max values plus the reading count, which is why it is 13
 bytes rather than 8:
 
 ```
@@ -560,19 +578,20 @@ make the serial output readable.
 
 ### One window is one second = 50 line periods
 
-The window is 50 whole periods of 50 Hz, which makes `ADmax`/`ADmin` the true
-envelope extremes.
+The window is one second, 50 entire periods of 50 Hz, which makes
+`ADmax`/`ADmin` the true envelope extremes.
 
 It is worth being precise about how much of that actually matters, because it
 bounds how carefully the timing has to be kept. Min and max are *per-cycle
 stationary* statistics: any window appreciably longer than one 20 ms period
 already contains complete peaks, so the reported extremes are correct regardless
 of where the window edges land relative to the waveform. Loop jitter cannot
-corrupt the result, and the 1 s boundary does not need to be aligned to a zero
+corrupt the result, and the window boundary does not need to be aligned to a zero
 crossing.
 
-What 50 periods buys is confidence, not correctness — 50 independent chances to
-catch a peak, so a single sampling dropout cannot pull the extreme in.
+What the many periods buy is confidence, not correctness — one independent chance
+per period to catch a peak, so a single sampling dropout cannot pull the extreme
+in.
 
 ### Sample rate
 

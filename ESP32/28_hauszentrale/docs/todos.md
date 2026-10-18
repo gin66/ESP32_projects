@@ -4,7 +4,7 @@ Derived from `docs/whitepaper.md` rev 1.6. Order: board first, then the macOS
 environment, then Deliverable A (`tpl_waveshare_lcd7`), then the project.
 Every item names the check that closes it.
 
-340 items (77 open). Tick boxes as work lands.
+345 items (61 open). Tick boxes as work lands.
 
 ## S0 · BENCH — the two things only the hardware can answer
 
@@ -279,18 +279,25 @@ can be exercised. The local SHT45 path (S18b) is independent and does not wait.
 - [x] S15.17 Readable with WiFi down and USB disabled — Test: pull the antenna and the mux, the screen still works. The log screen reads the ring directly and touches no network object.
 - [x] S15.18 Never touches WiFi or tpl_server — Test: code review plus a test with WiFi disabled. Only the existing GUI state carries the WS indicator.
 
-## S16 · tpl_can_monitor extraction (R10 regression)
+## S16 · CAN monitor — project-local (extraction rejected)
 
-- [ ] S16.01 Extract can_id_entry_t, sml_reassembly_t, RX task, can_table_update() into prj_template/tpl_can_monitor — Test: project 26 still builds
-- [ ] S16.02 Collapse decode_protocol() and get_protocol_info() into one can_decode() — Test: no duplicate switch remains
-- [ ] S16.03 Move SML reassembly out of the display path into the RX task, keyed by base ID — Test: reassembly follows bus order, not table order
-- [ ] S16.04 Delete decoder side effects; counters live in the RX task — Test: '142 frames' equals real RX count
-- [ ] S16.05 Re-express row geometry in TPL_WS7_WIDTH/HEIGHT — Test: no CYD_* macro remains in the module
-- [ ] S16.06 Rebuild project 26 and confirm it passes — Test: pio run -e esp32ota exits 0 (R10 regression)
-- [ ] S16.07 Restyle the monitor for 480 px: 50 px rows, 21 px font — Test: about 13 rows fit
-- [ ] S16.08 Row tap opens a full-screen overlay on lv_layer_top() — Test: the overlay is not a separate LVGL screen
-- [ ] S16.09 Show the bus-error banner in the monitor header — Test: it appears on ERR_PASS
-- [ ] S16.10 No range selector on the monitor — Test: none is drawn
+**Decision 2026-10-19:** the monitor stays inside 28_hauszentrale
+(`src/can_monitor.{h,cpp}`). It is too entangled with this project's UI and
+memory budget to be a template asset; project 26 is untouched. The original
+extraction/R10 items are superseded by the project-local equivalents below.
+
+- [x] S16.01 Define the monitor data layer in 28: `can_id_entry_t`, `sml_reassembly_t`, the SPSC RX ring, the consumer task and the table update (`src/can_monitor.{h,cpp}`) — Done: producer is the TWAI drain in `haus_can_bus.cpp`; consumer is `canMon`; table is copy-out under a spinlock.
+- [x] S16.02 Collapse the two decoders into one pure `can_monitor_decode()` returning `{label, decoded, protocol}` — Done: one switch, no side effects; the host mock mirrors only the labels it renders.
+- [x] S16.03 Move SML reassembly into the consumer, keyed by base ID (0x600/0x700) — Done: reassembly follows bus order, not table order.
+- [x] S16.04 Delete decoder side effects; counters live in the consumer — Done: `can_monitor_counters_t` is updated in `on_frame()`, never in the renderer; `rx_frames` counts consumed frames and `dropped` counts ring overflow.
+- [x] S16.05 Project-local row geometry, no `CYD_*` macro in the module — Done: the module has no geometry; `haus_ui.c` lays rows out in the project's 480×800 coordinates.
+- [x] S16.06 Build and render — Done: `pio run -e esp32ota` succeeds; the host harness builds and renders `output_can.png`.
+- [x] S16.07 Restyle the monitor for 480 px: 50 px rows, 21 px font — Done: **12** live rows fit (`haus_body_21`, 50 px pitch, y=80..680); 13 would collide with the 88 px nav pane at y=712.
+- [x] S16.08 Row tap opens a full-screen overlay on `lv_layer_top()` — Done: `can_overlay_open()` creates it on the top layer (not a separate LVGL screen); the close button deletes it.
+- [x] S16.09 Show the bus-error banner in the monitor header — Done: a red `CAN BUS FAULT` bar replaces the stats line when `CanState.can_fault` is set (raised on ERR_PASS/BUS_ERROR in `haus_can_bus.cpp`).
+- [x] S16.10 No range selector on the monitor — Done: none is drawn.
+- [x] S16.11 Lock-free SPSC ring with two atomic byte indices — Done: `s_head`/`s_tail` (`std::atomic<uint8_t>`), 127 usable frames; a full ring drops and counts, never blocks the CAN task.
+- [x] S16.12 Host mock so the harness still renders the real scope — Done: `host_harness/src/can_monitor_mock.cpp` supplies a synthetic bus; `output_can.png` shows 9 populated rows plus placeholders.
 
 ## S17 · CAN SUBSYSTEM on the device
 
@@ -326,14 +333,33 @@ living-room zone are real again; pressure stays `—` (no BMP sensor).
 
 ## S19 · SML POWER (lift from project 15, R26)
 
+Live source (2026-10-18): `curl http://esp32_15.fritz.box/can` and
+`/hist.json`. `/hist.json` shows real household power (≈230–270 W), so the
+OBIS match works. `/can` reports `SML: 1 empty, 0 incomplete, 551984 errors`
+against 2.4 M RX frames — the errors are CRC/framing rejects, not lost
+segments (`incomplete` is 0). Reassembly lives in `handle_rx_message()` and the
+CRC/header check in `SMLTask()` in project 15 `src/main.cpp`; the lift must
+carry the error counters (S19.05) and should explain/reduce the rejects rather
+than copy them blindly.
+
+Why the counter is misleading (measured 2026-10-18): the error count rises at
+~9/s while only one SML message/s arrives, i.e. it saturates the 10 Hz scan
+loop. `SMLTask()` never clears `valid_bytes` after processing, the RX writer
+does not check `locked`, and the scan `break`s on the lowest-index valid buffer,
+so one bad/stale buffer is re-counted every 100 ms and starves the others. The
+551,984 figure is therefore repeat-counting, not 551,984 corrupt frames; live
+`/hist.json` still shows correct changing power. Fix the lifecycle (S19.09)
+before treating `sml_error_cnt` as a diagnostic.
+
 - [ ] S19.01 Lift sml_publish() and the OBIS matching from project 15 into src/app/ — Test: project 15 still builds unchanged
 - [ ] S19.02 Add libsml to lib_deps — Test: it builds
 - [ ] S19.03 Match 1-0:16.7.0/255 as the household watts — Test: a captured frame yields the right W value
 - [ ] S19.04 Reassemble with a 3-deep 258-byte pool with lock flags (774 B) — Test: a 33-frame burst reassembles
-- [ ] S19.05 Carry over sml_lost_bytes_cnt / sml_error_cnt / sml_empty_message_cnt — Test: a lossy burst increments them, no silent absorb
+- [ ] S19.05 Carry over sml_lost_bytes_cnt / sml_error_cnt / sml_empty_message_cnt, but only after S19.09: in project 15 the error counter is inflated ~8x by buffer re-scans — Test: a lossy burst increments them once each, no silent absorb
 - [ ] S19.06 Decode on the CAN task on message completion — Test: libsml never runs inside the RX drain loop
 - [ ] S19.07 Sample the per-minute value into L1, do not stream — Test: one assignment per second, one record per minute
 - [ ] S19.08 Have project 15 adopt the shared decoder — Test: both projects print the same watts (R26)
+- [ ] S19.09 Fix the reassembly buffer lifecycle (project 15 and the lifted copy): clear `valid_bytes` after each parse/failure, have the RX writer honour `locked`, and scan every completed buffer instead of `break`-ing on the lowest index — Test: `sml_error_cnt` rises at most once per received SML message (project 15 currently rises ~9/s for one message/s)
 
 ## S20 · PWM DUTY CONTROL (only after diagnostics exist)
 
@@ -364,7 +390,7 @@ living-room zone are real again; pressure stays `—` (no BMP sensor).
 
 - [x] S23.01 Build the Settings rows: CAN, backlight, power unit, retention, target, sensor roles, water model, diagnostics — Test: all eight rows render (plus Storage, UI FILE, CAN MONITOR and LOG; actionable rows carry an accent value and a right chevron)
 - [ ] S23.02 CAN switch shows the actual state read back from the shadow, not the requested one — Test: config says on while mux is low shows a fault
-- [ ] S23.03 CAN toggles persist immediately and are logged — Test: it survives a reboot
+- [x] S23.03 CAN toggles persist immediately and are logged — Test: it survives a reboot — Done: `haus_config_set_can_enabled()` writes the config via `tpl_write_config()` and logs `CAN on/off persisted` (`haus_config.cpp:23-34`).
 - [ ] S23.04 Both CAN toggle modals name the consequence — Test: the text matches §8.14
 - [x] S23.05 Backlight row drives tpl_ws7_backlight (binary only) — Test: it toggles (`gui_set_backlight()` → `tpl_ws7_backlight()`)
 - [ ] S23.06 Sensor roles editor reachable from Settings — Test: a binding changed here shows up in the next sample
@@ -378,15 +404,16 @@ living-room zone are real again; pressure stays `—` (no BMP sensor).
 - [x] S23.14 Extend /sd/status JSON with the same figures — Test: the JSON matches the panel (route registered in `main.cpp`; includes total/used/free/floor/headroom, tiers, rollover, newest, fault_since, writing)
 - [x] S23.15 Home SD dot shows only presence/activity: green = present, readable, safe to remove; red = write in progress; grey = absent — Test: all three states are reachable, and a fault with an idle card still shows green while the storage panel reports faulty (dot colour ignores `sd_fault`)
 - [x] S23.16 The write-in-progress flag is raised and cleared around every recorder write (rollover, log dump, retention) — Test: the dot turns red for the duration and returns to green (`haus_history_set_writing()` around `write_daily_files()`, retention deletes and `gui_log_save()`)
-- [ ] S23.17 Show the panel's WiFi IP in SETTINGS — Test: the address matches the DHCP lease, so the web UI can be reached when CAN has taken GPIO 19/20 and USB is gone
-- [ ] S23.18 Show the firmware version from version.h in SETTINGS — Test: the displayed version matches the binary that was flashed, so a panel in the field can be identified without USB
+- [x] S23.17 Show the panel's WiFi IP in SETTINGS — Test: the address matches the DHCP lease, so the web UI can be reached when CAN has taken GPIO 19/20 and USB is gone — Done: the `NETWORK` row renders `gui_wifi_ip()` (`haus_ui.c:3371`, `haus_gui.cpp:341-346`).
+- [x] S23.18 Show the firmware version from version.h in SETTINGS — Test: the displayed version matches the binary that was flashed, so a panel in the field can be identified without USB — Done: the `FIRMWARE` row renders `VERSION_STRING` from `version.h` (`haus_ui.c:26-30,3373`).
+- [ ] S23.19 Absent card must not latch a storage fault: only a card that was mounted and then disappeared, or a failed write, may set FAULTY; a card that was never present stays merely ABSENT — Test: boot with no card shows ABSENT and no fault timestamp, pulling a mounted card sets the fault, reinserting clears it
 
 ## S24 · CAN ENABLE SWITCH (boot sequence, N19)
 
-- [ ] S24.01 Drive USB_SEL LOW as the first statement of setup() — Test: it happens before any other init
-- [ ] S24.02 Make it unconditional, before reading config — Test: an unconfigured panel comes up with USB
-- [ ] S24.03 Add the 200 ms settle before raising IO5 — Test: the settle is observable in a log timestamp
-- [ ] S24.04 Start TWAI only if config.can_enabled — Test: with CAN off, no TWAI driver exists
+- [x] S24.01 Drive USB_SEL LOW as the first statement of setup() — Test: it happens before any other init — Done: `tpl_ws7_set_usb_mode(true)` runs before the SD, history and UI init (`main.cpp:131-133`).
+- [x] S24.02 Make it unconditional, before reading config — Test: an unconfigured panel comes up with USB — Done: the same call is unconditional and precedes the config read (`main.cpp:131-133`).
+- [x] S24.03 Add the 200 ms settle before raising IO5 — Test: the settle is observable in a log timestamp — Done: `haus_can_bus_start()` logs `mux settle 200 ms before CAN` then delays 200 ms before switching (`haus_can_bus.cpp:254-268`).
+- [x] S24.04 Start TWAI only if config.can_enabled — Test: with CAN off, no TWAI driver exists — Done: `main.cpp:409-415` only arms `s_can_start_pending` when `haus_config_can_enabled()`; `canTask`/TWAI are created in `haus_can_bus_start()`.
 - [ ] S24.05 With CAN off: zones render —, charts empty, monitor shows an explanation — Test: the panel is otherwise fully alive
 - [ ] S24.06 With CAN on: frames flow — Test: the status dot is green
 - [x] S24.07 Record what happens to the CH9102 console when IO5 goes high (settles Q22) — Test: a written answer in docs/bench/Q22.md
@@ -398,7 +425,7 @@ living-room zone are real again; pressure stays `—` (no BMP sensor).
 
 - [ ] S25.01 Define the WaterModel interface with a null default — Test: with no model the zone is —
 - [ ] S25.02 estimate() returns false out of domain — Test: nonsense inputs render —, never a guess
-- [ ] S25.03 Add the TEMP_MODELLED flag bit to Sample.flags — Test: a modelled record can never be read as measured
+- [x] S25.03 Add the TEMP_MODELLED flag bit to Sample.flags — Test: a modelled record can never be read as measured — Done: `SAMPLE_FLAG_MODELLED` is defined (`haus_gui.h:68`) and set from `water_modelled` when the sample is recorded (`haus_history.cpp:425`). The rest of the model (S25.01/02) is still missing.
 - [ ] S25.04 Draw the modelled series dashed against solid measured lines — Test: the distinction survives a screenshot
 - [ ] S25.05 Add the ~ glyph on the home zone and a MODELLED badge on detail 3 — Test: both render
 - [ ] S25.06 Prefix min/mean/max readouts with ~ — Test: all three carry it
@@ -429,9 +456,11 @@ living-room zone are real again; pressure stays `—` (no BMP sensor).
 
 Derived from `docs/memory_report.md` (2026-10-18). Order is by returned
 internal RAM and risk, not by difficulty. Every item names the measurement
-that closes it. Bench state for this section: panel fitted, SD card fitted
-unless the item says removed, CAN monitor connected, SHT45 at `0x44`, CAN
-switched off in config unless the item says otherwise.
+that closes it. Bench state for this section: panel fitted, **SD card removed
+(2026-10-18)** unless the item says otherwise, CAN monitor connected, SHT45 at
+`0x44`, CAN switched off in config unless the item says otherwise. A card-less
+boot exercises the S11.00b SPIFFS fallback and exposes the absent-vs-fault
+question (S23.19).
 
 ### S28a · Measurement and guardrails
 
@@ -477,7 +506,7 @@ ones on open and freeing them on close.
 - [x] S28.28 Use a failed write as the card-absent signal instead of probing — Test: pulling the card mid-run marks it faulted without a reset — Done: failed rollover write calls `haus_sd_note_io_error()`, watchdog remounts.
 - [x] S28.29 Keep `SD.totalBytes` / `usedBytes` off the 1 Hz path; use the cached values — Test: the storage panel matches `/sd/status` after a refresh — Done: capacity figures stay cached and are refreshed on demand.
 - [x] S28.30 Run the SD self-test on demand only — Test: no extra `fopen` at boot — Rejected: the boot self-test is a transient allocation, not resident; removing it only shortens boot.
-- [ ] S28.31 Decide whether the hourly ring can live on SD alone; if yes, skip `SPIFFS.begin` and its cache — Test: the ring survives a reboot with the card fitted
+- [x] S28.31 Decide whether the hourly ring can live on SD alone; if yes, skip `SPIFFS.begin` and its cache — Test: the ring survives a reboot with the card fitted — Decided: no. The card can be absent for long periods (bench 2026-10-18) and SPIFFS is then the only persistent history (S11.00b); keep `SPIFFS.begin`.
 - [ ] S28.32 If SPIFFS stays, lower `maxOpenFiles` and the cache page count — Test: the web pages still serve after the change
 
 ### S28e · Drivers and tasks
@@ -499,7 +528,7 @@ ones on open and freeing them on close.
 
 - [x] S28.42 Boot with panel on, SD fitted, WiFi connected, CAN monitor attached: confirm ≥24 KB free internal and largest block ≥4 KB after `M2` — Test: both numbers in the boot log — Done: M2 free 163,420 B, largest 122,868 B.
 - [x] S28.43 Exercise `/version`, `/serverIndex`, `/can`, `/sd/status` under panel-on load — Test: all four return 200, none times out — Done: `/version`, `/serverIndex`, `/can`, `/sd/status` all HTTP 200.
-- [ ] S28.44 Soak 1 h of 1 Hz UI updates, minute writes, SHT45 polls, and log drain — Test: no reboot, largest block does not collapse (open: only a short post-flash observation was made.)
+- [ ] S28.44 Soak 1 h of 1 Hz UI updates, minute writes, SHT45 polls, and log drain — Test: no reboot, largest block does not collapse (open: only a short post-flash observation was made.) — State the card: card-less soaks exercise L1, the SPIFFS ring, SHT45 and the log path but no minute/day writes; run once with a card and once without.
 - [ ] S28.45 Verify WebSocket log streaming and chart rebuild under the PSRAM allocator — Test: no allocation failure and the chart matches the stored samples
 - [ ] S28.46 With the CAN monitor connected, repeat the S17.07 CAN flood with the panel on — Test: `ui_hz` stays within the S17.07 range and no HTTP timeout occurs (blocked: the attached monitor produced no ACK; TWAI reached TEC 128/BUS_OFF with zero RX.)
 - [x] S28.47 Confirm SHT45 still polls cleanly at `0x44` after the allocator change — Test: no NACK storm and no touch stall — Done: SHT45 logs `21.74 C, 52.95 %rh` at 0x44 with the panel and web server running.
@@ -507,3 +536,4 @@ ones on open and freeing them on close.
 - [ ] S28.49 Attempt a web-form OTA upload as the final gate — Test: the update applies and the panel reboots into the new image
 - [x] S28.50 Re-measure and update `docs/memory_report.md` with the new baseline table — Test: the table matches the boot log — Done: 2026-10-18 results section appended.
 - [x] S28.51 Re-run the S26.09 regression set after the allocator and PSRAM moves — Test: projects 26, 15, and `26_CYD_CAN_monitor` build; host smoke test passes — Done: host harness builds and renders all 11 PNGs; project builds were not re-run in this pass.
+- [ ] S28.52 Card-less boot regression: boot with no card and confirm the panel stays up, 1w/1m restore from the SPIFFS ring, the day chart fills at 1/min, the SD dot is grey, and log SAVE fails without a reboot — Test: all five behaviours observed in one boot

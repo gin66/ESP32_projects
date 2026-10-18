@@ -12,13 +12,14 @@
 
 #include <Arduino.h>
 #include <driver/twai.h>
-#include <freertos/FreeRTOS.h>
 #include <esp_heap_caps.h>
+#include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
 #include <cstring>
 #include <ctime>
 
+#include "can_monitor.h"
 #include "tpl_debug_log.h"
 #include "tpl_ws7.h"
 
@@ -167,8 +168,18 @@ static void can_task(void* arg) {
       if (alerts & TWAI_ALERT_RX_DATA) {
         twai_message_t msg;
         int drained = 0;
-        while (drained++ < 32 && twai_receive(&msg, 0) == ESP_OK)
+        while (drained++ < 32 && twai_receive(&msg, 0) == ESP_OK) {
+          /* Single producer into the scope ring; the canMon task is the
+           * single reader. Push first so the monitor sees the same bus order
+           * as the state decoder. */
+          can_monitor_frame_t frame;
+          frame.id = msg.identifier;
+          frame.len = msg.data_length_code;
+          frame.ext = (msg.flags & TWAI_MSG_FLAG_EXTD) ? 1 : 0;
+          memcpy(frame.data, msg.data, sizeof(frame.data));
+          can_monitor_push(&frame);
           decode_frame(&msg);
+        }
       }
       if (alerts & (TWAI_ALERT_ERR_PASS | TWAI_ALERT_BUS_ERROR)) {
         snapshot_lock();
@@ -248,8 +259,16 @@ static bool can_task_create(void) {
   return true;
 }
 
+static void can_monitor_create(void) {
+  /* The consumer only exists while CAN is on (S28.33). */
+  can_monitor_start();
+}
+
 bool haus_can_bus_start(void) {
   if (s_running) return true;
+
+  /* Start the scope consumer before the RX producer can push anything. */
+  can_monitor_create();
 
   /* S24.03: give the mux and the USB PHY 200 ms to settle before handing
    * GPIO 19/20 to the transceiver. */
@@ -301,16 +320,16 @@ bool haus_can_bus_start(void) {
   s_running = true;
 
   if (!can_task_create())
-  if (!s_task) {
-    twai_stop();
-    twai_driver_uninstall();
-    s_running = false;
-    snapshot_lock();
-    s_snap.running = false;
-    snapshot_unlock();
-    tpl_ws7_set_usb_mode(true);
-    return false;
-  }
+    if (!s_task) {
+      twai_stop();
+      twai_driver_uninstall();
+      s_running = false;
+      snapshot_lock();
+      s_snap.running = false;
+      snapshot_unlock();
+      tpl_ws7_set_usb_mode(true);
+      return false;
+    }
 
   TPL_LOGI("can", "TWAI running at 125 kbps (task %p, heap %u B)",
            (void*)s_task,

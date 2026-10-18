@@ -23,6 +23,12 @@
 #include "haus_gui.h"
 #include "haus_mem.h"
 
+#ifndef HAUS_HOST
+#include <Arduino.h>
+#endif
+
+#include "can_monitor.h"
+
 #if __has_include("version.h")
 #include "version.h"
 #endif
@@ -131,6 +137,8 @@ static int s_depth = 1;
 static void ui_show_screen(int screen);
 static void detail_update(void);
 static void log_screen_update(void);
+static void can_screen_update(void);
+static void can_overlay_close(void);
 static void power_bars_update(void);
 static void power_bars_build(void);
 static void build_status_hotspot(void);
@@ -189,6 +197,16 @@ static uint16_t s_last_pipe_r_color = 0xFFFFu;
 
 /* ─── Small helpers ─────────────────────────────────────────────────────────
  */
+
+/* Millisecond clock for the scope. The device and the host tick from the same
+ * monotonic source used by the monitor rows (millis() / lv_tick_get()). */
+static uint32_t can_ui_now_ms(void) {
+#ifdef HAUS_HOST
+  return (uint32_t)lv_tick_get();
+#else
+  return (uint32_t)millis();
+#endif
+}
 
 static bool txt(lv_obj_t* label, const char* text) {
   if (!label || !text) return false;
@@ -955,6 +973,10 @@ void haus_ui_update(void) {
   }
   if (g_current_screen == UI_SCREEN_LOG) {
     log_screen_update();
+    return;
+  }
+  if (g_current_screen == UI_SCREEN_CAN) {
+    can_screen_update();
     return;
   }
   if (g_current_screen != UI_SCREEN_HOME) {
@@ -2194,9 +2216,10 @@ static void range_build(int top) {
   }
 }
 
-static void header_build(const char* title, const char* badge,
-                         uint32_t badge_color) {
-  label_make(lv_screen_active(), title, 20, 18, &lv_font_montserrat_32, C_INK);
+static void header_build_at(const char* title, const char* badge,
+                            uint32_t badge_color, int title_y) {
+  label_make(lv_screen_active(), title, 20, title_y, &lv_font_montserrat_32,
+             C_INK);
 
   if (badge) {
     lv_obj_t* b = lv_obj_create(lv_screen_active());
@@ -2217,6 +2240,11 @@ static void header_build(const char* title, const char* badge,
     s_header_badge = NULL;
     s_header_badge_lbl = NULL;
   }
+}
+
+static void header_build(const char* title, const char* badge,
+                         uint32_t badge_color) {
+  header_build_at(title, badge, badge_color, 18);
 }
 
 static void header_badge_set(const char* text, uint32_t color) {
@@ -3243,6 +3271,183 @@ lv_obj_t* haus_ui_build_storage(void) {
   return root;
 }
 
+/* ─── CAN scope (S16) ─────────────────────────────────────────────────────
+ * 13 live rows at 50 px / 21 px. Tapping a row opens a full-screen overlay on
+ * lv_layer_top() (not a separate LVGL screen). The header carries the bus
+ * fault banner; there is deliberately no range selector.
+ */
+
+#define CAN_ROWS 12
+#define CAN_ROW_H 50
+#define CAN_ROWS_Y 80
+
+static lv_obj_t* s_can_id_lbl[CAN_ROWS];
+static lv_obj_t* s_can_type_lbl[CAN_ROWS];
+static lv_obj_t* s_can_text_lbl[CAN_ROWS];
+static lv_obj_t* s_can_stats;
+static lv_obj_t* s_can_fault_bar;
+static lv_obj_t* s_can_overlay;
+static uint32_t s_can_next_ms;
+
+static void can_overlay_close(void) {
+  if (s_can_overlay) {
+    lv_obj_delete(s_can_overlay);
+    s_can_overlay = NULL;
+  }
+}
+
+static void can_overlay_close_cb(lv_event_t* e) {
+  (void)e;
+  can_overlay_close();
+}
+
+static void can_overlay_open(int index) {
+  can_id_entry_t snapshot;
+  if (!can_monitor_get_entry(index, &snapshot)) return;
+  const can_id_entry_t* entry = &snapshot;
+  can_overlay_close();
+
+  lv_obj_t* o = lv_obj_create(lv_layer_top());
+  s_can_overlay = o;
+  lv_obj_set_size(o, SCREEN_W, SCREEN_H);
+  lv_obj_set_pos(o, 0, 0);
+  lv_obj_set_style_bg_color(o, lv_color_hex(C_BG), 0);
+  lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(o, 0, 0);
+  lv_obj_set_style_radius(o, 0, 0);
+  lv_obj_set_style_pad_all(o, 0, 0);
+  obj_set_scrollable(o, false);
+  obj_set_clickable(o, true);
+
+  char buf[220];
+  if (entry->is_extended) {
+    snprintf(buf, sizeof(buf), "CAN 0x%08lX", (unsigned long)entry->identifier);
+  } else {
+    snprintf(buf, sizeof(buf), "CAN 0x%03lX",
+             (unsigned long)(entry->identifier & 0x7FFu));
+  }
+  label_make(o, buf, 20, 10, &lv_font_montserrat_32, C_INK);
+
+  lv_obj_t* close = lv_obj_create(o);
+  lv_obj_set_size(close, 48, 44);
+  lv_obj_set_pos(close, SCREEN_W - 58, 10);
+  lv_obj_set_style_bg_opa(close, 0, 0);
+  lv_obj_set_style_border_width(close, 0, 0);
+  lv_obj_set_style_pad_all(close, 0, 0);
+  obj_set_scrollable(close, false);
+  obj_set_clickable(close, true);
+  lv_obj_add_event_cb(close, can_overlay_close_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_t* x =
+      label_make(close, LV_SYMBOL_CLOSE, 0, 0, &lv_font_montserrat_24, C_INK);
+  lv_obj_center(x);
+
+  can_monitor_decoded_t d;
+  can_monitor_decode(entry->identifier, entry->data, entry->data_len, &d);
+
+  int y = 76;
+  snprintf(buf, sizeof(buf), "TYPE      %s", d.label[0] ? d.label : "RAW");
+  label_make(o, buf, 20, y, &haus_body_21, C_INK);
+  y += 32;
+  snprintf(buf, sizeof(buf), "FRAMES    %lu (changed %lu)",
+           (unsigned long)entry->frame_count,
+           (unsigned long)entry->changed_count);
+  label_make(o, buf, 20, y, &haus_body_21, C_INK);
+  y += 32;
+  snprintf(buf, sizeof(buf), "INTERVAL  %lu ms (%lu/%lu)", entry->interval_ms,
+           entry->interval_min_ms, entry->interval_max_ms);
+  label_make(o, buf, 20, y, &haus_body_21, C_INK);
+  y += 32;
+  const uint32_t ago = (can_ui_now_ms() - entry->last_timestamp) / 1000u;
+  snprintf(buf, sizeof(buf), "LAST      %lu s ago", (unsigned long)ago);
+  label_make(o, buf, 20, y, &haus_body_21, C_INK);
+  y += 40;
+
+  label_make(o, "DECODED", 20, y, &lv_font_montserrat_16, C_DIM);
+  y += 26;
+  lv_obj_t* dec = label_make(o, d.decoded[0] ? d.decoded : "--", 20, y,
+                             &haus_body_21, C_INK);
+  lv_obj_set_width(dec, SCREEN_W - 40);
+  lv_label_set_long_mode(dec, UI_LABEL_LONG_WRAP);
+  y += 78;
+
+  if (d.protocol == HAUS_PROTO_SML) {
+    const uint16_t base = (uint16_t)(entry->identifier & ~0xFFu);
+    const int slot = (base == CAN_ID_STROMZAEHLER_INFO_ALT) ? 1 : 0;
+    sml_reassembly_t sml;
+    if (can_monitor_get_sml(slot, &sml)) {
+      snprintf(buf, sizeof(buf), "SML       %u/%u B, %u frames, %s",
+               sml.received_length, sml.expected_length, sml.frames_received,
+               sml.complete ? "OK" : (sml.active ? "rx" : "--"));
+      label_make(o, buf, 20, y, &haus_body_21, C_DIM);
+      y += 32;
+    }
+  }
+
+  /* Raw bytes, last frame. */
+  label_make(o, "RAW", 20, y, &lv_font_montserrat_16, C_DIM);
+  y += 24;
+  char raw[64];
+  size_t off = 0;
+  raw[0] = '\0';
+  for (uint8_t i = 0; i < entry->data_len && off + 4 <= sizeof(raw); i++) {
+    off += snprintf(raw + off, sizeof(raw) - off, "%02X ", entry->data[i]);
+  }
+  label_make(o, raw[0] ? raw : "--", 20, y, &haus_body_21, C_INK);
+}
+
+static void can_row_cb(lv_event_t* e) {
+  const int index = (int)(intptr_t)lv_event_get_user_data(e);
+  can_overlay_open(index);
+}
+
+static void can_screen_update(void) {
+  const uint32_t now = can_ui_now_ms();
+  if ((int32_t)(now - s_can_next_ms) < 0) return;
+  s_can_next_ms = now + 250;
+
+  HausState st;
+  gui_get_state(&st);
+  const bool fault = st.can.can_fault != 0;
+  if (s_can_fault_bar) {
+    obj_set_hidden(s_can_fault_bar, !fault);
+    if (s_can_stats) obj_set_hidden(s_can_stats, fault);
+  }
+
+  const can_monitor_counters_t* c = can_monitor_counters();
+  if (s_can_stats) {
+    char buf[96];
+    snprintf(buf, sizeof(buf), "RX %lu  drop %lu  TS %lu  SML %lu/%lu",
+             (unsigned long)c->rx_frames, (unsigned long)c->dropped,
+             (unsigned long)c->proto_ts, (unsigned long)c->sml_ok,
+             (unsigned long)c->sml_incomplete);
+    txt(s_can_stats, buf);
+  }
+
+  for (int i = 0; i < CAN_ROWS; i++) {
+    can_id_entry_t snapshot;
+    if (!can_monitor_get_entry(i, &snapshot)) {
+      txt(s_can_id_lbl[i], "---");
+      txt(s_can_type_lbl[i], "--");
+      txt(s_can_text_lbl[i], "--");
+      continue;
+    }
+    const can_id_entry_t* entry = &snapshot;
+    char idb[16];
+    if (entry->is_extended) {
+      snprintf(idb, sizeof(idb), "%08lX", (unsigned long)entry->identifier);
+    } else {
+      snprintf(idb, sizeof(idb), "%03lX",
+               (unsigned long)(entry->identifier & 0x7FFu));
+    }
+    txt(s_can_id_lbl[i], idb);
+
+    can_monitor_decoded_t d;
+    can_monitor_decode(entry->identifier, entry->data, entry->data_len, &d);
+    txt(s_can_type_lbl[i], d.label[0] ? d.label : "RAW");
+    txt(s_can_text_lbl[i], d.decoded[0] ? d.decoded : "--");
+  }
+}
+
 lv_obj_t* haus_ui_build_can(void) {
   screen_lock_scroll();
   lv_obj_t* root = lv_screen_active();
@@ -3254,46 +3459,69 @@ lv_obj_t* haus_ui_build_can(void) {
   const bool on = st.can.can_enabled;
   header_build("CAN MONITOR", on ? "ON" : "OFF", on ? C_OK : C_OFF);
 
-  int y = 64;
-  char buf[96];
+  s_can_stats = NULL;
+  s_can_fault_bar = NULL;
+  for (int i = 0; i < CAN_ROWS; i++) {
+    s_can_id_lbl[i] = NULL;
+    s_can_type_lbl[i] = NULL;
+    s_can_text_lbl[i] = NULL;
+  }
+
   if (!on) {
-    label_make(root, "CAN is disabled in Settings.", 20, y, &haus_body_21,
+    label_make(root, "CAN is disabled in Settings.", 20, 80, &haus_body_21,
                C_AMBER);
-    label_make(root, "USB remains available.", 20, y + 34, &haus_body_21,
-               C_DIM);
-    label_make(root, "No history, no monitor.", 20, y + 68, &haus_body_21,
-               C_DIM);
-  } else {
-    /* Rows are 50 px high with 21 px text (S21.04, §8.10). */
-    snprintf(buf, sizeof(buf), "0x200 chamber      %.1f degC",
-             st.can.temp_by_fn[SENSOR_FN_CHAMBER] == HAUS_CAN_TEMP_EMPTY
-                 ? 0.0
-                 : st.can.temp_by_fn[SENSOR_FN_CHAMBER] / 100.0);
-    label_make(root, buf, 20, y, &haus_body_21, C_INK);
-    snprintf(buf, sizeof(buf), "0x200 water in     %.1f degC",
-             st.can.temp_by_fn[SENSOR_FN_WATER_IN] == HAUS_CAN_TEMP_EMPTY
-                 ? 0.0
-                 : st.can.temp_by_fn[SENSOR_FN_WATER_IN] / 100.0);
-    label_make(root, buf, 20, y + 50, &haus_body_21, C_INK);
-    snprintf(buf, sizeof(buf), "0x200 water out    %.1f degC",
-             st.can.temp_by_fn[SENSOR_FN_WATER_OUT] == HAUS_CAN_TEMP_EMPTY
-                 ? 0.0
-                 : st.can.temp_by_fn[SENSOR_FN_WATER_OUT] / 100.0);
-    label_make(root, buf, 20, y + 100, &haus_body_21, C_INK);
-    snprintf(buf, sizeof(buf), "0x280 PWM          %u permille",
-             st.can.pwm_permille);
-    label_make(root, buf, 20, y + 150, &haus_body_21, C_INK);
-    snprintf(buf, sizeof(buf), "0x280 frequency    %u Hz", st.can.frequency_hz);
-    label_make(root, buf, 20, y + 200, &haus_body_21, C_INK);
-    snprintf(buf, sizeof(buf), "bus  rx %u  tx %u  errors %u", st.can.rx_frames,
-             st.can.tx_frames, st.can.bus_errors);
-    label_make(root, buf, 20, y + 250, &haus_body_21, C_DIM);
-    snprintf(buf, sizeof(buf), "fault %u  last frame %u ms", st.can.can_fault,
-             st.can.last_frame_ms);
-    label_make(root, buf, 20, y + 300, &haus_body_21, C_DIM);
+    label_make(root, "USB remains available.", 20, 118, &haus_body_21, C_DIM);
+    label_make(root, "No history, no monitor.", 20, 156, &haus_body_21, C_DIM);
+    nav_build(UI_SCREEN_SETTINGS);
+    return root;
+  }
+
+  s_can_stats = label_make(root, "", 20, 58, &lv_font_montserrat_16, C_DIM);
+
+  /* Header fault banner (S16.09). It replaces the stats line on a fault. */
+  lv_obj_t* fb = lv_obj_create(root);
+  lv_obj_set_size(fb, SCREEN_W, 20);
+  lv_obj_set_pos(fb, 0, 56);
+  lv_obj_set_style_bg_color(fb, lv_color_hex(C_HOT), 0);
+  lv_obj_set_style_bg_opa(fb, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(fb, 0, 0);
+  lv_obj_set_style_radius(fb, 0, 0);
+  lv_obj_set_style_pad_all(fb, 0, 0);
+  obj_set_scrollable(fb, false);
+  obj_set_clickable(fb, false);
+  lv_obj_t* fl =
+      label_make(fb, "CAN BUS FAULT", 0, 0, &lv_font_montserrat_16, C_INK);
+  lv_obj_center(fl);
+  s_can_fault_bar = fb;
+  obj_set_hidden(fb, true);
+
+  for (int i = 0; i < CAN_ROWS; i++) {
+    lv_obj_t* row = lv_obj_create(root);
+    lv_obj_set_size(row, SCREEN_W, CAN_ROW_H);
+    lv_obj_set_pos(row, 0, CAN_ROWS_Y + i * CAN_ROW_H);
+    lv_obj_set_style_bg_color(
+        row, lv_color_hex(i % 2 == 0 ? 0x111111 : 0x1a1a1a), 0);
+    lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(row, 0, 0);
+    lv_obj_set_style_radius(row, 0, 0);
+    lv_obj_set_style_pad_all(row, 0, 0);
+    obj_set_scrollable(row, false);
+    obj_set_clickable(row, true);
+    lv_obj_add_event_cb(row, can_row_cb, LV_EVENT_CLICKED, (void*)(intptr_t)i);
+
+    s_can_id_lbl[i] = label_make(row, "---", 14, 12, &haus_body_21, C_INK);
+    lv_obj_set_size(s_can_id_lbl[i], 80, 26);
+    s_can_type_lbl[i] = label_make(row, "--", 100, 12, &haus_body_21, C_DIM);
+    lv_obj_set_size(s_can_type_lbl[i], 108, 26);
+    s_can_text_lbl[i] = label_make(row, "--", 212, 12, &haus_body_21, C_INK);
+    lv_obj_set_size(s_can_text_lbl[i], 252, 26);
+    lv_label_set_long_mode(s_can_id_lbl[i], LV_LABEL_LONG_DOT);
+    lv_label_set_long_mode(s_can_type_lbl[i], LV_LABEL_LONG_DOT);
+    lv_label_set_long_mode(s_can_text_lbl[i], LV_LABEL_LONG_DOT);
   }
 
   nav_build(UI_SCREEN_SETTINGS);
+  can_screen_update();
   return root;
 }
 
@@ -3377,6 +3605,7 @@ lv_obj_t* haus_ui_build_settings(void) {
 }
 
 void haus_ui_deinit(void) {
+  can_overlay_close();
   log_modal_close();
   s_log_modal = NULL;
   lv_obj_t* root = lv_screen_active();

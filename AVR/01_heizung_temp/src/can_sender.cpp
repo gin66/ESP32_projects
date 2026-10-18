@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include "can_sender.h"
+#include "serial_log.h"
 #include "haus_can.h"
 
 #include "mcp2515.h"
@@ -179,10 +180,10 @@ static void tx_abort_stuck()
 
         if (txAbortReportLeft) {
             txAbortReportLeft = false;
-            Serial.print(F("[CAN] aborted stuck TX buffer "));
-            Serial.print(i);
-            Serial.print(F(" ctrl=0x"));
-            Serial.println(v, HEX);
+            log_print(F("[CAN] aborted stuck TX buffer "));
+            log_print(i);
+            log_print(F(" ctrl=0x"));
+            log_println(v, HEX);
         }
     }
 }
@@ -244,7 +245,7 @@ static bool accept_only_pwm()
         static bool reported = false;
         if (!reported) {
             reported = true;
-            Serial.println(F("[CAN] acceptance filter did not read back"));
+            log_println(F("[CAN] acceptance filter did not read back"));
         }
         return false;
     }
@@ -302,41 +303,41 @@ void can_error_counters(uint8_t* tec, uint8_t* rec)
 void can_dump_config()
 {
     if (!ready) {
-        Serial.println(F("[CAN] dump: no controller"));
+        log_println(F("[CAN] dump: no controller"));
         return;
     }
 
     uint8_t eflg = mcp.getErrorFlags();
-    Serial.print(F("[CAN] library 8 MHz / 125 kbit/s  mode="));
+    log_print(F("[CAN] library 8 MHz / 125 kbit/s  mode="));
 #if CAN_LISTEN_ONLY
-    Serial.print(F("listen-only"));
+    log_print(F("listen-only"));
 #else
-    Serial.print(F("normal"));
+    log_print(F("normal"));
 #endif
-    Serial.print(F("  accept=0x"));
-    Serial.print(CAN_ID_PWM_SET, HEX);
-    Serial.print(F("  EFLG=0x"));
-    Serial.print(eflg, HEX);
-    Serial.print(F(" INTF=0x"));
-    Serial.print(mcp.getInterrupts(), HEX);
-    Serial.print(F(" TEC="));
-    Serial.print(mcp.errorCountTX());
-    Serial.print(F(" REC="));
-    Serial.println(mcp.errorCountRX());
+    log_print(F("  accept=0x"));
+    log_print(CAN_ID_PWM_SET, HEX);
+    log_print(F("  EFLG=0x"));
+    log_print(eflg, HEX);
+    log_print(F(" INTF=0x"));
+    log_print(mcp.getInterrupts(), HEX);
+    log_print(F(" TEC="));
+    log_print(mcp.errorCountTX());
+    log_print(F(" REC="));
+    log_println(mcp.errorCountRX());
 
     uint8_t got[PROBE_LEN];
     uint8_t bad = can_spi_probe(got);
-    Serial.print(F("[CAN] spi probe mismatch="));
-    Serial.print(bad);
+    log_print(F("[CAN] spi probe mismatch="));
+    log_print(bad);
     if (bad != 0) {
-        Serial.print(F(" read="));
+        log_print(F(" read="));
         for (uint8_t i = 0; i < PROBE_LEN; i++) {
-            Serial.print(F(" "));
-            if (got[i] < 0x10) Serial.print('0');
-            Serial.print(got[i], HEX);
+            log_print(F(" "));
+            if (got[i] < 0x10) log_print('0');
+            log_print(got[i], HEX);
         }
     }
-    Serial.println();
+    log_println();
 }
 
 // Write 13 bytes at TXB0SIDH (not the control byte, so TXREQ stays clear)
@@ -476,22 +477,22 @@ void can_pump()
 
             uint8_t tec = 0, rec = 0;
             can_error_counters(&tec, &rec);
-            Serial.print(F("[CAN] bus-off  eflg=0x"));
-            Serial.print(busOffEflg, HEX);
-            Serial.print(F(" tec="));
-            Serial.print(tec);
-            Serial.print(F(" rec="));
-            Serial.print(rec);
-            Serial.print(F(" try="));
-            Serial.print(recoverTries);
+            log_print(F("[CAN] bus-off  eflg=0x"));
+            log_print(busOffEflg, HEX);
+            log_print(F(" tec="));
+            log_print(tec);
+            log_print(F(" rec="));
+            log_print(rec);
+            log_print(F(" try="));
+            log_print(recoverTries);
 
             // can_recover() clears busOff on success; if it fails it leaves
             // ready false, and the peripheral state machine in main.cpp then
             // falls back to plain can_init() retries.
             if (can_recover()) {
-                Serial.println(F(" — recovered"));
+                log_println(F(" — recovered"));
             } else {
-                Serial.println(F(" — reset did not take, will retry"));
+                log_println(F(" — reset did not take, will retry"));
             }
         }
         return;

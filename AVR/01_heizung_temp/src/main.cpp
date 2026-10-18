@@ -11,6 +11,7 @@
 #include "eeprom_log.h"
 #include "eeprom_avr.h"
 #include "pwm_fault.h"
+#include "serial_log.h"
 
 // ─── Hardware pins (rf-nano V1.0: CE=10, CSN=9) ─────────────────────────────
 #define ONE_WIRE_BUS       4   // DS18B20 data on D4
@@ -320,7 +321,7 @@ static void peripherals_tick()
         if (radio_bring_up()) {
             radioReady     = true;
             radioInitFails = 0;
-            Serial.println(F("[TX] radio ready — 250 kbps, 13-byte frames"));
+            log_println(F("[TX] radio ready — 250 kbps, 13-byte frames"));
             // Re-announce the sensor set now that there is a radio to hear it.
             idPeriodMs = IDENTITY_BURST_MS;
         } else {
@@ -328,9 +329,9 @@ static void peripherals_tick()
             // Report the first failure and then every twelfth: an absent radio
             // is a wiring state, not an event, and must not flood the log.
             if (radioInitFails == 1 || (radioInitFails % 12) == 0) {
-                Serial.print(F("[TX] nRF24 not responding (attempt "));
-                Serial.print(radioInitFails);
-                Serial.println(F(") — continuing without radio"));
+                log_print(F("[TX] nRF24 not responding (attempt "));
+                log_print(radioInitFails);
+                log_println(F(") — continuing without radio"));
             }
         }
         return;
@@ -344,7 +345,7 @@ static void peripherals_tick()
     // means the radio has stopped answering.
     if (radio.failureDetected) {
         radioReady = false;
-        Serial.println(F("[TX] radio stopped answering — re-initialising"));
+        log_println(F("[TX] radio stopped answering — re-initialising"));
     }
 #endif
 #endif  // !CAN_QUIET_RADIO
@@ -357,16 +358,16 @@ static void peripherals_tick()
 
         if (can_init()) {
             canInitFails = 0;
-            Serial.print(F("[TX] CAN ready @ 125 kbit/s, data id "));
-            Serial.print(CAN_ID_DATA_BASE, HEX);
-            Serial.println(F(""));
+            log_print(F("[TX] CAN ready @ 125 kbit/s, data id "));
+            log_print(CAN_ID_DATA_BASE, HEX);
+            log_println(F(""));
             can_dump_config();
         } else {
             canInitFails++;
             if (canInitFails == 1 || (canInitFails % 12) == 0) {
-                Serial.print(F("[TX] CAN controller not answering (attempt "));
-                Serial.print(canInitFails);
-                Serial.println(F(") — continuing without CAN"));
+                log_print(F("[TX] CAN controller not answering (attempt "));
+                log_print(canInitFails);
+                log_println(F(") — continuing without CAN"));
             }
         }
     }
@@ -616,10 +617,10 @@ static void pwm_failover_enter(void)
     pwm_fault_record();
     broadcast_pwm();
 
-    Serial.println(F("[TX] PWM FAILURE PERSISTED — entering safe mode"));
-    Serial.print(F("[TX]   1 kHz square wave @ "));
-    Serial.print(PWM_FAILOVER_PERMILLE);
-    Serial.println(F(" permille on D7; node stays alive, telemetry continues"));
+    log_println(F("[TX] PWM FAILURE PERSISTED — entering safe mode"));
+    log_print(F("[TX]   1 kHz square wave @ "));
+    log_print(PWM_FAILOVER_PERMILLE);
+    log_println(F(" permille on D7; node stays alive, telemetry continues"));
 
     /* NOT a blocking spin. An earlier revision looped here forever, which made
      * safe mode unreachable: no serial, no CAN, no radio, and no way out but a
@@ -653,12 +654,12 @@ static void pwm_liveness_tick(void)
     alive = pwm_out_alive();
 
     if (!pwm_monitor_observe(&pwmMon, (uint8_t)(alive ? 1u : 0u))) {
-        if (pwmMon.stalled) Serial.println(F("[TX] PWM ISR recovered"));
+        if (pwmMon.stalled) log_println(F("[TX] PWM ISR recovered"));
         return;
     }
 
     if (pwmStallCount == 0u || (pwmStallCount & 0xFFu) == 0u) {
-        Serial.println(F("[TX] PWM ISR stalled — no edge progress"));
+        log_println(F("[TX] PWM ISR stalled — no edge progress"));
     }
 
     act = pwm_fault_on_stall(&pwmBoot->pwm_fault_last_boot,
@@ -671,7 +672,7 @@ static void pwm_liveness_tick(void)
     if (act == PWM_FAULT_REBOOT) {
         pwmStallCount++;
         pwm_fault_record();
-        Serial.println(F("[TX]   first occurrence — latching and rebooting"));
+        log_println(F("[TX]   first occurrence — latching and rebooting"));
 
         /* Reboot by starving the watchdog: stop feeding it and let the 2 s
          * timeout fire. Deliberately not an explicit reset — going through the
@@ -698,7 +699,7 @@ static void sys_cmd_exec(uint8_t cmd, uint8_t arg)
     switch (cmd) {
 
     case SYSCMD_REBOOT:
-        Serial.println(F("[TX] *** DIAG: reboot requested — starving watchdog"));
+        log_println(F("[TX] *** DIAG: reboot requested — starving watchdog"));
         Serial.flush();
         /* Deliberately not an explicit reset: going through the watchdog is what
          * this command exists to verify. It also leaves the retained flags and
@@ -708,8 +709,8 @@ static void sys_cmd_exec(uint8_t cmd, uint8_t arg)
         }
 
     case SYSCMD_PWM_STALL:
-        Serial.println(F("[TX] *** DIAG: killing TIMSK1 — expect stall, reboot,"));
-        Serial.println(F("[TX] ***       then safe mode on the *next* fault"));
+        log_println(F("[TX] *** DIAG: killing TIMSK1 — expect stall, reboot,"));
+        log_println(F("[TX] ***       then safe mode on the *next* fault"));
         Serial.flush();
         /* The most direct way to simulate a dead output path: clear the compare
          * enables so no edge is ever generated again, leaving everything else —
@@ -737,7 +738,7 @@ static void sys_cmd_exec(uint8_t cmd, uint8_t arg)
          * through the normal path — which is the guard working, not a problem —
          * so the records are written straight through the io interface, the same
          * way the host test builds it. */
-        Serial.println(F("[TX] *** DIAG: filling every EEPROM slot"));
+        log_println(F("[TX] *** DIAG: filling every EEPROM slot"));
         Serial.flush();
         {
             /* 1024 EEPROM byte writes at ~3.3 ms each, so ~3.4 s against a 2 s
@@ -747,7 +748,7 @@ static void sys_cmd_exec(uint8_t cmd, uint8_t arg)
              * line reporting "restarted N times" — which reads as a fault rather
              * than as the anomaly that was deliberately created. */
             uint16_t slot;
-            Serial.print(F("[TX] ***       filling"));
+            log_print(F("[TX] ***       filling"));
             for (slot = 0u; slot < EPL_SLOTS; slot++) {
                 epl_raw_t raw;
                 uint16_t base = (uint16_t)(slot * EPL_REC_SIZE);
@@ -758,24 +759,24 @@ static void sys_cmd_exec(uint8_t cmd, uint8_t arg)
                     epl_io()->wr(epl_io()->ctx, (uint16_t)(base + j), raw.b[j]);
                 }
                 if ((slot & 0x0Fu) == 0x0Fu) {
-                    Serial.print('.');
+                    log_print('.');
                     Serial.flush();
                     wdt_reset();
                 }
             }
-            Serial.println();
+            log_println();
         }
         epl_scan(epl_io(), &epl_state);
         epl_rescan_fault();   /* the ring was just overwritten wholesale */
         if (epl_state.anomaly) {
-            Serial.println(F("[TX] ***       anomaly set — restore falls back to OFF"));
+            log_println(F("[TX] ***       anomaly set — restore falls back to OFF"));
             /* This is destructive on purpose, and the node cannot recover from it
              * by itself: epl_append() refuses in the anomalous state, so the duty
              * stops being persisted entirely and the next power cut would restore
              * OFF. Say so, and say the key. */
-            Serial.println(F("[TX] ***       node cannot write the log now — press X to erase it"));
+            log_println(F("[TX] ***       node cannot write the log now — press X to erase it"));
         } else {
-            Serial.println(F("[TX] ***       NOT anomalous — check the build"));
+            log_println(F("[TX] ***       NOT anomalous — check the build"));
         }
         return;
 
@@ -784,7 +785,7 @@ static void sys_cmd_exec(uint8_t cmd, uint8_t arg)
          * the only command that touches EEPROM on purpose. Normally unnecessary,
          * because bumping EPL_FORMAT invalidates every existing record on its
          * own — this is for a log that has to be discarded right now. */
-        Serial.println(F("[TX] *** DIAG: erasing the EEPROM log"));
+        log_println(F("[TX] *** DIAG: erasing the EEPROM log"));
         Serial.flush();
         {
             /* A full erase is 1024 EEPROM byte writes at ~3.3 ms each, so about
@@ -798,16 +799,16 @@ static void sys_cmd_exec(uint8_t cmd, uint8_t arg)
              * borderline, with progress dots because 3.4 s of silence on a
              * bench looks like a hang. */
             uint16_t slot;
-            Serial.print(F("[TX] ***       erasing"));
+            log_print(F("[TX] ***       erasing"));
             for (slot = 0u; slot < EPL_SLOTS; slot++) {
                 epl_erase_slot(epl_io(), slot);
                 if ((slot & 0x0Fu) == 0x0Fu) {
-                    Serial.print('.');
+                    log_print('.');
                     Serial.flush();
                     wdt_reset();
                 }
             }
-            Serial.println();
+            log_println();
         }
         epl_scan(epl_io(), &epl_state);
         /* The ring has just been rewritten from scratch, so anything derived
@@ -823,18 +824,18 @@ static void sys_cmd_exec(uint8_t cmd, uint8_t arg)
         if (epl_append(epl_io(), &epl_state, epl_restored,
                        (uint8_t)EPL_FLAG_BOOT) != 0xFFFFu) {
             epl_writes++;
-            Serial.println(F("[TX] ***       log erased and writable again"));
+            log_println(F("[TX] ***       log erased and writable again"));
         } else {
-            Serial.println(F("[TX] ***       ERASE FAILED — log still unwritable"));
+            log_println(F("[TX] ***       ERASE FAILED — log still unwritable"));
         }
         return;
 
     case SYSCMD_REVIVE:
         if (!pwmFailover) {
-            Serial.println(F("[TX] *** DIAG: revive — not in failover"));
+            log_println(F("[TX] *** DIAG: revive — not in failover"));
             return;
         }
-        Serial.println(F("[TX] *** DIAG: reviving — handing D7 back to Timer1"));
+        log_println(F("[TX] *** DIAG: reviving — handing D7 back to Timer1"));
         Serial.flush();
         /* If the path is genuinely broken the liveness monitor will put it
          * straight back into failover, which is the correct outcome: the attempt
@@ -845,15 +846,15 @@ static void sys_cmd_exec(uint8_t cmd, uint8_t arg)
         return;
 
     case SYSCMD_CLEAR_STATS:
-        Serial.println(F("[TX] *** DIAG: clearing counters"));
+        log_println(F("[TX] *** DIAG: clearing counters"));
         Serial.flush();
         win_frames = win_cmds = win_bad = sysCmds = 0u;
         pwmStallCount = 0u;
         return;
 
     default:
-        Serial.print(F("[TX] *** DIAG: unknown command "));
-        Serial.println(cmd, HEX);
+        log_print(F("[TX] *** DIAG: unknown command "));
+        log_println(cmd, HEX);
         return;
     }
 }
@@ -940,9 +941,9 @@ static void listen_window(unsigned long ms)
 
     if (changed) {
         set_pwm_duty_from(want, PWM_SRC_NRF);
-        Serial.print("[TX] PWM set to ");
-        Serial.print(want);
-        Serial.println(" permille");
+        log_print("[TX] PWM set to ");
+        log_print(want);
+        log_println(" permille");
     }
 }
 #endif
@@ -1007,12 +1008,12 @@ static void send_identities()
      * temperature cycle while the receiver's sensor list stayed empty, and there
      * would be nothing here to tell the two apart. */
     if (sent > 0u) {
-        Serial.print(F("[TX] identity burst: "));
-        Serial.print(sent);
-        Serial.print(F(" sensor(s), rank0="));
-        Serial.println(rom_to_str(sensor_roms[0]));
+        log_print(F("[TX] identity burst: "));
+        log_print(sent);
+        log_print(F(" sensor(s), rank0="));
+        log_println(rom_to_str(sensor_roms[0]));
     } else {
-        Serial.println(F("[TX] identity burst: NONE — no sensors ranked"));
+        log_println(F("[TX] identity burst: NONE — no sensors ranked"));
     }
 }
 
@@ -1095,24 +1096,24 @@ static void wave_arm()
     wave_on   = true;
 
     mean = (uint16_t)(s.sum / (s.readings ? s.readings : 1));
-    Serial.print("[TX] adc  min=");
-    Serial.print(wave_spike.min);
-    Serial.print(" max=");
-    Serial.print(wave_spike.max);
-    Serial.print(" pp=");
-    Serial.print(wave_spike.pp);
-    Serial.print(" mean=");
-    Serial.print(mean);
-    if (wave_spike.flags & ADC_FLAG_RAILED) Serial.print(" RAILED");
-    Serial.print("  n=");
-    Serial.println(wave_spike.readings);
+    log_print("[TX] adc  min=");
+    log_print(wave_spike.min);
+    log_print(" max=");
+    log_print(wave_spike.max);
+    log_print(" pp=");
+    log_print(wave_spike.pp);
+    log_print(" mean=");
+    log_print(mean);
+    if (wave_spike.flags & ADC_FLAG_RAILED) log_print(" RAILED");
+    log_print("  n=");
+    log_println(wave_spike.readings);
 
-    Serial.print("[TX] wave");
+    log_print("[TX] wave");
     for (i = 0; i < ADC_WAVE_BINS; i++) {
-        Serial.print(' ');
-        Serial.print(bins[i]);
+        log_print(' ');
+        log_print(bins[i]);
     }
-    Serial.println();
+    log_println();
 }
 
 // One step per call. Returns without advancing when CAN is down or TXB2 is busy.
@@ -1209,26 +1210,26 @@ static void send_ee_stats()
     can_send_ee(&e);
 #endif
 
-    Serial.print(F("[TX] ee    restored="));
-    Serial.print(epl_restored);
-    Serial.print(F("  records="));
-    Serial.print(epl_state.count);
-    Serial.print(F(" writes="));
-    Serial.print(f.writes);
-    Serial.print(F("  arc="));
-    Serial.print(f.oldest);
-    Serial.print(F(".."));
-    Serial.print(f.newest);
+    log_print(F("[TX] ee    restored="));
+    log_print(epl_restored);
+    log_print(F("  records="));
+    log_print(epl_state.count);
+    log_print(F(" writes="));
+    log_print(f.writes);
+    log_print(F("  arc="));
+    log_print(f.oldest);
+    log_print(F(".."));
+    log_print(f.newest);
     switch (epl_restore_src) {
-        case EPL_SRC_VIRGIN:  Serial.print(F("  src=virgin"));  break;
-        case EPL_SRC_MARKER:  Serial.print(F("  src=marker"));  break;
-        case EPL_SRC_WINDOW:  Serial.print(F("  src=window"));  break;
-        case EPL_SRC_INVALID: Serial.print(F("  src=BAD-NEWEST")); break;
-        case EPL_SRC_ANOMALY: Serial.print(F("  src=ANOMALY-RESTORE-LOST")); break;
+        case EPL_SRC_VIRGIN:  log_print(F("  src=virgin"));  break;
+        case EPL_SRC_MARKER:  log_print(F("  src=marker"));  break;
+        case EPL_SRC_WINDOW:  log_print(F("  src=window"));  break;
+        case EPL_SRC_INVALID: log_print(F("  src=BAD-NEWEST")); break;
+        case EPL_SRC_ANOMALY: log_print(F("  src=ANOMALY-RESTORE-LOST")); break;
         default: break;
     }
-    if (epl_state.anomaly) Serial.println(F("  ANOMALOUS"));
-    else Serial.println();
+    if (epl_state.anomaly) log_println(F("  ANOMALOUS"));
+    else log_println();
 }
 
 // ─── Publish CAN bus health ──────────────────────────────────────────────────
@@ -1273,74 +1274,74 @@ static void send_can_stats()
     // values are zero but the software counters (sent/recv/refused/bad) still
     // move, and seeing them next to "ABSENT" is what separates a silent controller
     // from a silent bus.
-    Serial.print(F("[TX] can "));
-    if (!present) Serial.print(F("ABSENT "));
+    log_print(F("[TX] can "));
+    if (!present) log_print(F("ABSENT "));
 
-    Serial.print("sent=");
-    Serial.print(sent);
-    Serial.print(" recv=");
-    Serial.print(recv);
-    Serial.print(" refused=");
-    Serial.print(refused);
+    log_print("sent=");
+    log_print(sent);
+    log_print(" recv=");
+    log_print(recv);
+    log_print(" refused=");
+    log_print(refused);
     // Non-zero here means frames are arriving damaged rather than merely often.
-    Serial.print(" bad=");
-    Serial.print(can_rx_malformed());
-    Serial.print("  ovf=");
-    Serial.print(can_rx_overflows());
-    Serial.print("  tec=");
-    Serial.print(tec);
-    Serial.print(" rec=");
-    Serial.print(rec);
-    Serial.print(" eflg=0x");
+    log_print(" bad=");
+    log_print(can_rx_malformed());
+    log_print("  ovf=");
+    log_print(can_rx_overflows());
+    log_print("  tec=");
+    log_print(tec);
+    log_print(" rec=");
+    log_print(rec);
+    log_print(" eflg=0x");
     if (eflg == 0) {
-        Serial.print("0");
+        log_print("0");
     } else {
-        Serial.print(eflg, HEX);
+        log_print(eflg, HEX);
     }
     // Names follow the datasheet thresholds. EFLG 0x3 with REC 3 is not
     // RX-WARN: that bit is legal only once REC has reached 96.
-    if ((eflg & CAN_EFLAG_TXBO)  && tec == 255) Serial.print(F(" TX-BUSOFF"));
-    if ((eflg & CAN_EFLAG_TXEP)  && tec >= 128) Serial.print(F(" TX-ERRPASSIVE"));
-    if ((eflg & CAN_EFLAG_TXWAR) && tec >= 96)  Serial.print(F(" TX-WARN"));
-    if ((eflg & CAN_EFLAG_RXEP)  && rec >= 128) Serial.print(F(" RX-ERRPASSIVE"));
-    if ((eflg & CAN_EFLAG_RXWAR) && rec >= 96)  Serial.print(F(" RX-WARN"));
-    if (eflg & CAN_EFLAG_RX0OVR) Serial.print(F(" RXBUF0-OVR"));
-    if (eflg & CAN_EFLAG_RX1OVR) Serial.print(F(" RXBUF1-OVR"));
-    Serial.print(" intf=0x");
-    Serial.print(intf, HEX);
-Serial.print(" boot=");
-    Serial.print(bootState.boot_count);
-    Serial.print(" pwm_stall=");
-    Serial.print(pwmStallCount);
-    Serial.println(pwmMon.stalled ? F(" ACTIVE") : F(""));
-    Serial.print(" rst=");
-    Serial.print(can_recoveries());
-    Serial.print("/");
-    Serial.print(can_recover_tries());
-    Serial.print(" abort=");
-    Serial.print(can_tx_aborts());
+    if ((eflg & CAN_EFLAG_TXBO)  && tec == 255) log_print(F(" TX-BUSOFF"));
+    if ((eflg & CAN_EFLAG_TXEP)  && tec >= 128) log_print(F(" TX-ERRPASSIVE"));
+    if ((eflg & CAN_EFLAG_TXWAR) && tec >= 96)  log_print(F(" TX-WARN"));
+    if ((eflg & CAN_EFLAG_RXEP)  && rec >= 128) log_print(F(" RX-ERRPASSIVE"));
+    if ((eflg & CAN_EFLAG_RXWAR) && rec >= 96)  log_print(F(" RX-WARN"));
+    if (eflg & CAN_EFLAG_RX0OVR) log_print(F(" RXBUF0-OVR"));
+    if (eflg & CAN_EFLAG_RX1OVR) log_print(F(" RXBUF1-OVR"));
+    log_print(" intf=0x");
+    log_print(intf, HEX);
+log_print(" boot=");
+    log_print(bootState.boot_count);
+    log_print(" pwm_stall=");
+    log_print(pwmStallCount);
+    log_println(pwmMon.stalled ? F(" ACTIVE") : F(""));
+    log_print(" rst=");
+    log_print(can_recoveries());
+    log_print("/");
+    log_print(can_recover_tries());
+    log_print(" abort=");
+    log_print(can_tx_aborts());
     if (can_tx_aborts() > 0) {
-        Serial.print("(0x");
-        Serial.print(can_tx_abort_faults(), HEX);
-        Serial.print(")");
+        log_print("(0x");
+        log_print(can_tx_abort_faults(), HEX);
+        log_print(")");
     }
-    Serial.print(" spi=");
-    Serial.print(can_spi_errors());
-    Serial.print(" probe=");
+    log_print(" spi=");
+    log_print(can_spi_errors());
+    log_print(" probe=");
     // The count alone is the same for 13 zeros, 13 ones, and a shifted
     // pattern. The bytes are what separate those.
     uint8_t probeGot[13];
     uint8_t probeBad = can_spi_probe(probeGot);
-    Serial.print(probeBad);
+    log_print(probeBad);
     if (probeBad != 0) {
-        Serial.print(F(" read="));
+        log_print(F(" read="));
         for (uint8_t i = 0; i < 13; i++) {
-            Serial.print(' ');
-            if (probeGot[i] < 0x10) Serial.print('0');
-            Serial.print(probeGot[i], HEX);
+            log_print(' ');
+            if (probeGot[i] < 0x10) log_print('0');
+            log_print(probeGot[i], HEX);
         }
     }
-    Serial.println();
+    log_println();
 }
 
 // ─── Setup ───────────────────────────────────────────────────────────────────
@@ -1477,6 +1478,10 @@ void setup()
 #else
     Serial.println();
 #endif
+
+    // Last line of setup, so the operator knows the loop is quiet by default
+    // and how to arm it.
+    Serial.println(F("[TX] serial log OFF — send L + Enter to enable"));
 }
 
 // ─── Main loop ───────────────────────────────────────────────────────────────
@@ -1505,6 +1510,10 @@ void loop()
      * actually delivered is measured and reported rather than assumed. */
     if (pwmFailover)          pwm_out_failover_tick();
     else if (pwm_fault_persisted) pwm_failover_enter();
+
+    // Cheap when the log is off: one available() check per pass. Placed here so
+    // the failover tick above stays the first thing in the pass.
+    serial_log_poll();
 
     // Brings up the radio and CAN if they are not yet up, and detects a radio
     // that has stopped answering.
@@ -1548,21 +1557,21 @@ void loop()
             uint32_t down = pwm_out_failover_falling();
             uint32_t tot  = up + down;
 
-            Serial.print(F("[TX] failover duty="));
-            Serial.print(PWM_FAILOVER_PERMILLE);
-            Serial.print(F(" requested, "));
+            log_print(F("[TX] failover duty="));
+            log_print(PWM_FAILOVER_PERMILLE);
+            log_print(F(" requested, "));
             if (tot) {
-                Serial.print((uint32_t)((up * 1000UL) / tot));
+                log_print((uint32_t)((up * 1000UL) / tot));
             } else {
-                Serial.print('?');
+                log_print('?');
             }
-            Serial.print(F(" delivered ("));
-            Serial.print(up);
-            Serial.print('/');
-            Serial.print(down);
-            Serial.print(F(" edges) boot="));
-            Serial.print(bootState.boot_count);
-            Serial.println();
+            log_print(F(" delivered ("));
+            log_print(up);
+            log_print('/');
+            log_print(down);
+            log_print(F(" edges) boot="));
+            log_print(bootState.boot_count);
+            log_println();
         } else {
             send_can_stats();
         }
@@ -1591,14 +1600,14 @@ void loop()
             lastEeBeatMs = now;
             eeBeatFired = 1u;
             epl_persisted_duty = pwm_duty;
-            Serial.print(F("[TX] EEPROM heartbeat: duty "));
-            Serial.print(pwm_duty);
-            Serial.print(F(" permille, records="));
-            Serial.print(epl_state.count);
-            Serial.print(F(" arc="));
-            Serial.print(epl_state.oldest);
-            Serial.print(F(".."));
-            Serial.println((uint16_t)epl_state.newest);
+            log_print(F("[TX] EEPROM heartbeat: duty "));
+            log_print(pwm_duty);
+            log_print(F(" permille, records="));
+            log_print(epl_state.count);
+            log_print(F(" arc="));
+            log_print(epl_state.oldest);
+            log_print(F(".."));
+            log_println((uint16_t)epl_state.newest);
         }
     }
 
@@ -1617,10 +1626,10 @@ void loop()
     uint16_t cmd;
     if (can_read_pwm_command(&cmd) && cmd != pwm_duty) {
         set_pwm_duty_from(cmd, PWM_SRC_CAN);
-        Serial.print("[TX] PWM commanded to ");
-        Serial.print(cmd);
-        Serial.print(" permille  src=");
-        Serial.println(pwm_source_str(pwm_source));
+        log_print("[TX] PWM commanded to ");
+        log_print(cmd);
+        log_print(" permille  src=");
+        log_println(pwm_source_str(pwm_source));
     }
 
     // Non-blocking conversion. requestTemperatures() used to block for the full
@@ -1656,40 +1665,40 @@ void loop()
                                                  : LISTEN_WINDOW_MS);
 #endif
 
-        Serial.print("[TX]");
+        log_print("[TX]");
         for (uint8_t i = 0; i < NRF_MAX_SENSORS; i++) {
-            Serial.print("  t");
-            Serial.print(i);
-            Serial.print("=");
-            Serial.print(cdeg_to_str(f.temp[i]));
+            log_print("  t");
+            log_print(i);
+            log_print("=");
+            log_print(cdeg_to_str(f.temp[i]));
         }
-        Serial.print("  ok=");
-        Serial.print(ok ? "Y" : "N");
-        Serial.print("  ok_cnt=");
-        Serial.print(okCount);
-        Serial.print("  fail_cnt=");
-        Serial.print(failCount);
-        Serial.print("  can_drop=");
-        Serial.print(can_dropped());
-        Serial.print("  sensors=");
-        Serial.print(sensor_count);
-        Serial.print("  pwm=");
-        Serial.print(pwm_duty);
-        Serial.print("/");
-        Serial.print(pwm_source_str(pwm_source));
+        log_print("  ok=");
+        log_print(ok ? "Y" : "N");
+        log_print("  ok_cnt=");
+        log_print(okCount);
+        log_print("  fail_cnt=");
+        log_print(failCount);
+        log_print("  can_drop=");
+        log_print(can_dropped());
+        log_print("  sensors=");
+        log_print(sensor_count);
+        log_print("  pwm=");
+        log_print(pwm_duty);
+        log_print("/");
+        log_print(pwm_source_str(pwm_source));
         /* The output path's own verdict, not a measurement of it. There is no
          * edge count here on purpose: a total only means something when you know
          * it ought to be moving, and at an endpoint duty it should not be — so
          * the same number would mean two different things depending on a field
          * further up the line. One bit, one meaning. */
-        Serial.print("  pwm_stall=");
-        Serial.print(pwmMon.stalled);
-        Serial.print("  win[f/c/b]=");
-        Serial.print(win_frames);
-        Serial.print("/");
-        Serial.print(win_cmds);
-        Serial.print("/");
-        Serial.println(win_bad);
+        log_print("  pwm_stall=");
+        log_print(pwmMon.stalled);
+        log_print("  win[f/c/b]=");
+        log_print(win_frames);
+        log_print("/");
+        log_print(win_cmds);
+        log_print("/");
+        log_println(win_bad);
 
         if (ok) okCount++; else failCount++;
     }

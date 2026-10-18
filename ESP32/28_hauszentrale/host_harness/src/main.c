@@ -145,13 +145,14 @@ int main(int argc, char* argv[]) {
       (void (*)(void))haus_ui_build_storage,
       (void (*)(void))haus_ui_build_can,
       (void (*)(void))haus_ui_build_log,
+      (void (*)(void))haus_ui_build_roles,
       build_water,
       build_chamber_week,
       build_chamber_month,
   };
   static const char* const screen_names[] = {
       "home", "detail", "power", "living",     "settings",    "storage",
-      "can",  "log",    "water", "chart_week", "chart_month",
+      "can",  "log",    "roles", "water",      "chart_week",  "chart_month",
   };
 
   for (size_t i = 0; i < sizeof(build_funcs) / sizeof(build_funcs[0]); i++) {

@@ -106,6 +106,7 @@ enum ui_screen_id {
   UI_SCREEN_STORAGE,
   UI_SCREEN_CAN,
   UI_SCREEN_LOG,
+  UI_SCREEN_ROLES,
 };
 
 static const int nav_screens[NAV_TABS] = {
@@ -125,6 +126,7 @@ static const char* nav_icons[NAV_TABS] = {
 static int nav_index_for(int screen) {
   if (screen == UI_SCREEN_WATER_OUT) screen = UI_SCREEN_WATER_IN;
   if (screen == UI_SCREEN_STORAGE) screen = UI_SCREEN_SETTINGS;
+  if (screen == UI_SCREEN_ROLES) screen = UI_SCREEN_SETTINGS;
   for (int i = 0; i < NAV_TABS; i++)
     if (nav_screens[i] == screen) return i;
   return -1;
@@ -386,14 +388,14 @@ static void nav_click_cb(lv_event_t* e) {
 }
 
 static void ui_jump(int screen) {
-  if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_LOG) return;
+  if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_ROLES) return;
   s_depth = 1;
   s_stack[0] = screen;
   ui_nav_go(screen);
 }
 
 static void ui_push(int screen) {
-  if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_LOG) return;
+  if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_ROLES) return;
   if (s_depth < UI_STACK_MAX) s_stack[s_depth++] = screen;
   ui_nav_go(screen);
 }
@@ -3185,9 +3187,13 @@ static void settings_can_cb(lv_event_t* e) {
       label_make(no, "Cancel", 0, 0, &lv_font_montserrat_16, C_DIM));
 }
 
-/* ─── Sensor roles editor (S23.06) ──────────────────────────────────────── */
+/* ─── Sensor roles screen (S23.06) ───────────────────────────────────────
+ * A full 480x800 screen, not a dialog: the rows span the portrait width and
+ * the SETTINGS tab in the bottom nav is the way back. */
 
-static lv_obj_t* s_roles_modal;
+#define ROLES_MAX 8
+
+static lv_obj_t* s_roles_lbl[ROLES_MAX];
 
 static const char* role_fn_name(uint8_t fn) {
   switch (fn) {
@@ -3204,14 +3210,22 @@ static const char* role_fn_name(uint8_t fn) {
   }
 }
 
-static void roles_modal_close(void) {
-  if (s_roles_modal) {
-    lv_obj_delete(s_roles_modal);
-    s_roles_modal = NULL;
+static uint8_t roles_bound_count(void) {
+  uint8_t bound = 0;
+  const uint8_t count = gui_roles_count();
+  for (uint8_t i = 0; i < count; i++) {
+    uint8_t rom[8];
+    uint8_t fn = SENSOR_FN_NONE;
+    if (gui_roles_get(i, rom, &fn) && fn != SENSOR_FN_NONE) bound++;
   }
+  return bound;
 }
 
-static void roles_modal_build(void);
+static void roles_badge_refresh(void) {
+  char buf[20];
+  snprintf(buf, sizeof(buf), "%u bound", (unsigned)roles_bound_count());
+  header_badge_set(buf, C_DIM);
+}
 
 static void roles_row_cb(lv_event_t* e) {
   const uint8_t index = (uint8_t)(uintptr_t)lv_event_get_user_data(e);
@@ -3220,49 +3234,52 @@ static void roles_row_cb(lv_event_t* e) {
   if (!gui_roles_get(index, rom, &fn)) return;
   const uint8_t next = (uint8_t)((fn + 1u) % SENSOR_FN_COUNT);
   gui_roles_set(index, next);
-  roles_modal_close();
-  roles_modal_build();
+  if (index < ROLES_MAX && s_roles_lbl[index]) {
+    if (!gui_roles_get(index, rom, &fn)) fn = next;
+    txt(s_roles_lbl[index], role_fn_name(fn));
+    lv_obj_set_style_text_color(s_roles_lbl[index],
+                                lv_color_hex(fn == SENSOR_FN_NONE ? C_FAINT
+                                                                 : C_INK),
+                                0);
+    lv_obj_invalidate(s_roles_lbl[index]);
+  }
+  roles_badge_refresh();
+  gui_request_redraw();
 }
 
-static void roles_close_cb(lv_event_t* e) {
-  (void)e;
-  roles_modal_close();
-}
-
-static void roles_modal_build(void) {
-  s_roles_modal = lv_obj_create(lv_screen_active());
-  lv_obj_set_size(s_roles_modal, SCREEN_W, SCREEN_H);
-  lv_obj_set_pos(s_roles_modal, 0, 0);
-  lv_obj_set_style_bg_color(s_roles_modal, lv_color_hex(0x000000), 0);
-  lv_obj_set_style_bg_opa(s_roles_modal, 160, 0);
-  lv_obj_set_style_border_width(s_roles_modal, 0, 0);
-  obj_set_scrollable(s_roles_modal, false);
-
-  lv_obj_t* panel = lv_obj_create(s_roles_modal);
-  lv_obj_set_size(panel, 600, 360);
-  lv_obj_center(panel);
-  lv_obj_set_style_bg_color(panel, lv_color_hex(C_PANEL), 0);
-  lv_obj_set_style_radius(panel, 12, 0);
-  lv_obj_set_style_border_color(panel, lv_color_hex(C_LINE), 0);
-  lv_obj_set_style_border_width(panel, 1, 0);
-
-  label_make(panel, "SENSOR ROLES", 20, 16, &lv_font_montserrat_24, C_INK);
-  label_make(panel, "tap a probe to cycle its function", 20, 50,
-             &lv_font_montserrat_16, C_DIM);
+lv_obj_t* haus_ui_build_roles(void) {
+  screen_lock_scroll();
+  lv_obj_t* root = lv_screen_active();
+  lv_obj_set_style_bg_color(root, lv_color_hex(C_BG), 0);
+  g_current_screen = UI_SCREEN_ROLES;
+  memset(s_roles_lbl, 0, sizeof(s_roles_lbl));
 
   const uint8_t count = gui_roles_count();
-  for (uint8_t i = 0; i < count; i++) {
+  char badge[20];
+  snprintf(badge, sizeof(badge), "%u bound", (unsigned)roles_bound_count());
+  header_build("SENSOR ROLES", badge, C_DIM);
+  label_make(root, "tap a probe to cycle its function", 20, 64,
+             &lv_font_montserrat_16, C_DIM);
+
+  if (count == 0) {
+    label_make(root, "no probes discovered", 20, 116, &haus_body_21, C_AMBER);
+    label_make(root, "enable CAN and bind a probe first", 20, 148,
+               &haus_body_21, C_DIM);
+  }
+
+  const int y0 = 104, step = 62, h = 54;
+  for (uint8_t i = 0; i < count && i < ROLES_MAX; i++) {
     uint8_t rom[8];
     uint8_t fn = SENSOR_FN_NONE;
     if (!gui_roles_get(i, rom, &fn)) continue;
 
-    lv_obj_t* row = lv_obj_create(panel);
-    lv_obj_set_size(row, 560, 44);
-    lv_obj_set_pos(row, 20, 82 + i * 52);
+    lv_obj_t* row = lv_obj_create(root);
+    lv_obj_set_size(row, SCREEN_W - 40, h);
+    lv_obj_set_pos(row, 20, y0 + i * step);
     lv_obj_set_style_bg_opa(row, 0, 0);
     lv_obj_set_style_border_width(row, 1, 0);
     lv_obj_set_style_border_color(row, lv_color_hex(C_LINE), 0);
-    lv_obj_set_style_radius(row, 6, 0);
+    lv_obj_set_style_radius(row, 8, 0);
     obj_set_scrollable(row, false);
     obj_set_clickable(row, true);
     lv_obj_add_event_cb(row, roles_row_cb, LV_EVENT_CLICKED,
@@ -3271,27 +3288,27 @@ static void roles_modal_build(void) {
     char id[40];
     snprintf(id, sizeof(id), "%02X%02X%02X%02X%02X%02X%02X%02X", rom[0],
              rom[1], rom[2], rom[3], rom[4], rom[5], rom[6], rom[7]);
-    label_make(row, id, 12, 10, &lv_font_montserrat_16, C_DIM);
-    label_make(row, role_fn_name(fn), 330, 10, &lv_font_montserrat_16,
-               fn == SENSOR_FN_NONE ? C_FAINT : C_INK);
+    label_make(row, id, 14, 14, &haus_mono_21, C_DIM);
+    s_roles_lbl[i] = label_make(row, role_fn_name(fn), 250, 14, &haus_body_21,
+                                fn == SENSOR_FN_NONE ? C_FAINT : C_INK);
   }
 
-  lv_obj_t* close = lv_obj_create(panel);
-  lv_obj_set_size(close, 160, 48);
-  lv_obj_set_pos(close, 220, 282);
-  lv_obj_set_style_bg_opa(close, 0, 0);
-  lv_obj_set_style_border_width(close, 1, 0);
-  lv_obj_set_style_border_color(close, lv_color_hex(C_LINE), 0);
-  lv_obj_set_style_radius(close, 8, 0);
-  obj_set_clickable(close, true);
-  lv_obj_add_event_cb(close, roles_close_cb, LV_EVENT_CLICKED, NULL);
-  lv_obj_center(
-      label_make(close, "Close", 0, 0, &lv_font_montserrat_16, C_INK));
+  if (count <= 4) {
+    label_make(root, "cycle order", 20, 348, &lv_font_montserrat_16, C_FAINT);
+    label_make(root, "CHAMBER > WATER IN", 20, 380, &haus_body_21, C_DIM);
+    label_make(root, "WATER OUT > BOARD > NONE", 20, 412, &haus_body_21,
+               C_DIM);
+  }
+
+  label_make(root, "roles persist across reboots", 20, 640,
+             &lv_font_montserrat_16, C_FAINT);
+  nav_build(UI_SCREEN_SETTINGS);
+  return root;
 }
 
 static void settings_open_roles_cb(lv_event_t* e) {
   (void)e;
-  if (!s_roles_modal) roles_modal_build();
+  ui_push(UI_SCREEN_ROLES);
 }
 
 static void settings_open_can_cb(lv_event_t* e) {
@@ -3910,13 +3927,14 @@ void haus_ui_deinit(void) {
   s_log_follow = s_log_follow_lbl = s_log_ws = NULL;
   s_log_sd = NULL;
   memset(s_log_level, 0, sizeof(s_log_level));
+  memset(s_roles_lbl, 0, sizeof(s_roles_lbl));
   s_axis_key = -1;
   s_chart_force = true;
 }
 
 /* Load a screen. The stack is managed by ui_jump/ui_push/ui_pop. */
 static void ui_show_screen(int screen) {
-  if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_LOG) return;
+  if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_ROLES) return;
   g_current_screen = screen;
 
   haus_ui_deinit();
@@ -3949,6 +3967,9 @@ static void ui_show_screen(int screen) {
       break;
     case UI_SCREEN_LOG:
       haus_ui_build_log();
+      break;
+    case UI_SCREEN_ROLES:
+      haus_ui_build_roles();
       break;
   }
 }

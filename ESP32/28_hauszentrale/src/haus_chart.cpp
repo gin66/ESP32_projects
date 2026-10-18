@@ -103,7 +103,8 @@ static int16_t clamp16(int32_t value) {
   return (int16_t)value;
 }
 
-static void add_value(ChartColumn* col, int slot, int32_t value) {
+static void add_value(ChartColumn* col, int slot, int32_t value,
+                      uint32_t epoch, uint32_t* newest) {
   const int16_t v = clamp16(value);
   if (col->n[slot] == 0) {
     col->mn[slot] = v;
@@ -114,10 +115,11 @@ static void add_value(ChartColumn* col, int slot, int32_t value) {
   }
   col->sum[slot] += value;
   col->n[slot]++;
+  if (epoch > *newest) *newest = epoch;
 }
 
 static void add_rollup(ChartColumn* col, int slot, const RollupColumn* r,
-                       int src) {
+                       int src, uint32_t epoch, uint32_t* newest) {
   if (r->n[src] == 0) return;
   const int16_t mn = clamp16(r->mn[src]);
   const int16_t mx = clamp16(r->mx[src]);
@@ -130,6 +132,7 @@ static void add_rollup(ChartColumn* col, int slot, const RollupColumn* r,
   }
   col->sum[slot] += r->sum[src];
   col->n[slot] += r->n[src];
+  if (epoch > *newest) *newest = epoch;
 }
 
 static void mark_gaps(ChartColumn* cols, int series_b) {
@@ -140,12 +143,13 @@ static void mark_gaps(ChartColumn* cols, int series_b) {
   }
 }
 
-void haus_chart_build_samples(ChartColumn* cols, uint32_t t0, uint32_t t1,
-                              haus_chart_sample_reader reader, void* ctx,
-                              size_t total, int series_a, int series_b) {
-  if (!cols || !reader) return;
-  if (!ensure_chunks()) return;
+uint32_t haus_chart_build_samples(ChartColumn* cols, uint32_t t0, uint32_t t1,
+                                  haus_chart_sample_reader reader, void* ctx,
+                                  size_t total, int series_a, int series_b) {
+  if (!cols || !reader) return 0;
+  if (!ensure_chunks()) return 0;
   reset_columns(cols, t0, t1);
+  uint32_t newest = 0;
 
   for (size_t first = 0; first < total;) {
     const size_t want = total - first;
@@ -162,24 +166,26 @@ void haus_chart_build_samples(ChartColumn* cols, uint32_t t0, uint32_t t1,
 
       int32_t value = 0;
       if (series_a >= 0 && sample_value(s, series_a, &value)) {
-        add_value(col, 0, value);
+        add_value(col, 0, value, s->epoch, &newest);
       }
       if (series_b >= 0 && sample_value(s, series_b, &value)) {
-        add_value(col, 1, value);
+        add_value(col, 1, value, s->epoch, &newest);
       }
     }
     first += got;
   }
 
   mark_gaps(cols, series_b);
+  return newest;
 }
 
-void haus_chart_build_rollup(ChartColumn* cols, uint32_t t0, uint32_t t1,
-                             haus_chart_rollup_reader reader, void* ctx,
-                             size_t total, int series_a, int series_b) {
-  if (!cols || !reader) return;
-  if (!ensure_chunks()) return;
+uint32_t haus_chart_build_rollup(ChartColumn* cols, uint32_t t0, uint32_t t1,
+                                 haus_chart_rollup_reader reader, void* ctx,
+                                 size_t total, int series_a, int series_b) {
+  if (!cols || !reader) return 0;
+  if (!ensure_chunks()) return 0;
   reset_columns(cols, t0, t1);
+  uint32_t newest = 0;
 
   for (size_t first = 0; first < total;) {
     const size_t want = total - first;
@@ -195,11 +201,12 @@ void haus_chart_build_rollup(ChartColumn* cols, uint32_t t0, uint32_t t1,
       const size_t col_idx = column_for(t, t0, t1);
       ChartColumn* col = &cols[col_idx];
 
-      if (series_a >= 0) add_rollup(col, 0, r, series_a);
-      if (series_b >= 0) add_rollup(col, 1, r, series_b);
+      if (series_a >= 0) add_rollup(col, 0, r, series_a, t, &newest);
+      if (series_b >= 0) add_rollup(col, 1, r, series_b, t, &newest);
     }
     first += got;
   }
 
   mark_gaps(cols, series_b);
+  return newest;
 }

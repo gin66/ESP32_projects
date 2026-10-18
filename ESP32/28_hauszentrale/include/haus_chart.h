@@ -57,13 +57,15 @@ typedef size_t (*haus_chart_rollup_reader)(void *ctx, size_t first,
 
 /* Build a 440-column envelope from raw minute samples or pre-aggregated
  * rollup columns. series_a/series_b are source series indices (0…5); pass -1
- * for no second series. */
-void haus_chart_build_samples(ChartColumn *cols, uint32_t t0, uint32_t t1,
-                              haus_chart_sample_reader reader, void *ctx,
-                              size_t total, int series_a, int series_b);
-void haus_chart_build_rollup(ChartColumn *cols, uint32_t t0, uint32_t t1,
-                             haus_chart_rollup_reader reader, void *ctx,
-                             size_t total, int series_a, int series_b);
+ * for no second series. Returns the newest source epoch that contributed to
+ * either series (0 if none), so the UI can report data age from the sample
+ * itself rather than from the coarser chart column. */
+uint32_t haus_chart_build_samples(ChartColumn *cols, uint32_t t0, uint32_t t1,
+                                  haus_chart_sample_reader reader, void *ctx,
+                                  size_t total, int series_a, int series_b);
+uint32_t haus_chart_build_rollup(ChartColumn *cols, uint32_t t0, uint32_t t1,
+                                 haus_chart_rollup_reader reader, void *ctx,
+                                 size_t total, int series_a, int series_b);
 
 #ifdef __cplusplus
 }

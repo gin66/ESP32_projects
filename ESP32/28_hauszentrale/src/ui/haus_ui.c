@@ -1375,6 +1375,7 @@ static bool s_chart_force = true;
 static uint32_t s_chart_last_sample;
 static bool s_chart_hourly;
 static uint32_t s_chart_t0, s_chart_t1;
+static uint32_t s_chart_newest;
 
 static void ui_show_screen(int screen);
 static void ui_pop(void);
@@ -1591,14 +1592,15 @@ static void chart_build(void) {
   chart_cfg_for(g_detail_screen, &cfg);
   const bool hourly = (g_range != UI_RANGE_DAY) && cfg.hourly_ok;
 
+  uint32_t newest_epoch = 0;
   if (hourly) {
     const size_t total = (size_t)((t1 - t0) / 3600u) + 1u;
-    haus_chart_build_rollup(s_cols, t0, t1, chart_rollup_reader, (void*)&t0,
-                            total, cfg.a, cfg.b);
+    newest_epoch = haus_chart_build_rollup(
+        s_cols, t0, t1, chart_rollup_reader, (void*)&t0, total, cfg.a, cfg.b);
   } else {
-    const size_t total = (size_t)((t1 - t0) / 60u) + 1u;
-    haus_chart_build_samples(s_cols, t0, t1, chart_sample_reader, (void*)&t0,
-                             total, cfg.a, cfg.b);
+    const size_t total = (size_t)(t1 - t0) / 60u + 1u;
+    newest_epoch = haus_chart_build_samples(
+        s_cols, t0, t1, chart_sample_reader, (void*)&t0, total, cfg.a, cfg.b);
   }
 
   chart_build_target(t0, t1, hourly);
@@ -1606,6 +1608,7 @@ static void chart_build(void) {
   s_chart_hourly = hourly;
   s_chart_t0 = t0;
   s_chart_t1 = t1;
+  s_chart_newest = newest_epoch;
   s_chart_last_sample = gui_history_newest_epoch();
   s_chart_force = false;
 
@@ -1998,11 +2001,11 @@ static void chart_update_readouts(void) {
   }
   (void)have_now;
 
-  uint32_t newest = 0;
-  for (size_t i = 0; i < HAUS_CHART_COLUMNS; i++) {
-    if (s_cols[i].n[0] || (cfg.b >= 0 && s_cols[i].n[1]) ||
-        (cfg.use_target && s_target_n[i])) {
-      newest = s_cols[i].t;
+  uint32_t newest = s_chart_newest;
+  if (!newest) {
+    /* A target-only range has no sample series; fall back to its column. */
+    for (size_t i = 0; i < HAUS_CHART_COLUMNS; i++) {
+      if (cfg.use_target && s_target_n[i]) newest = s_cols[i].t;
     }
   }
   if (!newest) {

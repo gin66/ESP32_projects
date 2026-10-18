@@ -4,7 +4,7 @@ Derived from `docs/whitepaper.md` rev 1.6. Order: board first, then the macOS
 environment, then Deliverable A (`tpl_waveshare_lcd7`), then the project.
 Every item names the check that closes it.
 
-348 items (42 open). Tick boxes as work lands.
+349 items (42 open). Tick boxes as work lands.
 
 ## S0 · BENCH — the two things only the hardware can answer
 
@@ -414,6 +414,7 @@ figures are Soll values; write them that way in the UI and the docs.
 - [x] S23.20 Show SPIFFS ring statistics on the Storage panel and in `/sd/status`: total/used/free, ring hours present, oldest/newest hour — Test: with no card the panel shows the ring figures and they match `/sd/status` — Done: `haus_history_ring_stats()` caches SPIFFS total/used, ring capacity, non-zero hours and oldest/newest; the Storage panel renders `SPIFFS 799 kB of 3.4 MB`, `ring 1 of 8760 hours`, and the oldest/newest lines. `gui_storage_refresh()` now publishes immediately, so the first `/sd/status` after boot matches: `"spiffs_total":3546881,"spiffs_used":818511,"ring_bytes":805920`.
 - [x] S23.21 Replay the card's history when a card is inserted after a card-less boot, and show occupancy evidence — Test: insert a card with `rollup.bin`/day files and the week/month charts show it without a reboot; STORAGE shows how many entries exist and since when — Done: the SD watchdog calls `haus_history_restore()` after a verified mount/remount and requests a redraw; the log reads `restored 4 columns from SD rollup` and `boot restore: 4 columns`. STORAGE now renders `today N / 1440 last <time>`, `rollup N / 744 since <time>`, `restored N columns`, and `/sd/status` carries `l1_count`, `l2_count`, `l1_first/last`, `l2_first/last`, `restored`. Verified on the card: `l1_count` rose 3 → 5 in 70 s while `l2_count` stayed 5, so sampling and restore are both live.
 - [x] S23.22 Living-room samples must not inherit CAN staleness — Test: with CAN off, `stale_mask` clears for living/humidity and the living chart plots new SHT45 points — Done: `climate.last_update_epoch` is now the wall clock at the SHT45 read, not `can.timestamp`; with CAN off the stale mask is `0x00` and `l1_count` grows. Restored samples recorded before this fix may still carry the old stale bits; only new samples plot.
+- [x] S23.23 Report data age from the newest contributing sample, not the chart bucket start — Test: LIVING ROOM says `data age now` while samples are current and only ages after they stop — Done: `haus_chart_build_samples`/`haus_chart_build_rollup` return the newest source epoch and the detail screen uses it. The 440 columns span 86 400 s, so a bucket start was up to 3 min 16 s old and made fresh data look stale. The host mock's history now ends at the simulated current minute.
 
 ## S24 · CAN ENABLE SWITCH (boot sequence, N19)
 

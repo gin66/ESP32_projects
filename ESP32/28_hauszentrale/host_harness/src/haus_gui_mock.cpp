@@ -39,7 +39,10 @@
 /* ─── Time helpers ──────────────────────────────────────────────────────────
  */
 
-/* Simulated "current time" — advances 1 second per gui_update_state() call.
+/* Simulated "current time" — fixed so every rendered screen sees the same
+ * clock. It used to advance 1 s per gui_update_state() call, but the history
+ * is seeded once, so later screens (LIVING ROOM) showed a bogus "data age
+ * 3 min ago" that was an artefact of the harness, not the device.
  * Start at 08:00 on Oct 14, 2024 (epoch = 1728892800). */
 static uint32_t g_sim_time = 1728892800u; /* 2024-10-14 08:00:00 UTC */
 static const uint32_t DAY_SECONDS = 86400u;
@@ -187,7 +190,9 @@ static void init_history(void) {
 
   /* Generate 30 days of synthetic data starting from 30 days ago. */
   uint32_t now = g_sim_time - (g_sim_time % 60u);
-  uint32_t start_epoch = now - ((uint32_t)MAX_HISTORY_DAYS * DAY_SECONDS);
+  /* Exactly MAX_HISTORY_SAMPLES minute records, ending at `now`. */
+  uint32_t start_epoch =
+      now - ((uint32_t)(MAX_HISTORY_SAMPLES - 1) * 60u);
 
   int idx = 0;
   for (uint32_t t = start_epoch; t <= now; t += 60) {
@@ -296,8 +301,7 @@ void gui_update_state(void) {
   CanState& can = g_can.write();
   ClimateState& climate = g_climate.write();
 
-  /* Update simulated time (advance ~1 second per call). */
-  g_sim_time += 1;
+  /* Keep the simulated clock fixed; see the comment at g_sim_time. */
 
   /* Populate the CAN producer block from mock functions. */
   can.timestamp = g_sim_time;

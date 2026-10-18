@@ -3460,53 +3460,64 @@ lv_obj_t* haus_ui_build_storage(void) {
   label_make(root, line, 20, 216, &haus_body_21, C_DIM);
 
   fmt_bytes(st.can.sd_samples_bytes, a, sizeof(a));
-  snprintf(line, sizeof(line), "minute samples  %s  %llu recs", a,
-           (unsigned long long)(st.can.sd_samples_bytes /
-                                (uint64_t)sizeof(gui_sample_t)));
+  snprintf(line, sizeof(line), "minute samples  %s", a);
   label_make(root, line, 20, 256, &haus_body_21, C_INK);
 
   fmt_bytes(st.can.sd_rollup_bytes, a, sizeof(a));
-  snprintf(line, sizeof(line), "hourly rollup   %s  %llu cols", a,
-           (unsigned long long)(st.can.sd_rollup_bytes /
-                                (uint64_t)sizeof(RollupColumn)));
+  snprintf(line, sizeof(line), "hourly rollup   %s", a);
   label_make(root, line, 20, 284, &haus_body_21, C_INK);
 
   fmt_bytes(st.can.sd_logs_bytes, a, sizeof(a));
   snprintf(line, sizeof(line), "log dumps       %s", a);
   label_make(root, line, 20, 312, &haus_body_21, C_INK);
 
-  /* S23.20: SPIFFS is a book of its own; it must be visible when no card is
-   * fitted. Figures are refreshed by gui_storage_refresh() on panel open. */
-  fmt_bytes(st.can.spiffs_used_bytes, a, sizeof(a));
-  fmt_bytes(st.can.spiffs_total_bytes, b, sizeof(b));
-  snprintf(line, sizeof(line), "SPIFFS %s of %s", a, b);
-  label_make(root, line, 20, 392, &haus_body_21, C_INK);
+  /* S23.21: explicit evidence that sampling and restore are working. */
+  epoch_to_datetime(st.can.l1_last_epoch, when, sizeof(when));
+  snprintf(line, sizeof(line), "today  %u / %u   last %s",
+           (unsigned)st.can.l1_count, (unsigned)HAUS_L1_SAMPLES, when);
+  label_make(root, line, 20, 340, &haus_body_21, C_INK);
 
-  snprintf(line, sizeof(line), "ring %lu of %u hours",
-           (unsigned long)st.can.ring_hours, (unsigned)HAUS_RING_HOURS);
-  label_make(root, line, 20, 420, &haus_body_21, C_DIM);
+  epoch_to_datetime(st.can.l2_first_epoch, when, sizeof(when));
+  snprintf(line, sizeof(line), "rollup %u / %u   since %s",
+           (unsigned)st.can.l2_count, (unsigned)HAUS_L2_COLUMNS, when);
+  label_make(root, line, 20, 368, &haus_body_21, C_INK);
 
-  epoch_to_datetime(st.can.ring_oldest_epoch, when, sizeof(when));
-  snprintf(line, sizeof(line), "ring oldest   %s", when);
-  label_make(root, line, 20, 448, &haus_body_21, C_DIM);
-
-  epoch_to_datetime(st.can.ring_newest_epoch, when, sizeof(when));
-  snprintf(line, sizeof(line), "ring newest   %s", when);
-  label_make(root, line, 20, 476, &haus_body_21, C_DIM);
+  snprintf(line, sizeof(line), "restored %lu columns",
+           (unsigned long)st.can.last_restore_columns);
+  label_make(root, line, 20, 396, &haus_body_21, C_DIM);
 
   /* Faulty is sticky and keeps the first-failure time (D44/S23.10). */
   if (st.can.sd_fault_since_epoch) {
     epoch_to_datetime(st.can.sd_fault_since_epoch, when, sizeof(when));
     snprintf(line, sizeof(line), "FAULTY since %s", when);
-    label_make(root, line, 20, 356, &haus_body_21, C_HOT);
+    label_make(root, line, 20, 424, &haus_body_21, C_HOT);
   } else {
-    label_make(root, "no storage fault", 20, 356, &haus_body_21, C_OK);
+    label_make(root, "no storage fault", 20, 424, &haus_body_21, C_OK);
   }
+
+  /* S23.20: SPIFFS is a book of its own; it must be visible when no card is
+   * fitted. Figures are refreshed by gui_storage_refresh() on panel open. */
+  fmt_bytes(st.can.spiffs_used_bytes, a, sizeof(a));
+  fmt_bytes(st.can.spiffs_total_bytes, b, sizeof(b));
+  snprintf(line, sizeof(line), "SPIFFS %s of %s", a, b);
+  label_make(root, line, 20, 460, &haus_body_21, C_INK);
+
+  snprintf(line, sizeof(line), "ring %lu of %u hours",
+           (unsigned long)st.can.ring_hours, (unsigned)HAUS_RING_HOURS);
+  label_make(root, line, 20, 488, &haus_body_21, C_DIM);
+
+  epoch_to_datetime(st.can.ring_oldest_epoch, when, sizeof(when));
+  snprintf(line, sizeof(line), "ring oldest   %s", when);
+  label_make(root, line, 20, 516, &haus_body_21, C_DIM);
+
+  epoch_to_datetime(st.can.ring_newest_epoch, when, sizeof(when));
+  snprintf(line, sizeof(line), "ring newest   %s", when);
+  label_make(root, line, 20, 544, &haus_body_21, C_DIM);
 
   label_make(root,
              mounted ? "card readable   figures cached"
                      : "no card   history stays in SPIFFS",
-             20, 512, &lv_font_montserrat_16, C_FAINT);
+             20, 580, &lv_font_montserrat_16, C_FAINT);
 
   nav_build(UI_SCREEN_SETTINGS);
   return root;

@@ -174,6 +174,15 @@ typedef struct {
   uint32_t ring_hours;
   uint32_t ring_oldest_epoch;
   uint32_t ring_newest_epoch;
+
+  /* Occupancy evidence (S23.21): L1/L2 entries and the last restore count. */
+  uint16_t l1_count;
+  uint16_t l2_count;
+  uint32_t l1_first_epoch;
+  uint32_t l1_last_epoch;
+  uint32_t l2_first_epoch;
+  uint32_t l2_last_epoch;
+  uint32_t last_restore_columns;
 } CanState;
 
 /* Owner: sensorTask. Written completely each cycle, published as one block. */

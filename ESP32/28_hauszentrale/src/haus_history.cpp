@@ -13,6 +13,9 @@
 #include <string.h>
 #include <time.h>
 
+/* Last haus_history_restore() result, for the storage panel (S23.21). */
+static uint32_t s_last_restore_columns = 0;
+
 uint32_t haus_crc32(const void* data, size_t len) {
   const uint8_t* p = (const uint8_t*)data;
   uint32_t crc = 0xFFFFFFFFu;
@@ -529,15 +532,6 @@ bool haus_history_sample(const HausState* state, uint32_t epoch_seconds) {
   return true;
 }
 
-size_t haus_history_l1_count(void) {
-  if (!s_l1) return 0;
-  size_t n = 0;
-  for (size_t i = 0; i < HAUS_L1_SAMPLES; i++) {
-    if (s_l1[i].epoch != 0) n++;
-  }
-  return n;
-}
-
 void haus_history_flush_hour(uint32_t epoch_seconds) {
 #ifndef HAUS_HOST
   if (!s_ring_ready || !s_l2) return;
@@ -659,6 +653,7 @@ size_t haus_history_restore(uint32_t now_epoch) {
     }
   }
 
+  s_last_restore_columns = (uint32_t)restored;
   return restored;
 }
 
@@ -1112,6 +1107,7 @@ size_t haus_history_restore(uint32_t now_epoch) {
   if (restored > 0) {
     TPL_LOGI("history", "restored %u columns from SD rollup",
              (unsigned)restored);
+    s_last_restore_columns = (uint32_t)restored;
     return restored;
   }
 
@@ -1139,6 +1135,7 @@ size_t haus_history_restore(uint32_t now_epoch) {
 
   TPL_LOGI("history", "restored %u columns from SPIFFS ring",
            (unsigned)restored);
+  s_last_restore_columns = (uint32_t)restored;
   return restored;
 }
 
@@ -1239,3 +1236,69 @@ void haus_history_start_recorder(void) {
 }
 
 #endif /* HAUS_HOST */
+
+/* ─── Occupancy and restore evidence (S23.21) ──────────────────────────────
+ * Shared: s_l1/s_l2 and s_last_restore_columns come from the selected branch.
+ */
+
+size_t haus_history_l1_count(void) {
+  if (!s_l1) return 0;
+  size_t n = 0;
+  for (size_t i = 0; i < HAUS_L1_SAMPLES; i++) {
+    if (s_l1[i].epoch != 0) n++;
+  }
+  return n;
+}
+
+uint16_t haus_history_l2_count(void) {
+  if (!s_l2) return 0;
+  uint16_t n = 0;
+  for (size_t i = 0; i < HAUS_L2_COLUMNS; i++) {
+    if (s_l2[i].t != 0) n++;
+  }
+  return n;
+}
+
+uint32_t haus_history_l1_first_epoch(void) {
+  if (!s_l1) return 0;
+  uint32_t first = 0;
+  for (size_t i = 0; i < HAUS_L1_SAMPLES; i++) {
+    if (s_l1[i].epoch == 0) continue;
+    if (first == 0 || s_l1[i].epoch < first) first = s_l1[i].epoch;
+  }
+  return first;
+}
+
+uint32_t haus_history_l1_last_epoch(void) {
+  if (!s_l1) return 0;
+  uint32_t last = 0;
+  for (size_t i = 0; i < HAUS_L1_SAMPLES; i++) {
+    if (s_l1[i].epoch > last) last = s_l1[i].epoch;
+  }
+  return last;
+}
+
+uint32_t haus_history_l2_first_epoch(void) {
+  if (!s_l2) return 0;
+  uint32_t first = 0;
+  for (size_t i = 0; i < HAUS_L2_COLUMNS; i++) {
+    if (s_l2[i].t == 0) continue;
+    const uint32_t epoch = s_l2[i].t * 60u;
+    if (first == 0 || epoch < first) first = epoch;
+  }
+  return first;
+}
+
+uint32_t haus_history_l2_last_epoch(void) {
+  if (!s_l2) return 0;
+  uint32_t last = 0;
+  for (size_t i = 0; i < HAUS_L2_COLUMNS; i++) {
+    const uint32_t epoch = s_l2[i].t * 60u;
+    if (epoch > last) last = epoch;
+  }
+  return last;
+}
+
+uint32_t haus_history_last_restore_count(void) {
+  return s_last_restore_columns;
+}

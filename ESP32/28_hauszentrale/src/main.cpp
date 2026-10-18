@@ -301,11 +301,13 @@ void setup() {
              "{\"initialized\":%s,\"type\":\"%s\",\"total\":%llu,"
              "\"used\":%llu,\"free\":%llu,\"floor\":%llu,"
              "\"headroom\":%llu,\"samples\":%llu,\"rollup\":%llu,"
-             "\"sample_records\":%llu,\"rollup_records\":%llu,"
              "\"logs\":%llu,\"last_rollover\":%lu,\"newest_file\":%lu,"
              "\"fault_since\":%lu,\"spiffs_total\":%lu,"
              "\"spiffs_used\":%lu,\"ring_bytes\":%lu,\"ring_hours\":%lu,"
-             "\"ring_oldest\":%lu,\"ring_newest\":%lu,\"writing\":%s,"
+             "\"ring_oldest\":%lu,\"ring_newest\":%lu,"
+             "\"l1_count\":%u,\"l2_count\":%u,\"l1_first\":%lu,"
+             "\"l1_last\":%lu,\"l2_first\":%lu,\"l2_last\":%lu,"
+             "\"restored\":%lu,\"writing\":%s,"
              "\"can_running\":%s,\"mux_can\":%s,"
              "\"can_state\":%u,\"can_tec\":%lu,\"can_rec\":%lu,"
              "\"can_rx\":%lu,\"can_tx\":%lu,\"can_err\":%lu,"
@@ -320,10 +322,6 @@ void setup() {
                                       : 0),
              (unsigned long long)st.can.sd_samples_bytes,
              (unsigned long long)st.can.sd_rollup_bytes,
-             (unsigned long long)(st.can.sd_samples_bytes /
-                                  (uint64_t)sizeof(gui_sample_t)),
-             (unsigned long long)(st.can.sd_rollup_bytes /
-                                  (uint64_t)sizeof(RollupColumn)),
              (unsigned long long)st.can.sd_logs_bytes,
              (unsigned long)st.can.sd_last_rollover_epoch,
              (unsigned long)st.can.sd_newest_file_epoch,
@@ -334,6 +332,12 @@ void setup() {
              (unsigned long)st.can.ring_hours,
              (unsigned long)st.can.ring_oldest_epoch,
              (unsigned long)st.can.ring_newest_epoch,
+             (unsigned)st.can.l1_count, (unsigned)st.can.l2_count,
+             (unsigned long)st.can.l1_first_epoch,
+             (unsigned long)st.can.l1_last_epoch,
+             (unsigned long)st.can.l2_first_epoch,
+             (unsigned long)st.can.l2_last_epoch,
+             (unsigned long)st.can.last_restore_columns,
              st.can.sd_writing ? "true" : "false",
              haus_can_bus_running() ? "true" : "false",
              tpl_ws7_can_available() ? "true" : "false",

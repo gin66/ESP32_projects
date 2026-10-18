@@ -590,6 +590,14 @@ void gui_update_state(void) {
   can.ring_hours = ring.hours;
   can.ring_oldest_epoch = ring.oldest_epoch;
   can.ring_newest_epoch = ring.newest_epoch;
+
+  can.l1_count = (uint16_t)haus_history_l1_count();
+  can.l2_count = haus_history_l2_count();
+  can.l1_first_epoch = haus_history_l1_first_epoch();
+  can.l1_last_epoch = haus_history_l1_last_epoch();
+  can.l2_first_epoch = haus_history_l2_first_epoch();
+  can.l2_last_epoch = haus_history_l2_last_epoch();
+  can.last_restore_columns = haus_history_last_restore_count();
   can.sd_status = !haus_sd_present()
                       ? GUI_STATUS_INACTIVE
                       : (can.sd_writing ? GUI_STATUS_ERROR : GUI_STATUS_OK);

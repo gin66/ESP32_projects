@@ -370,6 +370,13 @@ void gui_update_state(void) {
   can.ring_hours = 30u * 24u;
   can.ring_oldest_epoch = g_sim_time - 30u * 86400u;
   can.ring_newest_epoch = g_sim_time - 3600u;
+  can.l1_count = 720;
+  can.l2_count = 168;
+  can.l1_first_epoch = g_sim_time - 12u * 3600u;
+  can.l1_last_epoch = g_sim_time - 60u;
+  can.l2_first_epoch = g_sim_time - 7u * 86400u;
+  can.l2_last_epoch = g_sim_time - 3600u;
+  can.last_restore_columns = 168;
 
   /* Chamber target. */
   can.chamber_target_c = mock_target_temp(g_sim_time);

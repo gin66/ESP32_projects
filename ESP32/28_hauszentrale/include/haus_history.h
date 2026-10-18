@@ -68,6 +68,14 @@ typedef struct {
 
 void haus_history_ring_stats(haus_ring_stats_t* out);
 
+/* Occupancy and restore evidence for the Storage panel (S23.21). */
+uint16_t haus_history_l2_count(void);
+uint32_t haus_history_l1_first_epoch(void);
+uint32_t haus_history_l1_last_epoch(void);
+uint32_t haus_history_l2_first_epoch(void);
+uint32_t haus_history_l2_last_epoch(void);
+uint32_t haus_history_last_restore_count(void);
+
 /* Load up to max_columns newest columns into out, oldest first. Returns the
  * number written. Uses the wall clock; returns 0 before the clock is valid. */
 size_t haus_history_ring_load(RollupColumn* out, size_t max_columns);

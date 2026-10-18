@@ -550,8 +550,14 @@ void gui_update_state(void) {
   climate.hum_c100 = living_hum;
   climate.pressure_pa = living_pres;
   climate.climate_flags = climate_flags;
+  /* The SHT45 is on the local I2C bus, not on CAN. Timestamp it from the
+   * wall clock; using can.timestamp made every living-room sample stale
+   * whenever CAN was off. */
+  const time_t now_epoch = time(nullptr);
   climate.last_update_epoch =
-      (climate_flags & CLIMATE_VALID_SHT45) ? can.timestamp : 0;
+      ((climate_flags & CLIMATE_VALID_SHT45) && now_epoch > 1700000000)
+          ? (uint32_t)now_epoch
+          : 0;
 
   can.can_status = snap.running
                        ? (snap.bus_fault ? GUI_STATUS_ERROR : GUI_STATUS_OK)

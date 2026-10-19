@@ -1857,7 +1857,7 @@ static void chart_format_value(char* buf, size_t n, int32_t v, int unit) {
       if (v >= 10000)
         snprintf(buf, n, "%.2f", v / 10000.0);
       else
-        snprintf(buf, n, "%d", v / 10);
+        snprintf(buf, n, "%d", (int)(v / 10));
       break;
     case CHART_UNIT_AC_RMS:
       snprintf(buf, n, "%.3f", (v / 10.0) * 1.1 / 1024.0);
@@ -1866,7 +1866,7 @@ static void chart_format_value(char* buf, size_t n, int32_t v, int unit) {
       snprintf(buf, n, "%.1f", v / 100.0);
       break;
     default:
-      snprintf(buf, n, "%d", v);
+      snprintf(buf, n, "%d", (int)v);
       break;
   }
 }
@@ -2180,7 +2180,7 @@ static void chart_readout_line(lv_obj_t* label, int slot, int series,
   }
   const char* tilde = modelled ? "~" : "";
 
-  char a[24], b[24], c[24], d[24], line[120];
+  char a[24], b[24], c[24], d[24], line[192];
   if (n == 0) {
     snprintf(line, sizeof(line), "%sno data in this range", prefix);
   } else {

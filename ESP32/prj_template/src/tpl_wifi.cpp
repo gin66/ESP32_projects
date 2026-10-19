@@ -120,7 +120,7 @@ void TaskWifiManager(void* pvParameters) {
             TPL_LOGI("wifi", "WiFi: weak signal %d dBm for %" PRIu32 "s (BSSID %02X:%02X:%02X:%02X:%02X:%02X ch%d), reconnecting (#%d)\n",
                           rssi, (millis() - weak_rssi_since_ms) / 1000,
                           bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5],
-                          WiFi.channel(), rssi_roam_reconnect_count + 1);
+                          (int)WiFi.channel(), rssi_roam_reconnect_count + 1);
             esp_task_wdt_reset();
             WiFi.disconnect(true);
             vTaskDelay(100 / portTICK_PERIOD_MS);

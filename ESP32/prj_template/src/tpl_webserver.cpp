@@ -165,7 +165,7 @@ void tpl_webserver_setup() {
              WiFi.status(),
              WiFi.SSID().c_str(),
              bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5],
-             WiFi.channel(),
+             (int)WiFi.channel(),
              WiFi.RSSI(),
              WiFi.localIP().toString().c_str(),
              WiFi.subnetMask().toString().c_str(),

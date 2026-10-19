@@ -412,7 +412,7 @@ void can_monitor_decode(uint32_t id, const uint8_t* data, uint8_t len,
     return;
   }
 
-  switch (proto) {
+  switch (static_cast<int>(proto)) {
     case HAUS_PROTO_HEIZUNG_TEMP: {
       std::snprintf(out->label, sizeof(out->label), "TEMP");
       if (len >= 8) {

@@ -123,7 +123,8 @@ void setup() {
   size_t psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
   uint32_t flash_size = 0;
   esp_flash_get_size(NULL, &flash_size);
-  TPL_LOGI("boot", "Flash: %d MB, PSRAM: %s\n", flash_size / 1024 / 1024,
+  TPL_LOGI("boot", "Flash: %u MB, PSRAM: %s\n",
+           (unsigned)(flash_size / 1024 / 1024),
            psramFound() ? "8 MB" : "0 MB");
 
   /* CH422G expander + keep backlight off until the panel is up */

@@ -67,9 +67,6 @@ static SemaphoreHandle_t read_mutex(void) {
   return g_read_mutex;
 }
 
-/* Sensor identity cache — updated when identity frames arrive. */
-static uint8_t g_sensor_roms[GUI_MAX_SENSORS][8];
-static uint8_t g_sensor_bound_count = 0;
 static bool g_can_enabled = false;
 
 /* ─── CAN bus readers (called by gui_update_state) ──────────────────────────
@@ -130,28 +127,6 @@ static void read_living(int16_t* temp, uint16_t* hum, uint32_t* pres,
   *hum = ok ? h : 0;
   *pres = 0;
   *flags = ok ? CLIMATE_VALID_SHT45 : 0;
-}
-
-/* ─── SD history reader (called by gui_get_history) ─────────────────────────
- */
-
-static int read_day_file(const char* filename, gui_sample_t* samples,
-                         uint16_t max_samples, uint16_t* out_count) {
-  /* TODO: Open /data_YYYYMMDD.bin from SD, read samples into buffer.
-   * For now, return 0 samples. */
-  (void)filename;
-  (void)max_samples;
-  if (out_count) *out_count = 0;
-  return 0;
-}
-
-static int read_rollup_file(gui_sample_t* samples, uint16_t max_samples,
-                            uint16_t* out_count) {
-  /* TODO: Open /rollup.bin from SD, read hourly aggregates.
-   * For now, return 0 samples. */
-  (void)max_samples;
-  if (out_count) *out_count = 0;
-  return 0;
 }
 
 /* ─── Public API ────────────────────────────────────────────────────────────

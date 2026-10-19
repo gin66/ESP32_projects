@@ -4563,7 +4563,7 @@ lv_obj_t* haus_ui_build_settings(void) {
   settings_value_row(RX, yr, CW, "SENSOR ROLES", sbuf, settings_open_roles_cb);
   yl += step;
   yr += step;
-  settings_value_row(LX, yl, CW, "PUMP", "angle", settings_open_ac_cb);
+  settings_value_row(LX, yl, CW, "PUMP", "monitor", settings_open_ac_cb);
   settings_value_row(RX, yr, CW, "STORAGE", mounted ? "card" : "absent",
                      settings_open_storage_cb);
   yl += step;

@@ -15,7 +15,7 @@
 #include <esp_log.h>
 #include <lvgl.h>
 
-static const char* TAG = "tpl_ws7";
+static const char* TAG __attribute__((unused)) = "tpl_ws7";
 
 /* RGB timing defaults. A project can override any of these in platformio.ini,
  * e.g. -DTPL_WS7_HSYNC_BACK_PORCH=20, but these are the proven Waveshare 7"

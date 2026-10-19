@@ -52,23 +52,6 @@ static lv_obj_t* s_touch_cursor = NULL;
 static uint32_t s_last_touch_ms = 0;
 #define TOUCH_CURSOR_HIDE_MS 1000
 
-/* ─── Rotation helper (S4.10 — kept for testing, not used by home screen) ── */
-
-static lv_display_rotation_t rot_to_lvgl(int r) {
-  switch (r) {
-    case 0:
-      return LV_DISPLAY_ROTATION_90;
-    case 1:
-      return LV_DISPLAY_ROTATION_0;
-    case 2:
-      return LV_DISPLAY_ROTATION_270;
-    case 3:
-      return LV_DISPLAY_ROTATION_180;
-    default:
-      return LV_DISPLAY_ROTATION_90;
-  }
-}
-
 /* ─── Setup ──────────────────────────────────────────────────────────────── */
 
 /* Loop cadence diagnostics (S17.07): ui_hz is the LVGL handler rate, ui_gap_ms
@@ -120,7 +103,6 @@ void setup() {
   TPL_LOGI("mem", "S26 baseline: heap %u B, PSRAM %u B", (unsigned)heap_base,
            (unsigned)psram_base);
 
-  size_t psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
   uint32_t flash_size = 0;
   esp_flash_get_size(NULL, &flash_size);
   TPL_LOGI("boot", "Flash: %u MB, PSRAM: %s\n",

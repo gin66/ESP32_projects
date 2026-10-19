@@ -60,6 +60,7 @@ static bool sample_value(const gui_sample_t* s, int series, int32_t* value) {
       *value = s->temp[1];
       return true;
     case 2:
+      if (s->flags & SAMPLE_FLAG_MODELLED) return false;
       if (s->stale_mask & SAMPLE_STALE_WATER_OUT) return false;
       if (s->temp[2] == HAUS_CAN_TEMP_EMPTY || s->temp[2] == GUI_EMPTY)
         return false;

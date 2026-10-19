@@ -450,9 +450,6 @@ static int16_t target_from_duty(uint16_t duty) {
   return out;
 }
 
-static int16_t s_model_log_c = HAUS_CAN_TEMP_EMPTY;
-static uint32_t s_model_log_ms = 0;
-
 void gui_update_state(void) {
   CanState& can = g_can.write();
   ClimateState& climate = g_climate.write();
@@ -667,33 +664,9 @@ void gui_update_state(void) {
 
   can.chamber_target_c = can.pwm_fresh ? target_from_duty(can.pwm_permille) : 0;
 
-  /* Water-out is modelled only when no measured return sensor is bound. The
-   * model is labelled everywhere; a real sensor always wins. */
+  /* Water in/out are measurements. The duty -> off/Soll table is used only
+   * for the calculated heater target, never to invent a pipe temperature. */
   can.water_modelled = false;
-  const WaterModel* water_model = water_model_default();
-  int16_t modelled_out = HAUS_CAN_TEMP_EMPTY;
-  if (water_model && can.pwm_fresh &&
-      can.temp_by_fn[SENSOR_FN_WATER_OUT] == HAUS_CAN_TEMP_EMPTY &&
-      water_model->estimate(can.temp_by_fn[SENSOR_FN_WATER_IN],
-                            can.pwm_permille, can.temp_by_fn[SENSOR_FN_BOARD],
-                            &modelled_out)) {
-    can.temp_by_fn[SENSOR_FN_WATER_OUT] = modelled_out;
-    can.water_modelled = true;
-
-    /* S25.07: tag the modelled value in the log at warning/amber level. Log on
-     * a 0.5 °C move or every five minutes, not once per 1 Hz update. */
-    const int16_t delta = (int16_t)(modelled_out - s_model_log_c);
-    const uint32_t now = millis();
-    if (s_model_log_c == HAUS_CAN_TEMP_EMPTY || delta <= -50 || delta >= 50 ||
-        now - s_model_log_ms >= 300000u) {
-      TPL_LOGW("water", "! modelled water-out ~%.1f C (duty %u)",
-               modelled_out / 100.0, (unsigned)can.pwm_permille);
-      s_model_log_c = modelled_out;
-      s_model_log_ms = now;
-    }
-  } else {
-    s_model_log_c = HAUS_CAN_TEMP_EMPTY;
-  }
   can.uptime_seconds = millis() / 1000;
 
   /* CAN counters and fault flags come from the RX task snapshot. */

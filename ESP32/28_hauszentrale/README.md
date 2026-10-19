@@ -83,8 +83,8 @@ that build flag to return to 16 MHz.
   telemetry.
 - The PWM switch/slider is enabled only while the CAN status is green, sends one
   `0x240` frame per change from the HEATER detail page, and refuses 501–999.
-- Water-out is modelled from the measured duty → off/Soll table and is always
-  labelled `~`/`MODELLED`.
+- Water in/out are measured. If no return probe is bound, water-out shows `—`.
+  The duty → off/Soll table is used only for the calculated heater target.
 
 ## Host harness
 

@@ -310,7 +310,8 @@ static void hline(lv_obj_t* parent, int y, uint32_t color) {
   obj_set_scrollable(o, false);
 }
 
-static void hline_w(lv_obj_t* parent, int x, int y, int w, uint32_t color) {
+static lv_obj_t* hline_w(lv_obj_t* parent, int x, int y, int w,
+                         uint32_t color) {
   lv_obj_t* o = lv_obj_create(parent);
   lv_obj_set_size(o, w, 1);
   lv_obj_set_pos(o, x, y);
@@ -319,6 +320,7 @@ static void hline_w(lv_obj_t* parent, int x, int y, int w, uint32_t color) {
   lv_obj_set_style_radius(o, 0, 0);
   obj_set_clickable(o, false);
   obj_set_scrollable(o, false);
+  return o;
 }
 
 /* Three stacked waves standing in for the water series (in and out). LVGL's
@@ -1116,7 +1118,7 @@ void haus_ui_update(void) {
     }
   }
 
-  /* Water in (amber) / water out (modelled, hot). */
+  /* Water in (amber) / water out (hot). */
   int16_t win = state.can.temp_by_fn[SENSOR_FN_WATER_IN];
   int16_t wout = state.can.temp_by_fn[SENSOR_FN_WATER_OUT];
   if (win != HAUS_CAN_TEMP_EMPTY) {
@@ -1130,10 +1132,7 @@ void haus_ui_update(void) {
   if (wout != HAUS_CAN_TEMP_EMPTY) {
     char tb[24];
     temp_text(wout, tb, sizeof(tb), true);
-    if (state.can.water_modelled)
-      snprintf(buf, sizeof(buf), "~%s", tb);
-    else
-      snprintf(buf, sizeof(buf), "%s", tb);
+    snprintf(buf, sizeof(buf), "%s", tb);
     txt(s_water_out, buf);
     lv_obj_set_style_text_color(s_water_out, lv_color_hex(C_HOT), 0);
   } else {
@@ -1325,6 +1324,9 @@ static uint8_t* s_chart_pixels;
 static lv_obj_t* s_chart_nodata;
 static lv_obj_t* s_chart_stale;
 static lv_obj_t* s_chart_target_lbl;
+static lv_obj_t* s_legend_a;
+static lv_obj_t* s_legend_b;
+static lv_obj_t* s_legend_t;
 static lv_obj_t* s_chart_readout;
 static lv_obj_t* s_chart_readout_b;
 static lv_obj_t* s_chart_age;
@@ -1342,10 +1344,16 @@ static lv_obj_t* s_header_badge;
 static lv_obj_t* s_header_badge_lbl;
 static lv_obj_t* s_above_target;
 static lv_obj_t* s_power_unit_lbl;
-static lv_obj_t* s_water_extra;
 static lv_obj_t* s_side_h;
 static lv_obj_t* s_side_big;
+static lv_obj_t* s_side_big2;
+static lv_obj_t* s_side_big2_lbl;
+static lv_obj_t* s_side_delta;
+static lv_obj_t* s_side_delta_lbl;
+static lv_obj_t* s_side_hr2;
+static lv_obj_t* s_side_hr3;
 static lv_obj_t* s_side_l[5];
+static lv_obj_t* s_side_legend[3];
 static lv_obj_t* s_side_note;
 static lv_obj_t* s_living_tab[2];
 static int g_living_series = 0;
@@ -1563,6 +1571,42 @@ static size_t chart_rollup_reader(void* ctx, size_t first, size_t count,
   return gui_read_rollup_chunk(start, first, count, out);
 }
 
+static void chart_legend_update(const chart_cfg_t* cfg) {
+  if (!s_legend_a || !cfg) return;
+  const char* a = NULL;
+  const char* b = NULL;
+  const char* t = NULL;
+  switch (g_detail_screen) {
+    case UI_SCREEN_WATER_IN:
+    case UI_SCREEN_WATER_OUT:
+      break;
+    case UI_SCREEN_CHAMBER:
+      a = "- heater";
+      t = "-- Soll";
+      break;
+    case UI_SCREEN_POWER:
+      a = "- power";
+      break;
+    case UI_SCREEN_LIVING:
+      a = (g_living_series == 0) ? "- temp" : "- RH";
+      break;
+    case UI_SCREEN_AC:
+      a = (g_ac_series == 0) ? "- RMS" : "- angle";
+      break;
+    default:
+      break;
+  }
+  txt(s_legend_a, a ? a : "");
+  txt(s_legend_b, b ? b : "");
+  txt(s_legend_t, t ? t : "");
+  lv_obj_set_style_text_color(s_legend_a, lv_color_hex(cfg->color_a), 0);
+  lv_obj_set_style_text_color(s_legend_b, lv_color_hex(cfg->color_b), 0);
+  lv_obj_set_style_text_color(s_legend_t, lv_color_hex(C_ACCENT), 0);
+  obj_set_hidden(s_legend_a, a == NULL);
+  obj_set_hidden(s_legend_b, b == NULL);
+  obj_set_hidden(s_legend_t, t == NULL);
+}
+
 static void chart_build_target(uint32_t t0, uint32_t t1, bool hourly) {
   if (!ensure_chart_buffers()) return;
   memset(s_target, 0, TARGET_BYTES);
@@ -1645,6 +1689,7 @@ static void chart_build(void) {
 
   chart_cfg_t cfg;
   chart_cfg_for(g_detail_screen, &cfg);
+  chart_legend_update(&cfg);
   const bool hourly = (g_range != UI_RANGE_DAY) && cfg.hourly_ok;
 
   uint32_t newest_epoch = 0;
@@ -1993,12 +2038,7 @@ static void chart_draw(void) {
       const int x = CHART_X0 + (int)((uint64_t)i * (CHART_X1 - CHART_X0) /
                                      (HAUS_CHART_COLUMNS - 1));
       const int y = chart_value_y(s_cols[i].sum[slot] / s_cols[i].n[slot]);
-      if (px >= 0) {
-        if (s == 1 && chart_state.can.water_modelled)
-          chart_dash_line(px, py, x, y, cb);
-        else
-          chart_line(px, py, x, y, s == 0 ? ca : cb);
-      }
+      if (px >= 0) chart_line(px, py, x, y, s == 0 ? ca : cb);
       px = x;
       py = y;
     }
@@ -2107,14 +2147,6 @@ static void chart_readout_line(lv_obj_t* label, int slot, int series,
   int32_t live = 0;
   if (chart_live_value(series, &live)) now = live;
 
-  bool modelled = false;
-  if (series == 2) {
-    HausState st;
-    gui_get_state(&st);
-    modelled = st.can.water_modelled;
-  }
-  const char* tilde = modelled ? "~" : "";
-
   char a[24], b[24], c[24], d[24], line[192];
   if (n == 0) {
     snprintf(line, sizeof(line), "%sno data in this range", prefix);
@@ -2123,8 +2155,8 @@ static void chart_readout_line(lv_obj_t* label, int slot, int series,
     chart_format_axis(b, sizeof(b), mx, cfg.unit);
     chart_format_axis(c, sizeof(c), (int32_t)(sum / (int64_t)n), cfg.unit);
     chart_format_axis(d, sizeof(d), now, cfg.unit);
-    snprintf(line, sizeof(line), "%smin %s%s   max %s%s   mean %s%s   now %s%s",
-             prefix, tilde, a, tilde, b, tilde, c, tilde, d);
+    snprintf(line, sizeof(line), "%smin %s   max %s   mean %s   now %s", prefix,
+             a, b, c, d);
   }
   txt(label, line);
 }
@@ -2350,6 +2382,16 @@ static void chart_build_widgets(int top) {
                                   &lv_font_montserrat_16, C_ACCENT);
   lv_obj_set_width(s_chart_target_lbl, 180);
   lv_obj_set_style_text_align(s_chart_target_lbl, LV_TEXT_ALIGN_RIGHT, 0);
+
+  s_legend_a =
+      label_make(c, "", 56, 0, &lv_font_montserrat_16, C_CYAN);
+  s_legend_b =
+      label_make(c, "", 108, 0, &lv_font_montserrat_16, C_HOT);
+  s_legend_t =
+      label_make(c, "", 170, 0, &lv_font_montserrat_16, C_ACCENT);
+  obj_set_hidden(s_legend_a, true);
+  obj_set_hidden(s_legend_b, true);
+  obj_set_hidden(s_legend_t, true);
 
   s_scrub_line = lv_obj_create(c);
   lv_obj_set_size(s_scrub_line, 1, CHART_Y1 - CHART_Y0);
@@ -2682,10 +2724,7 @@ static void detail_value_update(void) {
   if (v != HAUS_CAN_TEMP_EMPTY) {
     char tb[24];
     temp_text(v, tb, sizeof(tb), true);
-    if (g_detail_screen == UI_SCREEN_WATER_OUT && st.can.water_modelled)
-      snprintf(buf, sizeof(buf), "~%s", tb);
-    else
-      snprintf(buf, sizeof(buf), "%s", tb);
+    snprintf(buf, sizeof(buf), "%s", tb);
   } else {
     snprintf(buf, sizeof(buf), "--");
   }
@@ -2704,13 +2743,20 @@ static void side_panel_update(void) {
   HausState st;
   gui_get_state(&st);
   char b[64];
+  obj_set_hidden(s_side_big2_lbl, true);
+  obj_set_hidden(s_side_big2, true);
+  obj_set_hidden(s_side_delta_lbl, true);
+  obj_set_hidden(s_side_delta, true);
+  obj_set_hidden(s_side_hr2, true);
+  obj_set_hidden(s_side_hr3, true);
+  for (int i = 0; i < 3; i++) obj_set_hidden(s_side_legend[i], true);
   const int16_t ch = st.can.temp_by_fn[SENSOR_FN_CHAMBER];
   const int16_t wi = st.can.temp_by_fn[SENSOR_FN_WATER_IN];
   const int16_t wo = st.can.temp_by_fn[SENSOR_FN_WATER_OUT];
 
   if (g_detail_screen == UI_SCREEN_WATER_IN ||
       g_detail_screen == UI_SCREEN_WATER_OUT) {
-    txt(s_side_h, "WATER");
+    txt(s_side_h, "WATER IN");
     if (wi != HAUS_CAN_TEMP_EMPTY) {
       temp_text(wi, b, sizeof(b), true);
       txt(s_side_big, b);
@@ -2719,28 +2765,45 @@ static void side_panel_update(void) {
       txt(s_side_big, "--");
       lv_obj_set_style_text_color(s_side_big, lv_color_hex(C_OFF), 0);
     }
+
+    txt(s_side_big2_lbl, "WATER OUT");
+    obj_set_hidden(s_side_big2_lbl, false);
+    obj_set_hidden(s_side_hr2, false);
     if (wo != HAUS_CAN_TEMP_EMPTY) {
-      char t[24];
-      temp_text(wo, t, sizeof(t), true);
-      snprintf(b, sizeof(b), "water out  %s%s", st.can.water_modelled ? "~" : "",
-               t);
+      temp_text(wo, b, sizeof(b), true);
+      txt(s_side_big2, b);
+      lv_obj_set_style_text_color(s_side_big2, lv_color_hex(C_HOT), 0);
     } else {
-      snprintf(b, sizeof(b), "water out  --");
+      txt(s_side_big2, "--");
+      lv_obj_set_style_text_color(s_side_big2, lv_color_hex(C_OFF), 0);
     }
-    txt(s_side_l[0], b);
-    lv_obj_set_style_text_color(s_side_l[0], lv_color_hex(C_HOT), 0);
-    if (wi != HAUS_CAN_TEMP_EMPTY && ch != HAUS_CAN_TEMP_EMPTY &&
-        wo != HAUS_CAN_TEMP_EMPTY) {
-      snprintf(b, sizeof(b), "rise %s%.1f °C",
-               st.can.water_modelled ? "~" : "", (wo - wi) / 100.0);
+    obj_set_hidden(s_side_big2, false);
+
+    txt(s_side_delta_lbl, "DELTA");
+    obj_set_hidden(s_side_delta_lbl, false);
+    obj_set_hidden(s_side_hr3, false);
+    if (wi != HAUS_CAN_TEMP_EMPTY && ch != HAUS_CAN_TEMP_EMPTY) {
+      snprintf(b, sizeof(b), "%.1f °C", (wi - ch) / 100.0);
+      txt(s_side_delta, b);
+      lv_obj_set_style_text_color(s_side_delta, lv_color_hex(C_INK), 0);
     } else {
-      snprintf(b, sizeof(b), "rise --");
+      txt(s_side_delta, "--");
+      lv_obj_set_style_text_color(s_side_delta, lv_color_hex(C_OFF), 0);
     }
-    txt(s_side_l[1], b);
-    txt(s_side_l[2], st.can.water_modelled ? "modelled" : "measured");
-    txt(s_side_l[3], "");
-    txt(s_side_l[4], "");
-    txt(s_side_note, "modelled from the duty table");
+    obj_set_hidden(s_side_delta, false);
+
+    for (int i = 0; i < 5; i++) txt(s_side_l[i], "");
+    txt(s_side_note, wo != HAUS_CAN_TEMP_EMPTY ? "" : "no water-out probe");
+
+    txt(s_side_legend[0], "- water in");
+    lv_obj_set_style_text_color(s_side_legend[0], lv_color_hex(C_CYAN), 0);
+    obj_set_hidden(s_side_legend[0], wi == HAUS_CAN_TEMP_EMPTY);
+    txt(s_side_legend[1], "- water out");
+    lv_obj_set_style_text_color(s_side_legend[1], lv_color_hex(C_HOT), 0);
+    obj_set_hidden(s_side_legend[1], wo == HAUS_CAN_TEMP_EMPTY);
+    txt(s_side_legend[2], "-- Soll");
+    lv_obj_set_style_text_color(s_side_legend[2], lv_color_hex(C_ACCENT), 0);
+    obj_set_hidden(s_side_legend[2], st.can.chamber_target_c <= 0);
     return;
   }
 
@@ -2805,7 +2868,6 @@ static void side_panel_update(void) {
 }
 
 static void detail_update(void) {
-  if (!s_detail_value) return;
   detail_value_update();
   if (g_detail_screen == UI_SCREEN_CHAMBER) {
     pwm_control_update();
@@ -2841,27 +2903,6 @@ static void detail_update(void) {
       header_badge_set("--", C_OFF);
     else
       header_badge_set("ADC", C_AMBER);
-  }
-
-  if (s_water_extra) {
-    HausState st;
-    gui_get_state(&st);
-    const int16_t ch = st.can.temp_by_fn[SENSOR_FN_CHAMBER];
-    const int16_t wi = st.can.temp_by_fn[SENSOR_FN_WATER_IN];
-    const int16_t wo = st.can.temp_by_fn[SENSOR_FN_WATER_OUT];
-    char b[64];
-    if (wi != HAUS_CAN_TEMP_EMPTY && ch != HAUS_CAN_TEMP_EMPTY &&
-        wo != HAUS_CAN_TEMP_EMPTY) {
-      if (st.can.water_modelled)
-        snprintf(b, sizeof(b), "delta ~%.1f   rise ~%.1f", (wi - ch) / 100.0,
-                 (wo - wi) / 100.0);
-      else
-        snprintf(b, sizeof(b), "delta %.1f   rise %.1f", (wi - ch) / 100.0,
-                 (wo - wi) / 100.0);
-    } else {
-      snprintf(b, sizeof(b), "delta --   rise --");
-    }
-    txt(s_water_extra, b);
   }
 
   const uint32_t newest = gui_history_newest_epoch();
@@ -3443,10 +3484,23 @@ static void side_panel_build(void) {
   for (int i = 0; i < 5; i++) {
     s_side_l[i] = label_make(root, "", 474, 140 + i * 28, &haus_body_21, C_DIM);
   }
+  s_side_big2_lbl = label_make(root, "", 474, 160, &haus_body_21, C_DIM);
+  s_side_hr2 = hline_w(root, 474, 188, 228, C_LINE);
+  obj_set_hidden(s_side_hr2, true);
+  s_side_big2 = label_make(root, "", 474, 198, &haus_value_32, C_HOT);
+  s_side_delta_lbl = label_make(root, "", 474, 250, &haus_body_21, C_DIM);
+  s_side_hr3 = hline_w(root, 474, 278, 228, C_LINE);
+  obj_set_hidden(s_side_hr3, true);
+  s_side_delta = label_make(root, "", 474, 288, &haus_value_32, C_INK);
   s_side_note =
-      label_make(root, "", 474, 300, &lv_font_montserrat_16, C_FAINT);
+      label_make(root, "", 474, 330, &lv_font_montserrat_16, C_FAINT);
   lv_obj_set_width(s_side_note, 228);
   lv_label_set_long_mode(s_side_note, UI_LABEL_LONG_WRAP);
+  for (int i = 0; i < 3; i++) {
+    s_side_legend[i] =
+        label_make(root, "", 474, 352 + i * 22, &lv_font_montserrat_16, C_DIM);
+    obj_set_hidden(s_side_legend[i], true);
+  }
 }
 
 static lv_obj_t* detail_build(int screen, const char* title, int nav_index,
@@ -3460,40 +3514,40 @@ static lv_obj_t* detail_build(int screen, const char* title, int nav_index,
 
   header_build(title, badge, badge_color);
 
-  s_detail_value = label_make(root, "--", 20, 50, &haus_large_52, C_INK);
-
   const bool water =
       (screen == UI_SCREEN_WATER_IN || screen == UI_SCREEN_WATER_OUT);
+  s_detail_value = water
+                       ? NULL
+                       : label_make(root, "--", 20, 50, &haus_large_52, C_INK);
+
   if (screen == UI_SCREEN_LIVING) {
     living_tabs_build(108);
   } else if (screen == UI_SCREEN_AC) {
     range_build(108, 300);
     ac_tabs_build_compact(108, 338, 200);
   } else {
-    range_build(108, 440);
+    range_build(water ? 56 : 108, 440);
   }
 
   if (screen == UI_SCREEN_CHAMBER) {
     s_above_target = label_make(root, "above target --", 20, 152,
                                 &lv_font_montserrat_16, C_ACCENT);
-  } else if (water) {
-    s_water_extra = label_make(root, "delta --   rise --", 20, 152,
-                               &lv_font_montserrat_16, C_DIM);
   } else if (screen == UI_SCREEN_POWER) {
     label_make(root, "power (SML)", 20, 152, &lv_font_montserrat_16, C_DIM);
   }
 
   s_axis_key = -1;
-  chart_build_widgets(168);
+  chart_build_widgets(water ? 116 : 168);
 
   if (water || screen == UI_SCREEN_POWER || screen == UI_SCREEN_LIVING) {
     side_panel_build();
   }
 
   s_chart_readout = label_make(root, "min --   max --   mean --   now --", 20,
-                               432, &lv_font_montserrat_16, C_DIM);
+                               water ? 380 : 432, &lv_font_montserrat_16,
+                               C_DIM);
   s_chart_readout_b = NULL;
-  s_chart_age = label_make(root, "data age --", 20, 458,
+  s_chart_age = label_make(root, "data age --", 20, water ? 406 : 458,
                            &lv_font_montserrat_16, C_FAINT);
 
   if (screen == UI_SCREEN_CHAMBER) pwm_control_build(0);
@@ -3531,11 +3585,8 @@ lv_obj_t* haus_ui_build_detail(void) {
 }
 
 lv_obj_t* haus_ui_build_water(int nav_index) {
-  const bool out = nav_index == UI_SCREEN_WATER_OUT;
-  return detail_build(out ? UI_SCREEN_WATER_OUT : UI_SCREEN_WATER_IN, "WATER",
-                      nav_index,
-                      out && gui_water_model_available() ? "MODELLED" : "Soll",
-                      out && gui_water_model_available() ? C_VIOLET : C_ACCENT);
+  return detail_build(UI_SCREEN_WATER_OUT, "WATER", nav_index, "Soll",
+                      C_ACCENT);
 }
 
 lv_obj_t* haus_ui_build_power(void) {
@@ -4630,6 +4681,7 @@ void haus_ui_deinit(void) {
   s_can_wave_canvas = s_can_wave_info = NULL;
   s_chart_canvas = s_chart_nodata = s_chart_stale = NULL;
   s_chart_target_lbl = s_chart_readout = s_chart_readout_b = s_chart_age = NULL;
+  s_legend_a = s_legend_b = s_legend_t = NULL;
   memset(s_axis_lbl, 0, sizeof(s_axis_lbl));
   memset(s_x_lbl, 0, sizeof(s_x_lbl));
   s_scrub_line = s_scrub_bubble = s_scrub_text = NULL;
@@ -4639,10 +4691,12 @@ void haus_ui_deinit(void) {
   s_detail_value = NULL;
   s_header_badge = s_header_badge_lbl = NULL;
   s_above_target = NULL;
-  s_water_extra = NULL;
   s_side_h = s_side_big = NULL;
   memset(s_side_l, 0, sizeof(s_side_l));
   s_side_note = NULL;
+  s_side_big2 = s_side_big2_lbl = s_side_delta = s_side_delta_lbl = NULL;
+  s_side_hr2 = s_side_hr3 = NULL;
+  memset(s_side_legend, 0, sizeof(s_side_legend));
   s_pwm_switch = s_pwm_switch_lbl = s_pwm_slider = NULL;
   s_pwm_req_lbl = s_pwm_force_lbl = NULL;
   s_pwm_touched = false;

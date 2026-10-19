@@ -112,7 +112,7 @@ static int16_t mock_chamber_temp(uint32_t epoch) {
  *
  *  Water-in follows the chamber with ~5°C offset (cooler, returns from
  * radiators). Water-out follows the chamber with ~5°C offset (hotter, leaves
- * boiler). Water-out is modelled (not measured) on this board.
+ * boiler).
  */
 static int16_t mock_water_in_temp(uint32_t epoch) {
   int16_t chamber = mock_chamber_temp(epoch);
@@ -426,8 +426,8 @@ void gui_update_state(void) {
                              ? (int16_t)g_target_override
                              : mock_target_temp(g_sim_time);
 
-  /* Water model. */
-  can.water_modelled = true;
+  /* Water in/out are measured. */
+  can.water_modelled = false;
 
   /* Uptime (seconds since simulated start). */
   can.uptime_seconds = g_sim_time - 1728892800u;
@@ -639,9 +639,7 @@ const gui_sensor_info_t* gui_get_sensors(uint8_t* count) {
   return g_sensors;
 }
 
-bool gui_water_model_available(void) {
-  return true; /* Water model is installed in the mock. */
-}
+bool gui_water_model_available(void) { return false; }
 
 bool gui_can_enabled(void) { return g_can_enabled; }
 

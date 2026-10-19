@@ -1,17 +1,15 @@
 /**
  * @file haus_ui.c
- * @brief Productive LVGL screens for the 28_hauszentrale panel (480x800).
+ * @brief Productive LVGL screens for the 28_hauszentrale panel (800x480).
  *
  * Shared by the ESP32 firmware and the macOS host harness. Builds every screen
  * from the pure-data interface in haus_gui.h; no device or host specifics.
  *
- * Layout follows docs/ui/mockup.html:
- *   y=0..32    Status strip (date, CAN/SD marks)
- *   y=32..172  Clock (HH:MM)
- *   y=172..580 Heater cabinet (fire + pipes)
- *   y=580..656 Living-room band
- *   y=656..712 Power band
- *   y=712..800 Bottom navigation pane (6 tabs, smartphone-style)
+ * Layout follows docs/ui/mockup.html (landscape):
+ *   0..712   content, right-hand navigation rail at 712..800
+ *   0..32    status strip on Home
+ *   Home: clock left, heater cabinet right, living/power bands left
+ *   Detail screens: header, big value, range/tabs, chart left, side panel right
  */
 
 #define _POSIX_C_SOURCE 200809L
@@ -65,12 +63,16 @@ static inline void ui_label_set_recolor(lv_obj_t* l, bool en) {
 /* ─── Geometry ──────────────────────────────────────────────────────────────
  */
 
-#define SCREEN_W 480
-#define SCREEN_H 800
+#define SCREEN_W 800
+#define SCREEN_H 480
 
-#define NAV_Y 712
-#define NAV_H 88
+#define NAV_W 88
+#define NAV_X (SCREEN_W - NAV_W)
+#define NAV_Y 0
+#define NAV_H SCREEN_H
 #define NAV_TABS 6
+#define CONTENT_W NAV_X
+#define CONTENT_H SCREEN_H
 
 /* ─── Palette (from docs/ui/mockup.html) ────────────────────────────────────
  */
@@ -148,8 +150,6 @@ static void log_screen_update(void);
 static void can_screen_update(void);
 static void settings_can_refresh(void);
 static void can_overlay_close(void);
-static void power_bars_update(void);
-static void power_bars_build(void);
 static void build_status_hotspot(void);
 static void pwm_control_update(void);
 
@@ -164,7 +164,6 @@ static lv_obj_t* s_sd_dot;
 static lv_obj_t* s_wifi_icon;
 static lv_obj_t* s_sd_low_lbl;
 static lv_obj_t* s_cabinet;
-static uint8_t* s_cabinet_buf;
 static lv_obj_t* s_fire;
 static lv_obj_t* s_flame[3];
 static lv_obj_t* s_flame_glow;
@@ -191,7 +190,6 @@ static lv_obj_t* s_pipe_l;
 static lv_obj_t* s_pipe_r;
 static lv_obj_t* s_pipe_lu;
 static lv_obj_t* s_pipe_ru;
-static lv_obj_t* s_flow_dash[12]; /* 6 left + 6 right */
 static lv_obj_t* s_zone[5];       /* 5 invisible navigation zones */
 static lv_obj_t* s_duty_src;      /* duty provenance marker (status strip) */
 static void align_power_labels(void);
@@ -312,6 +310,17 @@ static void hline(lv_obj_t* parent, int y, uint32_t color) {
   obj_set_scrollable(o, false);
 }
 
+static void hline_w(lv_obj_t* parent, int x, int y, int w, uint32_t color) {
+  lv_obj_t* o = lv_obj_create(parent);
+  lv_obj_set_size(o, w, 1);
+  lv_obj_set_pos(o, x, y);
+  lv_obj_set_style_bg_color(o, lv_color_hex(color), 0);
+  lv_obj_set_style_border_width(o, 0, 0);
+  lv_obj_set_style_radius(o, 0, 0);
+  obj_set_clickable(o, false);
+  obj_set_scrollable(o, false);
+}
+
 /* Three stacked waves standing in for the water series (in and out). LVGL's
  * built-in Montserrat subset has no wave glyph, so draw it. The points array is
  * static because lv_line stores the pointer instead of copying it. */
@@ -420,26 +429,30 @@ static void ui_pop(void) {
 static void nav_build(int active_screen) {
   const int active = nav_index_for(active_screen);
   lv_obj_t* nav = lv_obj_create(lv_screen_active());
-  lv_obj_set_size(nav, SCREEN_W, NAV_H);
-  lv_obj_set_pos(nav, 0, NAV_Y);
+  lv_obj_set_size(nav, NAV_W, NAV_H);
+  lv_obj_set_pos(nav, NAV_X, NAV_Y);
   lv_obj_set_style_bg_color(nav, lv_color_hex(0x0c0b0a), 0);
   lv_obj_set_style_border_width(nav, 0, 0);
   lv_obj_set_style_radius(nav, 0, 0);
   lv_obj_set_style_pad_all(nav, 0, 0);
   obj_set_scrollable(nav, false);
-  hline(nav, 0, C_LINE);
+  /* hairline against the content area */
+  lv_obj_t* edge = lv_obj_create(nav);
+  lv_obj_set_size(edge, 1, NAV_H);
+  lv_obj_set_pos(edge, 0, 0);
+  lv_obj_set_style_bg_color(edge, lv_color_hex(C_LINE), 0);
+  lv_obj_set_style_border_width(edge, 0, 0);
+  lv_obj_set_style_radius(edge, 0, 0);
+  obj_set_clickable(edge, false);
 
-  int tab_w = SCREEN_W / NAV_TABS;
-  int x0 = (SCREEN_W - tab_w * NAV_TABS) / 2;
+  const int tab_h = NAV_H / NAV_TABS;
   for (int i = 0; i < NAV_TABS; i++) {
     const int screen = nav_screens[i];
     uint32_t color = i == active ? C_INK : C_DIM;
 
-    /* A transparent tab-sized button gives the whole 80 px slot LVGL's
-     * press/click handling, not just the glyph. */
     lv_obj_t* tab = lv_obj_create(nav);
-    lv_obj_set_size(tab, tab_w, NAV_H);
-    lv_obj_set_pos(tab, x0 + i * tab_w, 0);
+    lv_obj_set_size(tab, NAV_W, tab_h);
+    lv_obj_set_pos(tab, 0, i * tab_h);
     lv_obj_set_style_bg_opa(tab, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(tab, 0, 0);
     lv_obj_set_style_radius(tab, 0, 0);
@@ -449,28 +462,29 @@ static void nav_build(int active_screen) {
     lv_obj_add_event_cb(tab, nav_click_cb, LV_EVENT_CLICKED,
                         (void*)(intptr_t)screen);
 
+    const int icon_y = tab_h / 2 - 14;
     if (nav_icons[i] == NULL) {
       if (i == 1)
-        nav_thermo(tab, tab_w / 2, NAV_H / 2 - 14, color);
+        nav_thermo(tab, NAV_W / 2, icon_y, color);
       else if (i == 2)
-        nav_waves(tab, tab_w / 2, NAV_H / 2 - 10, color);
+        nav_waves(tab, NAV_W / 2, tab_h / 2 - 10, color);
       else
-        nav_house(tab, tab_w / 2, NAV_H / 2 - 14, color);
+        nav_house(tab, NAV_W / 2, icon_y, color);
     } else {
       lv_obj_t* icon = lv_label_create(tab);
       lv_obj_set_style_text_font(icon, &lv_font_montserrat_24, 0);
       lv_obj_set_style_text_color(icon, lv_color_hex(color), 0);
       lv_label_set_text(icon, nav_icons[i]);
-      lv_obj_set_width(icon, tab_w);
+      lv_obj_set_width(icon, NAV_W);
       lv_obj_set_style_text_align(icon, LV_TEXT_ALIGN_CENTER, 0);
-      lv_obj_set_pos(icon, 0, NAV_H / 2 - 14);
+      lv_obj_set_pos(icon, 0, icon_y);
       obj_set_clickable(icon, false);
     }
 
     if (i == active) {
       lv_obj_t* rule = lv_obj_create(tab);
-      lv_obj_set_size(rule, tab_w - 28, 3);
-      lv_obj_set_pos(rule, 14, NAV_H - 3);
+      lv_obj_set_size(rule, 3, tab_h - 28);
+      lv_obj_set_pos(rule, 0, 14);
       lv_obj_set_style_bg_color(rule, lv_color_hex(C_ACCENT), 0);
       lv_obj_set_style_border_width(rule, 0, 0);
       lv_obj_set_style_radius(rule, 1, 0);
@@ -478,7 +492,6 @@ static void nav_build(int active_screen) {
     }
   }
 }
-
 /* ─── Date helpers ──────────────────────────────────────────────────────────
  */
 
@@ -635,7 +648,7 @@ static void build_status(void) {
   /* Right-to-left: WiFi symbol, SD, CAN, then the duty provenance marker.
    * For the duty marker solid means live, hollow means restored EEPROM,
    * red means fault. WiFi has no text label, only the glyph. */
-  int right = SCREEN_W - 12;
+  int right = CONTENT_W - 12;
   s_wifi_icon = status_symbol_mark(&right, LV_SYMBOL_WIFI);
   s_sd_dot = status_mark(&right, "SD");
   s_can_dot = status_mark(&right, "CAN");
@@ -655,11 +668,11 @@ static void clock_long_cb(lv_event_t* e) {
 static void build_clock(void) {
   /* FONT_CLOCK: 110 px, 21 mm cap height (§8.1.1). */
   s_clock =
-      label_make(lv_screen_active(), "--:--", 0, 0, &haus_value_110, C_INK);
+      label_make(lv_screen_active(), "--:--", 0, 28, &haus_value_110, C_INK);
+  lv_obj_set_width(s_clock, 340);
+  lv_obj_set_style_text_align(s_clock, LV_TEXT_ALIGN_CENTER, 0);
   obj_set_clickable(s_clock, true);
   lv_obj_add_event_cb(s_clock, clock_long_cb, LV_EVENT_LONG_PRESSED, NULL);
-  /* Centre it in the 140 px clock band (y=32..172). */
-  lv_obj_align(s_clock, LV_ALIGN_TOP_MID, 0, 30);
 }
 
 /* True when (x,y) lies inside a rounded rectangle inset by `inset` pixels
@@ -679,37 +692,33 @@ static bool ui_round_in(int x, int y, int w, int h, int rad, int inset) {
 
 /* A flame tongue: a pill, wider at the base by stacking two pills. */
 static void build_heater(void) {
-  /* Cabinet glow */
+  const int HX = 270, HY = 98;
+
+  /* Cabinet glow. */
   lv_obj_t* glow = lv_obj_create(lv_screen_active());
-  lv_obj_set_size(glow, 248, 234);
-  lv_obj_set_pos(glow, 116, 188);
+  lv_obj_set_size(glow, 223, 211);
+  lv_obj_set_pos(glow, HX + 104, HY + 14);
   lv_obj_set_style_bg_color(glow, lv_color_hex(0xc4783a), 0);
   lv_obj_set_style_bg_opa(glow, 24, 0);
-  lv_obj_set_style_radius(glow, 22, 0);
+  lv_obj_set_style_radius(glow, 20, 0);
   lv_obj_set_style_border_width(glow, 0, 0);
   obj_set_clickable(glow, false);
 
-  /* Cabinet: a 232x214 lv_canvas with a rounded-rect border (2 px).
-   * Drawn once into the buffer; the update path never touches it. */
+  /* Cabinet canvas: 209x193, rounded-rect border. */
   {
-    const int cw = 232, ch = 214;
-    const uint16_t bw = 2, r = 16;
+    const int cw = 209, ch = 193;
+    const uint16_t bw = 2, r = 14;
     s_cabinet = lv_canvas_create(lv_screen_active());
     lv_obj_set_size(s_cabinet, cw, ch);
-    lv_obj_set_pos(s_cabinet, 124, 196);
+    lv_obj_set_pos(s_cabinet, HX + 112, HY + 22);
     lv_obj_set_style_border_width(s_cabinet, 0, 0);
 
-    /* Allocate an RGB565 buffer (2 bytes per pixel) and attach it. */
     uint8_t* buf = (uint8_t*)lv_malloc(cw * ch * 2);
     lv_canvas_set_buffer(s_cabinet, buf, cw, ch, LV_COLOR_FORMAT_RGB565);
 
     uint16_t pcol = lv_color_to_u16(lv_color_hex(C_PANEL));
     uint16_t bcol = lv_color_to_u16(lv_color_hex(0x6a5e54));
-    /* Fill with panel colour */
     for (int i = 0; i < cw * ch; i++) ((uint16_t*)buf)[i] = pcol;
-    /* Draw the rounded-rect border: outer rounded rect minus an inner one
-     * inset by the stroke width. Intersecting an arc with the straight edge
-     * bands (the old approach) leaves the corners empty. */
     for (int y = 0; y < ch; y++) {
       for (int x = 0; x < cw; x++) {
         if (ui_round_in(x, y, cw, ch, r, 0) &&
@@ -720,31 +729,30 @@ static void build_heater(void) {
     }
   }
 
-  /* Fire chamber (warm gradient) */
+  /* Fire chamber. */
   s_fire = lv_obj_create(s_cabinet);
-  lv_obj_set_size(s_fire, 184, 118);
-  lv_obj_align(s_fire, LV_ALIGN_TOP_MID, 0, 20);
+  lv_obj_set_size(s_fire, 166, 106);
+  lv_obj_align(s_fire, LV_ALIGN_TOP_MID, 0, 18);
   lv_obj_set_style_bg_color(s_fire, lv_color_hex(0x1a1412), 0);
   lv_obj_set_style_bg_grad_color(s_fire, lv_color_hex(0x3a2418), 0);
   lv_obj_set_style_bg_grad_dir(s_fire, LV_GRAD_DIR_VER, 0);
-  lv_obj_set_style_radius(s_fire, 10, 0);
+  lv_obj_set_style_radius(s_fire, 9, 0);
   lv_obj_set_style_border_width(s_fire, 0, 0);
   lv_obj_set_style_pad_all(s_fire, 0, 0);
   obj_set_scrollable(s_fire, false);
 
-  /* Flame: a soft glow plus three tongues and a bright core. */
   s_flame_glow = lv_obj_create(s_fire);
-  lv_obj_set_size(s_flame_glow, 84, 92);
+  lv_obj_set_size(s_flame_glow, 76, 83);
   lv_obj_align(s_flame_glow, LV_ALIGN_BOTTOM_MID, 0, 4);
   lv_obj_set_style_bg_color(s_flame_glow, lv_color_hex(0xc06a2a), 0);
-  lv_obj_set_style_radius(s_flame_glow, 42, 0);
+  lv_obj_set_style_radius(s_flame_glow, 38, 0);
   lv_obj_set_style_border_width(s_flame_glow, 0, 0);
   lv_obj_set_style_opa(s_flame_glow, 90, 0);
   obj_set_clickable(s_flame_glow, false);
 
-  const int fw[3] = {26, 40, 26};
-  const int fh[3] = {54, 88, 54};
-  const int fx[3] = {-30, 0, 30};
+  const int fw[3] = {23, 36, 23};
+  const int fh[3] = {49, 79, 49};
+  const int fx[3] = {-27, 0, 27};
   const int fc[3] = {0xd9762a, 0xf0a64b, 0xd9762a};
   for (int i = 0; i < 3; i++) {
     s_flame[i] = lv_obj_create(s_fire);
@@ -756,84 +764,52 @@ static void build_heater(void) {
     lv_obj_set_style_opa(s_flame[i], 235, 0);
     obj_set_clickable(s_flame[i], false);
   }
-  /* Bright core. */
   s_flame_core = lv_obj_create(s_fire);
-  lv_obj_set_size(s_flame_core, 16, 46);
+  lv_obj_set_size(s_flame_core, 14, 41);
   lv_obj_align(s_flame_core, LV_ALIGN_BOTTOM_MID, 0, 6);
   lv_obj_set_style_bg_color(s_flame_core, lv_color_hex(0xffe0a0), 0);
-  lv_obj_set_style_radius(s_flame_core, 8, 0);
+  lv_obj_set_style_radius(s_flame_core, 7, 0);
   lv_obj_set_style_border_width(s_flame_core, 0, 0);
   lv_obj_set_style_opa(s_flame_core, 240, 0);
   obj_set_clickable(s_flame_core, false);
 
-  /* Soll / target (below the fire, inside the cabinet) */
   s_cabinet_target =
       label_make(s_cabinet, "--", 0, 0, &lv_font_montserrat_32, C_INK);
-  lv_obj_align(s_cabinet_target, LV_ALIGN_BOTTOM_MID, 0, -6);
-
+  lv_obj_align(s_cabinet_target, LV_ALIGN_BOTTOM_MID, 0, -5);
   lv_obj_t* soll =
       label_make(s_cabinet, "Soll", 0, 0, &lv_font_montserrat_16, C_DIM);
-  lv_obj_align(soll, LV_ALIGN_BOTTOM_MID, 0, -42);
+  lv_obj_align(soll, LV_ALIGN_BOTTOM_MID, 0, -38);
 
-  /* Pipes: left (water in) and right (water out). Colours are set by
-   * update_pipe_colours() based on the blue-amber-red temperature ramp.
-   *  < 30 °C → C_COLD (blue)
-   *  30–60 °C → C_AMBER (amber)
-   *  > 60 °C → C_HOT (red) */
+  /* Pipes. */
+  const int py = HY + 270;
   s_pipe_l = lv_obj_create(lv_screen_active());
-  lv_obj_set_size(s_pipe_l, 148, 12);
-  lv_obj_set_pos(s_pipe_l, 28, 466);
-  lv_obj_set_style_bg_color(s_pipe_l, lv_color_hex(C_AMBER), 0);
-  lv_obj_set_style_radius(s_pipe_l, 6, 0);
+  lv_obj_set_size(s_pipe_l, 133, 11);
+  lv_obj_set_pos(s_pipe_l, HX + 25, py);
+  lv_obj_set_style_radius(s_pipe_l, 5, 0);
   lv_obj_set_style_border_width(s_pipe_l, 0, 0);
   obj_set_clickable(s_pipe_l, false);
   s_pipe_lu = lv_obj_create(lv_screen_active());
-  lv_obj_set_size(s_pipe_lu, 12, 62);
-  lv_obj_set_pos(s_pipe_lu, 164, 410);
-  lv_obj_set_style_bg_color(s_pipe_lu, lv_color_hex(C_AMBER), 0);
-  lv_obj_set_style_radius(s_pipe_lu, 6, 0);
+  lv_obj_set_size(s_pipe_lu, 11, 62);
+  lv_obj_set_pos(s_pipe_lu, HX + 148, HY + 214);
+  lv_obj_set_style_radius(s_pipe_lu, 5, 0);
   lv_obj_set_style_border_width(s_pipe_lu, 0, 0);
   obj_set_clickable(s_pipe_lu, false);
 
   s_pipe_r = lv_obj_create(lv_screen_active());
-  lv_obj_set_size(s_pipe_r, 148, 12);
-  lv_obj_set_pos(s_pipe_r, 304, 466);
-  lv_obj_set_style_bg_color(s_pipe_r, lv_color_hex(C_HOT), 0);
-  lv_obj_set_style_radius(s_pipe_r, 6, 0);
+  lv_obj_set_size(s_pipe_r, 133, 11);
+  lv_obj_set_pos(s_pipe_r, HX + 274, py);
+  lv_obj_set_style_radius(s_pipe_r, 5, 0);
   lv_obj_set_style_border_width(s_pipe_r, 0, 0);
   obj_set_clickable(s_pipe_r, false);
   s_pipe_ru = lv_obj_create(lv_screen_active());
-  lv_obj_set_size(s_pipe_ru, 12, 62);
-  lv_obj_set_pos(s_pipe_ru, 304, 410);
-  lv_obj_set_style_bg_color(s_pipe_ru, lv_color_hex(C_HOT), 0);
-  lv_obj_set_style_radius(s_pipe_ru, 6, 0);
+  lv_obj_set_size(s_pipe_ru, 11, 62);
+  lv_obj_set_pos(s_pipe_ru, HX + 274, HY + 214);
+  lv_obj_set_style_radius(s_pipe_ru, 5, 0);
   lv_obj_set_style_border_width(s_pipe_ru, 0, 0);
   obj_set_clickable(s_pipe_ru, false);
 
-  /* Flow dashes along the horizontal pipes.  6 dashes per pipe.
-   * Animated by update_flow_dashes() based on duty cycle. */
-  for (int j = 0; j < 6; j++) {
-    s_flow_dash[j] = lv_obj_create(lv_screen_active());
-    lv_obj_set_size(s_flow_dash[j], 12, 4);
-    lv_obj_set_pos(s_flow_dash[j], 40 + j * 22, 470);
-    lv_obj_set_style_bg_color(s_flow_dash[j], lv_color_hex(C_INK), 0);
-    lv_obj_set_style_radius(s_flow_dash[j], 2, 0);
-    lv_obj_set_style_border_width(s_flow_dash[j], 0, 0);
-    lv_obj_set_style_opa(s_flow_dash[j], 150, 0);
-    obj_set_clickable(s_flow_dash[j], false);
-
-    s_flow_dash[j + 6] = lv_obj_create(lv_screen_active());
-    lv_obj_set_size(s_flow_dash[j + 6], 12, 4);
-    lv_obj_set_pos(s_flow_dash[j + 6], 316 + j * 22, 470);
-    lv_obj_set_style_bg_color(s_flow_dash[j + 6], lv_color_hex(C_INK), 0);
-    lv_obj_set_style_radius(s_flow_dash[j + 6], 2, 0);
-    lv_obj_set_style_border_width(s_flow_dash[j + 6], 0, 0);
-    lv_obj_set_style_opa(s_flow_dash[j + 6], 150, 0);
-    obj_set_clickable(s_flow_dash[j + 6], false);
-  }
-
-  /* Chamber temperature (left of the cabinet). */
-  s_chamber_temp = label_make(lv_screen_active(), "--", 24, 250,
+  /* Chamber temperature above the cabinet. */
+  s_chamber_temp = label_make(lv_screen_active(), "--", HX + 166, 50,
                               &lv_font_montserrat_32, C_COLD);
   s_chamber_unit = label_make(lv_screen_active(), "°C", 0, 0,
                               &lv_font_montserrat_16, C_COLD);
@@ -841,59 +817,47 @@ static void build_heater(void) {
                   -2);
 
   /* Pipe labels. */
-  s_water_in = label_make(lv_screen_active(), "--", 24, 508,
+  s_water_in = label_make(lv_screen_active(), "--", HX + 20, 404,
                           &lv_font_montserrat_24, C_AMBER);
-  s_water_in_lbl = label_make(lv_screen_active(), "water in", 24, 540,
+  s_water_in_lbl = label_make(lv_screen_active(), "water in", HX + 20, 432,
                               &lv_font_montserrat_16, C_DIM);
-
-  s_pump = label_make(lv_screen_active(), "off", 220, 508,
+  s_pump = label_make(lv_screen_active(), "off", HX + 196, 404,
                       &lv_font_montserrat_24, C_OK);
-  s_pump_lbl = label_make(lv_screen_active(), "Vpp --", 200, 540,
-                          &lv_font_montserrat_16, C_DIM);
-
-  s_water_out = label_make(lv_screen_active(), "--", 348, 508,
+  s_pump_lbl = NULL;
+  s_water_out = label_make(lv_screen_active(), "--", HX + 330, 404,
                            &lv_font_montserrat_24, C_HOT);
-  s_water_out_lbl = label_make(lv_screen_active(), "water out", 348, 540,
+  s_water_out_lbl = label_make(lv_screen_active(), "water out", HX + 330, 432,
                                &lv_font_montserrat_16, C_DIM);
 }
-
 static void build_living(void) {
-  hline(lv_screen_active(), 580, C_LINE);
+  hline_w(lv_screen_active(), 12, 180, 256, C_LINE);
 
-  lv_obj_t* glyph = label_make(lv_screen_active(), LV_SYMBOL_TINT, 20, 600,
-                               &lv_font_montserrat_24, C_COLD);
-  (void)glyph;
-  s_living_temp = label_make(lv_screen_active(), "--", 56, 596,
+  label_make(lv_screen_active(), LV_SYMBOL_TINT, 20, 194,
+             &lv_font_montserrat_24, C_COLD);
+  s_living_temp = label_make(lv_screen_active(), "--", 56, 190,
                              &lv_font_montserrat_32, C_COLD);
   s_living_unit = label_make(lv_screen_active(), "°C", 0, 0,
                              &lv_font_montserrat_16, C_COLD);
   lv_obj_align_to(s_living_unit, s_living_temp, LV_ALIGN_OUT_RIGHT_BOTTOM, 4,
                   -2);
-
-  s_living_temp_tol = label_make(lv_screen_active(), "+/-0.1°C", 0, 0,
+  s_living_temp_tol = label_make(lv_screen_active(), "", 0, 0,
                                  &lv_font_montserrat_16, C_FAINT);
-  lv_obj_align_to(s_living_temp_tol, s_living_unit, LV_ALIGN_OUT_RIGHT_BOTTOM,
-                  6, -2);
+  obj_set_hidden(s_living_temp_tol, true);
 
-  s_living_rh = label_make(lv_screen_active(), "-- %rH", 300, 596,
-                           &lv_font_montserrat_32, C_CYAN);
-  s_living_rh_tol = label_make(lv_screen_active(), "+/-1%", 0, 0,
+  s_living_rh = label_make(lv_screen_active(), "-- %rH", 172, 190,
+                           &lv_font_montserrat_24, C_CYAN);
+  s_living_rh_tol = label_make(lv_screen_active(), "", 0, 0,
                                &lv_font_montserrat_16, C_FAINT);
-  lv_obj_align_to(s_living_rh_tol, s_living_rh, LV_ALIGN_OUT_RIGHT_BOTTOM, 6,
-                  -2);
+  obj_set_hidden(s_living_rh_tol, true);
 }
 
 static void build_power(void) {
-  hline(lv_screen_active(), 656, C_LINE);
+  hline_w(lv_screen_active(), 12, 260, 256, C_LINE);
 
-  /* Centered group: bolt glyph + watts + unit. The small labels are aligned
-   * to the vertical middle of the number rather than to its baseline, so the
-   * unit does not sit low against the 48 px digits. */
   s_power_num =
-      label_make(lv_screen_active(), "--", 0, 0, &lv_font_montserrat_48, C_INK);
-  lv_obj_align(s_power_num, LV_ALIGN_TOP_MID, 0, 656);
-
-  s_power_bolt = label_make(lv_screen_active(), LV_SYMBOL_CHARGE, 0, 0,
+      label_make(lv_screen_active(), "--", 56, 266, &lv_font_montserrat_48,
+                 C_INK);
+  s_power_bolt = label_make(lv_screen_active(), LV_SYMBOL_CHARGE, 20, 278,
                             &lv_font_montserrat_32, C_ACCENT);
   s_power_src =
       label_make(lv_screen_active(), "W", 0, 0, &lv_font_montserrat_16, C_DIM);
@@ -916,19 +880,15 @@ static void zone_click_cb(lv_event_t* e) {
 }
 
 static void build_zones(void) {
-  /* Five invisible tappable zones, sized and placed per whitepaper §8.5.
-   * They never overlap: chamber ends at y=420, the water pair sits between
-   * y=440 and y=560 with a 80 px dead gap, living room is y=580..656 and
-   * power is y=656..712. */
   static const struct {
     int x, y, w, h;
     int screen;
   } zones[5] = {
-      {90, 220, 300, 200, UI_SCREEN_CHAMBER},
-      {20, 440, 180, 120, UI_SCREEN_WATER_IN},
-      {280, 440, 180, 120, UI_SCREEN_WATER_OUT},
-      {0, 580, SCREEN_W, 76, UI_SCREEN_LIVING},
-      {0, 656, SCREEN_W, 56, UI_SCREEN_POWER},
+      {380, 110, 300, 220, UI_SCREEN_CHAMBER},
+      {270, 360, 200, 100, UI_SCREEN_WATER_IN},
+      {490, 360, 210, 100, UI_SCREEN_WATER_OUT},
+      {0, 180, 270, 72, UI_SCREEN_LIVING},
+      {0, 260, 270, 72, UI_SCREEN_POWER},
   };
 
   for (int i = 0; i < 5; i++) {
@@ -937,7 +897,6 @@ static void build_zones(void) {
     lv_obj_set_size(s_zone[i], zones[i].w, zones[i].h);
     lv_obj_set_style_bg_color(s_zone[i], lv_color_hex(0xffffff), 0);
     lv_obj_set_style_bg_opa(s_zone[i], LV_OPA_TRANSP, 0);
-    /* Pressed state: 12 % white tint (32/255). */
     lv_obj_set_style_bg_opa(s_zone[i], 32, LV_STATE_PRESSED);
     lv_obj_set_style_border_width(s_zone[i], 0, 0);
     lv_obj_set_style_radius(s_zone[i], 0, 0);
@@ -1189,7 +1148,7 @@ void haus_ui_update(void) {
   } else {
     snprintf(buf, sizeof(buf), "RMS --");
   }
-  txt(s_pump_lbl, buf);
+  if (s_pump_lbl) txt(s_pump_lbl, buf);
 
   /* Living room. */
   bool living_changed;
@@ -1249,31 +1208,7 @@ void haus_ui_update(void) {
    * refresh the data (the host harness) and let the loop drive it after. */
   haus_ui_animate();
 
-  /* Flow dashes: animate along the pipes when duty indicates flow.
-   * Left pipe (water in) flows rightward, right pipe (water out) flows
-   * leftward. Dashes are hidden when duty = 0 or duty = 1000. */
-  if (s_flow_dash[0]) {
-    const bool flowing = state.can.pwm_fresh && state.can.pwm_permille < 500;
-    /* Phase: 0–1200 ms cycle, dashes shift by 22 px per step. */
-    uint32_t phase = lv_tick_get() % 1200;
-    int offset = (int)(phase / 200) * 22; /* 6 steps × 22 px */
-    /* Left pipe: dashes move rightward (increasing x). */
-    for (int j = 0; j < 6; j++) {
-      int x = 40 + j * 22 + (flowing ? offset : 0);
-      /* Wrap around */
-      if (flowing && x > 40 + 5 * 22 + 12) x -= 6 * 22;
-      lv_obj_set_pos(s_flow_dash[j], x, 470);
-      lv_obj_set_style_opa(s_flow_dash[j], flowing ? 150 : 0, 0);
-    }
-    /* Right pipe: dashes move leftward (decreasing x). */
-    for (int j = 0; j < 6; j++) {
-      int x = 316 + j * 22 - (flowing ? offset : 0);
-      /* Wrap around */
-      if (flowing && x < 316 - 5 * 22) x += 6 * 22;
-      lv_obj_set_pos(s_flow_dash[j + 6], x, 470);
-      lv_obj_set_style_opa(s_flow_dash[j + 6], flowing ? 150 : 0, 0);
-    }
-  }
+
 }
 
 void haus_ui_animate(void) {
@@ -1401,19 +1336,22 @@ static lv_obj_t* s_scrub_text;
 static uint32_t s_scrub_hide_at;
 static lv_obj_t* s_range_lbl[3];
 static lv_obj_t* s_range_hl;
+static int s_range_w = 440;
 static lv_obj_t* s_detail_value;
 static lv_obj_t* s_header_badge;
 static lv_obj_t* s_header_badge_lbl;
 static lv_obj_t* s_above_target;
-static lv_obj_t* s_power_bars[31];
-static lv_obj_t* s_power_bars_label;
 static lv_obj_t* s_power_unit_lbl;
-static int s_power_bin_count;
-static int s_power_unit = -1; /* -1 auto, 0 W, 1 kW */
 static lv_obj_t* s_water_extra;
+static lv_obj_t* s_side_h;
+static lv_obj_t* s_side_big;
+static lv_obj_t* s_side_l[5];
+static lv_obj_t* s_side_note;
 static lv_obj_t* s_living_tab[2];
 static int g_living_series = 0;
 static lv_obj_t* s_ac_tab[2];
+static lv_obj_t* s_ac_hl;
+static int s_ac_w = 200;
 static int g_ac_series = 0;
 
 /* PWM request UI (S20.01/S20.02). A user change on the detail page sends one
@@ -1449,10 +1387,6 @@ static bool s_log_invert = false;
 static uint8_t s_log_level_mask = 0x0F;
 static int s_log_scroll = 0;
 static uint32_t s_log_last_build;
-static int s_log_last_len = -1;
-static int s_log_last_scroll = -1;
-static uint8_t s_log_last_mask = 0xFF;
-static bool s_log_last_follow = false;
 #define LOG_LINES_MAX 2048
 #define LOG_RECOLOR_BYTES 8192
 static char* s_log_recolor = NULL;
@@ -1602,6 +1536,7 @@ static void chart_cfg_for(int detail, chart_cfg_t* cfg) {
       cfg->use_target = 0;
       cfg->hourly_ok = 1;
       cfg->unit = (g_ac_series == 0) ? CHART_UNIT_AC_RMS : CHART_UNIT_AC_ANGLE;
+      cfg->lines_only = 1;
       cfg->color_a = (g_ac_series == 0) ? C_AMBER : C_VIOLET;
       cfg->color_b = cfg->color_a;
       break;
@@ -1860,7 +1795,7 @@ static void chart_format_value(char* buf, size_t n, int32_t v, int unit) {
         snprintf(buf, n, "%d", (int)(v / 10));
       break;
     case CHART_UNIT_AC_RMS:
-      snprintf(buf, n, "%.3f", (v / 10.0) * 1.1 / 1024.0);
+      snprintf(buf, n, "%.1f", v / 10.0);
       break;
     case CHART_UNIT_AC_ANGLE:
       snprintf(buf, n, "%.1f", v / 100.0);
@@ -2443,7 +2378,7 @@ static void chart_build_widgets(int top) {
 static void range_set(int range) {
   if (range < 0 || range > 2) return;
   g_range = range;
-  if (s_range_hl) lv_obj_set_x(s_range_hl, range * (440 / 3));
+  if (s_range_hl) lv_obj_set_x(s_range_hl, range * (s_range_w / 3));
   for (int i = 0; i < 3; i++) {
     if (!s_range_lbl[i]) continue;
     lv_obj_set_style_text_color(s_range_lbl[i],
@@ -2457,9 +2392,10 @@ static void range_click_cb(lv_event_t* e) {
   range_set((int)(intptr_t)lv_event_get_user_data(e));
 }
 
-static void range_build(int top) {
+static void range_build(int top, int width) {
+  s_range_w = width;
   lv_obj_t* seg = lv_obj_create(lv_screen_active());
-  lv_obj_set_size(seg, 440, 44);
+  lv_obj_set_size(seg, width, 40);
   lv_obj_set_pos(seg, 20, top);
   lv_obj_set_style_bg_opa(seg, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(seg, 1, 0);
@@ -2469,8 +2405,8 @@ static void range_build(int top) {
   obj_set_scrollable(seg, false);
 
   s_range_hl = lv_obj_create(seg);
-  lv_obj_set_size(s_range_hl, 440 / 3, 44);
-  lv_obj_set_pos(s_range_hl, g_range * (440 / 3), 0);
+  lv_obj_set_size(s_range_hl, width / 3, 40);
+  lv_obj_set_pos(s_range_hl, g_range * (width / 3), 0);
   lv_obj_set_style_bg_color(s_range_hl, lv_color_hex(C_ACCENT), 0);
   lv_obj_set_style_bg_opa(s_range_hl, 32, 0);
   lv_obj_set_style_border_width(s_range_hl, 0, 0);
@@ -2480,8 +2416,8 @@ static void range_build(int top) {
   const char* names[3] = {"1 day", "1 week", "1 month"};
   for (int i = 0; i < 3; i++) {
     lv_obj_t* tab = lv_obj_create(seg);
-    lv_obj_set_size(tab, 440 / 3, 44);
-    lv_obj_set_pos(tab, i * (440 / 3), 0);
+    lv_obj_set_size(tab, width / 3, 40);
+    lv_obj_set_pos(tab, i * (width / 3), 0);
     lv_obj_set_style_bg_opa(tab, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(tab, 0, 0);
     lv_obj_set_style_pad_all(tab, 0, 0);
@@ -2491,9 +2427,9 @@ static void range_build(int top) {
                         (void*)(intptr_t)i);
     s_range_lbl[i] = label_make(tab, names[i], 0, 0, &lv_font_montserrat_16,
                                 i == g_range ? C_INK : C_DIM);
-    lv_obj_set_width(s_range_lbl[i], 440 / 3);
+    lv_obj_set_width(s_range_lbl[i], width / 3);
     lv_obj_set_style_text_align(s_range_lbl[i], LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_pos(s_range_lbl[i], 0, 12);
+    lv_obj_set_pos(s_range_lbl[i], 0, 10);
   }
 }
 
@@ -2591,14 +2527,15 @@ static void pwm_control_update(void) {
 }
 
 static void pwm_control_build(int top) {
+  (void)top;
   lv_obj_t* root = lv_screen_active();
-  hline(root, top, C_LINE);
+  hline_w(root, 474, 56, 228, C_LINE);
 
-  label_make(root, "PWM DUTY", 20, top + 18, &haus_body_21, C_INK);
+  label_make(root, "PWM DUTY", 474, 64, &haus_body_21, C_INK);
 
   s_pwm_switch = lv_obj_create(root);
   lv_obj_set_size(s_pwm_switch, 80, 38);
-  lv_obj_set_pos(s_pwm_switch, 380, top + 12);
+  lv_obj_set_pos(s_pwm_switch, 622, 58);
   lv_obj_set_style_border_width(s_pwm_switch, 0, 0);
   lv_obj_set_style_radius(s_pwm_switch, 8, 0);
   lv_obj_set_style_pad_all(s_pwm_switch, 0, 0);
@@ -2610,8 +2547,9 @@ static void pwm_control_build(int top) {
   lv_obj_center(s_pwm_switch_lbl);
 
   s_pwm_slider = lv_slider_create(root);
-  lv_obj_set_size(s_pwm_slider, 440, 30);
-  lv_obj_set_pos(s_pwm_slider, 20, top + 66);
+  lv_obj_set_size(s_pwm_slider, 30, 200);
+  lv_obj_set_pos(s_pwm_slider, 500, 110);
+  lv_bar_set_orientation(s_pwm_slider, LV_BAR_ORIENTATION_VERTICAL);
   lv_slider_set_range(s_pwm_slider, 0, 500);
   lv_obj_set_style_bg_color(s_pwm_slider, lv_color_hex(C_LINE), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(s_pwm_slider, LV_OPA_COVER, LV_PART_MAIN);
@@ -2625,15 +2563,17 @@ static void pwm_control_build(int top) {
   lv_obj_add_event_cb(s_pwm_slider, pwm_slider_cb, LV_EVENT_VALUE_CHANGED,
                       NULL);
 
-  label_make(root, "500 min", 20, top + 102, &lv_font_montserrat_16, C_DIM);
-  lv_obj_t* full =
-      label_make(root, "0 full", 0, top + 102, &lv_font_montserrat_16, C_DIM);
-  lv_obj_set_width(full, 440);
-  lv_obj_set_style_text_align(full, LV_TEXT_ALIGN_RIGHT, 0);
-  lv_obj_set_pos(full, 20, top + 102);
+  label_make(root, "0 full", 548, 108, &lv_font_montserrat_16, C_DIM);
+  label_make(root, "500 min", 548, 288, &lv_font_montserrat_16, C_DIM);
 
-  s_pwm_req_lbl = label_make(root, "", 20, top + 128, &haus_body_21, C_INK);
-  s_pwm_force_lbl = label_make(root, "", 20, top + 156, &haus_body_21, C_DIM);
+  s_pwm_req_lbl = label_make(root, "", 474, 330, &haus_body_21, C_INK);
+  s_pwm_force_lbl = label_make(root, "", 474, 358, &haus_body_21, C_DIM);
+
+  lv_obj_t* warn =
+      label_make(root, "This survives a power cut.", 474, 394,
+                 &lv_font_montserrat_16, C_AMBER);
+  lv_obj_set_width(warn, 228);
+  lv_label_set_long_mode(warn, UI_LABEL_LONG_WRAP);
 
   s_pwm_touched = false;
   HausState st;
@@ -2647,7 +2587,6 @@ static void pwm_control_build(int top) {
   pwm_control_visual();
   pwm_force_text(f);
 }
-
 static void header_build_at(const char* title, const char* badge,
                             uint32_t badge_color, int title_y) {
   label_make(lv_screen_active(), title, 20, title_y, &lv_font_montserrat_32,
@@ -2665,7 +2604,7 @@ static void header_build_at(const char* title, const char* badge,
     lv_obj_t* badge_lbl =
         label_make(b, badge, 0, 0, &lv_font_montserrat_16, badge_color);
     lv_obj_center(badge_lbl);
-    lv_obj_align(b, LV_ALIGN_TOP_RIGHT, -14, 14);
+    lv_obj_align(b, LV_ALIGN_TOP_RIGHT, -102, 6);
     s_header_badge = b;
     s_header_badge_lbl = badge_lbl;
   } else {
@@ -2676,7 +2615,7 @@ static void header_build_at(const char* title, const char* badge,
 
 static void header_build(const char* title, const char* badge,
                          uint32_t badge_color) {
-  header_build_at(title, badge, badge_color, 18);
+  header_build_at(title, badge, badge_color, 8);
 }
 
 static void header_badge_set(const char* text, uint32_t color) {
@@ -2727,12 +2666,10 @@ static void detail_value_update(void) {
       return;
     case UI_SCREEN_AC:
       if (st.can.ac_fresh) {
-        if (g_ac_series == 0) {
-          const double vrms = (st.can.ac_rms_dc / 10.0) * 1.1 / 1024.0;
-          snprintf(buf, sizeof(buf), "%.3f V", vrms);
-        } else {
-          snprintf(buf, sizeof(buf), "%.1f deg", st.can.ac_angle_cdeg / 100.0);
-        }
+        if (g_ac_series == 0)
+          snprintf(buf, sizeof(buf), "%.1f cnt", st.can.ac_rms_dc / 10.0);
+        else
+          snprintf(buf, sizeof(buf), "%.0f°", st.can.ac_angle_cdeg / 100.0);
       } else {
         snprintf(buf, sizeof(buf), "--");
       }
@@ -2760,6 +2697,111 @@ static void chart_rebuild(void) {
   chart_build();
   chart_draw();
   chart_update_readouts();
+}
+
+static void side_panel_update(void) {
+  if (!s_side_h) return;
+  HausState st;
+  gui_get_state(&st);
+  char b[64];
+  const int16_t ch = st.can.temp_by_fn[SENSOR_FN_CHAMBER];
+  const int16_t wi = st.can.temp_by_fn[SENSOR_FN_WATER_IN];
+  const int16_t wo = st.can.temp_by_fn[SENSOR_FN_WATER_OUT];
+
+  if (g_detail_screen == UI_SCREEN_WATER_IN ||
+      g_detail_screen == UI_SCREEN_WATER_OUT) {
+    txt(s_side_h, "WATER");
+    if (wi != HAUS_CAN_TEMP_EMPTY) {
+      temp_text(wi, b, sizeof(b), true);
+      txt(s_side_big, b);
+      lv_obj_set_style_text_color(s_side_big, lv_color_hex(C_CYAN), 0);
+    } else {
+      txt(s_side_big, "--");
+      lv_obj_set_style_text_color(s_side_big, lv_color_hex(C_OFF), 0);
+    }
+    if (wo != HAUS_CAN_TEMP_EMPTY) {
+      char t[24];
+      temp_text(wo, t, sizeof(t), true);
+      snprintf(b, sizeof(b), "water out  %s%s", st.can.water_modelled ? "~" : "",
+               t);
+    } else {
+      snprintf(b, sizeof(b), "water out  --");
+    }
+    txt(s_side_l[0], b);
+    lv_obj_set_style_text_color(s_side_l[0], lv_color_hex(C_HOT), 0);
+    if (wi != HAUS_CAN_TEMP_EMPTY && ch != HAUS_CAN_TEMP_EMPTY &&
+        wo != HAUS_CAN_TEMP_EMPTY) {
+      snprintf(b, sizeof(b), "rise %s%.1f °C",
+               st.can.water_modelled ? "~" : "", (wo - wi) / 100.0);
+    } else {
+      snprintf(b, sizeof(b), "rise --");
+    }
+    txt(s_side_l[1], b);
+    txt(s_side_l[2], st.can.water_modelled ? "modelled" : "measured");
+    txt(s_side_l[3], "");
+    txt(s_side_l[4], "");
+    txt(s_side_note, "modelled from the duty table");
+    return;
+  }
+
+  if (g_detail_screen == UI_SCREEN_POWER) {
+    txt(s_side_h, "POWER");
+    if (st.can.valid) {
+      if (st.can.watts >= 1000)
+        snprintf(b, sizeof(b), "%.2f kW", st.can.watts / 1000.0);
+      else
+        snprintf(b, sizeof(b), "%d W", (int)st.can.watts);
+    } else {
+      snprintf(b, sizeof(b), "--");
+    }
+    txt(s_side_big, b);
+    lv_obj_set_style_text_color(s_side_big, lv_color_hex(C_INK), 0);
+    txt(s_side_l[0], st.can.power_src == GUI_PWR_SRC_SML ? "SML live"
+                                                          : "no source");
+    txt(s_side_l[1], "");
+    txt(s_side_l[2], "");
+    txt(s_side_l[3], "");
+    txt(s_side_l[4], "");
+    txt(s_side_note, "");
+    return;
+  }
+
+  if (g_detail_screen == UI_SCREEN_LIVING) {
+    txt(s_side_h, "LIVING ROOM");
+    if (st.climate.climate_flags & CLIMATE_VALID_SHT45) {
+      if (g_living_series == 0) {
+        temp_text(st.climate.living_c100, b, sizeof(b), true);
+        lv_obj_set_style_text_color(s_side_big, lv_color_hex(C_COLD), 0);
+      } else {
+        snprintf(b, sizeof(b), "%.1f %%rh", st.climate.hum_c100 / 100.0);
+        lv_obj_set_style_text_color(s_side_big, lv_color_hex(C_CYAN), 0);
+      }
+    } else {
+      snprintf(b, sizeof(b), "--");
+      lv_obj_set_style_text_color(s_side_big, lv_color_hex(C_OFF), 0);
+    }
+    txt(s_side_big, b);
+    if (st.climate.climate_flags & CLIMATE_VALID_SHT45) {
+      char t[20], h[20];
+      temp_text(st.climate.living_c100, t, sizeof(t), true);
+      snprintf(h, sizeof(h), "%.1f %%rh", st.climate.hum_c100 / 100.0);
+      snprintf(b, sizeof(b), "%s   %s", t, h);
+    } else {
+      snprintf(b, sizeof(b), "--");
+    }
+    txt(s_side_l[0], b);
+    txt(s_side_l[1], "SHT45 - H1");
+    txt(s_side_l[2], "");
+    txt(s_side_l[3], "");
+    txt(s_side_l[4], "");
+    txt(s_side_note, "");
+    return;
+  }
+
+  txt(s_side_h, "");
+  txt(s_side_big, "");
+  for (int i = 0; i < 5; i++) txt(s_side_l[i], "");
+  txt(s_side_note, "");
 }
 
 static void detail_update(void) {
@@ -2801,8 +2843,6 @@ static void detail_update(void) {
       header_badge_set("ADC", C_AMBER);
   }
 
-  if (g_detail_screen == UI_SCREEN_POWER) power_bars_update();
-
   if (s_water_extra) {
     HausState st;
     gui_get_state(&st);
@@ -2829,6 +2869,8 @@ static void detail_update(void) {
     chart_rebuild();
   else
     chart_update_readouts();
+
+  side_panel_update();
 
   if (s_scrub_hide_at && (int32_t)(lv_tick_get() - s_scrub_hide_at) >= 0) {
     chart_scrub_hide();
@@ -2886,13 +2928,16 @@ static void living_tabs_build(int top) {
 static void ac_series_set(int series) {
   if (series < 0 || series > 1) return;
   g_ac_series = series;
+  if (s_ac_hl) lv_obj_set_x(s_ac_hl, series * (s_ac_w / 2));
   for (int i = 0; i < 2; i++) {
     if (!s_ac_tab[i]) continue;
-    lv_obj_t* tab = lv_obj_get_parent(s_ac_tab[i]);
-    if (tab) {
-      lv_obj_set_style_bg_opa(tab, i == series ? 32 : LV_OPA_TRANSP, 0);
-      lv_obj_set_style_border_color(
-          tab, lv_color_hex(i == series ? C_ACCENT : C_LINE), 0);
+    if (!s_ac_hl) {
+      lv_obj_t* tab = lv_obj_get_parent(s_ac_tab[i]);
+      if (tab) {
+        lv_obj_set_style_bg_opa(tab, i == series ? 32 : LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_color(
+            tab, lv_color_hex(i == series ? C_ACCENT : C_LINE), 0);
+      }
     }
     lv_obj_set_style_text_color(s_ac_tab[i],
                                 lv_color_hex(i == series ? C_INK : C_DIM), 0);
@@ -2906,18 +2951,36 @@ static void ac_series_cb(lv_event_t* e) {
   ac_series_set((int)(intptr_t)lv_event_get_user_data(e));
 }
 
-static void ac_tabs_build(int top) {
+/* Same segmented-control look as the range selector (100 x 40 halves). */
+static void ac_tabs_build_compact(int top, int left, int width) {
   static const char* names[2] = {"RMS", "Angle"};
+  s_ac_w = width;
+  lv_obj_t* seg = lv_obj_create(lv_screen_active());
+  lv_obj_set_size(seg, width, 40);
+  lv_obj_set_pos(seg, left, top);
+  lv_obj_set_style_bg_opa(seg, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(seg, 1, 0);
+  lv_obj_set_style_border_color(seg, lv_color_hex(C_LINE), 0);
+  lv_obj_set_style_radius(seg, 8, 0);
+  lv_obj_set_style_pad_all(seg, 0, 0);
+  obj_set_scrollable(seg, false);
+
+  lv_obj_t* hl = lv_obj_create(seg);
+  s_ac_hl = hl;
+  lv_obj_set_size(hl, width / 2, 40);
+  lv_obj_set_pos(hl, g_ac_series * (width / 2), 0);
+  lv_obj_set_style_bg_color(hl, lv_color_hex(C_ACCENT), 0);
+  lv_obj_set_style_bg_opa(hl, 32, 0);
+  lv_obj_set_style_border_width(hl, 0, 0);
+  lv_obj_set_style_radius(hl, 0, 0);
+  obj_set_clickable(hl, false);
+
   for (int i = 0; i < 2; i++) {
-    lv_obj_t* tab = lv_obj_create(lv_screen_active());
-    lv_obj_set_size(tab, 140, 30);
-    lv_obj_set_pos(tab, 20 + i * 148, top);
-    lv_obj_set_style_bg_opa(tab, i == g_ac_series ? 32 : LV_OPA_TRANSP, 0);
-    lv_obj_set_style_bg_color(tab, lv_color_hex(C_ACCENT), 0);
-    lv_obj_set_style_border_width(tab, 1, 0);
-    lv_obj_set_style_border_color(
-        tab, lv_color_hex(i == g_ac_series ? C_ACCENT : C_LINE), 0);
-    lv_obj_set_style_radius(tab, 6, 0);
+    lv_obj_t* tab = lv_obj_create(seg);
+    lv_obj_set_size(tab, width / 2, 40);
+    lv_obj_set_pos(tab, i * (width / 2), 0);
+    lv_obj_set_style_bg_opa(tab, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(tab, 0, 0);
     lv_obj_set_style_pad_all(tab, 0, 0);
     obj_set_scrollable(tab, false);
     obj_set_clickable(tab, true);
@@ -2925,9 +2988,9 @@ static void ac_tabs_build(int top) {
                         (void*)(intptr_t)i);
     s_ac_tab[i] = label_make(tab, names[i], 0, 0, &lv_font_montserrat_16,
                              i == g_ac_series ? C_INK : C_DIM);
-    lv_obj_set_width(s_ac_tab[i], 140);
+    lv_obj_set_width(s_ac_tab[i], width / 2);
     lv_obj_set_style_text_align(s_ac_tab[i], LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_pos(s_ac_tab[i], 0, 6);
+    lv_obj_set_pos(s_ac_tab[i], 0, 10);
   }
 }
 
@@ -2948,6 +3011,7 @@ static char log_level_of(const char* s, size_t n) {
   return 'I';
 }
 
+#if LVGL_VERSION_MAJOR >= 10
 static uint32_t log_color(char lv) {
   switch (lv) {
     case 'E':
@@ -2962,6 +3026,7 @@ static uint32_t log_color(char lv) {
       return 0xc8c8c8;
   }
 }
+#endif
 
 static uint8_t log_level_bit(char lv) {
   switch (lv) {
@@ -3030,7 +3095,7 @@ static void log_rebuild(void) {
         size_t off = 0;
         while (off < llen) {
           size_t take = llen - off;
-          if (take > 38) take = 38;
+          if (take > 63) take = 63;
           if (count == LOG_LINES_MAX) {
             memmove(vp, vp + 1, sizeof(vp[0]) * (LOG_LINES_MAX - 1));
             memmove(vl, vl + 1, sizeof(vl[0]) * (LOG_LINES_MAX - 1));
@@ -3131,24 +3196,6 @@ static void log_follow_cb(lv_event_t* e) {
   if (s_log_follow_lbl) {
     txt(s_log_follow_lbl, "FOLLOW");
     lv_obj_set_style_text_color(s_log_follow_lbl, lv_color_hex(C_INK), 0);
-  }
-  log_rebuild();
-}
-
-static void log_gesture_cb(lv_event_t* e) {
-  (void)e;
-  const lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_active());
-  if (dir != LV_DIR_TOP && dir != LV_DIR_BOTTOM) return;
-  s_log_follow_on = false;
-  if (dir == LV_DIR_TOP)
-    s_log_scroll += 5;
-  else if (s_log_scroll >= 5)
-    s_log_scroll -= 5;
-  else
-    s_log_scroll = 0;
-  if (s_log_follow_lbl) {
-    txt(s_log_follow_lbl, "FOLLOW");
-    lv_obj_set_style_text_color(s_log_follow_lbl, lv_color_hex(C_AMBER), 0);
   }
   log_rebuild();
 }
@@ -3314,15 +3361,15 @@ lv_obj_t* haus_ui_build_log(void) {
   }
   log_restyle_levels();
 
-  lv_obj_t* inv = log_button(bar, 276, 6, 50, 32, "INV", log_invert_cb, 16);
+  lv_obj_t* inv = log_button(bar, 590, 6, 50, 32, "INV", log_invert_cb, 16);
   lv_obj_add_event_cb(inv, log_invert_cb, LV_EVENT_CLICKED, NULL);
-  lv_obj_t* clr = log_button(bar, 332, 6, 50, 32, "CLR", log_clear_cb, 16);
+  lv_obj_t* clr = log_button(bar, 648, 6, 50, 32, "CLR", log_clear_cb, 16);
   lv_obj_add_event_cb(clr, log_clear_cb, LV_EVENT_CLICKED, NULL);
-  lv_obj_t* save = log_button(bar, 388, 6, 50, 32, "SAVE", log_save_cb, 16);
+  lv_obj_t* save = log_button(bar, 706, 6, 50, 32, "SAVE", log_save_cb, 16);
   lv_obj_add_event_cb(save, log_save_cb, LV_EVENT_CLICKED, NULL);
 
   s_log_container = lv_obj_create(root);
-  lv_obj_set_size(s_log_container, SCREEN_W, 716);
+  lv_obj_set_size(s_log_container, SCREEN_W, SCREEN_H - 84);
   lv_obj_set_pos(s_log_container, 0, 44);
   lv_obj_set_style_bg_opa(s_log_container, 0, 0);
   lv_obj_set_style_border_width(s_log_container, 0, 0);
@@ -3337,7 +3384,7 @@ lv_obj_t* haus_ui_build_log(void) {
 
   lv_obj_t* statusbar = lv_obj_create(root);
   lv_obj_set_size(statusbar, SCREEN_W, 40);
-  lv_obj_set_pos(statusbar, 0, 760);
+  lv_obj_set_pos(statusbar, 0, SCREEN_H - 40);
   lv_obj_set_style_bg_color(statusbar, lv_color_hex(0x0c0b0a), 0);
   lv_obj_set_style_border_width(statusbar, 0, 0);
   lv_obj_set_style_radius(statusbar, 0, 0);
@@ -3346,12 +3393,12 @@ lv_obj_t* haus_ui_build_log(void) {
   s_log_status =
       label_make(statusbar, "", 10, 10, &lv_font_montserrat_16, C_DIM);
   s_log_sd =
-      label_make(statusbar, "SD --", 230, 10, &lv_font_montserrat_16, C_DIM);
+      label_make(statusbar, "SD --", 420, 10, &lv_font_montserrat_16, C_DIM);
   s_log_ws =
-      label_make(statusbar, "WS", 366, 10, &lv_font_montserrat_16, C_OFF);
+      label_make(statusbar, "WS", 600, 10, &lv_font_montserrat_16, C_OFF);
 
   s_log_follow =
-      log_button(statusbar, 390, 4, 82, 32, "FOLLOW", log_follow_cb, 16);
+      log_button(statusbar, 700, 4, 82, 32, "FOLLOW", log_follow_cb, 16);
   lv_obj_add_event_cb(s_log_follow, log_follow_cb, LV_EVENT_CLICKED, NULL);
   s_log_follow_lbl = lv_obj_get_child(s_log_follow, 0);
   if (s_log_follow_lbl)
@@ -3387,109 +3434,19 @@ static void build_status_hotspot(void) {
   lv_obj_add_event_cb(z, open_log_cb, LV_EVENT_LONG_PRESSED, NULL);
 }
 
-static void power_bars_build(void) {
-  s_power_bin_count = (g_range == UI_RANGE_DAY)    ? 24
-                      : (g_range == UI_RANGE_WEEK) ? 7
-                                                   : 31;
-  const int gap = 2;
-  const int bw = (440 - gap * (s_power_bin_count - 1)) / s_power_bin_count;
-  for (int i = 0; i < 31; i++) {
-    lv_obj_t* b = lv_obj_create(lv_screen_active());
-    lv_obj_set_size(b, bw, 100);
-    lv_obj_set_pos(b, 20 + i * (bw + gap), 530);
-    lv_obj_set_style_bg_color(b, lv_color_hex(C_ACCENT), 0);
-    lv_obj_set_style_bg_opa(b, 180, 0);
-    lv_obj_set_style_border_width(b, 0, 0);
-    lv_obj_set_style_radius(b, 2, 0);
-    lv_obj_set_style_pad_all(b, 0, 0);
-    obj_set_clickable(b, false);
-    s_power_bars[i] = b;
-    if (i >= s_power_bin_count)
-      obj_set_hidden(b, true);
-    else
-      obj_set_hidden(b, false);
-  }
-  label_make(lv_screen_active(), "daily bars", 20, 638, &lv_font_montserrat_16,
-             C_FAINT);
-}
 
-static void power_bars_update(void) {
-  if (!s_power_bars[0] || s_power_bin_count <= 0) return;
-  int64_t sums[31] = {0};
-  uint32_t ns[31] = {0};
-  for (size_t i = 0; i < HAUS_CHART_COLUMNS; i++) {
-    if (!s_cols[i].n[0]) continue;
-    int bin = (int)(i * (size_t)s_power_bin_count / HAUS_CHART_COLUMNS);
-    if (bin >= s_power_bin_count) bin = s_power_bin_count - 1;
-    sums[bin] += s_cols[i].sum[0] / s_cols[i].n[0];
-    ns[bin]++;
+static void side_panel_build(void) {
+  lv_obj_t* root = lv_screen_active();
+  s_side_h = label_make(root, "", 474, 56, &haus_body_21, C_DIM);
+  hline_w(root, 474, 84, 228, C_LINE);
+  s_side_big = label_make(root, "", 474, 94, &haus_value_32, C_INK);
+  for (int i = 0; i < 5; i++) {
+    s_side_l[i] = label_make(root, "", 474, 140 + i * 28, &haus_body_21, C_DIM);
   }
-  int32_t mx = 1;
-  for (int i = 0; i < s_power_bin_count; i++) {
-    if (ns[i] && sums[i] / (int32_t)ns[i] > mx)
-      mx = (int32_t)(sums[i] / (int32_t)ns[i]);
-  }
-  for (int i = 0; i < s_power_bin_count; i++) {
-    if (!s_power_bars[i]) continue;
-    const int32_t v = ns[i] ? (int32_t)(sums[i] / (int32_t)ns[i]) : 0;
-    if (v <= 0) {
-      obj_set_hidden(s_power_bars[i], true);
-      continue;
-    }
-    obj_set_hidden(s_power_bars[i], false);
-    int h = (int)((int64_t)v * 100 / mx);
-    if (h < 2) h = 2;
-    lv_obj_set_height(s_power_bars[i], h);
-    lv_obj_set_y(s_power_bars[i], 630 - h);
-  }
-}
-
-static void power_unit_cb(lv_event_t* e) {
-  (void)e;
-  s_power_unit = (s_power_unit + 1) % 3; /* auto -> W -> kW */
-  if (s_power_unit > 1) s_power_unit = -1;
-  if (s_power_unit_lbl) {
-    txt(s_power_unit_lbl,
-        s_power_unit < 0 ? "auto" : (s_power_unit == 0 ? "W" : "kW"));
-  }
-  s_chart_force = true;
-  chart_rebuild();
-}
-
-static void power_unit_build(void) {
-  lv_obj_t* b = lv_obj_create(lv_screen_active());
-  lv_obj_set_size(b, 60, 26);
-  lv_obj_set_pos(b, 380, 170);
-  lv_obj_set_style_bg_opa(b, 0, 0);
-  lv_obj_set_style_border_width(b, 1, 0);
-  lv_obj_set_style_border_color(b, lv_color_hex(C_LINE), 0);
-  lv_obj_set_style_radius(b, 5, 0);
-  lv_obj_set_style_pad_all(b, 0, 0);
-  obj_set_scrollable(b, false);
-  obj_set_clickable(b, true);
-  lv_obj_add_event_cb(b, power_unit_cb, LV_EVENT_CLICKED, NULL);
-  s_power_unit_lbl = label_make(b, "auto", 0, 0, &lv_font_montserrat_16, C_DIM);
-  lv_obj_center(s_power_unit_lbl);
-}
-
-static void water_legend_build(int y) {
-  static const struct {
-    const char* text;
-    uint32_t color;
-  } items[3] = {{"water in", C_CYAN}, {"water out", C_HOT}, {"Soll", C_ACCENT}};
-  int x = 20;
-  for (int i = 0; i < 3; i++) {
-    lv_obj_t* sw = lv_obj_create(lv_screen_active());
-    lv_obj_set_size(sw, 12, 4);
-    lv_obj_set_pos(sw, x, y + 8);
-    lv_obj_set_style_bg_color(sw, lv_color_hex(items[i].color), 0);
-    lv_obj_set_style_border_width(sw, 0, 0);
-    lv_obj_set_style_radius(sw, 2, 0);
-    obj_set_clickable(sw, false);
-    label_make(lv_screen_active(), items[i].text, x + 18, y,
-               &lv_font_montserrat_16, items[i].color);
-    x += 18 + 8 * (int)strlen(items[i].text) + 22;
-  }
+  s_side_note =
+      label_make(root, "", 474, 300, &lv_font_montserrat_16, C_FAINT);
+  lv_obj_set_width(s_side_note, 228);
+  lv_label_set_long_mode(s_side_note, UI_LABEL_LONG_WRAP);
 }
 
 static lv_obj_t* detail_build(int screen, const char* title, int nav_index,
@@ -3504,50 +3461,48 @@ static lv_obj_t* detail_build(int screen, const char* title, int nav_index,
   header_build(title, badge, badge_color);
 
   s_detail_value = label_make(root, "--", 20, 50, &haus_large_52, C_INK);
-  range_build(120);
+
+  const bool water =
+      (screen == UI_SCREEN_WATER_IN || screen == UI_SCREEN_WATER_OUT);
+  if (screen == UI_SCREEN_LIVING) {
+    living_tabs_build(108);
+  } else if (screen == UI_SCREEN_AC) {
+    range_build(108, 300);
+    ac_tabs_build_compact(108, 338, 200);
+  } else {
+    range_build(108, 440);
+  }
 
   if (screen == UI_SCREEN_CHAMBER) {
-    s_above_target = label_make(root, "above target --", 20, 174,
+    s_above_target = label_make(root, "above target --", 20, 152,
                                 &lv_font_montserrat_16, C_ACCENT);
-  } else if (screen == UI_SCREEN_WATER_IN || screen == UI_SCREEN_WATER_OUT) {
-    s_water_extra = label_make(root, "delta --   rise --", 20, 174,
+  } else if (water) {
+    s_water_extra = label_make(root, "delta --   rise --", 20, 152,
                                &lv_font_montserrat_16, C_DIM);
   } else if (screen == UI_SCREEN_POWER) {
-    label_make(root, "power (SML)", 20, 174, &lv_font_montserrat_16, C_DIM);
-    power_bars_build();
-  } else if (screen == UI_SCREEN_LIVING) {
-    living_tabs_build(168);
-    label_make(root, "SHT45 - H1", 20, 520, &lv_font_montserrat_16, C_FAINT);
-  } else if (screen == UI_SCREEN_AC) {
-    ac_tabs_build(168);
-    label_make(root, "0x2C1..0x2C5 - 50 Hz", 20, 520, &lv_font_montserrat_16,
-               C_FAINT);
+    label_make(root, "power (SML)", 20, 152, &lv_font_montserrat_16, C_DIM);
   }
 
   s_axis_key = -1;
-  chart_build_widgets(200);
-  const bool water =
-      (screen == UI_SCREEN_WATER_IN || screen == UI_SCREEN_WATER_OUT);
-  if (water) water_legend_build(464);
-  const int ry = water ? 488 : 470;
-  s_chart_readout = label_make(root, "min --   max --   mean --   now --", 20,
-                               ry, &lv_font_montserrat_16, C_DIM);
-  s_chart_readout_b = NULL;
-  if (water) {
-    s_chart_readout_b = label_make(root, "min --   max --   mean --   now --",
-                                   20, ry + 26, &lv_font_montserrat_16, C_DIM);
+  chart_build_widgets(168);
+
+  if (water || screen == UI_SCREEN_POWER || screen == UI_SCREEN_LIVING) {
+    side_panel_build();
   }
-  s_chart_age = label_make(root, "data age --", 20, ry + (water ? 52 : 26),
+
+  s_chart_readout = label_make(root, "min --   max --   mean --   now --", 20,
+                               432, &lv_font_montserrat_16, C_DIM);
+  s_chart_readout_b = NULL;
+  s_chart_age = label_make(root, "data age --", 20, 458,
                            &lv_font_montserrat_16, C_FAINT);
 
-  if (screen == UI_SCREEN_CHAMBER) pwm_control_build(524);
+  if (screen == UI_SCREEN_CHAMBER) pwm_control_build(0);
 
   nav_build(screen);
   s_chart_force = true;
   detail_update();
   return root;
 }
-
 void haus_ui_three_finger(void) { ui_jump(UI_SCREEN_HOME); }
 
 #ifdef UI_SMOKE_TEST
@@ -3593,7 +3548,7 @@ lv_obj_t* haus_ui_build_living(void) {
 }
 
 lv_obj_t* haus_ui_build_ac(void) {
-  return detail_build(UI_SCREEN_AC, "AC MAINS", UI_SCREEN_AC, "50 Hz", C_AMBER);
+  return detail_build(UI_SCREEN_AC, "PUMP CURRENT", UI_SCREEN_AC, "AD", C_AMBER);
 }
 
 void haus_ui_set_ac_series(int series) { ac_series_set(series); }
@@ -3823,7 +3778,7 @@ lv_obj_t* haus_ui_build_roles(void) {
     if (!gui_roles_get(i, rom, &fn)) continue;
 
     lv_obj_t* row = lv_obj_create(root);
-    lv_obj_set_size(row, SCREEN_W - 40, h);
+    lv_obj_set_size(row, CONTENT_W - 40, h);
     lv_obj_set_pos(row, 20, y0 + i * step);
     lv_obj_set_style_bg_opa(row, 0, 0);
     lv_obj_set_style_border_width(row, 1, 0);
@@ -3844,11 +3799,11 @@ lv_obj_t* haus_ui_build_roles(void) {
              rom[2], rom[3], rom[4], rom[5], rom[6], rom[7]);
     label_make(row, id, 14, 42, &haus_mono_21, C_DIM);
     s_roles_lbl[i] =
-        label_make(row, role_fn_name(fn), 250, 44, &lv_font_montserrat_16,
+        label_make(row, role_fn_name(fn), 480, 44, &lv_font_montserrat_16,
                    fn == SENSOR_FN_NONE ? C_FAINT : C_INK);
   }
 
-  label_make(root, "roles persist across reboots", 20, 640,
+  label_make(root, "roles persist across reboots", 20, 404,
              &lv_font_montserrat_16, C_FAINT);
   nav_build(UI_SCREEN_SETTINGS);
   return root;
@@ -3876,11 +3831,11 @@ static void settings_open_log_cb(lv_event_t* e) {
 
 /* A compact settings row: title on the left, current value on the right.
  * FONTS: the 21 px body floor (§8.1.1). */
-static lv_obj_t* settings_value_row(int y, const char* title, const char* value,
-                                    lv_event_cb_t cb) {
+static lv_obj_t* settings_value_row(int x, int y, int w, const char* title,
+                                    const char* value, lv_event_cb_t cb) {
   lv_obj_t* b = lv_obj_create(lv_screen_active());
-  lv_obj_set_size(b, 440, 40);
-  lv_obj_set_pos(b, 20, y);
+  lv_obj_set_size(b, w, 40);
+  lv_obj_set_pos(b, x, y);
   lv_obj_set_style_bg_opa(b, 0, 0);
   lv_obj_set_style_border_width(b, 0, 0);
   lv_obj_set_style_border_side(b, LV_BORDER_SIDE_BOTTOM, 0);
@@ -3893,8 +3848,8 @@ static lv_obj_t* settings_value_row(int y, const char* title, const char* value,
   lv_obj_t* v =
       label_make(b, value, 0, 9, &haus_body_21, cb ? C_ACCENT : C_DIM);
   /* Actionable rows carry a chevron; static values do not. */
-  lv_obj_align(v, LV_ALIGN_TOP_RIGHT, cb ? -30 : 0, 9);
-  if (cb) label_make(b, LV_SYMBOL_RIGHT, 426, 7, &lv_font_montserrat_16, C_DIM);
+  lv_obj_align(v, LV_ALIGN_TOP_RIGHT, cb ? -26 : 0, 9);
+  if (cb) label_make(b, LV_SYMBOL_RIGHT, w - 16, 7, &lv_font_montserrat_16, C_DIM);
   return v;
 }
 
@@ -3985,19 +3940,25 @@ lv_obj_t* haus_ui_build_storage(void) {
   const uint64_t floor_b = 50ULL * 1024ULL * 1024ULL; /* S11.12 */
   char a[32], b[32], c[32], line[96];
 
-  /* Used/total bar. */
+  const int LX = 20, RX = 368, CW = 324;
+
+  /* ── SD card: the primary history store ─────────────────────────────── */
+  label_make(root, "SD CARD", LX, 56, &haus_body_21, C_INK);
+  label_make(root, "history", LX + CW - 62, 60, &lv_font_montserrat_16, C_DIM);
+  hline_w(root, LX, 82, CW, C_LINE);
+
   lv_obj_t* bar = lv_obj_create(root);
-  lv_obj_set_size(bar, 440, 14);
-  lv_obj_set_pos(bar, 20, 64);
+  lv_obj_set_size(bar, CW, 14);
+  lv_obj_set_pos(bar, LX, 88);
   lv_obj_set_style_bg_color(bar, lv_color_hex(C_PANEL), 0);
   lv_obj_set_style_border_width(bar, 0, 0);
   lv_obj_set_style_radius(bar, 3, 0);
   lv_obj_set_style_pad_all(bar, 0, 0);
   obj_set_clickable(bar, false);
   if (total > 0) {
-    int w = (int)((uint64_t)440 * used / total);
+    int w = (int)((uint64_t)CW * used / total);
     if (w < 2) w = 2;
-    if (w > 440) w = 440;
+    if (w > CW) w = CW;
     lv_obj_t* fill = lv_obj_create(bar);
     lv_obj_set_size(fill, w, 14);
     lv_obj_set_pos(fill, 0, 0);
@@ -4011,94 +3972,147 @@ lv_obj_t* haus_ui_build_storage(void) {
   fmt_bytes(used, a, sizeof(a));
   fmt_bytes(total, b, sizeof(b));
   snprintf(line, sizeof(line), "used %s of %s", a, b);
-  label_make(root, line, 20, 88, &haus_body_21, C_INK);
+  label_make(root, line, LX, 112, &haus_body_21, C_INK);
 
   fmt_bytes(free_b, a, sizeof(a));
   fmt_bytes(floor_b, b, sizeof(b));
   if (free_b >= floor_b) {
     snprintf(line, sizeof(line), "free %s   floor %s", a, b);
-    label_make(root, line, 20, 116, &haus_body_21, C_DIM);
+    label_make(root, line, LX, 140, &lv_font_montserrat_16, C_DIM);
     fmt_bytes(free_b - floor_b, c, sizeof(c));
     snprintf(line, sizeof(line), "headroom %s", c);
-    label_make(root, line, 20, 144, &haus_body_21, C_DIM);
+    label_make(root, line, LX, 162, &lv_font_montserrat_16, C_DIM);
   } else {
     snprintf(line, sizeof(line), "free %s   BELOW floor %s", a, b);
-    label_make(root, line, 20, 116, &haus_body_21, C_HOT);
+    label_make(root, line, LX, 140, &lv_font_montserrat_16, C_HOT);
   }
+
+  fmt_bytes(st.can.sd_samples_bytes, a, sizeof(a));
+  snprintf(line, sizeof(line), "minute history  %s", a);
+  label_make(root, line, LX, 196, &haus_body_21, C_INK);
+
+  fmt_bytes(st.can.sd_rollup_bytes, a, sizeof(a));
+  snprintf(line, sizeof(line), "hourly history  %s", a);
+  label_make(root, line, LX, 224, &haus_body_21, C_INK);
+
+  fmt_bytes(st.can.sd_logs_bytes, a, sizeof(a));
+  snprintf(line, sizeof(line), "log dumps       %s", a);
+  label_make(root, line, LX, 252, &haus_body_21, C_INK);
 
   char when[32];
   epoch_to_datetime(st.can.sd_last_rollover_epoch, when, sizeof(when));
   snprintf(line, sizeof(line), "last rollover   %s", when);
-  label_make(root, line, 20, 188, &haus_body_21, C_DIM);
+  label_make(root, line, LX, 286, &haus_body_21, C_DIM);
 
   epoch_to_datetime(st.can.sd_newest_file_epoch, when, sizeof(when));
   snprintf(line, sizeof(line), "newest file     %s", when);
-  label_make(root, line, 20, 216, &haus_body_21, C_DIM);
+  label_make(root, line, LX, 314, &haus_body_21, C_DIM);
 
-  fmt_bytes(st.can.sd_samples_bytes, a, sizeof(a));
-  snprintf(line, sizeof(line), "minute samples  %s", a);
-  label_make(root, line, 20, 256, &haus_body_21, C_INK);
+  snprintf(line, sizeof(line), "today %u / %u min",
+           (unsigned)st.can.l1_count, (unsigned)HAUS_L1_SAMPLES);
+  lv_obj_t* today = label_make(root, line, LX, 348,
+                               &lv_font_montserrat_16, C_INK);
+  lv_obj_set_width(today, CW);
+  lv_label_set_long_mode(today, LV_LABEL_LONG_DOT);
 
-  fmt_bytes(st.can.sd_rollup_bytes, a, sizeof(a));
-  snprintf(line, sizeof(line), "hourly rollup   %s", a);
-  label_make(root, line, 20, 284, &haus_body_21, C_INK);
+  snprintf(line, sizeof(line), "hourly %u / %u",
+           (unsigned)st.can.l2_count, (unsigned)HAUS_L2_COLUMNS);
+  lv_obj_t* hourly = label_make(root, line, LX, 372,
+                                &lv_font_montserrat_16, C_INK);
+  lv_obj_set_width(hourly, CW);
+  lv_label_set_long_mode(hourly, LV_LABEL_LONG_DOT);
 
-  fmt_bytes(st.can.sd_logs_bytes, a, sizeof(a));
-  snprintf(line, sizeof(line), "log dumps       %s", a);
-  label_make(root, line, 20, 312, &haus_body_21, C_INK);
-
-  /* S23.21: explicit evidence that sampling and restore are working. */
-  epoch_to_datetime(st.can.l1_last_epoch, when, sizeof(when));
-  snprintf(line, sizeof(line), "today  %u / %u   last %s",
-           (unsigned)st.can.l1_count, (unsigned)HAUS_L1_SAMPLES, when);
-  label_make(root, line, 20, 340, &haus_body_21, C_INK);
-
-  epoch_to_datetime(st.can.l2_first_epoch, when, sizeof(when));
-  snprintf(line, sizeof(line), "rollup %u / %u   since %s",
-           (unsigned)st.can.l2_count, (unsigned)HAUS_L2_COLUMNS, when);
-  label_make(root, line, 20, 368, &haus_body_21, C_INK);
-
-  snprintf(line, sizeof(line), "restored %lu columns",
-           (unsigned long)st.can.last_restore_columns);
-  label_make(root, line, 20, 396, &haus_body_21, C_DIM);
-
-  /* Faulty is sticky and keeps the first-failure time (D44/S23.10). */
   if (st.can.sd_fault_since_epoch) {
     epoch_to_datetime(st.can.sd_fault_since_epoch, when, sizeof(when));
     snprintf(line, sizeof(line), "FAULTY since %s", when);
-    label_make(root, line, 20, 424, &haus_body_21, C_HOT);
+    label_make(root, line, LX, 404, &haus_body_21, C_HOT);
   } else {
-    label_make(root, "no storage fault", 20, 424, &haus_body_21, C_OK);
+    label_make(root, "no storage fault", LX, 404, &haus_body_21, C_OK);
   }
 
-  /* S23.20: SPIFFS is a book of its own; it must be visible when no card is
-   * fitted. Figures are refreshed by gui_storage_refresh() on panel open. */
+  snprintf(line, sizeof(line), "restored %lu hourly",
+           (unsigned long)st.can.last_restore_columns);
+  lv_obj_t* restored = label_make(root, line, LX, 430,
+                                  &lv_font_montserrat_16, C_FAINT);
+  lv_obj_set_width(restored, CW);
+  lv_label_set_long_mode(restored, LV_LABEL_LONG_DOT);
+
+  /* ── SPIFFS: independent hourly mirror plus assets ─────────────────── */
+  label_make(root, "SPIFFS", RX, 56, &haus_body_21, C_INK);
+  label_make(root, "mirror + files", RX + CW - 112, 60,
+             &lv_font_montserrat_16, C_DIM);
+  hline_w(root, RX, 82, CW, C_LINE);
+
+  lv_obj_t* sbar = lv_obj_create(root);
+  lv_obj_set_size(sbar, CW, 14);
+  lv_obj_set_pos(sbar, RX, 88);
+  lv_obj_set_style_bg_color(sbar, lv_color_hex(C_PANEL), 0);
+  lv_obj_set_style_border_width(sbar, 0, 0);
+  lv_obj_set_style_radius(sbar, 3, 0);
+  lv_obj_set_style_pad_all(sbar, 0, 0);
+  obj_set_clickable(sbar, false);
+  if (st.can.spiffs_total_bytes > 0) {
+    int w = (int)((uint64_t)CW * st.can.spiffs_used_bytes /
+                  st.can.spiffs_total_bytes);
+    if (w < 2) w = 2;
+    if (w > CW) w = CW;
+    lv_obj_t* fill = lv_obj_create(sbar);
+    lv_obj_set_size(fill, w, 14);
+    lv_obj_set_pos(fill, 0, 0);
+    lv_obj_set_style_bg_color(fill, lv_color_hex(C_ACCENT), 0);
+    lv_obj_set_style_border_width(fill, 0, 0);
+    lv_obj_set_style_radius(fill, 3, 0);
+    lv_obj_set_style_pad_all(fill, 0, 0);
+    obj_set_clickable(fill, false);
+  }
+
   fmt_bytes(st.can.spiffs_used_bytes, a, sizeof(a));
   fmt_bytes(st.can.spiffs_total_bytes, b, sizeof(b));
-  snprintf(line, sizeof(line), "SPIFFS %s of %s", a, b);
-  label_make(root, line, 20, 460, &haus_body_21, C_INK);
+  snprintf(line, sizeof(line), "used %s of %s", a, b);
+  label_make(root, line, RX, 112, &haus_body_21, C_INK);
 
-  snprintf(line, sizeof(line), "ring %lu of %u hours",
+  snprintf(line, sizeof(line), "hourly mirror %lu of %u h",
            (unsigned long)st.can.ring_hours, (unsigned)HAUS_RING_HOURS);
-  label_make(root, line, 20, 488, &haus_body_21, C_DIM);
+  label_make(root, line, RX, 146, &haus_body_21, C_INK);
 
   epoch_to_datetime(st.can.ring_oldest_epoch, when, sizeof(when));
   snprintf(line, sizeof(line), "ring oldest   %s", when);
-  label_make(root, line, 20, 516, &haus_body_21, C_DIM);
+  label_make(root, line, RX, 174, &haus_body_21, C_DIM);
 
   epoch_to_datetime(st.can.ring_newest_epoch, when, sizeof(when));
   snprintf(line, sizeof(line), "ring newest   %s", when);
-  label_make(root, line, 20, 544, &haus_body_21, C_DIM);
+  label_make(root, line, RX, 202, &haus_body_21, C_DIM);
 
-  label_make(root,
-             mounted ? "card readable   figures cached"
-                     : "no card   history stays in SPIFFS",
-             20, 580, &lv_font_montserrat_16, C_FAINT);
+  hline_w(root, RX, 226, CW, C_LINE);
+  gui_spiffs_file_t files[GUI_SPIFFS_FILE_MAX];
+  const uint8_t nf = gui_spiffs_files(files, GUI_SPIFFS_FILE_MAX);
+  char fcount[24];
+  snprintf(fcount, sizeof(fcount), "files %u", (unsigned)nf);
+  label_make(root, fcount, RX, 234, &lv_font_montserrat_16, C_DIM);
+  const int shown = nf > 6 ? 6 : nf;
+  for (int i = 0; i < shown; i++) {
+    lv_obj_t* name = label_make(root, files[i].name, RX, 258 + i * 22,
+                                &lv_font_montserrat_16, C_DIM);
+    lv_obj_set_width(name, CW - 100);
+    lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+    fmt_bytes(files[i].size, a, sizeof(a));
+    lv_obj_t* sz = label_make(root, a, RX + CW - 100, 258 + i * 22,
+                              &lv_font_montserrat_16, C_INK);
+    lv_obj_set_width(sz, 100);
+    lv_obj_set_style_text_align(sz, LV_TEXT_ALIGN_RIGHT, 0);
+  }
+  if (shown == 0)
+    label_make(root, "no files", RX, 258, &lv_font_montserrat_16, C_FAINT);
+
+  lv_obj_t* note = label_make(
+      root, "Week/month history survives an absent or failed SD card.", RX, 400,
+      &lv_font_montserrat_16, C_FAINT);
+  lv_obj_set_width(note, CW);
+  lv_label_set_long_mode(note, UI_LABEL_LONG_WRAP);
 
   nav_build(UI_SCREEN_SETTINGS);
   return root;
 }
-
 /* ─── CAN scope (S16) ─────────────────────────────────────────────────────
  * 12 live rows at 44 px / 21 px, plus the last 20 ms ADC waveform at the
  * bottom. Tapping a row opens a full-screen overlay on
@@ -4106,14 +4120,14 @@ lv_obj_t* haus_ui_build_storage(void) {
  * fault banner; there is deliberately no range selector.
  */
 
-#define CAN_ROWS 12
-#define CAN_ROW_H 44
-#define CAN_ROWS_Y 80
+#define CAN_ROWS 14
+#define CAN_ROW_H 36
+#define CAN_ROWS_Y 76
 
 /* Last 20 ms ADC waveform (0x2C1..0x2C5) below the scope rows. */
-#define CAN_WAVE_W 440
-#define CAN_WAVE_H 64
-#define CAN_WAVE_Y 630
+#define CAN_WAVE_W 684
+#define CAN_WAVE_H 56
+#define CAN_WAVE_Y 390
 
 static lv_obj_t* s_can_id_lbl[CAN_ROWS];
 static lv_obj_t* s_can_type_lbl[CAN_ROWS];
@@ -4435,7 +4449,7 @@ lv_obj_t* haus_ui_build_can(void) {
 
   /* Header fault banner (S16.09). It replaces the stats line on a fault. */
   lv_obj_t* fb = lv_obj_create(root);
-  lv_obj_set_size(fb, SCREEN_W, 20);
+  lv_obj_set_size(fb, CONTENT_W, 20);
   lv_obj_set_pos(fb, 0, 56);
   lv_obj_set_style_bg_color(fb, lv_color_hex(C_HOT), 0);
   lv_obj_set_style_bg_opa(fb, LV_OPA_COVER, 0);
@@ -4450,10 +4464,22 @@ lv_obj_t* haus_ui_build_can(void) {
   s_can_fault_bar = fb;
   obj_set_hidden(fb, true);
 
+  /* Scrollable list: the waveform below stays fixed. */
+  lv_obj_t* list = lv_obj_create(root);
+  lv_obj_set_size(list, CONTENT_W, CAN_WAVE_Y - 20 - CAN_ROWS_Y);
+  lv_obj_set_pos(list, 0, CAN_ROWS_Y);
+  lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(list, 0, 0);
+  lv_obj_set_style_radius(list, 0, 0);
+  lv_obj_set_style_pad_all(list, 0, 0);
+  obj_set_scrollable(list, true);
+  lv_obj_set_scroll_dir(list, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_AUTO);
+
   for (int i = 0; i < CAN_ROWS; i++) {
-    lv_obj_t* row = lv_obj_create(root);
-    lv_obj_set_size(row, SCREEN_W, CAN_ROW_H);
-    lv_obj_set_pos(row, 0, CAN_ROWS_Y + i * CAN_ROW_H);
+    lv_obj_t* row = lv_obj_create(list);
+    lv_obj_set_size(row, CONTENT_W, CAN_ROW_H);
+    lv_obj_set_pos(row, 0, i * CAN_ROW_H);
     lv_obj_set_style_bg_color(
         row, lv_color_hex(i % 2 == 0 ? 0x111111 : 0x1a1a1a), 0);
     lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
@@ -4464,12 +4490,12 @@ lv_obj_t* haus_ui_build_can(void) {
     obj_set_clickable(row, true);
     lv_obj_add_event_cb(row, can_row_cb, LV_EVENT_CLICKED, (void*)(intptr_t)i);
 
-    s_can_id_lbl[i] = label_make(row, "---", 14, 12, &haus_body_21, C_INK);
-    lv_obj_set_size(s_can_id_lbl[i], 80, 26);
-    s_can_type_lbl[i] = label_make(row, "--", 100, 12, &haus_body_21, C_DIM);
-    lv_obj_set_size(s_can_type_lbl[i], 108, 26);
-    s_can_text_lbl[i] = label_make(row, "--", 212, 12, &haus_body_21, C_INK);
-    lv_obj_set_size(s_can_text_lbl[i], 252, 26);
+    s_can_id_lbl[i] = label_make(row, "---", 14, 6, &haus_body_21, C_INK);
+    lv_obj_set_size(s_can_id_lbl[i], 64, 24);
+    s_can_type_lbl[i] = label_make(row, "--", 86, 8, &lv_font_montserrat_16, C_DIM);
+    lv_obj_set_size(s_can_type_lbl[i], 110, 22);
+    s_can_text_lbl[i] = label_make(row, "--", 204, 8, &lv_font_montserrat_16, C_INK);
+    lv_obj_set_size(s_can_text_lbl[i], CONTENT_W - 218, 22);
     lv_label_set_long_mode(s_can_id_lbl[i], LV_LABEL_LONG_DOT);
     lv_label_set_long_mode(s_can_type_lbl[i], LV_LABEL_LONG_DOT);
     lv_label_set_long_mode(s_can_text_lbl[i], LV_LABEL_LONG_DOT);
@@ -4503,14 +4529,15 @@ lv_obj_t* haus_ui_build_settings(void) {
   HausState st;
   gui_get_state(&st);
 
-  label_make(root, "CAN BUS", 20, 58, &haus_body_21, C_INK);
-  label_make(root, "Off hands USB back: no CAN data, no", 20, 84,
+  const int LX = 20, RX = 368, CW = 324;
+  label_make(root, "CAN BUS", LX, 58, &haus_body_21, C_INK);
+  label_make(root, "Off hands USB back: no CAN data,", LX, 100,
              &lv_font_montserrat_16, C_DIM);
-  label_make(root, "history, no monitor.", 20, 104, &lv_font_montserrat_16,
+  label_make(root, "no history, no monitor.", LX, 118, &lv_font_montserrat_16,
              C_DIM);
   s_can_switch = lv_obj_create(root);
   lv_obj_set_size(s_can_switch, 82, 36);
-  lv_obj_set_pos(s_can_switch, 378, 60);
+  lv_obj_set_pos(s_can_switch, LX + CW - 82, 60);
   lv_obj_set_style_border_width(s_can_switch, 0, 0);
   lv_obj_set_style_radius(s_can_switch, 18, 0);
   lv_obj_set_style_pad_all(s_can_switch, 0, 0);
@@ -4520,71 +4547,48 @@ lv_obj_t* haus_ui_build_settings(void) {
   s_can_switch_lbl = label_make(s_can_switch, st.can.can_enabled ? "ON" : "OFF",
                                 0, 0, &lv_font_montserrat_16, C_INK);
   lv_obj_center(s_can_switch_lbl);
-  s_can_fault_lbl =
-      label_make(root, "", 250, 68, &lv_font_montserrat_16, C_HOT);
+  s_can_fault_lbl = label_make(root, "", LX + 150, 68,
+                               &lv_font_montserrat_16, C_HOT);
   settings_can_visual(st.can.can_enabled);
-  settings_can_refresh(); /* S23.02: replace the request with the mux readback
-                           */
+  settings_can_refresh();
 
-  /* Compact rows: title + current value, one tap each. A chevron marks the
-   * rows that open another screen or change a setting. */
   const bool mounted = strcmp(st.can.sd_card_type, "ABSENT") != 0;
-  label_make(root, "tap a row with a > to open or change", 20, 122,
-             &lv_font_montserrat_16, C_FAINT);
-  int y = 140;
+  int yl = 146, yr = 146;
   const int step = 40;
-  settings_value_row(y, "CAN MONITOR", "live IDs", settings_open_can_cb);
-  y += step;
-  settings_value_row(y, "AC MAINS", "RMS + angle", settings_open_ac_cb);
-  y += step;
-  settings_value_row(y, "LOG", "ring + SD save", settings_open_log_cb);
-  y += step;
-  s_backlight_lbl = settings_value_row(
-      y, "BACKLIGHT", gui_backlight_on() ? "ON" : "OFF", settings_backlight_cb);
-  y += step;
-  s_power_unit_lbl =
-      settings_value_row(y, "POWER UNIT", "auto", settings_power_unit_cb);
-  y += step;
-  settings_value_row(y, "RETENTION",
-                     st.can.sd_low_space ? "3 months" : "24 months", NULL);
-  y += step;
-  char tbuf[24];
-  if (st.can.chamber_target_c > 0)
-    snprintf(tbuf, sizeof(tbuf), "%d.%d degC", st.can.chamber_target_c / 100,
-             (st.can.chamber_target_c % 100 + 100) % 100);
-  else
-    snprintf(tbuf, sizeof(tbuf), "--");
-  settings_value_row(y, "HEATER TARGET", tbuf, NULL);
-  y += step;
+  settings_value_row(LX, yl, CW, "CAN MONITOR", "live IDs", settings_open_can_cb);
   uint8_t sensors = 0;
   gui_get_sensors(&sensors);
   char sbuf[24];
   snprintf(sbuf, sizeof(sbuf), "%u bound", (unsigned)sensors);
-  settings_value_row(y, "SENSOR ROLES", sbuf, settings_open_roles_cb);
-  y += step;
-  settings_value_row(
-      y, "WATER MODEL",
-      gui_water_model_available() ? "installed" : "not installed", NULL);
-  y += step;
-  settings_value_row(y, "STORAGE", mounted ? "card" : "absent",
+  settings_value_row(RX, yr, CW, "SENSOR ROLES", sbuf, settings_open_roles_cb);
+  yl += step;
+  yr += step;
+  settings_value_row(LX, yl, CW, "PUMP", "angle", settings_open_ac_cb);
+  settings_value_row(RX, yr, CW, "STORAGE", mounted ? "card" : "absent",
                      settings_open_storage_cb);
-  y += step;
-  s_panel_lbl =
-      settings_value_row(y, "PANEL RESET", "timing", settings_panel_reset_cb);
-  y += step;
-  s_diag_lbl =
-      settings_value_row(y, "DIAGNOSTICS", "SAVE RING", settings_diag_cb);
-  y += step;
-  settings_value_row(y, "NETWORK", gui_wifi_ip(), NULL);
-  y += step;
-  /* The full VERSION_STRING is longer than the row; the hash identifies the
-   * exact binary without colliding with the FIRMWARE label (S23.18). */
-  settings_value_row(y, "FIRMWARE", GIT_HASH, NULL);
+  yl += step;
+  yr += step;
+  settings_value_row(LX, yl, CW, "LOG", "ring + SD save", settings_open_log_cb);
+  s_panel_lbl = settings_value_row(RX, yr, CW, "PANEL RESET", "timing",
+                                   settings_panel_reset_cb);
+  yl += step;
+  yr += step;
+  s_backlight_lbl = settings_value_row(
+      LX, yl, CW, "BACKLIGHT", gui_backlight_on() ? "ON" : "OFF",
+      settings_backlight_cb);
+  s_diag_lbl = settings_value_row(RX, yr, CW, "DIAGNOSTICS", "SAVE RING",
+                                  settings_diag_cb);
+  yl += step;
+  yr += step;
+  s_power_unit_lbl = settings_value_row(LX, yl, CW, "POWER UNIT", "auto",
+                                        settings_power_unit_cb);
+  settings_value_row(RX, yr, CW, "NETWORK", gui_wifi_ip(), NULL);
+  yr += step;
+  settings_value_row(RX, yr, CW, "FIRMWARE", GIT_HASH, NULL);
 
   nav_build(UI_SCREEN_SETTINGS);
   return root;
 }
-
 void haus_ui_deinit(void) {
   can_overlay_close();
   log_modal_close();
@@ -4635,9 +4639,10 @@ void haus_ui_deinit(void) {
   s_detail_value = NULL;
   s_header_badge = s_header_badge_lbl = NULL;
   s_above_target = NULL;
-  memset(s_power_bars, 0, sizeof(s_power_bars));
-  s_power_bin_count = 0;
   s_water_extra = NULL;
+  s_side_h = s_side_big = NULL;
+  memset(s_side_l, 0, sizeof(s_side_l));
+  s_side_note = NULL;
   s_pwm_switch = s_pwm_switch_lbl = s_pwm_slider = NULL;
   s_pwm_req_lbl = s_pwm_force_lbl = NULL;
   s_pwm_touched = false;
@@ -4645,6 +4650,7 @@ void haus_ui_deinit(void) {
   s_pwm_last_tx = 0xFFFF;
   memset(s_living_tab, 0, sizeof(s_living_tab));
   memset(s_ac_tab, 0, sizeof(s_ac_tab));
+  s_ac_hl = NULL;
   s_panel_lbl = NULL;
   s_log_label = s_log_container = s_log_status = NULL;
   s_log_follow = s_log_follow_lbl = s_log_ws = NULL;

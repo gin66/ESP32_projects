@@ -2,11 +2,11 @@
  * Headless LVGL PNG renderer for 28_hauszentrale.
  *
  * Renders the PRODUCTIVE screens (src/ui/haus_ui.c — the same file the ESP32
- * firmware builds) to 480x800 PNGs. There is no harness-local UI code: what
+ * firmware builds) to 800x480 PNGs. There is no harness-local UI code: what
  * this renders is what the device runs.
  *
  * Usage: ./hauszentrale_host [output_dir]
- * Default output: output_home.png, output_chart.png, output_detail.png
+ * Default output: output_<screen>.png for every screen and home variant.
  */
 
 #define _POSIX_C_SOURCE 200809L
@@ -21,8 +21,8 @@
 #include "lodepng.h"
 #include "lvgl.h"
 
-#define SCREEN_W 480
-#define SCREEN_H 800
+#define SCREEN_W 800
+#define SCREEN_H 480
 #define BUF_SIZE (SCREEN_W * SCREEN_H * 4)
 
 /* ─── PNG rendering ─────────────────────────────────────────────────────────
@@ -107,38 +107,17 @@ static void home_60(void) {
   haus_ui_init();
 }
 
-/* The flow dashes advance in a 1200 ms cycle (6 x 200 ms). These two cases
- * pin the LVGL tick to the cycle limits so the PNGs show the wrap. */
-static void set_flow_phase(uint32_t phase_ms) {
-  const uint32_t period = 1200;
-  const uint32_t now = (uint32_t)lv_tick_get();
-  const uint32_t inc = (phase_ms + period - (now % period)) % period;
-  if (inc) lv_tick_inc(inc);
-}
-
-static void home_flow_start(void) {
-  mock_set_home_case(6000, 300, true);
-  set_flow_phase(0);
-  haus_ui_init();
-}
-
-static void home_flow_end(void) {
-  mock_set_home_case(6000, 300, true);
-  set_flow_phase(1100);
-  haus_ui_init();
-}
-
 static void build_water(void) { haus_ui_build_water(3); /* UI_SCREEN_WATER_OUT */ }
 
-static void build_ac(void) {
+static void build_pump(void) {
   haus_ui_build_ac();
-  haus_ui_set_ac_series(0);
+  haus_ui_set_ac_series(1);
   haus_ui_update();
 }
 
-static void build_ac_angle(void) {
+static void build_pump_rms(void) {
   haus_ui_build_ac();
-  haus_ui_set_ac_series(1);
+  haus_ui_set_ac_series(0);
   haus_ui_update();
 }
 
@@ -190,30 +169,29 @@ int main(int argc, char* argv[]) {
   static void (*const build_funcs[])(void) = {
       (void (*)(void))haus_ui_init,
       (void (*)(void))haus_ui_build_detail,
-      (void (*)(void))haus_ui_build_power,
+      build_water,
       (void (*)(void))haus_ui_build_living,
-      build_ac,
-      build_ac_angle,
+      (void (*)(void))haus_ui_build_power,
+      build_pump,
+      build_pump_rms,
       (void (*)(void))haus_ui_build_settings,
       (void (*)(void))haus_ui_build_storage,
       (void (*)(void))haus_ui_build_can,
       (void (*)(void))haus_ui_build_log,
       (void (*)(void))haus_ui_build_roles,
-      build_water,
       build_chamber_week,
       build_chamber_month,
       home_off,
       home_40,
       home_60,
-      home_flow_start,
-      home_flow_end,
   };
   static const char* const screen_names[] = {
-      "home",   "detail", "power",    "living",    "ac",        "ac_angle",
-      "settings", "storage", "can",   "log",       "roles",     "water",
-      "chart_week", "chart_month", "home_off", "home_40",   "home_60",
-      "home_flow_start", "home_flow_end",
+      "home",    "heater",       "water",       "living",     "power",
+      "pump",    "pump_rms",     "settings",    "storage",    "can",
+      "log",     "roles",        "heater_week", "heater_month",
+      "home_off", "home_40",     "home_60",
   };
+
 
   for (size_t i = 0; i < sizeof(build_funcs) / sizeof(build_funcs[0]); i++) {
     char filename[512];

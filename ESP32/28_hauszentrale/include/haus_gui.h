@@ -298,6 +298,15 @@ void gui_set_can_enabled(bool enabled);
 /* Storage panel (S23): re-read capacity and per-tier sizes on demand. */
 void gui_storage_refresh(void);
 
+/* Live SPIFFS file listing for the Storage screen. Returns the number of
+ * entries written (at most max), newest filesystem state at call time. */
+#define GUI_SPIFFS_FILE_MAX 16
+typedef struct {
+  char name[32];
+  uint32_t size;
+} gui_spiffs_file_t;
+uint8_t gui_spiffs_files(gui_spiffs_file_t* out, uint8_t max);
+
 /* Backlight (binary, §8.14). */
 bool gui_backlight_on(void);
 void gui_set_backlight(bool on);

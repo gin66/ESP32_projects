@@ -256,9 +256,13 @@ nav.pane svg { display: block; }
 .storage .col { flex: 1; min-width: 0; }
 .storage .bar { height: 14px; border-radius: 3px; background: #1a1412; position: relative; }
 .storage .bar i { position: absolute; inset: 0 auto 0 0; width: 37%; border-radius: 3px; background: var(--accent); }
+.storage .group-h { display: flex; justify-content: space-between; align-items: baseline; font-size: 21px;
+  color: var(--ink); border-bottom: 1px solid var(--line); padding-bottom: 6px; margin-bottom: 10px; }
+.storage .group-h span { font-size: 19px; color: var(--dim); }
 .storage .kv { display: flex; justify-content: space-between; font-size: 21px; line-height: 30px; color: var(--dim); }
 .storage .kv b { color: var(--ink); font-weight: 500; }
 .storage .note2 { font-size: 19px; color: var(--faint); margin-top: 10px; }
+.storage .filelist .kv { font-size: 19px; line-height: 24px; }
 </style>
 </head>
 <body>
@@ -285,9 +289,7 @@ nav.pane svg { display: block; }
       <text x="240" y="200" text-anchor="middle" fill="#9a9086" font-size="21">Soll</text>
       <text x="240" y="230" text-anchor="middle" fill="#f3ece4" font-size="32">60°C</text>
       <path d="M28 300 H150 Q176 300 176 274 V238" stroke="#d4924a" stroke-width="12" stroke-linecap="round"/>
-      <path d="M28 300 H150 Q176 300 176 274 V238" stroke="#f3ece4" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 16"/>
       <path d="M304 238 V274 Q304 300 330 300 H452" stroke="#d4553a" stroke-width="12" stroke-linecap="round"/>
-      <path d="M304 238 V274 Q304 300 330 300 H452" stroke="#f3ece4" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 16"/>
       <defs>
         <radialGradient id="fire" cx="50%" cy="58%" r="62%">
           <stop offset="0%" stop-color="#4a3428"/>
@@ -518,10 +520,7 @@ nav.pane svg { display: block; }
       </div>
     </div>
     <div class="col">
-      <div class="row">RETENTION <span class="v">24 months</span></div>
-      <div class="row">HEATER TARGET <span class="v">60 °C</span></div>
       <div class="row">SENSOR ROLES <span class="v">3 bound <span class="edit">&gt;</span></span></div>
-      <div class="row">WATER MODEL <span class="v">not installed</span></div>
       <div class="row">STORAGE <span class="v">card <span class="edit">&gt;</span></span></div>
       <div class="row">PANEL RESET <span class="v">timing <span class="edit">&gt;</span></span></div>
       <div class="row">DIAGNOSTICS <span class="v">SAVE RING <span class="edit">&gt;</span></span></div>
@@ -541,29 +540,38 @@ nav.pane svg { display: block; }
   </header>
   <div class="storage">
     <div class="col">
+      <div class="group-h">SD CARD <span>history</span></div>
       <div class="bar"><i></i></div>
       <div class="kv" style="margin-top:8px"><span>used 11.8 GB of 32 GB</span><b>37%</b></div>
-      <div class="kv"><span>free</span><b>20.2 GB</b></div>
-      <div class="kv"><span>floor</span><b>50 MB</b></div>
-      <div class="kv"><span>headroom</span><b>20.1 GB</b></div>
+      <div class="kv"><span>free / floor</span><b>20.2 GB / 50 MB</b></div>
+      <div class="side-hr"></div>
+      <div class="kv"><span>minute history</span><b>412 MB</b></div>
+      <div class="kv"><span>hourly history</span><b>86 MB</b></div>
+      <div class="kv"><span>log dumps</span><b>24 MB</b></div>
       <div class="side-hr"></div>
       <div class="kv"><span>last rollover</span><b>14 Oct 00:00</b></div>
       <div class="kv"><span>newest file</span><b>14 Oct 08:47</b></div>
-      <div class="kv"><span>minute samples</span><b>412 MB</b></div>
-      <div class="kv"><span>hourly rollup</span><b>86 MB</b></div>
-      <div class="kv"><span>log dumps</span><b>24 MB</b></div>
+      <div class="kv"><span>today</span><b>842 / 1440 min</b></div>
+      <div class="kv"><span>hourly</span><b>168 / 168</b></div>
+      <div class="kv"><span>state</span><b style="color:var(--ok)">no fault</b></div>
     </div>
     <div class="col">
-      <div class="kv"><span>today</span><b>842 / 1440</b></div>
-      <div class="kv"><span>rollup</span><b>168 / 168</b></div>
-      <div class="kv"><span>restored</span><b>168 columns</b></div>
-      <div class="kv"><span>fault</span><b style="color:var(--ok)">no storage fault</b></div>
+      <div class="group-h">SPIFFS <span>mirror + files</span></div>
+      <div class="bar"><i style="width:37%"></i></div>
+      <div class="kv" style="margin-top:8px"><span>used 1.2 MB of 3 MB</span><b>40%</b></div>
       <div class="side-hr"></div>
-      <div class="kv"><span>SPIFFS</span><b>1.2 MB of 3 MB</b></div>
-      <div class="kv"><span>ring</span><b>168 of 168 hours</b></div>
-      <div class="kv"><span>ring oldest</span><b>07 Oct 08:00</b></div>
-      <div class="kv"><span>ring newest</span><b>14 Oct 08:47</b></div>
-      <div class="note2">card readable - figures cached</div>
+      <div class="kv"><span>hourly mirror</span><b>720 of 8760 h</b></div>
+      <div class="kv"><span>ring oldest</span><b>14 Sep 10:00</b></div>
+      <div class="kv"><span>ring newest</span><b>14 Oct 09:00</b></div>
+      <div class="side-hr"></div>
+      <div class="filelist">
+        <div class="kv"><span>config.ini</span><b>512 B</b></div>
+        <div class="kv"><span>sensor_roles.bin</span><b>128 B</b></div>
+        <div class="kv"><span>rollup_ring.bin</span><b>1.1 MB</b></div>
+        <div class="kv"><span>index.html</span><b>3.3 kB</b></div>
+        <div class="kv"><span>serverindex.html</span><b>5.0 kB</b></div>
+      </div>
+      <div class="note2">Week/month history survives an absent or failed SD card.</div>
     </div>
   </div>
   <div class="nav-slot" data-tab="gear"></div>

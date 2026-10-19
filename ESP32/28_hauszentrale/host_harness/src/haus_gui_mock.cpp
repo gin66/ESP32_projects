@@ -161,6 +161,24 @@ static uint16_t mock_pwm_duty(uint32_t epoch) {
   return (uint16_t)duty;
 }
 
+/* ─── Household power (synthetic SML on host) ───────────────────────────── */
+
+static uint32_t mock_power_w(uint32_t epoch) {
+  const uint32_t t = tod(epoch);
+  double base = 620.0;
+  if (t > 21600 && t < 28800)
+    base = 900.0 + 700.0 * (double)(t - 21600) / 7200.0;
+  else if (t >= 28800 && t < 61200)
+    base = 700.0;
+  else if (t >= 61200 && t < 75600)
+    base = 1200.0 + 600.0 * (double)(t - 61200) / 14400.0;
+  else
+    base = 450.0;
+  base += sin(epoch * 0.011) * 60.0 + sin(epoch * 0.037) * 25.0;
+  if (base < 0) base = 0;
+  return (uint32_t)base;
+}
+
 /* ─── Living room (synthetic on host; no sensors on the real board) ─────────
  *
  *  The physical panel has no usable local sensors (whitepaper Q24), so the
@@ -217,16 +235,16 @@ static void init_history(void) {
     g_history[idx].living_c100 = mock_living_temp(t);
     g_history[idx].hum_c100 = mock_living_humidity(t);
     g_history[idx].pressure_pa = mock_living_pressure(t);
-    g_history[idx].power_dw = 0;
+    g_history[idx].power_dw = mock_power_w(t) * 10u;
     g_history[idx].target_c100 = mock_target_temp(t);
     g_history[idx].ac_rms_dc =
         (uint16_t)(1368 + (int)(sin(t * 0.001) * 20.0));
     g_history[idx].ac_angle_cdeg =
-        (int16_t)(14600 - (int)((t % 3600u) / 60u) * 20);
+        (int16_t)(5500 + (int)(sin(t * 0.002) * 120.0));
     /* No SML/ADC power source exists yet. Do not fabricate watts: the power
      * screen must exercise the same empty state as the device. */
     g_history[idx].flags = SAMPLE_FLAG_CLIMATE_AHT20 |
-                           SAMPLE_FLAG_CLIMATE_BMP280 | SAMPLE_FLAG_GAP;
+                           SAMPLE_FLAG_CLIMATE_BMP280;
     g_history[idx].stale_mask = 0;
 
     /* Simulate occasional gaps (card removal, SD errors). */
@@ -354,15 +372,15 @@ void gui_update_state(void) {
   can.has_pending = false;
   can.pwm_pending_since_ms = 0;
   can.ac_rms_dc = 1368;
-  can.ac_angle_cdeg = 14609;
+  can.ac_angle_cdeg = 5500;
   can.ac_fresh = true;
 
-  /* Power: no SML/ADC source yet, so no fabricated watts. */
-  can.watts = 0;
-  can.watts_last = 0;
-  can.valid = false;
-  can.power_src = GUI_PWR_SRC_NONE;
-  can.power_dw = 0;
+  /* Synthetic SML power for the host design screens. */
+  can.watts = mock_power_w(g_sim_time);
+  can.watts_last = can.watts;
+  can.valid = true;
+  can.power_src = GUI_PWR_SRC_SML;
+  can.power_dw = can.watts * 10u;
 
   /* Living room (synthetic values for host UI verification). */
   climate.living_c100 = mock_living_temp(g_sim_time);
@@ -433,6 +451,27 @@ void gui_get_state(HausState* out) {
   gui_update_state();
   out->can = g_can.acquire();
   out->climate = g_climate.acquire();
+}
+
+uint8_t gui_spiffs_files(gui_spiffs_file_t* out, uint8_t max) {
+  static const struct {
+    const char* name;
+    uint32_t size;
+  } files[] = {
+      {"config.ini", 512},
+      {"sensor_roles.bin", 128},
+      {"rollup_ring.bin", HAUS_RING_BYTES},
+      {"index.html", 3405},
+      {"serverindex.html", 5120},
+  };
+  if (!out || max == 0) return 0;
+  uint8_t n = 0;
+  for (size_t i = 0; i < sizeof(files) / sizeof(files[0]) && n < max; i++) {
+    snprintf(out[n].name, sizeof(out[n].name), "%s", files[i].name);
+    out[n].size = files[i].size;
+    n++;
+  }
+  return n;
 }
 
 int gui_get_history(const gui_history_request_t* req) {

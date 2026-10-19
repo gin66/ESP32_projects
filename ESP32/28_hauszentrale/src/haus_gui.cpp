@@ -12,6 +12,7 @@
 
 #include <Arduino.h>
 #include <SD.h>
+#include <SPIFFS.h>
 #include <WiFi.h>
 #include <esp_heap_caps.h>
 #include <esp_task_wdt.h>
@@ -401,6 +402,26 @@ void gui_set_can_enabled(bool enabled) {
   g_can_target = enabled;
   if (!s_can_apply_task)
     xTaskCreate(can_apply_task, "canApply", 4096, NULL, 2, &s_can_apply_task);
+}
+
+uint8_t gui_spiffs_files(gui_spiffs_file_t* out, uint8_t max) {
+  if (!out || max == 0) return 0;
+  File root = SPIFFS.open("/");
+  if (!root || !root.isDirectory()) return 0;
+  uint8_t n = 0;
+  File f = root.openNextFile();
+  while (f && n < max) {
+    if (!f.isDirectory()) {
+      const char* name = f.name();
+      if (name && name[0]) {
+        snprintf(out[n].name, sizeof(out[n].name), "%s", name);
+        out[n].size = (uint32_t)f.size();
+        n++;
+      }
+    }
+    f = root.openNextFile();
+  }
+  return n;
 }
 
 void gui_storage_refresh(void) {

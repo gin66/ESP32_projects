@@ -7,8 +7,8 @@
  * (src/ui/haus_ui.c) against the data interface in haus_gui.h, so whatever the
  * harness renders is exactly what the device runs.
  *
- * Screens are 480x800 portrait. Every screen except the log screen carries the
- * smartphone-style bottom navigation pane (y=712, h=88).
+ * Screens are 800x480 landscape. Every screen except the log screen carries
+ * the right-hand navigation rail (x=712, w=88, six vertical tabs).
  */
 
 #ifndef HAUS_UI_H

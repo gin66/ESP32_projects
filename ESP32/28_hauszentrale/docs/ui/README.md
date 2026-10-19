@@ -1,6 +1,6 @@
 # UI drafts
 
-Portrait panel screens, 480×800. `mockup.html` is the source. The PNGs next to it are the output of `render.sh`.
+Landscape panel screens, 800×480 (right-hand navigation rail). `mockup.html` is the source. The PNGs next to it are the output of `render.sh`.
 
 ```bash
 ./render.sh            # every screen

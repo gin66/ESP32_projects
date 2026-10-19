@@ -107,6 +107,27 @@ static void home_60(void) {
   haus_ui_init();
 }
 
+/* The flow dashes advance in a 1200 ms cycle (6 x 200 ms). These two cases
+ * pin the LVGL tick to the cycle limits so the PNGs show the wrap. */
+static void set_flow_phase(uint32_t phase_ms) {
+  const uint32_t period = 1200;
+  const uint32_t now = (uint32_t)lv_tick_get();
+  const uint32_t inc = (phase_ms + period - (now % period)) % period;
+  if (inc) lv_tick_inc(inc);
+}
+
+static void home_flow_start(void) {
+  mock_set_home_case(6000, 300, true);
+  set_flow_phase(0);
+  haus_ui_init();
+}
+
+static void home_flow_end(void) {
+  mock_set_home_case(6000, 300, true);
+  set_flow_phase(1100);
+  haus_ui_init();
+}
+
 static void build_water(void) { haus_ui_build_water(3); /* UI_SCREEN_WATER_OUT */ }
 
 static void build_ac(void) {
@@ -184,11 +205,14 @@ int main(int argc, char* argv[]) {
       home_off,
       home_40,
       home_60,
+      home_flow_start,
+      home_flow_end,
   };
   static const char* const screen_names[] = {
       "home",   "detail", "power",    "living",    "ac",        "ac_angle",
       "settings", "storage", "can",   "log",       "roles",     "water",
       "chart_week", "chart_month", "home_off", "home_40",   "home_60",
+      "home_flow_start", "home_flow_end",
   };
 
   for (size_t i = 0; i < sizeof(build_funcs) / sizeof(build_funcs[0]); i++) {

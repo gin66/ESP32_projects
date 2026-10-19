@@ -1,5 +1,5 @@
 #!/bin/bash
-# Render mockup.html to 480×800 PNGs in this directory.
+# Render mockup.html to 800×480 PNGs in this directory.
 #
 #   ./render.sh            # every screen
 #   ./render.sh home power # only the named screens
@@ -74,7 +74,7 @@ for s in "${screens[@]}"; do
     --disable-gpu \
     --hide-scrollbars \
     --force-device-scale-factor=1 \
-    --window-size=480,800 \
+    --window-size=800,480 \
     --user-data-dir="$profile" \
     --no-first-run \
     --disable-extensions \
@@ -82,6 +82,6 @@ for s in "${screens[@]}"; do
     --screenshot="$out" \
     "file://${here}/mockup.html?s=${s}" \
     >/dev/null 2>&1
-  python3 -c 'import struct,sys; w,h=struct.unpack(">II", open(sys.argv[1],"rb").read()[16:24]); assert (w,h)==(480,800), (sys.argv[1], w, h)' "$out"
-  echo "$s.png 480x800"
+  python3 -c 'import struct,sys; w,h=struct.unpack(">II", open(sys.argv[1],"rb").read()[16:24]); assert (w,h)==(800,480), (sys.argv[1], w, h)' "$out"
+  echo "$s.png 800x480"
 done

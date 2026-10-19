@@ -44,6 +44,9 @@ static const char* TAG __attribute__((unused)) = "tpl_ws7";
 #ifndef TPL_WS7_PCLK_HZ
 #define TPL_WS7_PCLK_HZ (16 * 1000 * 1000)
 #endif
+#ifndef TPL_WS7_FULL_FRAME
+#define TPL_WS7_FULL_FRAME 0
+#endif
 
 static uint16_t s_output_shadow = 0;  // 12-bit shadow of CH422G output
 
@@ -416,8 +419,26 @@ lv_display_t* tpl_ws7_display_init(uint8_t rotation, uint32_t* buf,
   // Create LVGL display (S4.04, S4.05)
   s_lv_display = lv_display_create(TPL_WS7_SCREEN_WIDTH, TPL_WS7_SCREEN_HEIGHT);
   if (s_lv_display) {
+#if TPL_WS7_FULL_FRAME
+    /* One PSRAM frame buffer: LVGL renders the whole screen and the flush
+     * callback issues a single draw_bitmap. The partial path needs one
+     * draw_bitmap per band, and each call waits for the RGB DMA; on IDF 5.5
+     * that made a full redraw take ~0.5 s. */
+    const size_t full_bytes =
+        (size_t)TPL_WS7_SCREEN_WIDTH * TPL_WS7_SCREEN_HEIGHT * 2;
+    void* full_buf =
+        heap_caps_malloc(full_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!full_buf) {
+      ESP_LOGE(TAG, "Full-frame PSRAM buffer alloc failed (%u B)",
+               (unsigned)full_bytes);
+      return NULL;
+    }
+    lv_display_set_buffers(s_lv_display, full_buf, NULL, full_bytes,
+                           LV_DISPLAY_RENDER_MODE_FULL);
+#else
     lv_display_set_buffers(s_lv_display, buf, NULL, buf_size,
                            LV_DISPLAY_RENDER_MODE_PARTIAL);
+#endif
     lv_display_set_flush_cb(s_lv_display, ws7_rgb_flush_cb);
     lv_display_set_rotation(s_lv_display, lv_rotation);
     lv_display_set_default(s_lv_display);  // S4.05

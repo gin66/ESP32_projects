@@ -14,6 +14,8 @@
 
 #include "haus_mem.h"
 
+#if LV_USE_STDLIB_MALLOC == LV_STDLIB_CUSTOM
+
 extern "C" {
 
 void lv_mem_init(void) {}
@@ -57,3 +59,5 @@ void lv_mem_monitor_core(lv_mem_monitor_t* mon_p) {
 lv_result_t lv_mem_test_core(void) { return LV_RESULT_OK; }
 
 }  // extern "C"
+
+#endif  /* LV_USE_STDLIB_MALLOC == LV_STDLIB_CUSTOM */

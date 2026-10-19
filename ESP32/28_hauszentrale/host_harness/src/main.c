@@ -162,6 +162,7 @@ int main(int argc, char* argv[]) {
   draw_buf.unaligned_data = raw_buf;
 
   lv_display_t* disp = lv_display_create(SCREEN_W, SCREEN_H);
+  lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_0); /* landscape */
   lv_display_set_flush_cb(disp, flush_cb);
   lv_display_set_draw_buffers(disp, &draw_buf, NULL);
   lv_display_set_render_mode(disp, LV_DISPLAY_RENDER_MODE_FULL);

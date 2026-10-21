@@ -99,14 +99,17 @@ bool sml_power_parse(const uint8_t* body, size_t len) {
 }
 
 static bool parse_slot(sml_slot_t* slot) {
-  if (slot->received <= 18) {
+  if (slot->expected <= 18 || slot->expected > SML_POWER_BYTES) {
     s_reading.errors++;
     return false;
   }
 
-  const uint16_t valid = (uint16_t)(slot->received - 2);
+  /* Use the length field, not the bytes actually seen: an extra frame must
+   * not move the CRC window. */
+  const uint16_t valid = (uint16_t)(slot->expected - 2);
   if (valid <= 16 || memcmp(&slot->buffer[2], kSmlHeader, 8) != 0) {
     s_reading.errors++;
+    s_reading.header_errors++;
     return false;
   }
 
@@ -115,6 +118,7 @@ static bool parse_slot(sml_slot_t* slot) {
   if ((uint8_t)(crc >> 8) != slot->buffer[valid] ||
       (uint8_t)(crc & 0xFF) != slot->buffer[valid + 1]) {
     s_reading.errors++;
+    s_reading.crc_errors++;
     return false;
   }
 
@@ -163,9 +167,13 @@ void sml_power_on_frame(uint32_t id, const uint8_t* data, uint8_t len) {
     }
   }
 
-  if ((size_t)off + len <= sizeof(slot->buffer)) {
-    memcpy(&slot->buffer[off], data, len);
+  if ((size_t)off + len > sizeof(slot->buffer)) {
+    /* A bogus offset would write past the buffer; abandon the message. */
+    slot->active = false;
+    s_reading.lost_bytes += slot->received;
+    return;
   }
+  memcpy(&slot->buffer[off], data, len);
   slot->received = (uint16_t)(slot->received + len);
   slot->frames++;
 

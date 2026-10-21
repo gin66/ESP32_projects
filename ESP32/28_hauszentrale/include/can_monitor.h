@@ -96,6 +96,8 @@ typedef struct {
   uint32_t sml_ok;
   uint32_t sml_incomplete;
   uint32_t sml_empty;
+  uint32_t sml_hdr_err; /* complete frame set, wrong SML escape header */
+  uint32_t sml_crc_err; /* complete frame set, header OK, CRC mismatch */
   uint32_t proto_id;
   uint32_t proto_temp;
   uint32_t proto_pwm;

@@ -17,6 +17,8 @@
 #include <cstdio>
 #include <cstring>
 
+#include <sml/sml_crc16.h>
+
 #include "app/sml_power.h"
 
 namespace {
@@ -128,8 +130,21 @@ void table_update(const Frame& f) {
 
 /* ── SML reassembly (bus order, per base id) ─────────────────────────────── */
 
+/* buf starts with the two length bytes added by the sender, so the SML escape
+ * header begins at +2. */
 bool sml_header_ok(const uint8_t* buf, size_t n) {
-  return n >= 16 && std::memcmp(buf, kSmlHeader, sizeof(kSmlHeader)) == 0;
+  return n >= 18 && std::memcmp(buf + 2, kSmlHeader, sizeof(kSmlHeader)) == 0;
+}
+
+/* Header + transport CRC of one complete reassembly.  `valid` is the raw
+ * telegram length, i.e. the length field read from the first frame. */
+static bool sml_crc_ok(const sml_reassembly_t* s) {
+  const uint16_t valid = (uint16_t)(s->expected_length - 2u);
+  if (valid <= 16 || valid + 2u > CAN_MONITOR_SML_BYTES) return false;
+  const uint16_t crc = sml_crc16_calculate(
+      const_cast<uint8_t*>(&s->buffer[2]), (size_t)(valid - 2u));
+  return (uint8_t)(crc >> 8) == s->buffer[valid] &&
+         (uint8_t)(crc & 0xFF) == s->buffer[valid + 1];
 }
 
 void sml_on_frame(uint32_t id, const uint8_t* data, uint8_t len) {
@@ -150,9 +165,13 @@ void sml_on_frame(uint32_t id, const uint8_t* data, uint8_t len) {
     s->active = true;
   }
 
-  if ((size_t)off + len <= sizeof(s->buffer)) {
-    std::memcpy(&s->buffer[off], data, len);
+  if ((size_t)off + len > sizeof(s->buffer)) {
+    s->active = false;
+    s_counters.sml_incomplete++;
+    portEXIT_CRITICAL(&s_data_lock);
+    return;
   }
+  std::memcpy(&s->buffer[off], data, len);
   s->received_length = (uint16_t)(s->received_length + len);
   s->frames_received++;
 
@@ -163,12 +182,18 @@ void sml_on_frame(uint32_t id, const uint8_t* data, uint8_t len) {
 
   if (s->active && s->expected_length > 0 &&
       s->received_length >= s->expected_length) {
-    s->complete = sml_header_ok(s->buffer, s->received_length);
+    const bool hdr_ok = sml_header_ok(s->buffer, s->received_length);
+    s->complete = hdr_ok && sml_crc_ok(s);
     s->active = false;
     if (s->complete) {
       s_counters.sml_ok++;
     } else {
       s_counters.sml_incomplete++;
+      if (!hdr_ok) {
+        s_counters.sml_hdr_err++;
+      } else {
+        s_counters.sml_crc_err++;
+      }
     }
   }
   portEXIT_CRITICAL(&s_data_lock);

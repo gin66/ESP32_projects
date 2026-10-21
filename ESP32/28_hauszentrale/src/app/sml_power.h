@@ -35,6 +35,8 @@ typedef struct {
   uint32_t messages;     /* file bodies handed to libsml */
   uint32_t parse_errors; /* sml_file_parse() returned NULL */
   uint32_t errors;       /* header/CRC/length rejected (sml_error_cnt) */
+  uint32_t header_errors; /* subset of errors: escape header missing */
+  uint32_t crc_errors;    /* subset of errors: header OK, CRC mismatch */
   uint32_t lost_bytes;   /* partial message abandoned (sml_lost_bytes_cnt) */
   uint32_t empty_messages;
   bool valid; /* at least one of the three OBIS values matched */

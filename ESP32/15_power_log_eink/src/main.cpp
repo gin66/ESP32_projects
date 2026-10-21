@@ -53,6 +53,13 @@ bool sdOK = false;
 uint32_t sml_lost_bytes_cnt = 0;
 uint32_t sml_empty_message_cnt = 0;
 uint32_t sml_error_cnt = 0;
+uint32_t sml_hdr_err_cnt = 0;
+uint32_t sml_crc_err_cnt = 0;
+uint32_t sml_ok_cnt = 0;
+uint32_t sml_len255_cnt = 0;
+uint16_t sml_last_len = 0;
+uint16_t sml_last_err_len = 0;
+uint8_t sml_last_err_kind = 0;  // 0 = none, 1 = header, 2 = crc
 uint32_t file_log_error_cnt = 0;
 
 volatile float consumption_Wh = 0.0;
@@ -177,6 +184,109 @@ uint32_t can_error_passive_cnt = 0;
 uint32_t can_error_bus_error_cnt = 0;
 uint32_t can_receive_cnt = 0;
 
+// --- Lightweight Haus-CAN monitor -------------------------------------------
+// One row per standard ID seen on the bus.  This is deliberately tiny: the
+// point is to answer "which HAUS-CAN messages are alive right now?" with a
+// single /can/ids.json call, not to be a full protocol analyzer.
+#define MON_MAX_IDS 32
+struct mon_entry_s {
+  uint32_t id;
+  uint32_t count;    // frames since boot
+  uint32_t last_ms;  // millis() of last frame, 0 = never
+  uint8_t dlc;
+  bool extd;
+  bool used;
+};
+static struct mon_entry_s mon_ids[MON_MAX_IDS];
+static uint32_t mon_total = 0;
+
+// Map a standard CAN ID to the protocol name from haus_can.h.  NULL means the
+// ID is not part of the house protocol (shown as "other").
+static const char* haus_can_name(uint16_t id) {
+  if (id >= CAN_ID_ID_BASE && id < CAN_ID_ID_BASE + HAUS_CAN_MAX_SENSORS)
+    return "heizung_id";
+  switch (id) {
+    case CAN_ID_DATA_BASE:      return "heizung_temp";
+    case CAN_ID_PWM_SET:        return "pwm_set";
+    case CAN_ID_PWM_REPORT:     return "pwm_report";
+    case CAN_ID_ADC_REPORT:     return "adc";
+    case CAN_ID_EE_REPORT:      return "ee";
+    case CAN_ID_STATS_REPORT:   return "can_stats";
+    case CAN_ID_TIMESTAMP:      return "timestamp";
+    default:                    break;
+  }
+  if (id >= CAN_ID_ADC_WAVE0 && id < CAN_ID_ADC_WAVE0 + CAN_ID_ADC_WAVE_COUNT)
+    return "adc_wave";
+  if (id >= CAN_ID_STROMZAEHLER_INFO_BASIS &&
+      id < CAN_ID_STROMZAEHLER_INFO_BASIS + 0x100)
+    return "sml";
+  if (id >= CAN_ID_STROMZAEHLER_INFO_ALT &&
+      id < CAN_ID_STROMZAEHLER_INFO_ALT + 0x100)
+    return "sml_alt";
+  return NULL;
+}
+
+static uint8_t mon_known_ids(void) {
+  uint8_t n = 0;
+  for (int i = 0; i < MON_MAX_IDS; i++) {
+    if (mon_ids[i].used && !mon_ids[i].extd &&
+        haus_can_name((uint16_t)mon_ids[i].id) != NULL)
+      n++;
+  }
+  return n;
+}
+
+static void mon_rx(const twai_message_t& message) {
+  uint32_t id = message.identifier;
+  bool extd = (message.flags & TWAI_MSG_FLAG_EXTD) != 0;
+
+  // SML is not one ID: a message is split into base+offset frames, so a single
+  // 255-byte message alone produces ~32 distinct IDs per base (0x600/0x700).
+  // Counting those individually would fill the table with SML and hide every
+  // other node, so fold the whole SML range into its base ID.  The monitor's
+  // job is liveness, not per-frame reassembly.
+  if (!extd) {
+    uint16_t sid = (uint16_t)(id & 0x7FF);
+    if (sid >= CAN_ID_STROMZAEHLER_INFO_BASIS &&
+        sid < CAN_ID_STROMZAEHLER_INFO_BASIS + 0x100) {
+      id = CAN_ID_STROMZAEHLER_INFO_BASIS;
+    } else if (sid >= CAN_ID_STROMZAEHLER_INFO_ALT &&
+               sid < CAN_ID_STROMZAEHLER_INFO_ALT + 0x100) {
+      id = CAN_ID_STROMZAEHLER_INFO_ALT;
+    }
+  }
+
+  struct mon_entry_s* e = NULL;
+  for (int i = 0; i < MON_MAX_IDS; i++) {
+    if (mon_ids[i].used && mon_ids[i].id == id && mon_ids[i].extd == extd) {
+      e = &mon_ids[i];
+      break;
+    }
+  }
+  if (e == NULL) {
+    for (int i = 0; i < MON_MAX_IDS; i++) {
+      if (!mon_ids[i].used) {
+        e = &mon_ids[i];
+        e->id = id;
+        e->extd = extd;
+        e->count = 0;
+        e->last_ms = 0;
+        e->dlc = 0;
+        e->used = true;
+        break;
+      }
+    }
+  }
+  mon_total++;
+  if (e == NULL) return;  // table full: total still moves, per-ID does not
+  e->count++;
+  e->last_ms = millis();
+  e->dlc = message.data_length_code;
+}
+
+#define MON_JSON_BUFLEN 4096
+static char mon_json_buf[MON_JSON_BUFLEN];
+
 void sml_publish(sml_file* file) {
   for (int i = 0; i < file->messages_len; i++) {
     char name[20];
@@ -276,13 +386,31 @@ void SMLTask(void* parameter) {
                     sml_file_parse(&buf->data[2 + 8], buf->valid_bytes - 16);
                 sml_publish(file);
                 sml_file_free(file);
+                sml_ok_cnt++;
                 err = false;
+              } else {
+                sml_crc_err_cnt++;
+                sml_last_err_kind = 2;
+                sml_last_err_len = buf->valid_bytes;
               }
+            } else {
+              sml_hdr_err_cnt++;
+              sml_last_err_kind = 1;
+              sml_last_err_len = buf->valid_bytes;
             }
+          } else {
+            sml_hdr_err_cnt++;
+            sml_last_err_kind = 1;
+            sml_last_err_len = buf->valid_bytes;
           }
           if (err) {
             sml_error_cnt++;
           }
+          // Consume the buffer.  Without this, valid_bytes stays >= 0 and the
+          // whole message is re-checked every 100 ms until it is overwritten:
+          // one bad message inflates sml_error_cnt by ~10-20 and a good one is
+          // parsed and published again on every pass.
+          buf->valid_bytes = -1;
           buf->locked = false;
           break;
         }
@@ -295,6 +423,9 @@ void SMLTask(void* parameter) {
 }
 
 static void handle_rx_message(twai_message_t& message) {
+  // Count every frame, regardless of whether it is SML or not.
+  mon_rx(message);
+
   // Process received message
 #if DEBUG_OUTPUT
   Serial.print(message.extd ? "Extended" : "Standard");
@@ -339,6 +470,11 @@ static void handle_rx_message(twai_message_t& message) {
     }
     uint16_t off = message.identifier & 0xff;
     off <<= 3;
+    // Guard against a truncated/garbage ID offset writing past the buffer.
+    if ((uint16_t)(off + message.data_length_code) > sizeof(active->data)) {
+      sml_lost_bytes_cnt++;
+      return;
+    }
     for (uint8_t i = 0; i < message.data_length_code; i++) {
       active->data[off++] = message.data[i];
     }
@@ -351,6 +487,8 @@ static void handle_rx_message(twai_message_t& message) {
       Serial.println("Received OK data");
 #endif
       active->valid_bytes = sml_received_length - 2;
+      sml_last_len = expected_length;
+      if (expected_length == 255) sml_len255_cnt++;
       time_t now = time(nullptr);
       active->receive_time = now;
       sml_received_length = 0;
@@ -526,17 +664,55 @@ void setup() {
 
   tpl_server.on("/can", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
-    char can_info[255];
+    char can_info[512];
     sprintf(can_info,
             "Error: %d\n"
-            "SML: %d empty, %d incomplete, %d errors\nTX: %d errors, %d "
-            "retries\nRX: %d messages, %d errors, %d queue_full\nERROR: %d "
-            "passive cnt, % bus error\n",
-            file_log_error_cnt, sml_empty_message_cnt, sml_lost_bytes_cnt,
-            sml_error_cnt, can_tx_error_cnt, can_tx_retry_cnt, can_receive_cnt,
-            can_rx_error_cnt, can_rx_queue_full_cnt, can_error_passive_cnt,
-            can_error_bus_error_cnt);
+            "SML: %lu ok, %d empty, %d incomplete, %d errors (hdr=%d "
+            "crc=%d)\n"
+            "TX: %d errors, %d retries\nRX: %d messages, %d errors, %d "
+            "queue_full\nERROR: %d passive cnt, %d bus error\n"
+            "SML last: len=%u, last-err: len=%u kind=%u, len255=%lu\n"
+            "HAUS: %lu frames, %u ids\n",
+            file_log_error_cnt, (unsigned long)sml_ok_cnt,
+            sml_empty_message_cnt, sml_lost_bytes_cnt, sml_error_cnt,
+            sml_hdr_err_cnt, sml_crc_err_cnt, can_tx_error_cnt,
+            can_tx_retry_cnt, can_receive_cnt, can_rx_error_cnt,
+            can_rx_queue_full_cnt, can_error_passive_cnt,
+            can_error_bus_error_cnt, sml_last_len, sml_last_err_len,
+            sml_last_err_kind, (unsigned long)sml_len255_cnt,
+            (unsigned long)mon_total, mon_known_ids());
     tpl_server.send(200, "text/html", can_info);
+  });
+
+  // Per-ID Haus-CAN monitor.  One JSON object per ID seen since boot:
+  // id, ext, name (haus_can.h), n (frames), age_ms (since last frame), dlc.
+  tpl_server.on("/can/ids.json", HTTP_GET, []() {
+    uint32_t now = millis();
+    int pos = snprintf(mon_json_buf, MON_JSON_BUFLEN,
+                       "{\"total\":%lu,\"ids\":[", (unsigned long)mon_total);
+    bool first = true;
+    for (int i = 0; i < MON_MAX_IDS; i++) {
+      if (!mon_ids[i].used) continue;
+      int room = MON_JSON_BUFLEN - pos - 4;
+      if (room < 100) break;
+      const char* name =
+          mon_ids[i].extd ? NULL : haus_can_name((uint16_t)mon_ids[i].id);
+      pos += snprintf(
+          mon_json_buf + pos, room,
+          "%s{\"id\":\"0x%lX\",\"ext\":%d,\"name\":\"%s\",\"n\":%lu,"
+          "\"age_ms\":%ld,\"dlc\":%u}",
+          first ? "" : ",", (unsigned long)mon_ids[i].id,
+          mon_ids[i].extd ? 1 : 0, name ? name : "other",
+          (unsigned long)mon_ids[i].count,
+          mon_ids[i].last_ms ? (long)(now - mon_ids[i].last_ms) : -1L,
+          mon_ids[i].dlc);
+      first = false;
+    }
+    mon_json_buf[pos++] = ']';
+    mon_json_buf[pos++] = '}';
+    mon_json_buf[pos] = '\0';
+    tpl_server.sendHeader("Connection", "close");
+    tpl_server.send(200, "application/json", mon_json_buf);
   });
 
   SPI.begin(SPI_CLK, SPI_MISO, SPI_MOSI, ELINK_SS);

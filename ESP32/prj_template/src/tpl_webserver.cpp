@@ -184,10 +184,22 @@ void tpl_webserver_setup() {
 
   tpl_server.on("/cpu", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
-    char buf[48];
-    snprintf(buf, sizeof(buf), "CPU0: %" PRIu32 "%% CPU1: %" PRIu32 "%%", cpu_load_core0,
-             cpu_load_core1);
-    tpl_server.send(200, "text/html", buf);
+    char buf[256];
+    int32_t net_age_s =
+        tpl_config.net_last_ok_ms
+            ? (int32_t)((millis() - tpl_config.net_last_ok_ms) / 1000)
+            : -1;
+    snprintf(buf, sizeof(buf),
+             "CPU0: %" PRIu32 "%% CPU1: %" PRIu32 "%%\n"
+             "boot: %" PRIu32 "\n"
+             "reset0: %s\n"
+             "reset1: %s\n"
+             "net_ok_age: %" PRId32 "s\n",
+             cpu_load_core0, cpu_load_core1, tpl_config.bootCount,
+             tpl_config.reset_reason_cpu0 ? tpl_config.reset_reason_cpu0 : "?",
+             tpl_config.reset_reason_cpu1 ? tpl_config.reset_reason_cpu1 : "?",
+             net_age_s);
+    tpl_server.send(200, "text/plain", buf);
   });
   tpl_server.on("/version", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");

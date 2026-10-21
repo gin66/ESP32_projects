@@ -26,11 +26,20 @@ void setup() {
 }  // setup
 
 #ifdef SENDER
-// input buffer for serial data
+// Input buffer for serial data.  The meter's raw telegram is up to 256 bytes
+// (258 on the wire once the 2 length bytes are added).  The old page stopped
+// at 255, cutting off the second CRC byte, so every message failed its
+// checksum on the receiving side.  Two pages so the next telegram can be
+// received while the previous one is still being put on the CAN bus.
+#define SML_PAGE 320       // bytes per page, > max telegram
+#define SML_MAX_BYTES 256  // raw telegram, excludes the 2 CAN length bytes
+
 uint32_t last_millis = 0;
 uint32_t last_send = 0;
-uint8_t input_buffer[2 * 256];
-uint16_t in_offset = 0;
+uint8_t input_buffer[2][SML_PAGE];
+uint8_t in_page = 0;
+uint16_t in_len = 0;
+uint8_t send_page = 0;
 uint16_t send_ptr = 0;
 uint16_t send_len = 0;
 uint16_t can_id;
@@ -54,13 +63,13 @@ void loop() {
   if ((send_len > 0) && !can_msg_prepared) {
     canMsg.can_id = can_id++;
     uint8_t i = 0;
-    if ((send_ptr & 255) == 0) {
+    if (send_ptr == 0) {
       canMsg.data[0] = send_len & 255;
       canMsg.data[1] = send_len >> 8;
       i = 2;
     }
     for (; (i < 8) && (send_len > 0); i++, send_ptr++, send_len--) {
-      canMsg.data[i] = input_buffer[send_ptr];
+      canMsg.data[i] = input_buffer[send_page][send_ptr];
     }
     canMsg.can_dlc = i;
     can_msg_prepared = true;
@@ -77,27 +86,22 @@ void loop() {
     }
   }
 
-  //  if (Serial.available() > 0) {
-  //    byte b = Serial.read();
   if (altser.available() > 0) {
     byte b = altser.read();
     last_millis = ms;
-    // append to buffer
-    if ((in_offset & 255) != 255) {
-      input_buffer[in_offset++] = b;
+    // append to the active input page
+    if (in_len < SML_MAX_BYTES) {
+      input_buffer[in_page][in_len++] = b;
     }
-  } else if ((in_offset & 255) != 0) {
+  } else if (in_len != 0) {
     if (dt > 10) {
-      // end telegram by timeout
-      if (in_offset < 256) {
-        send_ptr = 0;
-        send_len = in_offset;
-        in_offset = 256;
-      } else {
-        send_ptr = 256;
-        send_len = in_offset - 256;
-        in_offset = 0;
-      }
+      // end telegram by timeout: hand the page over to the sender and make
+      // the other page the input page
+      send_page = in_page;
+      send_ptr = 0;
+      send_len = in_len;
+      in_page ^= 1;
+      in_len = 0;
       can_id = base_id;
       base_id = (base_id == CAN_ID_STROMZAEHLER_INFO_BASIS)
                     ? CAN_ID_STROMZAEHLER_INFO_ALT

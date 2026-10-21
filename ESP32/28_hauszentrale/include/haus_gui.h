@@ -275,8 +275,8 @@ bool gui_water_model_available(void);
  * bring-up path; the UI only owns the persisted intent. */
 bool gui_can_enabled(void);
 
-/* Actual CH422G mux state (S23.02): a hardware readback, not the request.
- * Returns the mux level; *known is false when the I2C read failed. */
+/* Actual CH422G mux state (S23.02): the last USB_SEL level the chip ACKed,
+ * not the request. *known is false when that level is unavailable. */
 bool gui_can_actual(bool* known);
 
 /* Sensor-role editor (S23.06). Flat accessors keep the UI independent of the

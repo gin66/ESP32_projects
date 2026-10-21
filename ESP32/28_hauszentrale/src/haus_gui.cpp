@@ -313,10 +313,10 @@ int gui_log_save(void) {
 bool gui_can_enabled(void) { return g_can_enabled; }
 
 bool gui_can_actual(bool* known) {
-  bool can = false;
-  const esp_err_t err = tpl_ws7_read_can_available(&can);
-  if (known) *known = (err == ESP_OK);
-  return can;
+  /* Last USB_SEL level the CH422G ACKed. A live RD-IO sample here read 0
+   * while outputs were enabled and stuck the Settings label on MUX FAULT. */
+  if (known) *known = true;
+  return tpl_ws7_can_available();
 }
 
 uint8_t gui_roles_count(void) { return haus_sensor_roles_count(); }
@@ -375,8 +375,13 @@ bool gui_take_redraw(void) {
 void gui_set_can_enabled(bool enabled) {
   g_can_enabled = enabled;
   g_can_target = enabled;
-  if (!s_can_apply_task)
-    xTaskCreate(can_apply_task, "canApply", 4096, NULL, 2, &s_can_apply_task);
+  if (s_can_apply_task) return;
+  if (xTaskCreate(can_apply_task, "canApply", 4096, NULL, 2,
+                  &s_can_apply_task) != pdPASS) {
+    s_can_apply_task = NULL;
+    TPL_LOGE("settings", "CAN apply task failed, internal %u B",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+  }
 }
 
 uint8_t gui_spiffs_files(gui_spiffs_file_t* out, uint8_t max) {

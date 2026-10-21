@@ -3619,8 +3619,11 @@ static void settings_can_visual(bool on) {
   }
 }
 
-/* S23.02: show what the CH422G actually reports, not what was requested. A
- * request that does not match the mux after the apply window is a fault. */
+/* S23.02: show the level the CH422G ACKed, not the request. A request that
+ * still does not match after the apply task has had time to finish is a
+ * fault. The task waits 500 ms, then the driver waits ~400 ms, and it may
+ * retry; 6 s covers that. Clearing the deadline while hiding the label made
+ * the next 1 Hz refresh draw MUX FAULT in the middle of the switch. */
 static void settings_can_refresh(void) {
   if (!s_can_switch) return;
 
@@ -3629,12 +3632,15 @@ static void settings_can_refresh(void) {
   const bool requested = gui_can_enabled();
   settings_can_visual(known ? actual : requested);
 
-  bool mismatch = known && (actual != requested);
-  if (mismatch && s_can_apply_ms != 0 &&
-      (can_ui_now_ms() - s_can_apply_ms) < 2500u) {
-    mismatch = false; /* the apply task is still switching */
-  }
-  if (!mismatch) s_can_apply_ms = 0;
+  const uint32_t now = can_ui_now_ms();
+  const bool in_window =
+      s_can_apply_ms != 0 && (now - s_can_apply_ms) < 6000u;
+  if (known && actual == requested)
+    s_can_apply_ms = 0;
+  else if (!in_window)
+    s_can_apply_ms = 0;
+
+  const bool mismatch = known && (actual != requested) && s_can_apply_ms == 0;
   if (s_can_fault_lbl) txt(s_can_fault_lbl, mismatch ? "MUX FAULT" : "");
 }
 

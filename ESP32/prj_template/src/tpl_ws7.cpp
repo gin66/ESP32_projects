@@ -92,13 +92,12 @@ static esp_err_t ws7_write_io(uint8_t data) {
 }
 
 static esp_err_t ws7_read_io(uint8_t* data) {
-  Wire.beginTransmission(0x26);  // 7-bit: 0x4D >> 1
-  if (Wire.endTransmission() != 0) {
-    return ESP_FAIL;
-  }
-  int bytes = Wire.requestFrom(0x26, (size_t)1);
+  /* RD-IO is a pure read from 0x4D (7-bit 0x26). A preceding write probes
+   * 0x4C, which is not a CH422G command. On Arduino 3 that probe is
+   * i2c_master_probe, and a NACK fails the read before the data byte. */
+  int bytes = Wire.requestFrom((uint8_t)0x26, (size_t)1);
   if (bytes > 0) {
-    *data = Wire.read();
+    *data = (uint8_t)Wire.read();
     return ESP_OK;
   }
   return ESP_FAIL;
@@ -116,27 +115,28 @@ static esp_err_t ws7_init_ch422g(void) {
 }
 
 static esp_err_t ws7_update_bit(uint8_t bit, bool value) {
+  /* Touch, the SHT45 and this expander share Wire. The shadow has to move
+   * together with the bytes on the bus, or a concurrent setter publishes a
+   * USB_SEL level the chip never received. */
+  if (tpl_ws7_i2c_lock(100) != ESP_OK) return ESP_ERR_TIMEOUT;
+
   uint16_t reg = s_output_shadow;
   if (value) {
-    reg |= (1 << bit);
+    reg |= (1u << bit);
   } else {
-    reg &= ~(1 << bit);
-  }
-  s_output_shadow = reg;
-
-  // Write to WR-IO register (bits 0-7)
-  uint8_t wr_io = (uint8_t)(reg & 0xFF);
-  esp_err_t err = ws7_write_io(wr_io);
-  if (err != ESP_OK) {
-    return err;
+    reg &= ~(1u << bit);
   }
 
-  // Write to WR-OC register (bits 8-11) if any OC bit is set
-  uint8_t wr_oc = (uint8_t)((reg >> 8) & 0xFF);
-  if (wr_oc) {
-    err = ws7_write_oc(wr_oc);
+  esp_err_t err = ws7_write_io((uint8_t)(reg & 0xFF));
+  if (err == ESP_OK) {
+    uint8_t wr_oc = (uint8_t)((reg >> 8) & 0xFF);
+    if (wr_oc) err = ws7_write_oc(wr_oc);
   }
+  /* Publish the level only after the chip ACKs. A failed write must leave
+   * the shadow at the last level the CH422G actually took. */
+  if (err == ESP_OK) s_output_shadow = reg;
 
+  tpl_ws7_i2c_unlock();
   return err;
 }
 
@@ -222,7 +222,23 @@ esp_err_t tpl_ws7_set_usb_mode(bool usb) {
   // USB_SEL: HIGH = CAN, LOW = USB
   // usb=true  -> IO5 LOW  -> USB mode
   // usb=false -> IO5 HIGH -> CAN mode
-  return ws7_update_bit(TPL_WS7_IO_USB_SEL, !usb);
+  const esp_err_t err = ws7_update_bit(TPL_WS7_IO_USB_SEL, !usb);
+
+  uint8_t io = 0;
+  esp_err_t rd = ESP_ERR_TIMEOUT;
+  if (tpl_ws7_i2c_lock(50) == ESP_OK) {
+    rd = ws7_read_io(&io);
+    tpl_ws7_i2c_unlock();
+  }
+  const bool want_can = !usb;
+  const bool read_can = (io & (1u << TPL_WS7_IO_USB_SEL)) != 0;
+  if (err != ESP_OK || rd != ESP_OK || read_can != want_can) {
+    ESP_LOGW(TAG, "USB_SEL %s: write %s, RD-IO 0x%02X (%s), bit5=%d shadow=%d",
+             want_can ? "CAN" : "USB", esp_err_to_name(err), io,
+             esp_err_to_name(rd), read_can ? 1 : 0,
+             tpl_ws7_can_available() ? 1 : 0);
+  }
+  return err;
 }
 
 bool tpl_ws7_can_available(void) {
@@ -697,12 +713,13 @@ void tpl_ws7_i2c_unlock(void) {
 // --- SD card: enable open-collector push-pull for CS (S3.15) ---
 
 esp_err_t tpl_ws7_sd_cs_enable_oc_pp(void) {
-  // Configure bit 4 (SD_CS) as push-pull via WR-OC register
-  // WR-OC: 1 = push-pull, 0 = open-collector
-  // Bit 4 = 0x10 for SD_CS
-  s_output_shadow |= (1 << (TPL_WS7_IO_SD_CS + 8));  // Set OC bit 4
-  uint8_t wr_oc = (uint8_t)((s_output_shadow >> 8) & 0xFF);
-  return ws7_write_oc(wr_oc);
+  // WR-OC is OC0-OC3 only. The SD chip-select itself is IO4 via WR-IO.
+  if (tpl_ws7_i2c_lock(100) != ESP_OK) return ESP_ERR_TIMEOUT;
+  const uint16_t reg = s_output_shadow | (1u << (TPL_WS7_IO_SD_CS + 8));
+  const esp_err_t err = ws7_write_oc((uint8_t)((reg >> 8) & 0xFF));
+  if (err == ESP_OK) s_output_shadow = reg;
+  tpl_ws7_i2c_unlock();
+  return err;
 }
 
 // --- SD SPI bus (S3.16) ---

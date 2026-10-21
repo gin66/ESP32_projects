@@ -6,6 +6,10 @@
  * - GPIO control (/digitalwrite, /digital, /analog)
  * - System control (/restart, /deepsleep, /allowsleep, /nosleep)
  * - System status (/stack, /cpu, /watch)
+ * - SPIFFS files (/spiffs/list, /spiffs/read, /spiffs/delete)
+ *
+ * tpl_fs_delete_allowed() is the shared check for POST /sd/delete and
+ * POST /spiffs/delete. It rejects traversal and files the firmware keeps.
  * - OTA firmware updates (/update)
  *
  * Security: GPIO endpoints validate pin numbers to prevent undefined behavior.
@@ -23,3 +27,6 @@ extern WebServer tpl_server;
  * Sets up all standard endpoints and serves static files from SPIFFS.
  */
 void tpl_webserver_setup();
+
+/** True when a browser delete may remove this path on SD or SPIFFS. */
+bool tpl_fs_delete_allowed(const char* path);

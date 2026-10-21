@@ -15,6 +15,7 @@
 #endif
 #include <FS.h>
 #include <SPIFFS.h>
+#include <string.h>
 
 WebServer tpl_server(80);
 static volatile bool s_reinit_requested = false;
@@ -32,6 +33,37 @@ void TaskWebServerCore0(void* pvParameters) {
     tpl_server.handleClient();
     vTaskDelay(xDelay);
   }
+}
+
+bool tpl_fs_delete_allowed(const char* path) {
+  if (!path) return false;
+  const size_t n = strlen(path);
+  if (n < 2 || n > 128) return false;
+  if (path[0] != '/' || path[n - 1] == '/') return false;
+  for (size_t i = 0; i < n; i++) {
+    const unsigned char c = (unsigned char)path[i];
+    if (c < 0x20 || c == '\\') return false;
+  }
+  /* ".." is prefixed with the mount point and can leave the volume. */
+  if (strstr(path, "..") || strstr(path, "//")) return false;
+  const char* base = strrchr(path, '/');
+  /* A leading dot is the sentinel (/.sd_probe) and any other hidden name. */
+  if (!base || base[1] == '\0' || base[1] == '.') return false;
+  if (strcmp(path, SPIFFS_CONFIG_FNAME) == 0) return false;
+  if (strcmp(path, "/rollup.bin") == 0) return false;
+  /* The SPIFFS ring may be open in the recorder. Refusing the name means
+   * this route never removes that file out from under the writer. */
+  if (strcmp(path, "/rollup_ring.bin") == 0) return false;
+  /* /data_YYYYMMDD.bin — the recorder's day files. */
+  if (n == 18 && strncmp(path, "/data_", 6) == 0 &&
+      strcmp(path + 14, ".bin") == 0) {
+    bool digits = true;
+    for (int i = 6; i < 14; i++) {
+      if (path[i] < '0' || path[i] > '9') digits = false;
+    }
+    if (digits) return false;
+  }
+  return true;
 }
 
 void tpl_webserver_setup() {
@@ -126,6 +158,30 @@ void tpl_webserver_setup() {
     tpl_server.sendHeader("Connection", "close");
     tpl_server.send(200, "text/html", content);
   });
+  auto spiffs_delete = []() {
+    tpl_server.sendHeader("Connection", "close");
+    if (!tpl_server.hasArg("file")) {
+      tpl_server.send(400, "text/plain", "Missing 'file' parameter");
+      return;
+    }
+    String filename = tpl_server.arg("file");
+    if (!tpl_fs_delete_allowed(filename.c_str())) {
+      tpl_server.send(403, "text/plain", "refused");
+      return;
+    }
+    if (!SPIFFS.exists(filename)) {
+      tpl_server.send(404, "text/plain", "File not found: " + filename);
+      return;
+    }
+    if (!SPIFFS.remove(filename)) {
+      tpl_server.send(500, "application/json",
+                      "{\"ok\":false,\"error\":\"delete failed\"}");
+      return;
+    }
+    tpl_server.send(200, "application/json", "{\"ok\":true}");
+  };
+  tpl_server.on("/spiffs/delete", HTTP_POST, spiffs_delete);
+
   tpl_server.on("/cpu", HTTP_GET, []() {
     tpl_server.sendHeader("Connection", "close");
     char buf[48];

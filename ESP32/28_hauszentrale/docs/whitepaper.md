@@ -933,8 +933,9 @@ and passing afterwards**; it is the regression test for this step.
 
 ### 7.4 SD card data recording
 
-`tpl_sd` is read-only by design (§6.7). Recording needs its own service, declared
-in pure C++ so the host build can implement it too:
+`tpl_sd` now owns the card mount and the `/sd` browser through a `TplSdBackend`
+(§8.15.4). Recording still needs its own service, declared in pure C++ so the
+host build can implement it too:
 
 ```cpp
 // src/app/recorder.h
@@ -995,8 +996,9 @@ not one per minute.
   `haus_state` snapshots — unaffected by UI stalls (N4). The climate task (§7.8) is abandoned.
   runs faster than this and simply lets the recorder take the newest value.
 - **Never block LVGL.** `flush()` is the only long card operation and runs on the
-  recorder task. The card is not held open across a webserver read; reads are gated
-  on the recorder having flushed and released (§6.7).
+  recorder task. The card is not held open across a webserver read; reads and
+  writes share `tpl_sd_lock()`, and a failed lock wait defers a flush instead of
+  declaring the card lost (§8.15.4).
 - **Fixed-size records are the key decision.** With a 28-byte record, reading the
   last 1440 samples is `seek(-1440*28, SEEK_END)` — no parsing, no scan, no index
   to maintain or corrupt. §9 depends on this, and every byte figure in §9 is
@@ -2461,23 +2463,41 @@ updating is worse than one that says so.
 | Log screen status bar | one compact field: `SD 1.0G/29G ok` | the log screen is what is open when something has gone wrong |
 | `/sd/status` JSON | the same numbers, machine-readable | already the shape of `tpl_sd_status`; extend rather than reinvent |
 
-#### 8.15.4 A problem this exposes in §6.7
+#### 8.15.4 The SD backend
 
-**`tpl_sd` cannot mount on this board at all**, which §6.7's Option C did not
-account for. `tpl_sd` drives a real chip-select **GPIO** — `pinMode(TPL_SD_CS,
-OUTPUT)` and `SD.begin(TPL_SD_CS, sdSPI, …)` (`tpl_sd.cpp:29-30`, `:39-41`) —
-but on this board CS is a CH422G bit with no GPIO behind it (§3.4, §6.5).
+`tpl_sd` originally drove a real chip-select **GPIO** — `pinMode(TPL_SD_CS,
+OUTPUT)` and `SD.begin(TPL_SD_CS, sdSPI, …)` — but on this board CS is a CH422G
+bit with no GPIO behind it (§3.4, §6.5). **Q20 option (b)** was implemented as
+`TplSdBackend`: a typed struct carrying the `SPIClass`, the `SS` GPIO passed to
+`SD.begin` (a dummy here), and `begin()`/`end()` callbacks. This project's
+backend configures CH422G IO4 as push-pull and asserts it, begins HSPI on MOSI
+11 / SCLK 12 / MISO 13, and releases the expander bit on unmount.
 
-The recorder therefore owns a **project-specific SD bring-up**:
-`tpl_ws7_sd_cs_enable_oc_pp()` configures CH422G IO4 as push-pull,
-`tpl_ws7_sd_select()` asserts the active-low CS, and `tpl_ws7_sd_bus()` returns
-SPI3 on MOSI 11, SCLK 12, MISO 13. The card is mounted through that handle, and
-`/sd/list`, `/sd/read` and `/sd/download` move into the recorder service rather
-than relying on `tpl_sd`. The storage figures above come from the same handle.
+`tpl_sd` therefore owns the mount and the browser: `/sd/list`, `/sd/read`,
+`/sd/download` and the `POST /sd/delete` route. `/sd/status` stays the
+project-specific handler because it carries the richer recorder figures.
+`haus_sd` keeps the recorder-facing pieces — the `/.sd_probe` sentinel, the
+space cache and the 1 Hz probe — and delegates serialization to
+`tpl_sd_lock()`, which the web handlers also take. A lock wait is not evidence
+that the card was pulled: a deferred flush is retried, it does not latch a
+storage fault.
 
-This bring-up is a prerequisite for §7.10 and is tracked as **S11.00**.
-**Q20** — whether to add a reusable CS hook to `tpl_sd` — remains open but no
-longer blocks the recorder.
+The `POST /spiffs/delete` route lives in `tpl_webserver` for the same reason the
+SPIFFS browser does; it is not part of the SD backend. Both delete routes are
+POST-only. Each refuses a path that does not stay on its own volume (`..`, a
+missing leading slash, a trailing slash, a hidden name) and refuses the files
+the firmware depends on: `/.sd_probe`, `/config.ini`, `/rollup.bin`,
+`/rollup_ring.bin`, and `/data_YYYYMMDD.bin` (R32). The ring is one of those
+names, so the route never removes it while the recorder has it open.
+
+A custom backend does not walk the FAT inside the mount. Card type is enough
+until this project's probe has succeeded; `haus_sd_space_refresh` records the
+sizes after that. The GPIO-CS backend still records used and total at mount,
+because nothing probes after it. `/sd/read` copies at most `TPL_SD_READ_MAX`
+bytes, releases `tpl_sd_lock()` before the body is sent, and labels that body
+`application/octet-stream`.
+
+**S11.00** is done; **Q20** is answered (b).
 
 ## 9. History Charts
 
@@ -2982,7 +3002,7 @@ sole custodian of the week/month history.
 | R4 | LVGL 9.2 rotation silently no-ops without `LV_DRAW_TRANSFORM_USE_MATRIX` | High | Medium | Assert the macro at compile time in `tpl_ws7_display()`; a wrong screen orientation is otherwise very hard to diagnose |
 | R5 | `HAUS_CAN_TEMP_EMPTY` (`INT16_MIN`) plotted as a real temperature | High | Medium | Sentinel checked at the decoder boundary; empty slots render grey and are excluded from chart statistics |
 | R6 | History gaps interpolated, asserting data that was never measured | Medium | Medium | Gaps marked and drawn as gaps (§9.3); never bridge them |
-| R7 | `tpl_sd` and the recorder fight over the card (open/read across a write) | High | Medium | Single ownership: recorder writes, `tpl_sd` reads only after a flush barrier (§6.7) |
+| R7 | `tpl_sd` and the recorder fight over the card (open/read across a write) | High | Medium | Shared recursive `tpl_sd_lock()`; a failed lock wait defers a flush instead of latching a fault, and the recorder never treats it as a pulled card (§8.15.4) |
 | R8 | SD card fills and silently stops recording | Medium | Medium | Free-space guard, retention floor, amber status dot (§9.7) |
 | R9 | No PWM backlight — the panel cannot dim, unlike the CYD boards | Medium | High | **Content dimming**, analysed in §7.13: dim the UI toward the background colour and leave the backlight lit. Free, no flicker, no bus traffic. The alternative — chopping CH422G IO at 100 Hz — is rejected there on three grounds (no hardware PWM behind I²C, convex charge-transfer response, flicker at the useful frequencies). A clean hardware fix exists (move EN to a GPIO, use LEDC) but needs GPIO 4, which §7.12 also wants: **Q19** |
 | R10 | Refactoring `26_CYD_CAN_monitor` breaks project 26 | High | Medium | Extract behind a stable API; project 26 must keep building and passing (§7.3 step 5). It is the regression test |
@@ -3002,7 +3022,8 @@ sole custodian of the week/month history.
 | R25 | **The 4 mm floor makes the panel less informative** — 26 log lines instead of 44, 38 characters instead of 50, 13 CAN rows instead of 16 | Low | **Certain** | Accepted (§8.1.1). The requirement is readability without glasses, and density was never the goal. Mitigated where it is cheap: soft wrapping rather than clipping, and the visible dropped-line counter so the loss of text is diagnosable rather than mysterious |
 | R26 | **The SML decoder drifts.** It is lifted from project 15; if the two copies diverge, the panel and the e-ink display disagree about the household's power | Medium | Medium | Lift into `src/app/` as pure C++ (N5) and have **project 15 adopt the shared version**, so there is one implementation and project 15's build is the regression test — the same pattern as the `tpl_can_monitor` extraction (§7.3) |
 | R28 | **A card mounts, then fails**, and history stops while the strip dot is green because green now means "idle and removable", not "healthy" | Medium | Low | A sticky *faulty* state driven by evidence — failed rollover write, CRC mismatch, free space under the floor — not by absence of activity (§8.15.1). It is reported in Settings → Storage and the log status bar, not inferred from the dot. The recorder retries every 30 s (§9.7). Week/month history survives the failure because the hourly rollup is independently written to the SPIFFS ring (§7.10); only minute detail for the current day is at risk. The free-space warning still appears on the home strip when the floor is close |
-| R29 | **`tpl_sd` cannot mount on this board**, so `/sd/list` and `/sd/download` are dead and §6.7's "tpl_sd stays as the browser" is wrong | Low | **Certain** | Already true as built: `tpl_sd` drives a real CS GPIO and this board's CS is a CH422G bit. Storage figures are read from the recorder's own handle instead. The *browser* is the open half — **Q20** |
+| R29 | **`tpl_sd` could not mount on this board**, so `/sd/list` and `/sd/download` were dead and §6.7's "tpl_sd stays as the browser" was wrong | Low | **Resolved** | **Q20 option (b)** implemented: `TplSdBackend` supplies the HSPI pins and the CH422G CS. `tpl_sd` serves `/sd/list`, `/sd/read`, `/sd/download` and `POST /sd/delete`; `/sd/status` stays project-specific. See §8.15.4 |
+| R32 | **The delete routes can remove files the firmware depends on** — `/.sd_probe`, `/config.ini`, the live SPIFFS ring and the SD history files — with no authentication | Medium | **Resolved** | Both routes refuse traversal and those paths (`/.sd_probe`, `/config.ini`, `/rollup.bin`, `/rollup_ring.bin`, `/data_YYYYMMDD.bin`). They stay POST-only. Other files on the volume can still be deleted without authentication. See §8.15.4 |
 | R27 | **Enabling CAN in config strands the device**, if Q22 finds that `USB_SEL` high disconnects the CH9102 | **High** | Unknown until Q22 | N19 drives `USB_SEL` low first. A crash after step 3 of §7.12 leaves it high. The strap on GPIO 4 (Q17) is the fix no firmware bug can override, and it shares that pin with Q19. BOOT + the CH9102 already worked with the mechanical switch set correctly (§3.1.1, §7.12 option C). The expander's `0xFF` reset value is not this risk |
 | R30 | **An AHT20 on H1 shares address `0x38` with CH422G WR-IO** | — | **Resolved by the SHT45** | The SHT45 at `0x44` is outside every CH422G/GT911 address and is the fitted part (§7.8, Q24). An AHT20 must still never be fitted on this bus. |
 | R22 | Every other risk in this table gets worse because the panel can now write to the bus | Medium | **High** | R1 in particular changes character: a firmware bug that previously cost a display is now a firmware bug that can change the heater. That is why N15 forbids the panel from being an interlock, why the write path is a single button on one screen, and why the log ring records every transmit with its old and new value — the diagnosis for R1 is now a safety question, not a convenience |
@@ -3028,7 +3049,7 @@ Each of these changes the design, so none is silently decided above.
 | ID | Question | Impact | How it gets answered |
 | -- | -------- | ------ | -------------------- |
 | **Q9** | **There is no water-out temperature on the bus.** Where does the third zone's data come from? | Decides whether the third temperature is measured | **Answered for now:** option **(b)** is implemented. `WaterModel` v1 uses the measured duty → off/Soll table (100→70, 200→60, 300→54, 400→44, 500→42 °C) and is permanently labelled MODELLED (`~`, dashed line, flag) and excluded from statistics. A real return-line DS18B20 still supersedes it automatically when fitted (§7.11). |
-| **Q5** | Does the current `tpl_sd` need to keep working on this board at all, given the recorder supersedes it? | Could delete ~200 lines from `tpl_sd` for this project, or keep the file browser for convenience | Recommend keeping `/sd/list` + `/sd/download` — browsing the recorded history over HTTP is genuinely useful. See also Q20: `tpl_sd` cannot mount here as built |
+| **Q5** | Does the current `tpl_sd` need to keep working on this board at all, given the recorder supersedes it? | Could delete ~200 lines from `tpl_sd` for this project, or keep the file browser for convenience | Recommend keeping `/sd/list` + `/sd/download` — browsing the recorded history over HTTP is genuinely useful. Q20 is now answered (b): `tpl_sd` mounts here via `TplSdBackend` |
 | **Q6** | Retention: 24 months at 1 209 600 B/month is ≈ 25 MB. Is more wanted? | Storage and the free-space guard threshold | Jochen; default 24 |
 | **Q8** | Is EEZ Studio in scope for the home screen? | Either hand-authored LVGL (faster, more control, matches project 26's current state) or generated (draggable, but cannot express the flame/pipes) | Recommend hand-authored; EEZ cannot produce the vector heater or the envelope chart |
 | **Q10** | Should the WebSocket log sink be authenticated? | `tpl_websocket` is unauthenticated on the LAN today; log content is house telemetry | Recommend accepting it on a home LAN, consistent with the existing unauthenticated `/update` OTA endpoint. If the answer is no, the change belongs in `tpl_websocket` for all projects, not here |
@@ -3040,7 +3061,7 @@ Each of these changes the design, so none is silently decided above.
 | **Q17** | Is a **hardware strap on GPIO 4** to force `USB_SEL` low acceptable — i.e. may the board be modified? | Matters only if Q22 says `USB_SEL` gates the CH9102. GPIO 4 is not claimed by `tpl_ledPin` (§6.7). It is also the pin Q19 wants | Jochen. Useful only after Q22. The CH9102 path already accepted esptool with BOOT held (§3.1.1) |
 | **Q18** | Should the **CAN-enable liveness fallback** exist — drop back to USB if CAN is enabled but silent for N seconds? | Turns a silent bus into automatic USB recovery, but also silently disables the panel's main job and fights the user's stated intent | Recommend **off by default**, configurable. It is a real convenience and a real hazard; the hazard is why it cannot be the default |
 | **Q19** | **GPIO 4 is wanted by two hardware mods.** §7.12 wants it as a CAN force-USB strap; §7.13 option D wants it for LEDC on the AP3032 EN pin. GPIO 15 and 16 are also absent from the published pin budget and are not yet ruled in or out | Both mods are board changes. R52 has to come off for option D | Jochen. Dimming removes a permanent UX limit. The strap matters only if Q22 says the CH9102 is behind `USB_SEL`. Phase 1 looks at GPIO 15 and 16 before this is treated as a one-pin choice |
-| **Q20** | Does the SD **file browser** (`/sd/list`, `/sd/download`) survive on this board? | §6.7 rejected giving `tpl_sd` a CS hook, which leaves no browser at all | Jochen. Options: (a) move the browser into the recorder service, which owns the card anyway; (b) revisit the hook, which looks better now that `tpl_ws7_sd_select()` is a typed named accessor rather than a bare function pointer; (c) accept no browser and rely on the on-panel log SAVE (§8.12). Recommend (b) — it is the smallest change and keeps one SD implementation |
+| **Q20** | Does the SD **file browser** (`/sd/list`, `/sd/download`) survive on this board? | §6.7 rejected giving `tpl_sd` a CS hook, which leaves no browser at all | **Answered: option (b).** Implemented as `TplSdBackend` (bus + `SS` GPIO + begin/end callbacks). `tpl_sd` now owns the mount and serves `/sd/list`, `/sd/read`, `/sd/download` and `POST /sd/delete`; `/sd/status` stays project-specific. See §8.15.4 |
 | **Q21** | **Arduino core 3.3+ (IDF 5.3) or `framework = esp-idf`?** | §6.3/§6.4/§6.5 all need managed components, and `esp_lcd_rgb_panel` requires IDF v5.2+ — above PlatformIO's default Arduino core 2.0.17 (IDF 4.4.4), where **none** of this stack exists | **Answered:** pioarduino platform `55.03.312-1`, Arduino core 3.3.12, ESP-IDF 5.5.5, `framework = arduino`. The panel, touch, CH422G and OTA all build and run on that stack; `framework = esp-idf` is not used. |
 | **Q15** | If a second wall panel is ever added, who wins? | Both would write the same durable duty with no arbitration, and "last writer wins" would make the outcome depend on which person touched a screen last | Not blocking. Answer when a second panel exists; a last-writer-wins with an explicit badge (§7.9) is probably enough for a two-panel house, but it should be a decision rather than an accident |
 | **Q22** | **What exactly does the board's mechanical UART switch switch?** §3.3 models one mux — FSUSB42UMX under CH422G IO5. The bench found a *physical* switch that silently kills the CH9102 console, which means either a second gate or the same gate with a manual override | Decides whether N19 (drive `USB_SEL` low first thing in `setup()`) is **sufficient**, or whether firmware can be defeated by a switch position the operator set months ago. Also decides the runbook wording and whether §7.12's strap (Q17) fixes anything | **Answered (bench, `docs/bench/Q22.md`):** `USB_SEL` only steers GPIO 19/20. HIGH selects the TJA1051 CAN transceiver; LOW selects the native USB pair. The CH9102 is on UART0/GPIO 43/44 and is **not** gated by IO5; it kept logging and accepted an esptool upload while CAN was active. The mechanical switch remains a separate operator gate. |
@@ -3132,7 +3153,7 @@ debugging a UI bug and an actuator bug in the same session.
 | D8 | Streaming downsample to a per-pixel envelope | Cache the whole month in PSRAM | Bounds RAM at ~24 KB instead of ~1 MB, and keeps N6 true (R12) |
 | D9 | Gap markers rather than interpolation | Connecting points across a dropout | Asserting measurements that were never taken is the failure mode a history view must not have (R6) |
 | D10 | `HausState` copy-out + one triple buffer per producer (atomic publish index) | In-place `g_state` with a sequence counter, or direct global reads | Each reader gets a coherent block the writer cannot overwrite; no retry loop, no writer lock. Makes the threading contract explicit and keeps the host build honest (N5, §10.2) |
-| D11 | Recorder owns writes, `tpl_sd` owns reads, flush-barrier between | Extend `tpl_sd` with a write path | `tpl_sd` is read-only by design and its CS model does not fit the CH422G (§6.7, R7) |
+| D11 | Recorder owns writes, `tpl_sd` owns the mount and browser, shared `tpl_sd_lock()` | Extend `tpl_sd` with a write path | The recorder's chunked writes and sentinel probe stay project-specific; `TplSdBackend` supplies the CH422G CS and the lock serializes both sides (§8.15.4, R7) |
 | D12 | Hand-authored LVGL for all screens | EEZ Studio | EEZ cannot express the vector heater or an envelope chart, and project 26 already left it (Q8) |
 | D13 | Extend the existing `tpl_debug_log` | A new project-local logging module | It already exists, is opt-in, and is the natural home; extending it fixes it for every future console-less board (§7.6) |
 | D14 | 1 MB **PSRAM byte ring**, newline-delimited | The current fixed 100 × 160 B internal-RAM line array | PSRAM is there and unused by anything else; a byte ring wastes nothing on short lines and truncates nothing important |

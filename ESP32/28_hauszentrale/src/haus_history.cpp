@@ -254,11 +254,13 @@ static void format_day_path(uint32_t epoch, char* out, size_t n) {
   snprintf(out, n, "/data_%s.bin", date);
 }
 
-static bool sd_write_day(uint32_t epoch) {
+enum SdWriteResult { SD_WRITE_OK, SD_WRITE_IO_ERROR, SD_WRITE_BUSY };
+
+static SdWriteResult sd_write_day(uint32_t epoch) {
   format_day_path(epoch, s_last_day_path, sizeof(s_last_day_path));
 
 #ifdef HAUS_HOST
-  if (s_test_fail_writes) return false;
+  if (s_test_fail_writes) return SD_WRITE_IO_ERROR;
   memcpy(s_test_day_data, s_l1, HAUS_L1_BYTES);
   for (size_t base = 0; base < HAUS_L1_SAMPLES; base += HAUS_BLOCK_RECORDS) {
     size_t n = HAUS_L1_SAMPLES - base;
@@ -269,9 +271,11 @@ static bool sd_write_day(uint32_t epoch) {
   s_test_day_valid = true;
   s_test_day_bytes = HAUS_DAY_FILE_BYTES;
   s_sd_write_count++;
-  return true;
+  return SD_WRITE_OK;
 #else
-  if (!haus_sd_lock(2000)) return false;
+  /* Midnight is the one write that cannot be deferred without losing the day;
+   * wait out a browse/large read. */
+  if (!haus_sd_lock(60000)) return SD_WRITE_BUSY;
   File f = SD.open(s_last_day_path, FILE_WRITE);
   bool ok = (bool)f;
   for (size_t base = 0; ok && base < HAUS_L1_SAMPLES;
@@ -295,13 +299,13 @@ static bool sd_write_day(uint32_t epoch) {
   } else {
     TPL_LOGE("history", "day file write failed: %s", s_last_day_path);
   }
-  return ok;
+  return ok ? SD_WRITE_OK : SD_WRITE_IO_ERROR;
 #endif
 }
 
-static bool sd_write_rollup(uint32_t epoch) {
+static SdWriteResult sd_write_rollup(uint32_t epoch) {
 #ifdef HAUS_HOST
-  if (s_test_fail_writes) return false;
+  if (s_test_fail_writes) return SD_WRITE_IO_ERROR;
   const uint32_t last_hour = epoch / 3600u;
   for (size_t i = 0; i < HAUS_L2_COLUMNS; i++) {
     const uint32_t h =
@@ -317,10 +321,10 @@ static bool sd_write_rollup(uint32_t epoch) {
   s_test_rollup_valid = true;
   s_test_rollup_bytes = HAUS_ROLLUP_FILE_BYTES;
   s_sd_write_count++;
-  return true;
+  return SD_WRITE_OK;
 #else
   const uint32_t last_hour = epoch / 3600u;
-  if (!haus_sd_lock(2000)) return false;
+  if (!haus_sd_lock(60000)) return SD_WRITE_BUSY;
 
   File f = SD.open("/rollup.bin", FILE_WRITE);
   bool ok = (bool)f;
@@ -352,24 +356,32 @@ static bool sd_write_rollup(uint32_t epoch) {
   } else {
     TPL_LOGE("history", "rollup write failed");
   }
-  return ok;
+  return ok ? SD_WRITE_OK : SD_WRITE_IO_ERROR;
 #endif
 }
 
-static void write_daily_files(uint32_t epoch) {
+/* Returns false only when the card stayed busy long enough that the rollover
+ * must be deferred; the caller keeps yesterday's buffer and retries. */
+static bool write_daily_files(uint32_t epoch) {
   /* Falls through to a redraw request at the end: flash writes drop PSRAM
    * framebuffer writes for their duration. */
-  if (epoch == 0) return;
+  if (epoch == 0) return true;
   s_writing = true;
-  const bool day_ok = sd_write_day(epoch);
-  if (!day_ok) {
-    TPL_LOGW("history", "day file not written");
-  }
-  const bool rollup_ok = sd_write_rollup(epoch);
-  if (!rollup_ok) {
-    TPL_LOGW("history", "rollup not written");
-  }
+  const SdWriteResult day_res = sd_write_day(epoch);
+  const SdWriteResult rollup_res = sd_write_rollup(epoch);
   s_writing = false;
+
+  if (day_res == SD_WRITE_BUSY || rollup_res == SD_WRITE_BUSY) {
+    /* A web browse owns the card. Not an I/O failure: keep yesterday's
+     * buffer and retry on the next minute. */
+    TPL_LOGW("history", "SD busy; day rollover deferred");
+    return false;
+  }
+
+  const bool day_ok = day_res == SD_WRITE_OK;
+  const bool rollup_ok = rollup_res == SD_WRITE_OK;
+  if (!day_ok) TPL_LOGW("history", "day file not written");
+  if (!rollup_ok) TPL_LOGW("history", "rollup not written");
 
   /* S23.19: a card that was never present is ABSENT, not FAULTY. Only a write
    * that fails against a card we have actually mounted (or mounted earlier)
@@ -384,6 +396,7 @@ static void write_daily_files(uint32_t epoch) {
   } else if (had_card) {
     note_fault();
   }
+  return true;
 }
 
 static void add_series(RollupColumn* col, int series, int32_t value) {
@@ -454,8 +467,9 @@ bool haus_history_sample(const HausState* state, uint32_t epoch_seconds) {
     s_last_day = day;
   } else if (day != s_last_day) {
     /* Local midnight: write the finished day and the rollup, then start
-     * today's minute buffer fresh. */
-    write_daily_files(s_last_sample_epoch);
+     * today's minute buffer fresh. If the card stayed busy, skip this sample
+     * and retry the rollover next minute. */
+    if (!write_daily_files(s_last_sample_epoch)) return false;
     memset(s_l1, 0, HAUS_L1_BYTES);
     s_last_day = day;
   }
@@ -1029,11 +1043,16 @@ void haus_history_storage_refresh(void) {
 
   ring_stats_refresh(); /* S23.20: SPIFFS figures even with no card */
 
-  if (!haus_sd_is_mounted() || !haus_sd_lock(2000)) {
+  if (!haus_sd_is_mounted()) {
     s_tier_samples_bytes = 0;
     s_tier_rollup_bytes = 0;
     s_tier_logs_bytes = 0;
     s_newest_file_epoch = 0;
+    return;
+  }
+  if (!haus_sd_lock(2000)) {
+    /* Keep the last figures rather than reporting an empty card. */
+    TPL_LOGW("sd", "storage refresh skipped, lock busy");
     return;
   }
 

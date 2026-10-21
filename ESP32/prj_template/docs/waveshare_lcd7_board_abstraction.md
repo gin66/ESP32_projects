@@ -261,20 +261,27 @@ An undefined `tpl_backlightPin` is a compile error at the one call site that
 names it. A `#define` of GPIO 2 is silent pixel corruption. The backlight setter
 is `tpl_ws7_backlight()` (§6.2), which drives CH422G IO2.
 
-**`tpl_sd`** — this needs a real change, not just a define. `tpl_sd` assumes a
+**`tpl_sd`** — this needed a real change, not just a define. `tpl_sd` assumed a
 directly-driven CS pin (`TPL_SD_CS`, default 5). Here the CS comes from the CH422G
 and there is no GPIO at all. Options considered:
 
 | Option | Verdict |
 | ------ | ------- |
-| A. Add a `TPL_SD_CS_VIA_EXPANDER` flag to `tpl_sd` | Rejected — pushes CH422G register knowledge into a generic module, and the SD backend still would not do recording. |
-| B. Give `tpl_sd` a settable "pre-select" hook | Rejected — an untyped function pointer for a two-call sequence is worse than duplication. |
-| **C. New `recorder` service (§7.4) with its own SD backend; leave `tpl_sd` alone** | **Chosen.** |
+| A. Add a `TPL_SD_CS_VIA_EXPANDER` flag to `tpl_sd` | Rejected — pushes CH422G register knowledge into a generic module. |
+| B. Give `tpl_sd` a typed backend (`SPIClass`, `SS` GPIO, `begin`/`end` callbacks) | **Chosen and implemented as `TplSdBackend`.** The project supplies the expander assert/release; `tpl_sd` stays board-agnostic. |
+| C. New `recorder` service with its own SD backend; leave `tpl_sd` alone | Superseded by B. The recorder still owns writing, but mounting and browsing are shared. |
 
-`tpl_sd` stays as the *browser* for files (`/sd/list`, `/sd/read`, `/sd/download`)
-and the recorder owns *writing*. Both use the same physical card and cooperate by
-never holding the card open across a flush — the recorder flushes and closes before
-`loop()` may call a read endpoint, and reads are opened O_RDONLY.
+`tpl_sd` owns the mount and the *browser* (`/sd/list`, `/sd/read`, `/sd/download`,
+`POST /sd/delete`); `/sd/status` stays project-specific. The recorder owns
+*writing*. Both use the same physical card and the same recursive `tpl_sd_lock()`;
+a failed lock wait defers a flush rather than declaring the card lost, and the card
+is not held open across a webserver read. A custom backend skips the mount-time
+FAT walk; the GPIO-CS backend still records sizes there. `/sd/read` is capped at
+`TPL_SD_READ_MAX`, drops the lock before the body, and sends
+`application/octet-stream`. `POST /spiffs/delete` is a separate `tpl_webserver`
+route, not part of the SD backend. Both delete routes refuse traversal and the
+firmware files (`/.sd_probe`, `/config.ini`, `/rollup.bin`, `/rollup_ring.bin`,
+`/data_YYYYMMDD.bin`).
 
 **The `.cpp` is guarded, not just the header.** `ESP32/Makefile` symlinks every
 `prj_template/src/*.cpp` into every project. A new file therefore lands in

@@ -415,6 +415,8 @@ void setup() {
     tpl_server.send(200, "application/json",
                     (stats && stats[0]) ? stats : "{\"n\":0}");
   });
+  /* File browser. Status and remounting stay project-specific. */
+  tpl_sd_register_endpoints(false, false);
   tpl_websocket_setup(NULL, NULL);
 
   /* S24.04: the persisted intent decides whether TWAI exists at all. With

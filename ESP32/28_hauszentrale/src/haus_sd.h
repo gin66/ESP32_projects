@@ -2,8 +2,9 @@
  * @file haus_sd.h
  * @brief Project-specific SD-card mount for the Waveshare ESP32-S3 board.
  *
- * The SD card's chip-select is CH422G IO4, not a GPIO. The recorder owns this
- * handle; it does not use tpl_sd (whose CS is a real GPIO).
+ * The SD card's chip-select is CH422G IO4, not a GPIO. This module supplies the
+ * TplSdBackend (bus pins + expander CS) to tpl_sd and adds the recorder's
+ * lock, probe and space-cache handling around the shared mount.
  */
 
 #ifndef HAUS_SD_H
@@ -38,7 +39,8 @@ bool haus_sd_ever_mounted(void);
  * mounted flag; the 30 s watchdog remounts when the card comes back. */
 void haus_sd_note_io_error(void);
 
-/* Serialize card access between the 1 Hz probe and the recorder task. */
+/* Serialize card access. Delegates to tpl_sd_lock(), shared with the /sd
+ * web handlers. */
 bool haus_sd_lock(uint32_t timeout_ms);
 void haus_sd_unlock(void);
 

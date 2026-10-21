@@ -51,6 +51,8 @@ static lv_indev_t* s_touch_indev = NULL;
 static lv_obj_t* s_touch_cursor = NULL;
 static uint32_t s_last_touch_ms = 0;
 #define TOUCH_CURSOR_HIDE_MS 1000
+/* Panel goes dark after one hour without a touch; the next touch wakes it. */
+#define BACKLIGHT_OFF_MS (60UL * 60UL * 1000UL)
 
 /* ─── Setup ──────────────────────────────────────────────────────────────── */
 
@@ -212,6 +214,9 @@ void setup() {
              flush_us / 1000.0);
 
     tpl_ws7_backlight(true);
+    /* Start the inactivity countdown at boot; the panel is always lit after a
+     * reset, even if the previous session had gone dark. */
+    s_last_touch_ms = millis();
     TPL_LOGI("boot", "S10: home screen active — data shows — (S9/S17 stubs)");
     TPL_LOGI("boot", "home screen active, flush %lld us", flush_us);
 
@@ -448,6 +453,7 @@ void loop() {
   static uint32_t window_ms = 0;
   static uint32_t last_anim_ms = 0;
   static bool s_ota_backlight_off = false;
+  static bool s_prev_touch_pressed = false;
   const uint32_t now = millis();
   /* S24.04: start TWAI from the loop, not setup(). Doing it inside setup()
    * while WiFi/OTA tasks are still coming up leaves the panel unresponsive;
@@ -477,7 +483,7 @@ void loop() {
    * the backlight for the duration; on a failed update restore it. */
   if (tpl_config.ota_ongoing != s_ota_backlight_off) {
     s_ota_backlight_off = tpl_config.ota_ongoing;
-    tpl_ws7_backlight(!s_ota_backlight_off);
+    gui_set_backlight(!s_ota_backlight_off);
     TPL_LOGI("ota", "backlight %s for OTA", s_ota_backlight_off ? "OFF" : "ON");
   }
 
@@ -500,18 +506,30 @@ void loop() {
     haus_ui_three_finger();
   }
 
-  /* Backlight recovery: with the panel dark the settings row cannot be found,
-   * so the next touch anywhere turns the backlight back on. The tap also
-   * reaches the widget under it, which is harmless. */
-  if (s_touch_indev && !gui_backlight_on() &&
-      lv_indev_get_state(s_touch_indev) == LV_INDEV_STATE_PRESSED) {
-    gui_set_backlight(true);
+  /* Backlight: on for any touch, off after an hour without one. With the panel
+   * dark the settings row cannot be found, so the next touch anywhere wakes it;
+   * the tap also reaches the widget under it, which is harmless. */
+  const bool touch_pressed =
+      s_touch_indev &&
+      lv_indev_get_state(s_touch_indev) == LV_INDEV_STATE_PRESSED;
+  if (touch_pressed) {
+    s_last_touch_ms = now;
+    /* Wake on the leading edge only. Waking while a finger is still down would
+     * immediately undo the Settings "BACKLIGHT OFF" toggle made by that same
+     * tap. */
+    if (!s_prev_touch_pressed && !gui_backlight_on()) {
+      gui_set_backlight(true);
+    }
+  } else if (gui_backlight_on() &&
+             (now - s_last_touch_ms) >= BACKLIGHT_OFF_MS) {
+    gui_set_backlight(false);
+    TPL_LOGI("ui", "backlight off after 1 h without touch");
   }
+  s_prev_touch_pressed = touch_pressed;
 
   /* Calibration cursor: visible while pressed, auto-hidden after release. */
   if (s_touch_cursor && s_touch_indev) {
-    if (lv_indev_get_state(s_touch_indev) == LV_INDEV_STATE_PRESSED) {
-      s_last_touch_ms = now;
+    if (touch_pressed) {
       lv_obj_remove_flag(s_touch_cursor, LV_OBJ_FLAG_HIDDEN);
     } else if (!lv_obj_has_flag(s_touch_cursor, LV_OBJ_FLAG_HIDDEN) &&
                (now - s_last_touch_ms) >= TOUCH_CURSOR_HIDE_MS) {

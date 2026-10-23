@@ -194,13 +194,23 @@
 
 ## Phase 5 — Operation Window
 
-### [ ] 5.1 Implement experiment logger (1 Hz, monotonic timestamps)
+### [x] 5.1 Implement experiment logger (1 Hz, monotonic timestamps)
 - CSV format: `epoch_ms,seq,duty_req,duty_rpt,water_in_c,water_out_c,room_c,room_rh,ac_rms_dc,ac_angle_cdeg,pump_state,can_ok,target_c,note`
 - `duty_req` = what panel sent; `duty_rpt` = what `0x280` reported (both mandatory)
 - `water_in_c`, `water_out_c` = pipe-wall temperatures (not bulk water)
 - `target_c` = Soll hint from table (never a pipe value)
 - `pump_state` = from coil, not duty-derived label
 - Store experiment files in `experiments/<id>/` (not in minute record)
+- Implemented in `haus_heater_log`; path
+  `/experiments/heater_<epoch-or-boot>/trace.csv`
+- One header line, then one row per second; `epoch_ms` is unix ms when synced,
+  boot ms when unsynced
+- Manual UI sends are recorded through `heater_ctl_note_sent()`, so `duty_req`
+  includes manual switch/slider frames
+- `pump_state` is coil-only (`1` when `ac_fresh` and RMS > 0, `-1` stale); the
+  calibrated threshold arrives with Phase 6
+- SD absent: nothing written, start retried every 60 s (no SPIFFS fallback)
+- `note` carries mode/cycle/hold/result/block/override without commas
 - See §6.3
 
 ---

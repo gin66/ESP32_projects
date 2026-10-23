@@ -93,6 +93,7 @@ static void ctl_send(uint32_t now_s, uint16_t duty) {
     s_expected_valid = true;
     s_mismatch_logged = false;
     s_rt.last_sent_duty = duty;
+    s_rt.have_sent = true;
     s_rt.last_send_s = now_s;
   } else {
     CTL_LOG("send failed duty=%u", (unsigned)duty);
@@ -272,6 +273,12 @@ void heater_ctl_tick(uint32_t now_s, const HeaterCtlInputs *in) {
     s_rt.hold = HEATER_HOLD_CLOCK_UNSYNCED;
   }
 
+  /* Soll hint for the planned duty (never a pipe value). */
+  const WaterModel *wm = water_model_default();
+  s_rt.soll_valid = s_rt.planned_duty <= 500 && wm &&
+                    wm->target_from_duty(s_rt.planned_duty, &s_rt.soll_c100);
+  if (!s_rt.soll_valid) s_rt.soll_c100 = 0;
+
   /* Publish the snapshot. */
   s_rt.mode = s_override ? HEATER_MODE_OVERRIDE : cfg->mode;
   s_rt.cycle = s_cycle.state;
@@ -300,6 +307,15 @@ void heater_ctl_tick(uint32_t now_s, const HeaterCtlInputs *in) {
           ? remaining_s(now_s, s_cycle.last_duty_change_s,
                         cfg->cycle.min_duty_interval_s)
           : 0;
+}
+
+void heater_ctl_note_sent(uint16_t duty) {
+  if (!s_initialized) heater_ctl_init();
+  s_rt.last_sent_duty = duty;
+  s_rt.have_sent = true;
+  s_expected_duty = duty;
+  s_expected_valid = true;
+  s_mismatch_logged = false;
 }
 
 const HeaterRuntime *heater_ctl_get(void) { return &s_rt; }

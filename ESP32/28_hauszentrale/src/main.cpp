@@ -35,6 +35,7 @@
 #include "haus_sht45.h"
 #include "haus_heater_bin.h"
 #include "haus_heater_ctl.h"
+#include "haus_heater_log.h"
 #include "haus_touch_test.h"
 #include "haus_ui.h"
 #include "template.h"
@@ -176,6 +177,7 @@ void setup() {
       TPL_LOGW("heater_ctl",
                "pump guard disabled until the coil threshold is calibrated");
   }
+  heater_log_init();
 
   /* S4.02: reset the ST7262 through the CH422G before bring-up */
   tpl_ws7_panel_reset();
@@ -541,6 +543,7 @@ void loop() {
       in.room_valid = (st.climate.climate_flags & CLIMATE_VALID_SHT45) != 0;
       in.room_c100 = st.climate.living_c100;
       heater_ctl_tick(now / 1000u, &in);
+      heater_log_tick(now, &st);
     }
     if (s_disp && display_on) haus_ui_update();
   }

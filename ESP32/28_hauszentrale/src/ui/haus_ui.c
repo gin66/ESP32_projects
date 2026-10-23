@@ -20,6 +20,7 @@
 #include "haus_config.h"
 #include "haus_gui.h"
 #include "haus_heater_bin.h"
+#include "haus_heater_ctl.h"
 #include "haus_history.h"
 #include "haus_mem.h"
 
@@ -2694,7 +2695,10 @@ static bool pwm_can_send(void) {
 static void pwm_send_duty(uint16_t permille) {
   if (!pwm_can_send()) return;
   if (permille == s_pwm_last_tx) return;
-  if (gui_send_pwm(permille)) s_pwm_last_tx = permille;
+  if (gui_send_pwm(permille)) {
+    s_pwm_last_tx = permille;
+    heater_ctl_note_sent(permille);
+  }
 }
 
 /* OFF switch / segment: real OFF, latched, persisted. */

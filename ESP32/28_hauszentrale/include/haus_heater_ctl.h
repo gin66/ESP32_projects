@@ -66,7 +66,10 @@ typedef struct {
   bool pump_blocked;
   uint16_t sched_duty;          /**< Schedule request (100..500 or 1000). */
   uint16_t planned_duty;        /**< Cycle output after limits.           */
-  uint16_t last_sent_duty;      /**< Last AUTO frame the panel sent.      */
+  uint16_t last_sent_duty;      /**< Last frame the panel sent.           */
+  bool have_sent;               /**< last_sent_duty is meaningful.        */
+  int16_t soll_c100;            /**< Soll hint for planned_duty.          */
+  bool soll_valid;              /**< soll_c100 is meaningful.             */
   uint32_t last_send_s;
   uint8_t edges_last_hour;
   uint32_t min_on_remaining_s;
@@ -78,11 +81,24 @@ typedef struct {
 
 typedef bool (*HeaterCtlSendFn)(uint16_t duty_permille);
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 void heater_ctl_init(void);
 void heater_ctl_set_sender(HeaterCtlSendFn fn);
 void heater_pump_params_default(HeaterPumpParams *params);
 void heater_ctl_set_pump_params(const HeaterPumpParams *params);
 void heater_ctl_tick(uint32_t now_s, const HeaterCtlInputs *in);
+
+/* Record a frame sent outside the AUTO controller (manual switch/slider).
+ * Keeps duty_req and the 0x280 conflict check honest. */
+void heater_ctl_note_sent(uint16_t duty);
+
 const HeaterRuntime *heater_ctl_get(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* HAUS_HEATER_CTL_H */

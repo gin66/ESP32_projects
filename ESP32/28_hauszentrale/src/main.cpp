@@ -534,6 +534,46 @@ void setup() {
   gui_request_redraw();
 }
 
+/* ─── Wake shield ───────────────────────────────────────────────────────── */
+
+/* While the backlight is off, a transparent full-screen object on the top
+ * layer swallows the first gesture. The display wakes on release, and the
+ * widgets underneath never see that touch. The next touch acts normally. */
+static lv_obj_t* s_wake_shield = NULL;
+static bool s_wake_shield_visible = false;
+static bool s_wake_refresh = false;
+
+static void wake_shield_release_cb(lv_event_t* e) {
+  (void)e;
+  gui_set_backlight(true);
+  if (s_wake_shield) lv_obj_add_flag(s_wake_shield, LV_OBJ_FLAG_HIDDEN);
+  s_wake_shield_visible = false;
+  s_wake_refresh = true;
+}
+
+static void wake_shield_set_visible(bool visible) {
+  if (!s_wake_shield) {
+    s_wake_shield = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(s_wake_shield, TPL_WS7_SCREEN_WIDTH,
+                    TPL_WS7_SCREEN_HEIGHT);
+    lv_obj_set_pos(s_wake_shield, 0, 0);
+    lv_obj_set_style_bg_opa(s_wake_shield, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_wake_shield, 0, 0);
+    lv_obj_set_style_radius(s_wake_shield, 0, 0);
+    lv_obj_set_style_pad_all(s_wake_shield, 0, 0);
+    lv_obj_clear_flag(s_wake_shield, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_wake_shield, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_wake_shield, wake_shield_release_cb,
+                        LV_EVENT_RELEASED, NULL);
+  }
+  if (visible) {
+    lv_obj_remove_flag(s_wake_shield, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(s_wake_shield);
+  } else {
+    lv_obj_add_flag(s_wake_shield, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
 /* ─── Loop ───────────────────────────────────────────────────────────────── */
 
 void loop() {
@@ -545,7 +585,6 @@ void loop() {
   static uint32_t window_ms = 0;
   static uint32_t last_anim_ms = 0;
   static bool s_ota_backlight_off = false;
-  static bool s_prev_touch_pressed = false;
   const uint32_t now = millis();
   /* S24.04: start TWAI from the loop, not setup(). Doing it inside setup()
    * while WiFi/OTA tasks are still coming up leaves the panel unresponsive;
@@ -619,34 +658,35 @@ void loop() {
     if (display_on) haus_ui_animate();
   }
 
-  if (!haus_touch_test_active() && tpl_ws7_touch_points() >= 3) {
+  if (gui_backlight_on() && !haus_touch_test_active() &&
+      tpl_ws7_touch_points() >= 3) {
     haus_ui_three_finger();
   }
 
-  /* Backlight: on for any touch, off after an hour without one. With the panel
-   * dark the settings row cannot be found, so the next touch anywhere wakes it;
-   * the tap also reaches the widget under it, which is harmless. */
+  /* Backlight: on for any touch, off after an hour without one. While dark, a
+   * wake shield covers the widgets: the first touch only wakes the display on
+   * release, and the next touch is the first one allowed to act. */
   const bool touch_pressed =
       s_touch_indev &&
       lv_indev_get_state(s_touch_indev) == LV_INDEV_STATE_PRESSED;
   if (touch_pressed) {
     s_last_touch_ms = now;
-    /* Wake on the leading edge only. Waking while a finger is still down would
-     * immediately undo the Settings "BACKLIGHT OFF" toggle made by that same
-     * tap. */
-    if (!s_prev_touch_pressed && !gui_backlight_on()) {
-      gui_set_backlight(true);
-      /* The UI was not repainted while dark; refresh it immediately. */
-      gui_update_state();
-      gui_request_redraw();
-      if (s_disp) haus_ui_update();
-    }
   } else if (gui_backlight_on() &&
              (now - s_last_touch_ms) >= BACKLIGHT_OFF_MS) {
     gui_set_backlight(false);
     TPL_LOGI("ui", "backlight off after 1 h without touch");
   }
-  s_prev_touch_pressed = touch_pressed;
+
+  const bool backlight_on = gui_backlight_on();
+  /* Do not arm the shield while a finger is still down: the release of the
+   * tap that switched the backlight off must not wake it again. */
+  if (!backlight_on && !s_wake_shield_visible && !touch_pressed) {
+    wake_shield_set_visible(true);
+    s_wake_shield_visible = true;
+  } else if (backlight_on && s_wake_shield_visible) {
+    wake_shield_set_visible(false);
+    s_wake_shield_visible = false;
+  }
 
   /* Calibration cursor: visible while pressed, auto-hidden after release. */
   if (s_touch_cursor && s_touch_indev) {
@@ -660,6 +700,15 @@ void loop() {
 
   /* Process LVGL tasks (display flush, input processing, animations) */
   lv_task_handler();
+
+  /* The wake shield may have turned the backlight on during input processing;
+   * repaint now so the first lit frame is current. */
+  if (s_wake_refresh) {
+    s_wake_refresh = false;
+    gui_update_state();
+    gui_request_redraw();
+    if (s_disp) haus_ui_update();
+  }
 
   vTaskDelay(5 / portTICK_PERIOD_MS);
 }

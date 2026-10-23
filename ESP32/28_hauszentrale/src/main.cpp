@@ -44,10 +44,6 @@ static uint8_t s_draw_buf0[TPL_WS7_SCREEN_WIDTH * TPL_WS7_DRAW_LINES * 2];
 /* LVGL 9.2 needs a millisecond tick source */
 static uint32_t lv_tick_cb(void) { return (uint32_t)millis(); }
 
-/* S28.05: heater settings restored from /heater.bin. The HEATER page (1.2)
- * will render and update this state; for now it holds the restored values. */
-static HeaterConfig s_heater_config;
-
 static lv_display_t* s_disp = NULL;
 
 /* Calibration cursor: shown while a finger is down, hidden one second after
@@ -160,17 +156,12 @@ void setup() {
   /* S28.05: restore heater configuration from /heater.bin. A missing or
    * invalid file keeps the safe defaults (OFF, never AUTO) and is rewritten
    * so the next boot restores the same state. */
-  heater_config_default(&s_heater_config);
-  if (heater_bin_load(&s_heater_config)) {
-    TPL_LOGI("heater_bin", "restored mode=%d, duty=%u, day=%u:%02u",
-             (int)s_heater_config.mode, (unsigned)s_heater_config.saved_duty,
-             s_heater_config.schedule.day_start_hour,
-             s_heater_config.schedule.night_start_hour);
-  } else {
-    TPL_LOGI("heater_bin", "no valid config; writing defaults (mode=OFF)");
-    if (!heater_bin_save(&s_heater_config)) {
-      TPL_LOGW("heater_bin", "could not write defaults");
-    }
+  heater_config_init();
+  {
+    const HeaterConfig* hc = heater_config_get();
+    TPL_LOGI("heater_bin", "mode=%d, duty=%u, day=%u:%02u",
+             (int)hc->mode, (unsigned)hc->saved_duty,
+             hc->schedule.day_start_hour, hc->schedule.night_start_hour);
   }
 
   /* S4.02: reset the ST7262 through the CH422G before bring-up */

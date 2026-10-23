@@ -1002,6 +1002,25 @@ int main() {
 
   std::printf("test_heater_control (binary persistence 1.1): ok\n");
 
+  /* T.1.7: Runtime cache used by the HEATER page (1.2). */
+  {
+    heater_config_init();
+    const HeaterConfig* cached = heater_config_get();
+    assert(cached != NULL);
+    assert(cached->mode == HEATER_MODE_OFF);
+
+    HeaterConfig next = *cached;
+    next.mode = HEATER_MODE_AUTO;
+    next.saved_duty = 333;
+    /* The host has no SPIFFS; apply still updates the cache. */
+    heater_config_apply(&next);
+    cached = heater_config_get();
+    assert(cached->mode == HEATER_MODE_AUTO);
+    assert(cached->saved_duty == 333);
+  }
+
+  std::printf("test_heater_control (runtime cache 1.2): ok\n");
+
   std::printf("test_heater_control: ok\n");
   return 0;
 }

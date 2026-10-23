@@ -114,6 +114,55 @@ void heater_config_default(HeaterConfig *config) {
   heater_schedule_default(&config->schedule);
 }
 
+/* ─── Runtime cache ──────────────────────────────────────────────────────── */
+
+static HeaterConfig s_config;
+static bool s_config_ready = false;
+
+void heater_config_init(void) {
+  if (s_config_ready)
+    return;
+
+  heater_config_default(&s_config);
+  if (!heater_bin_load(&s_config)) {
+    /* Missing or invalid file: keep defaults and write them once so the next
+     * boot restores the safe OFF state instead of retrying forever. */
+    heater_bin_save(&s_config);
+  }
+  s_config_ready = true;
+}
+
+const HeaterConfig *heater_config_get(void) {
+  if (!s_config_ready)
+    heater_config_init();
+  return &s_config;
+}
+
+bool heater_config_apply(const HeaterConfig *config) {
+  if (!config)
+    return false;
+  if (!s_config_ready) {
+    heater_config_default(&s_config);
+    s_config_ready = true;
+  }
+  s_config = *config;
+  return heater_bin_save(&s_config);
+}
+
+bool heater_config_set_mode(HeaterMode mode) {
+  if (!s_config_ready)
+    heater_config_init();
+  s_config.mode = mode;
+  return heater_bin_save(&s_config);
+}
+
+bool heater_config_set_saved_duty(uint16_t saved_duty) {
+  if (!s_config_ready)
+    heater_config_init();
+  s_config.saved_duty = saved_duty;
+  return heater_bin_save(&s_config);
+}
+
 size_t heater_bin_encode(uint8_t *buf, size_t buf_len,
                          const HeaterConfig *config) {
   if (!buf || !config || buf_len < HAUS_HEATER_BIN_FILE_SIZE)

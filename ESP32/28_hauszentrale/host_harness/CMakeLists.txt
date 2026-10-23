@@ -41,6 +41,8 @@ add_executable(hauszentrale_host
     ${CMAKE_SOURCE_DIR}/../src/ui/lv_font_haus_large_52.c
     ${CMAKE_SOURCE_DIR}/../src/ui/lv_font_haus_value_110.c
     ${CMAKE_SOURCE_DIR}/../src/haus_chart.cpp
+    ${CMAKE_SOURCE_DIR}/../src/haus_heater.cpp
+    ${CMAKE_SOURCE_DIR}/../src/haus_heater_bin.cpp
     ${CMAKE_SOURCE_DIR}/../src/haus_power_axis.cpp
     ${CMAKE_SOURCE_DIR}/../src/haus_wave_demod.cpp
     ${CMAKE_SOURCE_DIR}/../src/haus_water_model.cpp

@@ -84,6 +84,27 @@ void heater_config_default(HeaterConfig *config);
 extern "C" {
 #endif
 
+/* ─── Runtime cache ──────────────────────────────────────────────────────── */
+
+/* Load /heater.bin into the module cache once. If the file is missing or
+ * invalid the cache holds defaults (mode OFF) and the defaults are written
+ * back so the next boot restores the same safe state.
+ *
+ * Safe to call more than once; only the first call reads the file. */
+void heater_config_init(void);
+
+/* Current configuration (never NULL). Valid after heater_config_init(). */
+const HeaterConfig *heater_config_get(void);
+
+/* Replace the cached configuration and persist it. Returns true when the
+ * file was written. Callers request a full redraw when the write succeeded
+ * (the SPIFFS write can invalidate the active framebuffer). */
+bool heater_config_apply(const HeaterConfig *config);
+
+/* Convenience setters that keep the other fields and persist. */
+bool heater_config_set_mode(HeaterMode mode);
+bool heater_config_set_saved_duty(uint16_t saved_duty);
+
 /* ─── Pure serialisation (no flash access, testable on the host) ─────────── */
 
 /* Encode a config into buf. Returns bytes written (HAUS_HEATER_BIN_FILE_SIZE)

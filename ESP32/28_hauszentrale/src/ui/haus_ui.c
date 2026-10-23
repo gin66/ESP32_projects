@@ -19,6 +19,7 @@
 #include "haus_chart.h"
 #include "haus_config.h"
 #include "haus_gui.h"
+#include "haus_heater_bin.h"
 #include "haus_history.h"
 #include "haus_mem.h"
 
@@ -46,6 +47,7 @@ LV_FONT_DECLARE(haus_large_52);
 LV_FONT_DECLARE(haus_value_110);
 
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -950,6 +952,7 @@ static void build_home_power_button(void) {
 }
 
 lv_obj_t* haus_ui_init(void) {
+  heater_config_init();
   ensure_chart_buffers();
   g_current_screen = UI_SCREEN_HOME;
   screen_lock_scroll();
@@ -1407,9 +1410,18 @@ static lv_obj_t* s_ac_hl;
 static int s_ac_w = 200;
 static int g_ac_series = 0;
 
-/* PWM request UI (S20.01/S20.02). A user change on the detail page sends one
- * 0x240 frame immediately: 1000 for OFF, 0..500 while ON. The in-force value
- * still comes from 0x280; the UI never sends on page entry or on a report.
+/* PWM request UI (S20.01/S20.02) with heater authority mode (1.2).
+ *
+ * The existing switch always means manual OFF/ON:
+ *   - OFF sends 1000 and persists HEATER_MODE_OFF.
+ *   - ON sends the slider duty once and persists HEATER_MODE_MANUAL.
+ *
+ * The mode selector adds [ OFF | MANUAL | AUTO ]:
+ *   - MANUAL sends the saved manual duty once on takeover.
+ *   - AUTO displays the scheduled duty but never writes the bus (shadow until
+ *     Phase 3).
+ *   - A slider release is a deliberate takeover. A drag that started in AUTO
+ *     becomes MANUAL on release, not on every VALUE_CHANGED.
  *
  * S20.14: the panel applies no ramp, clamp or dead-man to the output.
  * AVR/01_heizung_temp owns PWM safety (N15); the switch and slider only bound
@@ -1420,11 +1432,21 @@ static lv_obj_t* s_pwm_switch_lbl;
 static lv_obj_t* s_pwm_slider;
 static lv_obj_t* s_pwm_req_lbl;
 static lv_obj_t* s_pwm_force_lbl;
+static lv_obj_t* s_auto_lbl;
+static lv_obj_t* s_heater_note_lbl;
+static lv_obj_t* s_mode_seg[3];
+static lv_obj_t* s_mode_seg_lbl[3];
 static bool s_pwm_on;
 static bool s_pwm_touched;
 static bool s_pwm_can_ok;
+static bool s_pwm_auto_ok;
+static bool s_slider_dragging;
 static uint16_t s_pwm_duty = 500;
 static uint16_t s_pwm_last_tx = 0xFFFF;
+static HeaterMode s_pwm_mode = HEATER_MODE_OFF;
+static HeaterMode s_drag_mode = HEATER_MODE_OFF;
+static HeaterScheduleReason s_auto_reason = HEATER_SCHED_UNSYNCED;
+static uint16_t s_auto_duty = 1000;
 
 static lv_obj_t* s_log_label;
 static lv_obj_t* s_log_container;
@@ -2589,12 +2611,41 @@ static void range_build(int top, int width) {
   }
 }
 
-/* ─── PWM request (S20.02) ───────────────────────────────────────────────
+/* ─── PWM request (S20.02, 1.2) ──────────────────────────────────────────
  * OFF is the switch, not a slider position: it sends 1000. ON sends the
- * 500..0 slider value. The slider's left end is 500 (minimum heat) and its
- * right end is 0 (full heat); internally it runs 0..500 so the knob moves
- * toward "more heat" to the right. A change sends immediately, but only while
- * the detail page is the current screen. */
+ * 500..0 slider value. The slider maps 500 permille (minimum heat) at the
+ * bottom to 0 permille (full heat) at the top. A slider release sends one
+ * frame, only while the detail page is the current screen. */
+
+static void pwm_mode_visual(void) {
+  static const uint32_t colors[3] = {C_OFF, C_INK, C_OK};
+  for (int i = 0; i < 3; i++) {
+    if (!s_mode_seg[i]) continue;
+    const HeaterMode seg_mode = (HeaterMode)i;
+    const bool active = (s_pwm_mode == seg_mode);
+    const bool enabled =
+        (seg_mode == HEATER_MODE_AUTO) ? s_pwm_auto_ok : s_pwm_can_ok;
+    lv_obj_set_style_bg_opa(s_mode_seg[i], active ? 210 : 0, 0);
+    lv_obj_set_style_bg_color(s_mode_seg[i], lv_color_hex(colors[i]), 0);
+    lv_obj_set_style_border_color(s_mode_seg[i],
+                                  lv_color_hex(active ? colors[i] : C_LINE), 0);
+    lv_obj_set_style_border_width(s_mode_seg[i], active ? 0 : 1, 0);
+    lv_obj_set_style_opa(s_mode_seg[i], enabled ? LV_OPA_COVER : 110, 0);
+    if (s_mode_seg_lbl[i]) {
+      lv_obj_set_style_text_color(
+          s_mode_seg_lbl[i],
+          lv_color_hex(active ? (seg_mode == HEATER_MODE_OFF ? C_INK : C_BG)
+                              : C_DIM),
+          0);
+    }
+  }
+}
+
+static void pwm_mode_apply(HeaterMode mode) {
+  const bool persisted = heater_config_set_mode(mode);
+  if (persisted) gui_request_redraw();
+  s_pwm_mode = mode;
+}
 
 static void pwm_control_visual(void) {
   if (s_pwm_switch_lbl) txt(s_pwm_switch_lbl, s_pwm_on ? "ON" : "OFF");
@@ -2609,52 +2660,139 @@ static void pwm_control_visual(void) {
     lv_obj_set_style_bg_opa(s_pwm_switch, s_pwm_on ? 220 : 80, 0);
   }
   if (s_pwm_slider) {
-    if (s_pwm_can_ok && s_pwm_on)
+    /* In AUTO the knob shows the schedule; a release takes over manually. */
+    const bool enabled = s_pwm_can_ok &&
+                         (s_pwm_mode == HEATER_MODE_AUTO ||
+                          (s_pwm_mode == HEATER_MODE_MANUAL && s_pwm_on));
+    if (enabled)
       lv_obj_clear_state(s_pwm_slider, LV_STATE_DISABLED);
     else
       lv_obj_add_state(s_pwm_slider, LV_STATE_DISABLED);
-    lv_obj_set_style_opa(s_pwm_slider,
-                         (s_pwm_can_ok && s_pwm_on) ? LV_OPA_COVER : 120, 0);
+    lv_obj_set_style_opa(s_pwm_slider, enabled ? LV_OPA_COVER : 120, 0);
   }
   if (s_pwm_req_lbl) {
-    char b[40];
+    char b[48];
     if (!s_pwm_can_ok)
       snprintf(b, sizeof(b), "CAN not ready");
+    else if (s_pwm_mode == HEATER_MODE_AUTO)
+      snprintf(b, sizeof(b), "commanded %u / 1000", (unsigned)s_auto_duty);
+    else if (s_pwm_mode == HEATER_MODE_OFF)
+      snprintf(b, sizeof(b), "requested OFF (1000)");
     else if (s_pwm_on)
       snprintf(b, sizeof(b), "requested %u / 1000", (unsigned)s_pwm_duty);
     else
       snprintf(b, sizeof(b), "requested OFF (1000)");
     txt(s_pwm_req_lbl, b);
   }
+  pwm_mode_visual();
 }
 
-static void pwm_send_if_changed(void) {
-  if (g_current_screen != UI_SCREEN_CHAMBER || !s_pwm_can_ok) return;
-  const uint16_t permille = s_pwm_on ? s_pwm_duty : 1000;
+static bool pwm_can_send(void) {
+  return g_current_screen == UI_SCREEN_CHAMBER && s_pwm_can_ok;
+}
+
+static void pwm_send_duty(uint16_t permille) {
+  if (!pwm_can_send()) return;
   if (permille == s_pwm_last_tx) return;
   if (gui_send_pwm(permille)) s_pwm_last_tx = permille;
 }
 
-static void pwm_switch_cb(lv_event_t* e) {
-  (void)e;
+/* OFF switch / segment: real OFF, latched, persisted. */
+static void pwm_manual_off(void) {
+  s_pwm_on = false;
   s_pwm_touched = true;
-  s_pwm_on = !s_pwm_on;
+  pwm_mode_apply(HEATER_MODE_OFF);
   pwm_control_visual();
-  pwm_send_if_changed();
+  pwm_send_duty(1000);
 }
 
-static void pwm_slider_cb(lv_event_t* e) {
+/* ON switch / MANUAL segment: one deliberate manual frame. */
+static void pwm_manual_on(uint16_t duty) {
+  if (duty > 500) duty = 500;
+  s_pwm_duty = duty;
+  s_pwm_on = true;
+  s_pwm_touched = true;
+  HeaterConfig cfg = *heater_config_get();
+  cfg.mode = HEATER_MODE_MANUAL;
+  cfg.saved_duty = duty;
+  if (heater_config_apply(&cfg)) gui_request_redraw();
+  s_pwm_mode = HEATER_MODE_MANUAL;
+  pwm_control_visual();
+  pwm_send_duty(duty);
+}
+
+static void pwm_switch_cb(lv_event_t* e) {
+  (void)e;
+  if (!s_pwm_can_ok) return;
+  if (s_pwm_on) {
+    pwm_manual_off();
+  } else {
+    uint16_t duty = heater_config_get()->saved_duty;
+    if (duty > 500) duty = 500;
+    pwm_manual_on(duty);
+  }
+}
+
+static void pwm_mode_cb(lv_event_t* e) {
+  const HeaterMode mode = (HeaterMode)(int)(intptr_t)lv_event_get_user_data(e);
+  switch (mode) {
+    case HEATER_MODE_OFF:
+      if (s_pwm_can_ok) {
+        pwm_manual_off();
+      } else {
+        s_pwm_on = false;
+        pwm_mode_apply(HEATER_MODE_OFF);
+        pwm_control_visual();
+      }
+      break;
+    case HEATER_MODE_MANUAL: {
+      if (!s_pwm_can_ok) break;
+      uint16_t duty = heater_config_get()->saved_duty;
+      if (duty > 500) duty = 500;
+      pwm_manual_on(duty);
+      break;
+    }
+    case HEATER_MODE_AUTO:
+      if (!s_pwm_auto_ok) break;
+      /* Shadow mode: display the schedule, do not write the bus. */
+      s_pwm_touched = false;
+      pwm_mode_apply(HEATER_MODE_AUTO);
+      pwm_control_visual();
+      break;
+    default:
+      break;
+  }
+}
+
+static void pwm_slider_pressed_cb(lv_event_t* e) {
+  (void)e;
+  s_slider_dragging = true;
+  s_drag_mode = s_pwm_mode;
+}
+
+static void pwm_slider_changed_cb(lv_event_t* e) {
   (void)e;
   if (!s_pwm_slider) return;
-  s_pwm_touched = true;
   s_pwm_duty = (uint16_t)(500 - lv_slider_get_value(s_pwm_slider));
   pwm_control_visual();
-  pwm_send_if_changed();
+}
+
+static void pwm_slider_released_cb(lv_event_t* e) {
+  (void)e;
+  s_slider_dragging = false;
+  if (!s_pwm_slider || !s_pwm_can_ok) return;
+  /* A drag that started on the AUTO screen becomes MANUAL only now. */
+  if (s_drag_mode == HEATER_MODE_AUTO) {
+    pwm_manual_on(s_pwm_duty);
+  } else if (s_drag_mode == HEATER_MODE_MANUAL && s_pwm_on) {
+    heater_config_set_saved_duty(s_pwm_duty);
+    pwm_send_duty(s_pwm_duty);
+  }
 }
 
 static void pwm_force_text(uint16_t f) {
   if (!s_pwm_force_lbl) return;
-  char b[40];
+  char b[48];
   if (f >= 1000)
     snprintf(b, sizeof(b), "in force OFF (1000)");
   else
@@ -2662,24 +2800,92 @@ static void pwm_force_text(uint16_t f) {
   txt(s_pwm_force_lbl, b);
 }
 
+static void pwm_auto_text(const HeaterConfig* cfg) {
+  if (!s_auto_lbl) return;
+  char b[64];
+  const int day = cfg->schedule.T_day_c100 / 100;
+  int night_c100 = cfg->schedule.T_day_c100 - cfg->schedule.night_setback_c100;
+  if (night_c100 < cfg->schedule.night_floor_c100)
+    night_c100 = cfg->schedule.night_floor_c100;
+  const int night = night_c100 / 100;
+
+  if (s_pwm_mode == HEATER_MODE_OFF) {
+    snprintf(b, sizeof(b), "off - frost protection inactive");
+  } else if (s_pwm_mode == HEATER_MODE_MANUAL) {
+    snprintf(b, sizeof(b), "manual - direct duty");
+  } else if (!s_pwm_can_ok) {
+    snprintf(b, sizeof(b), "AUTO hold: CAN");
+  } else if (s_auto_reason == HEATER_SCHED_UNSYNCED) {
+    snprintf(b, sizeof(b), "AUTO wait: clock");
+  } else if (s_auto_reason == HEATER_SCHED_FROST) {
+    snprintf(b, sizeof(b), "AUTO frost, flow %d C", night);
+  } else if (s_auto_reason == HEATER_SCHED_NIGHT) {
+    snprintf(b, sizeof(b), "AUTO night, flow %d C", night);
+  } else {
+    snprintf(b, sizeof(b), "AUTO heating, flow %d -> %d C", day, night);
+  }
+  txt(s_auto_lbl, b);
+
+  if (s_heater_note_lbl) {
+    if (s_pwm_mode == HEATER_MODE_AUTO)
+      txt(s_heater_note_lbl, "AUTO is shadow: it does not send yet.");
+    else
+      txt(s_heater_note_lbl, "This survives a power cut.");
+  }
+}
+
 static void pwm_control_update(void) {
   if (!s_pwm_slider) return;
   HausState st;
   gui_get_state(&st);
+  const HeaterConfig* cfg = heater_config_get();
   const uint16_t f = st.can.pwm_permille;
   const bool can_ok = st.can.can_status == GUI_STATUS_OK;
-  if (can_ok != s_pwm_can_ok) {
-    s_pwm_can_ok = can_ok;
-    pwm_control_visual();
-  }
-  if (!s_pwm_touched) {
+  const HeaterMode mode = cfg->mode;
+
+  /* AUTO is available only when the bus is healthy and the clock is synced;
+   * heater_schedule_compute() reports the latter. */
+  uint16_t auto_duty = 1000;
+  HeaterScheduleReason auto_reason = HEATER_SCHED_UNSYNCED;
+  const bool auto_computed =
+      heater_schedule_compute(&cfg->schedule, st.can.timestamp, st.can.synced,
+                              HEATER_MODE_AUTO, false, &auto_duty,
+                              &auto_reason);
+  s_auto_duty = auto_duty;
+  s_auto_reason = auto_reason;
+  s_pwm_auto_ok = can_ok && auto_computed;
+
+  const bool can_changed = (can_ok != s_pwm_can_ok);
+  const bool mode_changed = (mode != s_pwm_mode);
+  s_pwm_can_ok = can_ok;
+  s_pwm_mode = mode;
+
+  if (mode == HEATER_MODE_AUTO) {
+    if (!s_slider_dragging) {
+      s_pwm_on = auto_duty <= 500;
+      s_pwm_duty = s_pwm_on ? auto_duty : 500;
+      lv_slider_set_value(s_pwm_slider, 500 - s_pwm_duty, LV_ANIM_OFF);
+    }
+    s_pwm_touched = false;
+  } else if (mode == HEATER_MODE_OFF) {
+    if (!s_slider_dragging) {
+      s_pwm_on = false;
+      s_pwm_duty = 500;
+      lv_slider_set_value(s_pwm_slider, 0, LV_ANIM_OFF);
+    }
+  } else if (!s_pwm_touched && !s_slider_dragging) {
+    /* MANUAL: follow the in-force report until the user touches a control. */
     s_pwm_on = (f <= 500);
     s_pwm_duty = (f <= 500) ? f : 500;
     s_pwm_last_tx = f;
     lv_slider_set_value(s_pwm_slider, 500 - s_pwm_duty, LV_ANIM_OFF);
+  }
+
+  if (can_changed || mode_changed || !s_pwm_touched) {
     pwm_control_visual();
   }
   pwm_force_text(f);
+  pwm_auto_text(cfg);
 }
 
 static void pwm_control_build(int top) {
@@ -2688,6 +2894,26 @@ static void pwm_control_build(int top) {
   hline_w(root, 474, 56, 228, C_LINE);
 
   label_make(root, "PWM DUTY", 474, 64, &haus_body_21, C_INK);
+
+  /* Mode selector: OFF | MANUAL | AUTO. */
+  static const char* mode_text[3] = {"OFF", "MANUAL", "AUTO"};
+  for (int i = 0; i < 3; i++) {
+    s_mode_seg[i] = lv_obj_create(root);
+    lv_obj_set_size(s_mode_seg[i], 74, 30);
+    lv_obj_set_pos(s_mode_seg[i], 474 + i * 77, 100);
+    lv_obj_set_style_border_width(s_mode_seg[i], 1, 0);
+    lv_obj_set_style_border_color(s_mode_seg[i], lv_color_hex(C_LINE), 0);
+    lv_obj_set_style_radius(s_mode_seg[i], 6, 0);
+    lv_obj_set_style_pad_all(s_mode_seg[i], 0, 0);
+    lv_obj_set_style_bg_opa(s_mode_seg[i], LV_OPA_TRANSP, 0);
+    obj_set_scrollable(s_mode_seg[i], false);
+    obj_set_clickable(s_mode_seg[i], true);
+    lv_obj_add_event_cb(s_mode_seg[i], pwm_mode_cb, LV_EVENT_CLICKED,
+                        (void*)(intptr_t)i);
+    s_mode_seg_lbl[i] = label_make(s_mode_seg[i], mode_text[i], 0, 0,
+                                   &lv_font_montserrat_16, C_DIM);
+    lv_obj_center(s_mode_seg_lbl[i]);
+  }
 
   s_pwm_switch = lv_obj_create(root);
   lv_obj_set_size(s_pwm_switch, 80, 38);
@@ -2703,8 +2929,8 @@ static void pwm_control_build(int top) {
   lv_obj_center(s_pwm_switch_lbl);
 
   s_pwm_slider = lv_slider_create(root);
-  lv_obj_set_size(s_pwm_slider, 30, 200);
-  lv_obj_set_pos(s_pwm_slider, 500, 110);
+  lv_obj_set_size(s_pwm_slider, 30, 150);
+  lv_obj_set_pos(s_pwm_slider, 500, 148);
   lv_bar_set_orientation(s_pwm_slider, LV_BAR_ORIENTATION_VERTICAL);
   lv_slider_set_range(s_pwm_slider, 0, 500);
   lv_obj_set_style_bg_color(s_pwm_slider, lv_color_hex(C_LINE), LV_PART_MAIN);
@@ -2716,32 +2942,32 @@ static void pwm_control_build(int top) {
   lv_obj_set_style_width(s_pwm_slider, 26, LV_PART_KNOB);
   lv_obj_set_style_height(s_pwm_slider, 26, LV_PART_KNOB);
   obj_set_clickable(s_pwm_slider, true);
-  lv_obj_add_event_cb(s_pwm_slider, pwm_slider_cb, LV_EVENT_VALUE_CHANGED,
+  lv_obj_add_event_cb(s_pwm_slider, pwm_slider_pressed_cb, LV_EVENT_PRESSED,
+                      NULL);
+  lv_obj_add_event_cb(s_pwm_slider, pwm_slider_changed_cb,
+                      LV_EVENT_VALUE_CHANGED, NULL);
+  lv_obj_add_event_cb(s_pwm_slider, pwm_slider_released_cb, LV_EVENT_RELEASED,
                       NULL);
 
-  label_make(root, "0 full", 548, 108, &lv_font_montserrat_16, C_DIM);
+  label_make(root, "0 full", 548, 146, &lv_font_montserrat_16, C_DIM);
   label_make(root, "500 min", 548, 288, &lv_font_montserrat_16, C_DIM);
 
-  s_pwm_req_lbl = label_make(root, "", 474, 330, &haus_body_21, C_INK);
-  s_pwm_force_lbl = label_make(root, "", 474, 358, &haus_body_21, C_DIM);
+  s_pwm_req_lbl = label_make(root, "", 474, 312, &haus_body_21, C_INK);
+  s_pwm_force_lbl = label_make(root, "", 474, 338, &haus_body_21, C_DIM);
+  s_auto_lbl = label_make(root, "", 474, 364, &lv_font_montserrat_16, C_ACCENT);
+  lv_obj_set_width(s_auto_lbl, 228);
+  lv_label_set_long_mode(s_auto_lbl, UI_LABEL_LONG_WRAP);
 
-  lv_obj_t* warn =
-      label_make(root, "This survives a power cut.", 474, 394,
-                 &lv_font_montserrat_16, C_AMBER);
-  lv_obj_set_width(warn, 228);
-  lv_label_set_long_mode(warn, UI_LABEL_LONG_WRAP);
+  s_heater_note_lbl =
+      label_make(root, "", 474, 410, &lv_font_montserrat_16, C_AMBER);
+  lv_obj_set_width(s_heater_note_lbl, 228);
+  lv_label_set_long_mode(s_heater_note_lbl, UI_LABEL_LONG_WRAP);
 
   s_pwm_touched = false;
-  HausState st;
-  gui_get_state(&st);
-  const uint16_t f = st.can.pwm_permille;
-  s_pwm_can_ok = st.can.can_status == GUI_STATUS_OK;
-  s_pwm_on = (f <= 500);
-  s_pwm_duty = (f <= 500) ? f : 500;
-  s_pwm_last_tx = f;
-  lv_slider_set_value(s_pwm_slider, 500 - s_pwm_duty, LV_ANIM_OFF);
-  pwm_control_visual();
-  pwm_force_text(f);
+  s_slider_dragging = false;
+  s_drag_mode = heater_config_get()->mode;
+  s_pwm_last_tx = 0xFFFF;
+  pwm_control_update();
 }
 static void header_build_at(const char* title, const char* badge,
                             uint32_t badge_color, int title_y) {
@@ -3000,19 +3226,30 @@ static void detail_update(void) {
     pwm_control_update();
     HausState st;
     gui_get_state(&st);
-    switch (st.can.pwm_src) {
-      case PWM_SRC_CAN:
-        header_badge_set("LIVE", C_OK);
-        break;
-      case PWM_SRC_NRF:
-        header_badge_set("NRF", C_AMBER);
-        break;
-      case PWM_SRC_FAULT:
-        header_badge_set("FAULT", C_HOT);
-        break;
-      default:
-        header_badge_set("RESTORED", C_DIM);
-        break;
+    const HeaterConfig* cfg = heater_config_get();
+    if (st.can.pwm_src == PWM_SRC_FAULT) {
+      header_badge_set("FAULT", C_HOT);
+    } else if (st.can.pwm_src == PWM_SRC_NRF) {
+      /* A foreign writer is in charge until the bounded yield expires. */
+      header_badge_set("OVERRIDE", C_AMBER);
+    } else if (cfg->mode == HEATER_MODE_AUTO) {
+      if (!s_pwm_can_ok)
+        header_badge_set("AUTO HOLD", C_AMBER);
+      else if (s_auto_reason == HEATER_SCHED_UNSYNCED)
+        header_badge_set("AUTO HOLD", C_AMBER);
+      else if (s_auto_reason == HEATER_SCHED_FROST)
+        header_badge_set("FROST", C_ACCENT);
+      else if (s_auto_reason == HEATER_SCHED_NIGHT)
+        header_badge_set("NIGHT", C_COLD);
+      else
+        header_badge_set("AUTO", C_OK);
+    } else if (cfg->mode == HEATER_MODE_OFF) {
+      header_badge_set("OFF", C_OFF);
+    } else if (st.can.pwm_src == PWM_SRC_CAN) {
+      header_badge_set("LIVE", C_OK);
+    } else {
+      /* The wire carries the duty restored from the AVR's EEPROM. */
+      header_badge_set("EEPROM", C_DIM);
     }
   }
 
@@ -5048,8 +5285,13 @@ void haus_ui_deinit(void) {
   memset(s_side_legend, 0, sizeof(s_side_legend));
   s_pwm_switch = s_pwm_switch_lbl = s_pwm_slider = NULL;
   s_pwm_req_lbl = s_pwm_force_lbl = NULL;
+  s_auto_lbl = s_heater_note_lbl = NULL;
+  memset(s_mode_seg, 0, sizeof(s_mode_seg));
+  memset(s_mode_seg_lbl, 0, sizeof(s_mode_seg_lbl));
   s_pwm_touched = false;
   s_pwm_can_ok = false;
+  s_pwm_auto_ok = false;
+  s_slider_dragging = false;
   s_pwm_last_tx = 0xFFFF;
   memset(s_living_tab, 0, sizeof(s_living_tab));
   memset(s_ac_tab, 0, sizeof(s_ac_tab));

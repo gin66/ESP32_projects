@@ -77,7 +77,7 @@
   out-of-range mode/hour, truncated buffer (decode leaves state unchanged)
 - See §8
 
-### [ ] 1.2 Add AUTO mode control to HEATER detail page
+### [x] 1.2 Add AUTO mode control to HEATER detail page
 - Mode selector: `[ OFF | MANUAL | AUTO ]`
 - Display: requested duty, in-force duty, flow range (e.g., "AUTO heating, flow 55 → 42 °C")
 - Takeover is deliberate: mode segment toggle, or slider **release** (not drag)
@@ -87,6 +87,15 @@
 - Badges: `AUTO`, `AUTO HOLD`, `PUMP BLOCKED`, `OVERRIDE`, `NIGHT`, `FROST`, `off — frost protection inactive`
 - `PWM_SRC_EEPROM` shown while wire carries AVR's restored duty
 - Request full redraw after writes (as `haus_config_set_can_enabled()` does)
+- Implemented in `src/ui/haus_ui.c` (`pwm_*`), config cache in `haus_heater_bin`
+- AUTO is shadow-only: it computes and displays the schedule, never transmits
+  (Phase 3/4 enable transmission)
+- Switch = manual OFF/ON: OFF persists `MODE_OFF` and sends 1000; ON sends the
+  saved manual duty once and persists `MODE_MANUAL`
+- Slider sends on `LV_EVENT_RELEASED` only, so a drag cannot produce a burst
+- AUTO segment disabled (dimmed) while CAN is not green or the clock is unsynced
+- `FROST`/`PUMP BLOCKED` badges exist but have no state source until Phase 4/6
+- Host tests cover the config cache; UI render variants are T.4
 - See §8
 
 ---

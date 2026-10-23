@@ -106,6 +106,7 @@ enum screen_kind {
   SK_LOG,
   SK_ROLES,
   SK_SML,
+  SK_HEATER_CFG,
   SK_HOME_OFF,
   SK_HOME_40,
   SK_HOME_60,
@@ -189,6 +190,7 @@ int main(int argc, char* argv[]) {
       {SK_LOG, 0, "log"},
       {SK_ROLES, 0, "roles"},
       {SK_SML, 0, "sml"},
+      {SK_HEATER_CFG, 0, "heater_config"},
       {SK_HOME_OFF, 0, "home_off"},
       {SK_HOME_40, 0, "home_40"},
       {SK_HOME_60, 0, "home_60"},
@@ -257,6 +259,9 @@ int main(int argc, char* argv[]) {
         break;
       case SK_SML:
         haus_ui_build_sml();
+        break;
+      case SK_HEATER_CFG:
+        haus_ui_build_heater_cfg();
         break;
       case SK_HOME_OFF:
         mock_set_home_case(6000, 1000, false);

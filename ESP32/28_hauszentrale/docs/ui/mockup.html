@@ -328,8 +328,8 @@ nav.pane svg { display: block; }
 <section id="heater" class="screen">
   <div class="bg"></div>
   <header class="hdr">
-    <h1>HEATER</h1>
-    <span class="pill">RESTORED</span>
+    <h1>HEATING</h1>
+    <span class="pill live">COMMANDED</span>
   </header>
   <div class="big cold">21.4<small>°C</small></div>
   <div class="seg range"><b>1 day</b><span>1 week</span><span>1 month</span></div>
@@ -351,16 +351,62 @@ nav.pane svg { display: block; }
   </svg>
   <div class="stats"><span>min <b>20.6</b></span><span>max <b>22.1</b></span><span>mean <b>21.3</b></span><span>now <b>21.4</b></span></div>
   <div class="pwm">
-    <div class="pwm-h">PWM DUTY <i class="sw on"><i></i></i></div>
-    <div class="vpwm">
-      <div class="vtrack"><div class="vfill"></div><i class="vknob"></i></div>
-      <div class="vlabels"><span>0 full</span><span>500 min</span></div>
+    <div class="pwm-h">HEATING MODE</div>
+    <div class="seg" style="position:static;width:228px;height:36px;margin-top:8px">
+      <b>OFF</b><span>AUTO</span><span>ON</span>
     </div>
-    <div class="line">requested <em>550 / 1000</em></div>
-    <div class="line">in force 550 / 1000</div>
-    <div class="warn">This survives a power cut.</div>
+    <div class="pwm-h" style="margin-top:18px">HEATER REPORTS</div>
+    <div class="side-big" style="margin:4px 0 0">249 <small>/ 1000</small></div>
+    <div class="line"><em>requested OFF</em></div>
+    <div class="warn">OFF - frost protection inactive</div>
+    <div class="row" style="margin-top:14px;border:1px solid var(--line);border-radius:6px;
+         justify-content:center;color:var(--accent)">HEATING CONFIG &gt;</div>
   </div>
   <div class="nav-slot" data-tab="heater"></div>
+</section>
+
+<section id="heatercfg" class="screen">
+  <div class="bg"></div>
+  <header class="hdr">
+    <h1>HEATING CONFIG</h1>
+  </header>
+  <div style="position:absolute;top:52px;left:20px;font-size:21px;color:var(--dim)">MODE</div>
+  <div class="seg" style="left:100px;top:46px;width:228px;height:36px">
+    <b>OFF</b><span>AUTO</span><span>ON</span>
+  </div>
+  <div style="position:absolute;top:100px;left:20px;width:680px;height:1px;background:var(--line)"></div>
+
+  <div style="position:absolute;top:112px;left:20px;width:440px">
+    <div class="side-h">SCHEDULE</div>
+    <div class="row">day starts <span class="v">06:00</span><span class="edit" style="padding-left:18px">-</span><span class="edit" style="padding-left:18px">+</span></div>
+    <div class="row">night starts <span class="v">22:00</span><span class="edit" style="padding-left:18px">-</span><span class="edit" style="padding-left:18px">+</span></div>
+    <div class="row">day flow <span class="v">55 °C</span><span class="edit" style="padding-left:18px">-</span><span class="edit" style="padding-left:18px">+</span></div>
+    <div class="row">night setback <span class="v">15 K</span><span class="edit" style="padding-left:18px">-</span><span class="edit" style="padding-left:18px">+</span></div>
+    <div class="row">night floor <span class="v">42 °C</span><span class="edit" style="padding-left:18px">-</span><span class="edit" style="padding-left:18px">+</span></div>
+    <p class="note" style="margin-top:26px">AUTO follows the schedule. ON holds one duty.</p>
+    <p class="note">Stored in /heater.bin.</p>
+  </div>
+
+  <div class="pwm" style="top:112px">
+    <div class="side-h">PWM DUTY</div>
+    <div class="side-big" style="margin:0">249 <small>/ 1000</small><span>heater reports</span></div>
+    <div class="line" style="margin-top:4px"><em>requested OFF</em></div>
+    <div style="display:flex;gap:10px;margin-top:10px">
+      <div class="vtrack" style="height:210px;margin-left:6px;flex:none">
+        <div class="vfill" style="height:0"></div><i class="vknob" style="bottom:0"></i>
+      </div>
+      <div style="display:flex;flex-direction:column;justify-content:space-between;height:210px;
+           font-size:19px;line-height:1.15;color:var(--faint);width:150px">
+        <span>full heat 0</span>
+        <div>
+          <div class="warn" style="font-size:19px">OFF - frost protection inactive</div>
+          <div class="warn" style="font-size:19px;margin-top:10px">This survives a power cut.</div>
+        </div>
+        <span>min 500</span>
+      </div>
+    </div>
+  </div>
+  <div class="nav-slot" data-tab="gear"></div>
 </section>
 
 <section id="water" class="screen">
@@ -517,6 +563,7 @@ nav.pane svg { display: block; }
       <div class="row">PUMP <span class="v">monitor <span class="edit">&gt;</span></span></div>
       <div class="row">LOG <span class="v">ring + SD save <span class="edit">&gt;</span></span></div>
       <div class="row">BACKLIGHT <i class="sw on"><i></i></i></div>
+      <div class="row">HEATING <span class="v">duty + schedule <span class="edit">&gt;</span></span></div>
       <div class="units">
         <div class="h">POWER UNIT</div>
         <div class="u-row">display <div class="mini"><span>auto</span><span>kW</span><b>W</b></div></div>

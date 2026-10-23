@@ -115,7 +115,9 @@ enum ui_screen_id {
   UI_SCREEN_LOG,
   UI_SCREEN_ROLES,
   UI_SCREEN_SML,
+  UI_SCREEN_HEATER_CFG,
 };
+#define UI_SCREEN_MAX UI_SCREEN_HEATER_CFG
 
 static const int nav_screens[NAV_TABS] = {
     UI_SCREEN_HOME, UI_SCREEN_CHAMBER, UI_SCREEN_POWER, UI_SCREEN_LIVING,
@@ -137,6 +139,7 @@ static int nav_index_for(int screen) {
   if (screen == UI_SCREEN_ROLES) screen = UI_SCREEN_SETTINGS;
   if (screen == UI_SCREEN_AC) screen = UI_SCREEN_SETTINGS;
   if (screen == UI_SCREEN_SML) screen = UI_SCREEN_SETTINGS;
+  if (screen == UI_SCREEN_HEATER_CFG) screen = UI_SCREEN_SETTINGS;
   for (int i = 0; i < NAV_TABS; i++)
     if (nav_screens[i] == screen) return i;
   return -1;
@@ -159,6 +162,9 @@ static void sml_screen_update(void);
 static void can_overlay_close(void);
 static void build_status_hotspot(void);
 static void pwm_control_update(void);
+static void cfg_schedule_refresh(void);
+static void header_build(const char* title, const char* badge,
+                         uint32_t badge_color);
 
 /* Home-screen widgets (NULL when the home screen is not built). */
 static lv_obj_t* s_status_date;
@@ -415,14 +421,14 @@ static void nav_click_cb(lv_event_t* e) {
 }
 
 static void ui_jump(int screen) {
-  if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_SML) return;
+  if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_MAX) return;
   s_depth = 1;
   s_stack[0] = screen;
   ui_nav_go(screen);
 }
 
 static void ui_push(int screen) {
-  if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_SML) return;
+  if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_MAX) return;
   if (s_depth < UI_STACK_MAX) s_stack[s_depth++] = screen;
   ui_nav_go(screen);
 }
@@ -1021,6 +1027,11 @@ void haus_ui_update(void) {
     sml_screen_update();
     return;
   }
+  if (g_current_screen == UI_SCREEN_HEATER_CFG) {
+    pwm_control_update();
+    cfg_schedule_refresh();
+    return;
+  }
   if (g_current_screen != UI_SCREEN_HOME) {
     detail_update();
 #ifndef HAUS_HOST
@@ -1413,30 +1424,34 @@ static int g_ac_series = 0;
 
 /* PWM request UI (S20.01/S20.02) with heater authority mode (1.2).
  *
- * The existing switch always means manual OFF/ON:
+ * The HEATING screen owns the mode selector [ OFF | AUTO | ON ]:
  *   - OFF sends 1000 and persists HEATER_MODE_OFF.
- *   - ON sends the slider duty once and persists HEATER_MODE_MANUAL.
- *
- * The mode selector adds [ OFF | MANUAL | AUTO ]:
- *   - MANUAL sends the saved manual duty once on takeover.
+ *   - ON sends the saved manual duty once and persists HEATER_MODE_MANUAL.
  *   - AUTO displays the scheduled duty but never writes the bus (shadow until
  *     Phase 3).
- *   - A slider release is a deliberate takeover. A drag that started in AUTO
- *     becomes MANUAL on release, not on every VALUE_CHANGED.
+ *
+ * The duty itself lives on the HEATING CONFIG screen (Settings → HEATING),
+ * together with the schedule. A slider release is a deliberate takeover. A
+ * drag that started in AUTO becomes MANUAL on release, not on every
+ * VALUE_CHANGED.
  *
  * S20.14: the panel applies no ramp, clamp or dead-man to the output.
- * AVR/01_heizung_temp owns PWM safety (N15); the switch and slider only bound
- * the request to 0..500 permille (S20.01/S20.02). Nothing here shapes the
- * duty over time. */
-static lv_obj_t* s_pwm_switch;
-static lv_obj_t* s_pwm_switch_lbl;
+ * AVR/01_heizung_temp owns PWM safety (N15); the slider only bounds the
+ * request to 0..500 permille (S20.01/S20.02). Nothing here shapes the duty
+ * over time. */
+static const HeaterMode k_mode_order[3] = {HEATER_MODE_OFF, HEATER_MODE_AUTO,
+                                           HEATER_MODE_MANUAL};
+static const char* const k_mode_text[3] = {"OFF", "AUTO", "ON"};
+
 static lv_obj_t* s_pwm_slider;
 static lv_obj_t* s_pwm_req_lbl;
 static lv_obj_t* s_pwm_force_lbl;
+static lv_obj_t* s_pwm_reports_cap;
 static lv_obj_t* s_auto_lbl;
 static lv_obj_t* s_heater_note_lbl;
 static lv_obj_t* s_mode_seg[3];
 static lv_obj_t* s_mode_seg_lbl[3];
+static lv_obj_t* s_cfg_val[5];
 static bool s_pwm_on;
 static bool s_pwm_touched;
 static bool s_pwm_can_ok;
@@ -1653,7 +1668,7 @@ static void chart_legend_update(const chart_cfg_t* cfg) {
     case UI_SCREEN_CHAMBER:
       a = "- in";
       b = "- out";
-      t = "-- Soll";
+      /* The live "Soll <value>" label in the plot already names the target. */
       break;
     case UI_SCREEN_POWER:
       a = "- power";
@@ -2619,15 +2634,16 @@ static void range_build(int top, int width) {
  * frame, only while the detail page is the current screen. */
 
 static void pwm_mode_visual(void) {
-  static const uint32_t colors[3] = {C_OFF, C_INK, C_OK};
+  static const uint32_t colors[3] = {C_OFF, C_ACCENT, C_OK};
   for (int i = 0; i < 3; i++) {
     if (!s_mode_seg[i]) continue;
-    const HeaterMode seg_mode = (HeaterMode)i;
+    const HeaterMode seg_mode = k_mode_order[i];
     const bool active = (s_pwm_mode == seg_mode);
     const bool enabled =
         (seg_mode == HEATER_MODE_AUTO) ? s_pwm_auto_ok : s_pwm_can_ok;
-    lv_obj_set_style_bg_opa(s_mode_seg[i], active ? 210 : 0, 0);
-    lv_obj_set_style_bg_color(s_mode_seg[i], lv_color_hex(colors[i]), 0);
+    lv_obj_set_style_bg_color(s_mode_seg[i],
+                              lv_color_hex(active ? colors[i] : C_PANEL), 0);
+    lv_obj_set_style_bg_opa(s_mode_seg[i], active ? 210 : 170, 0);
     lv_obj_set_style_border_color(s_mode_seg[i],
                                   lv_color_hex(active ? colors[i] : C_LINE), 0);
     lv_obj_set_style_border_width(s_mode_seg[i], active ? 0 : 1, 0);
@@ -2649,22 +2665,13 @@ static void pwm_mode_apply(HeaterMode mode) {
 }
 
 static void pwm_control_visual(void) {
-  if (s_pwm_switch_lbl) txt(s_pwm_switch_lbl, s_pwm_on ? "ON" : "OFF");
-  if (s_pwm_switch) {
-    if (s_pwm_can_ok)
-      lv_obj_clear_state(s_pwm_switch, LV_STATE_DISABLED);
-    else
-      lv_obj_add_state(s_pwm_switch, LV_STATE_DISABLED);
-    lv_obj_set_style_opa(s_pwm_switch, s_pwm_can_ok ? LV_OPA_COVER : 120, 0);
-    lv_obj_set_style_bg_color(s_pwm_switch,
-                              lv_color_hex(s_pwm_on ? C_OK : C_OFF), 0);
-    lv_obj_set_style_bg_opa(s_pwm_switch, s_pwm_on ? 220 : 80, 0);
-  }
   if (s_pwm_slider) {
-    /* In AUTO the knob shows the schedule; a release takes over manually. */
-    const bool enabled = s_pwm_can_ok &&
-                         (s_pwm_mode == HEATER_MODE_AUTO ||
-                          (s_pwm_mode == HEATER_MODE_MANUAL && s_pwm_on));
+    /* In AUTO the knob shows the schedule; a release takes over manually.
+     * OFF still allows setting the saved duty that ON will use. */
+    const bool enabled =
+        s_pwm_can_ok &&
+        (s_pwm_mode == HEATER_MODE_AUTO || s_pwm_mode == HEATER_MODE_OFF ||
+         (s_pwm_mode == HEATER_MODE_MANUAL && s_pwm_on));
     if (enabled)
       lv_obj_clear_state(s_pwm_slider, LV_STATE_DISABLED);
     else
@@ -2677,19 +2684,19 @@ static void pwm_control_visual(void) {
       snprintf(b, sizeof(b), "CAN not ready");
     else if (s_pwm_mode == HEATER_MODE_AUTO)
       snprintf(b, sizeof(b), "commanded %u / 1000", (unsigned)s_auto_duty);
-    else if (s_pwm_mode == HEATER_MODE_OFF)
-      snprintf(b, sizeof(b), "requested OFF (1000)");
-    else if (s_pwm_on)
-      snprintf(b, sizeof(b), "requested %u / 1000", (unsigned)s_pwm_duty);
+    else if (s_pwm_mode == HEATER_MODE_OFF || !s_pwm_on)
+      snprintf(b, sizeof(b), "requested OFF");
     else
-      snprintf(b, sizeof(b), "requested OFF (1000)");
+      snprintf(b, sizeof(b), "requested %u / 1000", (unsigned)s_pwm_duty);
     txt(s_pwm_req_lbl, b);
   }
   pwm_mode_visual();
 }
 
 static bool pwm_can_send(void) {
-  return g_current_screen == UI_SCREEN_CHAMBER && s_pwm_can_ok;
+  return (g_current_screen == UI_SCREEN_CHAMBER ||
+          g_current_screen == UI_SCREEN_HEATER_CFG) &&
+         s_pwm_can_ok;
 }
 
 static void pwm_send_duty(uint16_t permille) {
@@ -2723,18 +2730,6 @@ static void pwm_manual_on(uint16_t duty) {
   s_pwm_mode = HEATER_MODE_MANUAL;
   pwm_control_visual();
   pwm_send_duty(duty);
-}
-
-static void pwm_switch_cb(lv_event_t* e) {
-  (void)e;
-  if (!s_pwm_can_ok) return;
-  if (s_pwm_on) {
-    pwm_manual_off();
-  } else {
-    uint16_t duty = heater_config_get()->saved_duty;
-    if (duty > 500) duty = 500;
-    pwm_manual_on(duty);
-  }
 }
 
 static void pwm_mode_cb(lv_event_t* e) {
@@ -2791,6 +2786,9 @@ static void pwm_slider_released_cb(lv_event_t* e) {
   } else if (s_drag_mode == HEATER_MODE_MANUAL && s_pwm_on) {
     heater_config_set_saved_duty(s_pwm_duty);
     pwm_send_duty(s_pwm_duty);
+  } else if (s_drag_mode == HEATER_MODE_OFF) {
+    /* Configure the duty ON will use; the mode stays OFF and nothing is sent. */
+    heater_config_set_saved_duty(s_pwm_duty);
   }
 }
 
@@ -2798,10 +2796,19 @@ static void pwm_force_text(uint16_t f) {
   if (!s_pwm_force_lbl) return;
   char b[48];
   if (f >= 1000)
-    snprintf(b, sizeof(b), "in force OFF (1000)");
+    snprintf(b, sizeof(b), "OFF");
   else
-    snprintf(b, sizeof(b), "in force %u / 1000", (unsigned)f);
+    snprintf(b, sizeof(b), "%u / 1000", (unsigned)f);
   txt(s_pwm_force_lbl, b);
+  if (s_pwm_reports_cap) obj_set_hidden(s_pwm_reports_cap, false);
+  if (s_pwm_req_lbl) {
+    const bool same =
+        s_pwm_can_ok &&
+        ((s_pwm_mode == HEATER_MODE_AUTO)
+             ? (s_auto_duty == f)
+             : (s_pwm_on ? (s_pwm_duty == f) : (f >= 1000)));
+    obj_set_hidden(s_pwm_req_lbl, same);
+  }
 }
 
 static void pwm_auto_text(const HeaterConfig* cfg) {
@@ -2814,9 +2821,9 @@ static void pwm_auto_text(const HeaterConfig* cfg) {
   const int night = night_c100 / 100;
 
   if (s_pwm_mode == HEATER_MODE_OFF) {
-    snprintf(b, sizeof(b), "off - frost protection inactive");
+    snprintf(b, sizeof(b), "OFF - frost protection inactive");
   } else if (s_pwm_mode == HEATER_MODE_MANUAL) {
-    snprintf(b, sizeof(b), "manual - direct duty");
+    snprintf(b, sizeof(b), "ON - holds the saved duty");
   } else if (!s_pwm_can_ok) {
     snprintf(b, sizeof(b), "AUTO hold: CAN");
   } else if (s_auto_reason == HEATER_SCHED_UNSYNCED) {
@@ -2839,7 +2846,6 @@ static void pwm_auto_text(const HeaterConfig* cfg) {
 }
 
 static void pwm_control_update(void) {
-  if (!s_pwm_slider) return;
   HausState st;
   gui_get_state(&st);
   const HeaterConfig* cfg = heater_config_get();
@@ -2868,21 +2874,25 @@ static void pwm_control_update(void) {
     if (!s_slider_dragging) {
       s_pwm_on = auto_duty <= 500;
       s_pwm_duty = s_pwm_on ? auto_duty : 500;
-      lv_slider_set_value(s_pwm_slider, 500 - s_pwm_duty, LV_ANIM_OFF);
+      if (s_pwm_slider)
+        lv_slider_set_value(s_pwm_slider, 500 - s_pwm_duty, LV_ANIM_OFF);
     }
     s_pwm_touched = false;
   } else if (mode == HEATER_MODE_OFF) {
     if (!s_slider_dragging) {
+      /* The knob shows the duty ON would use, not the reported OFF. */
       s_pwm_on = false;
-      s_pwm_duty = 500;
-      lv_slider_set_value(s_pwm_slider, 0, LV_ANIM_OFF);
+      s_pwm_duty = (cfg->saved_duty <= 500) ? cfg->saved_duty : 500;
+      if (s_pwm_slider)
+        lv_slider_set_value(s_pwm_slider, 500 - s_pwm_duty, LV_ANIM_OFF);
     }
   } else if (!s_pwm_touched && !s_slider_dragging) {
-    /* MANUAL: follow the in-force report until the user touches a control. */
+    /* MANUAL: follow the reported duty until the user touches a control. */
     s_pwm_on = (f <= 500);
     s_pwm_duty = (f <= 500) ? f : 500;
     s_pwm_last_tx = f;
-    lv_slider_set_value(s_pwm_slider, 500 - s_pwm_duty, LV_ANIM_OFF);
+    if (s_pwm_slider)
+      lv_slider_set_value(s_pwm_slider, 500 - s_pwm_duty, LV_ANIM_OFF);
   }
 
   if (can_changed || mode_changed || !s_pwm_touched) {
@@ -2892,19 +2902,14 @@ static void pwm_control_update(void) {
   pwm_auto_text(cfg);
 }
 
-static void pwm_control_build(int top) {
-  (void)top;
+static void mode_segments_build(int x, int y, int w, int h) {
   lv_obj_t* root = lv_screen_active();
-  hline_w(root, 474, 56, 228, C_LINE);
-
-  label_make(root, "PWM DUTY", 474, 64, &haus_body_21, C_INK);
-
-  /* Mode selector: OFF | MANUAL | AUTO. */
-  static const char* mode_text[3] = {"OFF", "MANUAL", "AUTO"};
+  const int gap = 4;
+  const int seg_w = (w - 2 * gap) / 3;
   for (int i = 0; i < 3; i++) {
     s_mode_seg[i] = lv_obj_create(root);
-    lv_obj_set_size(s_mode_seg[i], 74, 30);
-    lv_obj_set_pos(s_mode_seg[i], 474 + i * 77, 100);
+    lv_obj_set_size(s_mode_seg[i], seg_w, h);
+    lv_obj_set_pos(s_mode_seg[i], x + i * (seg_w + gap), y);
     lv_obj_set_style_border_width(s_mode_seg[i], 1, 0);
     lv_obj_set_style_border_color(s_mode_seg[i], lv_color_hex(C_LINE), 0);
     lv_obj_set_style_radius(s_mode_seg[i], 6, 0);
@@ -2913,28 +2918,57 @@ static void pwm_control_build(int top) {
     obj_set_scrollable(s_mode_seg[i], false);
     obj_set_clickable(s_mode_seg[i], true);
     lv_obj_add_event_cb(s_mode_seg[i], pwm_mode_cb, LV_EVENT_CLICKED,
-                        (void*)(intptr_t)i);
-    s_mode_seg_lbl[i] = label_make(s_mode_seg[i], mode_text[i], 0, 0,
+                        (void*)(intptr_t)k_mode_order[i]);
+    s_mode_seg_lbl[i] = label_make(s_mode_seg[i], k_mode_text[i], 0, 0,
                                    &lv_font_montserrat_16, C_DIM);
     lv_obj_center(s_mode_seg_lbl[i]);
   }
+}
 
-  s_pwm_switch = lv_obj_create(root);
-  lv_obj_set_size(s_pwm_switch, 80, 38);
-  lv_obj_set_pos(s_pwm_switch, 622, 58);
-  lv_obj_set_style_border_width(s_pwm_switch, 0, 0);
-  lv_obj_set_style_radius(s_pwm_switch, 8, 0);
-  lv_obj_set_style_pad_all(s_pwm_switch, 0, 0);
-  obj_set_scrollable(s_pwm_switch, false);
-  obj_set_clickable(s_pwm_switch, true);
-  lv_obj_add_event_cb(s_pwm_switch, pwm_switch_cb, LV_EVENT_CLICKED, NULL);
-  s_pwm_switch_lbl =
-      label_make(s_pwm_switch, "OFF", 0, 0, &lv_font_montserrat_16, C_INK);
-  lv_obj_center(s_pwm_switch_lbl);
+static void open_heater_cfg_cb(lv_event_t* e) {
+  (void)e;
+  ui_push(UI_SCREEN_HEATER_CFG);
+}
 
+/* HEATING detail right column: the mode is the only control here. */
+static void heater_detail_panel_build(void) {
+  lv_obj_t* root = lv_screen_active();
+  label_make(root, "HEATING MODE", 474, 56, &haus_body_21, C_DIM);
+  hline_w(root, 474, 84, 228, C_LINE);
+  mode_segments_build(474, 96, 228, 36);
+
+  label_make(root, "HEATER REPORTS", 474, 156, &lv_font_montserrat_16, C_DIM);
+  s_pwm_force_lbl = label_make(root, "", 474, 178, &haus_value_32, C_INK);
+  s_pwm_req_lbl = label_make(root, "", 474, 222, &lv_font_montserrat_16,
+                             C_ACCENT);
+  s_auto_lbl = label_make(root, "", 474, 248, &lv_font_montserrat_16, C_AMBER);
+  lv_obj_set_width(s_auto_lbl, 228);
+  lv_label_set_long_mode(s_auto_lbl, UI_LABEL_LONG_WRAP);
+
+  hline_w(root, 474, 306, 228, C_LINE);
+  lv_obj_t* cfg = lv_obj_create(root);
+  lv_obj_set_size(cfg, 228, 44);
+  lv_obj_set_pos(cfg, 474, 320);
+  lv_obj_set_style_bg_opa(cfg, 0, 0);
+  lv_obj_set_style_border_width(cfg, 1, 0);
+  lv_obj_set_style_border_color(cfg, lv_color_hex(C_LINE), 0);
+  lv_obj_set_style_radius(cfg, 6, 0);
+  lv_obj_set_style_pad_all(cfg, 0, 0);
+  obj_set_scrollable(cfg, false);
+  obj_set_clickable(cfg, true);
+  lv_obj_add_event_cb(cfg, open_heater_cfg_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_center(
+      label_make(cfg, "HEATING CONFIG  >", 0, 0, &haus_body_21, C_ACCENT));
+}
+
+/* Vertical duty slider shared by the config screen. Full heat (0 permille)
+ * is at the top, the usable minimum (500) at the bottom. OFF is a mode, not
+ * a slider position. */
+static void heater_cfg_slider_build(int x, int y, int h) {
+  lv_obj_t* root = lv_screen_active();
   s_pwm_slider = lv_slider_create(root);
-  lv_obj_set_size(s_pwm_slider, 30, 150);
-  lv_obj_set_pos(s_pwm_slider, 500, 148);
+  lv_obj_set_size(s_pwm_slider, 30, h);
+  lv_obj_set_pos(s_pwm_slider, x, y);
   lv_bar_set_orientation(s_pwm_slider, LV_BAR_ORIENTATION_VERTICAL);
   lv_slider_set_range(s_pwm_slider, 0, 500);
   lv_obj_set_style_bg_color(s_pwm_slider, lv_color_hex(C_LINE), LV_PART_MAIN);
@@ -2953,26 +2987,176 @@ static void pwm_control_build(int top) {
   lv_obj_add_event_cb(s_pwm_slider, pwm_slider_released_cb, LV_EVENT_RELEASED,
                       NULL);
 
-  label_make(root, "0 full", 548, 146, &lv_font_montserrat_16, C_DIM);
-  label_make(root, "500 min", 548, 288, &lv_font_montserrat_16, C_DIM);
+  label_make(root, "full heat 0", x + 52, y - 2, &lv_font_montserrat_16,
+             C_DIM);
+  label_make(root, "min 500", x + 52, y + h - 18, &lv_font_montserrat_16,
+             C_DIM);
+}
 
-  s_pwm_req_lbl = label_make(root, "", 474, 312, &haus_body_21, C_INK);
-  s_pwm_force_lbl = label_make(root, "", 474, 338, &haus_body_21, C_DIM);
-  s_auto_lbl = label_make(root, "", 474, 364, &lv_font_montserrat_16, C_ACCENT);
-  lv_obj_set_width(s_auto_lbl, 228);
+/* Right column of the config screen: duty request and the reported value. */
+static void heater_cfg_duty_build(void) {
+  lv_obj_t* root = lv_screen_active();
+  label_make(root, "PWM DUTY", 474, 112, &haus_body_21, C_DIM);
+  hline_w(root, 474, 138, 228, C_LINE);
+
+  s_pwm_force_lbl = label_make(root, "", 474, 146, &haus_value_32, C_INK);
+  s_pwm_reports_cap = label_make(root, "heater reports", 474, 190,
+                                 &lv_font_montserrat_16, C_DIM);
+  obj_set_hidden(s_pwm_reports_cap, true);
+
+  s_pwm_req_lbl = label_make(root, "", 474, 214, &lv_font_montserrat_16,
+                             C_ACCENT);
+  lv_obj_set_width(s_pwm_req_lbl, 228);
+
+  /* The slider is the primary control: give it the full column height and
+   * keep the status text alongside it. */
+  heater_cfg_slider_build(486, 240, 212);
+
+  s_auto_lbl = label_make(root, "", 538, 266, &lv_font_montserrat_16, C_AMBER);
+  lv_obj_set_width(s_auto_lbl, 164);
   lv_label_set_long_mode(s_auto_lbl, UI_LABEL_LONG_WRAP);
 
   s_heater_note_lbl =
-      label_make(root, "", 474, 410, &lv_font_montserrat_16, C_AMBER);
-  lv_obj_set_width(s_heater_note_lbl, 228);
+      label_make(root, "", 538, 346, &lv_font_montserrat_16, C_AMBER);
+  lv_obj_set_width(s_heater_note_lbl, 164);
   lv_label_set_long_mode(s_heater_note_lbl, UI_LABEL_LONG_WRAP);
+}
+
+/* ─── HEATING CONFIG schedule editor ──────────────────────────────────────
+ * Five fields, each with -/+ steppers. Commits go through
+ * heater_config_apply(), so the schedule is persisted in /heater.bin. */
+
+enum cfg_field {
+  CFG_DAY_START = 0,
+  CFG_NIGHT_START,
+  CFG_T_DAY,
+  CFG_SETBACK,
+  CFG_FLOOR,
+  CFG_FIELD_COUNT
+};
+
+static const char* const k_cfg_title[CFG_FIELD_COUNT] = {
+    "day starts", "night starts", "day flow", "night setback", "night floor"};
+
+static int cfg_clampi(int v, int lo, int hi) {
+  return v < lo ? lo : (v > hi ? hi : v);
+}
+
+static void cfg_schedule_refresh(void) {
+  const HeaterConfig* cfg = heater_config_get();
+  char b[24];
+  snprintf(b, sizeof(b), "%02u:00", (unsigned)cfg->schedule.day_start_hour);
+  if (s_cfg_val[CFG_DAY_START]) txt(s_cfg_val[CFG_DAY_START], b);
+  snprintf(b, sizeof(b), "%02u:00", (unsigned)cfg->schedule.night_start_hour);
+  if (s_cfg_val[CFG_NIGHT_START]) txt(s_cfg_val[CFG_NIGHT_START], b);
+  snprintf(b, sizeof(b), "%d °C", (int)(cfg->schedule.T_day_c100 / 100));
+  if (s_cfg_val[CFG_T_DAY]) txt(s_cfg_val[CFG_T_DAY], b);
+  snprintf(b, sizeof(b), "%d K", (int)(cfg->schedule.night_setback_c100 / 100));
+  if (s_cfg_val[CFG_SETBACK]) txt(s_cfg_val[CFG_SETBACK], b);
+  snprintf(b, sizeof(b), "%d °C", (int)(cfg->schedule.night_floor_c100 / 100));
+  if (s_cfg_val[CFG_FLOOR]) txt(s_cfg_val[CFG_FLOOR], b);
+}
+
+static void cfg_step_cb(lv_event_t* e) {
+  const int packed = (int)(intptr_t)lv_event_get_user_data(e);
+  const int field = packed >> 1;
+  const int dir = (packed & 1) ? 1 : -1;
+
+  HeaterConfig cfg = *heater_config_get();
+  HeaterSchedule* s = &cfg.schedule;
+  switch (field) {
+    case CFG_DAY_START:
+      s->day_start_hour =
+          (uint8_t)cfg_clampi((int)s->day_start_hour + dir, 0, 23);
+      break;
+    case CFG_NIGHT_START:
+      s->night_start_hour =
+          (uint8_t)cfg_clampi((int)s->night_start_hour + dir, 0, 23);
+      break;
+    case CFG_T_DAY:
+      s->T_day_c100 =
+          (int16_t)cfg_clampi((int)s->T_day_c100 + dir * 100, 2000, 8000);
+      break;
+    case CFG_SETBACK:
+      s->night_setback_c100 = (int16_t)cfg_clampi(
+          (int)s->night_setback_c100 + dir * 100, 0, 3000);
+      break;
+    case CFG_FLOOR:
+      s->night_floor_c100 =
+          (int16_t)cfg_clampi((int)s->night_floor_c100 + dir * 100, 1000, 8000);
+      break;
+    default:
+      return;
+  }
+  if (heater_config_apply(&cfg)) gui_request_redraw();
+  cfg_schedule_refresh();
+}
+
+static lv_obj_t* cfg_step_button(lv_obj_t* root, int x, int y, const char* text,
+                                 int field, int dir) {
+  lv_obj_t* b = lv_obj_create(root);
+  lv_obj_set_size(b, 40, 38);
+  lv_obj_set_pos(b, x, y);
+  lv_obj_set_style_bg_opa(b, 0, 0);
+  lv_obj_set_style_border_width(b, 1, 0);
+  lv_obj_set_style_border_color(b, lv_color_hex(C_LINE), 0);
+  lv_obj_set_style_radius(b, 6, 0);
+  lv_obj_set_style_pad_all(b, 0, 0);
+  obj_set_scrollable(b, false);
+  obj_set_clickable(b, true);
+  lv_obj_add_event_cb(b, cfg_step_cb, LV_EVENT_CLICKED,
+                      (void*)(intptr_t)((field << 1) | (dir > 0 ? 1 : 0)));
+  lv_obj_center(label_make(b, text, 0, 0, &lv_font_montserrat_24, C_INK));
+  return b;
+}
+
+static void heater_cfg_schedule_build(void) {
+  lv_obj_t* root = lv_screen_active();
+  label_make(root, "SCHEDULE", 20, 112, &haus_body_21, C_DIM);
+  hline_w(root, 20, 138, 440, C_LINE);
+
+  for (int i = 0; i < CFG_FIELD_COUNT; i++) {
+    const int y = 150 + i * 44;
+    label_make(root, k_cfg_title[i], 20, y + 8, &haus_body_21, C_INK);
+    s_cfg_val[i] =
+        label_make(root, "--", 200, y + 8, &haus_body_21, C_INK);
+    lv_obj_set_width(s_cfg_val[i], 100);
+    lv_obj_set_style_text_align(s_cfg_val[i], LV_TEXT_ALIGN_RIGHT, 0);
+    cfg_step_button(root, 324, y, "-", i, -1);
+    cfg_step_button(root, 376, y, "+", i, 1);
+  }
+
+  label_make(root, "AUTO follows the schedule. ON holds one duty.",
+             20, 392, &lv_font_montserrat_16, C_FAINT);
+  label_make(root, "Stored in /heater.bin.", 20, 416,
+             &lv_font_montserrat_16, C_FAINT);
+}
+
+lv_obj_t* haus_ui_build_heater_cfg(void) {
+  screen_lock_scroll();
+  lv_obj_t* root = lv_screen_active();
+  lv_obj_set_style_bg_color(root, lv_color_hex(C_BG), 0);
+  g_current_screen = UI_SCREEN_HEATER_CFG;
+  header_build("HEATING CONFIG", NULL, C_DIM);
+
+  label_make(root, "MODE", 20, 56, &haus_body_21, C_DIM);
+  mode_segments_build(100, 52, 228, 36);
+  hline_w(root, 20, 100, 680, C_LINE);
+
+  heater_cfg_schedule_build();
+  heater_cfg_duty_build();
 
   s_pwm_touched = false;
   s_slider_dragging = false;
   s_drag_mode = heater_config_get()->mode;
   s_pwm_last_tx = 0xFFFF;
+  cfg_schedule_refresh();
   pwm_control_update();
+
+  nav_build(UI_SCREEN_SETTINGS);
+  return root;
 }
+
 static void header_build_at(const char* title, const char* badge,
                             uint32_t badge_color, int title_y) {
   label_make(lv_screen_active(), title, 20, title_y, &lv_font_montserrat_32,
@@ -3230,30 +3414,17 @@ static void detail_update(void) {
     pwm_control_update();
     HausState st;
     gui_get_state(&st);
-    const HeaterConfig* cfg = heater_config_get();
     if (st.can.pwm_src == PWM_SRC_FAULT) {
       header_badge_set("FAULT", C_HOT);
     } else if (st.can.pwm_src == PWM_SRC_NRF) {
       /* A foreign writer is in charge until the bounded yield expires. */
       header_badge_set("OVERRIDE", C_AMBER);
-    } else if (cfg->mode == HEATER_MODE_AUTO) {
-      if (!s_pwm_can_ok)
-        header_badge_set("AUTO HOLD", C_AMBER);
-      else if (s_auto_reason == HEATER_SCHED_UNSYNCED)
-        header_badge_set("AUTO HOLD", C_AMBER);
-      else if (s_auto_reason == HEATER_SCHED_FROST)
-        header_badge_set("FROST", C_ACCENT);
-      else if (s_auto_reason == HEATER_SCHED_NIGHT)
-        header_badge_set("NIGHT", C_COLD);
-      else
-        header_badge_set("AUTO", C_OK);
-    } else if (cfg->mode == HEATER_MODE_OFF) {
-      header_badge_set("OFF", C_OFF);
     } else if (st.can.pwm_src == PWM_SRC_CAN) {
-      header_badge_set("LIVE", C_OK);
+      /* The value on the wire is actively commanded by this panel. */
+      header_badge_set("COMMANDED", C_OK);
     } else {
       /* The wire carries the duty restored from the AVR's EEPROM. */
-      header_badge_set("EEPROM", C_DIM);
+      header_badge_set("RESTORED", C_DIM);
     }
   }
 
@@ -3941,7 +4112,7 @@ static lv_obj_t* detail_build(int screen, const char* title, int nav_index,
   s_chart_age = label_make(root, "last sample --", 20, water ? 406 : 458,
                            &lv_font_montserrat_16, C_FAINT);
 
-  if (screen == UI_SCREEN_CHAMBER) pwm_control_build(0);
+  if (screen == UI_SCREEN_CHAMBER) heater_detail_panel_build();
 
   nav_build(screen);
   s_chart_force = true;
@@ -4284,6 +4455,11 @@ static void settings_open_ac_cb(lv_event_t* e) {
 static void settings_open_sml_cb(lv_event_t* e) {
   (void)e;
   ui_push(UI_SCREEN_SML);
+}
+
+static void settings_open_heater_cb(lv_event_t* e) {
+  (void)e;
+  ui_push(UI_SCREEN_HEATER_CFG);
 }
 
 static void settings_open_log_cb(lv_event_t* e) {
@@ -5218,6 +5394,9 @@ lv_obj_t* haus_ui_build_settings(void) {
   yr += step;
   settings_value_row(LX, yl, CW, "SML METER", "live", settings_open_sml_cb);
   settings_value_row(RX, yr, CW, "FIRMWARE", GIT_HASH, NULL);
+  yl += step;
+  settings_value_row(LX, yl, CW, "HEATING", "duty + schedule",
+                     settings_open_heater_cb);
 
   nav_build(UI_SCREEN_SETTINGS);
   return root;
@@ -5287,9 +5466,10 @@ void haus_ui_deinit(void) {
   s_side_big2 = s_side_big2_lbl = s_side_delta = s_side_delta_lbl = NULL;
   s_side_hr2 = s_side_hr3 = NULL;
   memset(s_side_legend, 0, sizeof(s_side_legend));
-  s_pwm_switch = s_pwm_switch_lbl = s_pwm_slider = NULL;
-  s_pwm_req_lbl = s_pwm_force_lbl = NULL;
+  s_pwm_slider = NULL;
+  s_pwm_req_lbl = s_pwm_force_lbl = s_pwm_reports_cap = NULL;
   s_auto_lbl = s_heater_note_lbl = NULL;
+  memset(s_cfg_val, 0, sizeof(s_cfg_val));
   memset(s_mode_seg, 0, sizeof(s_mode_seg));
   memset(s_mode_seg_lbl, 0, sizeof(s_mode_seg_lbl));
   s_pwm_touched = false;
@@ -5312,7 +5492,7 @@ void haus_ui_deinit(void) {
 
 /* Load a screen. The stack is managed by ui_jump/ui_push/ui_pop. */
 static void ui_show_screen(int screen) {
-  if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_SML) return;
+  if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_MAX) return;
   g_current_screen = screen;
 
   haus_ui_deinit();
@@ -5354,6 +5534,9 @@ static void ui_show_screen(int screen) {
       break;
     case UI_SCREEN_SML:
       haus_ui_build_sml();
+      break;
+    case UI_SCREEN_HEATER_CFG:
+      haus_ui_build_heater_cfg();
       break;
   }
 }

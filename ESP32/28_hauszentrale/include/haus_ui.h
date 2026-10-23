@@ -61,6 +61,7 @@ lv_obj_t* haus_ui_build_storage(void);
 lv_obj_t* haus_ui_build_can(void);
 lv_obj_t* haus_ui_build_roles(void);
 lv_obj_t* haus_ui_build_sml(void);
+lv_obj_t* haus_ui_build_heater_cfg(void);
 
 /** Build the full-bleed log screen (S15). */
 lv_obj_t* haus_ui_build_log(void);

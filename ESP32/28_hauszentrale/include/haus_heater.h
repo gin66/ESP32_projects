@@ -405,42 +405,6 @@ bool heater_get_transmit_duty(const HeaterAuthority *auth,
                                bool *out_send,
                                HeaterTxSource *out_src);
 
-/* Handle reboot: restore mode and determine boot transmit.
- *
- * Parameters:
- *   auth              — authority state (non-NULL, updated from persisted data).
- *   persisted_mode    — the mode restored from /heater.bin.
- *   persisted_duty    — the duty restored from /heater.bin (for MANUAL mode).
- *   current_duty_on_bus — the duty currently on the CAN bus (0x280).
- *   can_green         — current CAN bus health.
- *   sensors_valid     — current sensor validity.
- *   clock_synced      — current clock sync status.
- *   out_duty          — receives the duty to transmit (non-NULL).
- *   out_send          — receives whether to transmit (non-NULL).
- *   out_src           — receives the source (non-NULL).
- *
- * Returns:
- *   true  — a transmit decision was made.
- *   false — no transmit needed (bus already matches restored state).
- *
- * Rules:
- *   - OFF + report is 1000: send nothing.
- *   - OFF + report is heating duty: send 1000 once.
- *   - MANUAL: send saved_duty only when report differs.
- *   - AUTO: send nothing until first legal decision; show PWM_SRC_EEPROM.
- *   - Handle PWM_SRC_NRF and foreign 0x280 → yield, don't overwrite remote.
- */
-bool heater_handle_boot_restore(HeaterAuthority *auth,
-                                 HeaterMode persisted_mode,
-                                 uint16_t persisted_duty,
-                                 uint16_t current_duty_on_bus,
-                                 bool can_green,
-                                 bool sensors_valid,
-                                 bool clock_synced,
-                                 uint16_t *out_duty,
-                                 bool *out_send,
-                                 HeaterTxSource *out_src);
-
 /* Check if schedule/sensor recovery is blocked by MODE_OFF.
  *
  * Parameters:

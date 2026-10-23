@@ -97,6 +97,13 @@ void heater_ctl_note_sent(uint16_t duty);
 
 const HeaterRuntime *heater_ctl_get(void);
 
+/* Stable short names for logs, the UI, and HTTP. */
+const char *heater_mode_name(HeaterMode mode);
+const char *heater_cycle_state_name(HeaterCycleState state);
+const char *heater_hold_name(HeaterHoldReason hold);
+const char *heater_sched_reason_name(HeaterScheduleReason reason);
+const char *heater_result_name(HeaterCycleResult result);
+
 #ifdef __cplusplus
 }
 #endif

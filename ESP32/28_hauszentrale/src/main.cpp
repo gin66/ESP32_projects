@@ -372,6 +372,71 @@ void setup() {
     tpl_server.send(200, "application/json",
                     on ? "{\"can\":true}" : "{\"can\":false}");
   });
+  /* Heater observability (Phase 7): mode, cycle, setpoints, duties, reasons,
+   * remaining minimum times, and the rolling edge count. */
+  tpl_server.on("/heater", HTTP_GET, []() {
+    tpl_server.sendHeader("Access-Control-Allow-Origin", "*");
+    tpl_server.sendHeader("Connection", "close");
+    static HausState st;
+    gui_get_state(&st);
+    const HeaterRuntime* rt = heater_ctl_get();
+    const HeaterConfig* cfg = heater_config_get();
+
+    int night_flow_c100 =
+        cfg->schedule.T_day_c100 - cfg->schedule.night_setback_c100;
+    if (night_flow_c100 < cfg->schedule.night_floor_c100)
+      night_flow_c100 = cfg->schedule.night_floor_c100;
+
+    const char* reason;
+    if (rt->pump_blocked)
+      reason = "pump-blocked";
+    else if (rt->override_active)
+      reason = "override";
+    else if (rt->hold != HEATER_HOLD_NONE)
+      reason = heater_hold_name(rt->hold);
+    else if (rt->last_result == HEATER_CYCLE_RESULT_SEND)
+      reason = "send";
+    else
+      reason = heater_result_name(rt->last_result);
+
+    static char buf[768];
+    snprintf(buf, sizeof(buf),
+             "{\"mode\":\"%s\",\"state\":\"%s\",\"cycle\":\"%s\","
+             "\"hold\":\"%s\",\"reason\":\"%s\","
+             "\"can_green\":%s,\"clock_synced\":%s,\"override\":%s,"
+             "\"override_remaining_s\":%lu,\"pump_blocked\":%s,"
+             "\"pump_blocked_remaining_s\":%lu,"
+             "\"setpoints\":{\"day_c\":%.1f,\"night_flow_c\":%.1f,"
+             "\"night_floor_c\":%.1f},"
+             "\"requested_duty\":%u,\"planned_duty\":%u,"
+             "\"last_sent_duty\":%d,\"duty_reported\":%d,"
+             "\"sched_reason\":\"%s\",\"result\":\"%s\","
+             "\"min_on_remaining_s\":%lu,\"min_off_remaining_s\":%lu,"
+             "\"duty_interval_remaining_s\":%lu,\"edges_last_hour\":%u,"
+             "\"trace\":\"%s\"}",
+             heater_mode_name(rt->mode),
+             rt->pump_blocked ? "pump-blocked"
+                              : heater_cycle_state_name(rt->cycle),
+             heater_cycle_state_name(rt->cycle), heater_hold_name(rt->hold),
+             reason, st.can.can_status == GUI_STATUS_OK ? "true" : "false",
+             st.can.synced ? "true" : "false",
+             rt->override_active ? "true" : "false",
+             (unsigned long)rt->override_remaining_s,
+             rt->pump_blocked ? "true" : "false",
+             (unsigned long)rt->pump_blocked_remaining_s,
+             cfg->schedule.T_day_c100 / 100.0, night_flow_c100 / 100.0,
+             cfg->schedule.night_floor_c100 / 100.0,
+             (unsigned)rt->sched_duty, (unsigned)rt->planned_duty,
+             rt->have_sent ? (int)rt->last_sent_duty : -1,
+             st.can.pwm_known ? (int)st.can.pwm_permille : -1,
+             heater_sched_reason_name(rt->sched_reason),
+             heater_result_name(rt->last_result),
+             (unsigned long)rt->min_on_remaining_s,
+             (unsigned long)rt->min_off_remaining_s,
+             (unsigned long)rt->duty_interval_remaining_s,
+             (unsigned)rt->edges_last_hour, heater_log_path());
+    tpl_server.send(200, "application/json", buf);
+  });
   /* Light CAN-only telemetry: /sd/status refreshes the SD card, which must
    * not be hammered while the bus is under a flood (S17.07). */
   tpl_server.on("/can", HTTP_GET, []() {

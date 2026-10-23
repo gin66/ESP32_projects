@@ -319,3 +319,85 @@ void heater_ctl_note_sent(uint16_t duty) {
 }
 
 const HeaterRuntime *heater_ctl_get(void) { return &s_rt; }
+
+const char *heater_mode_name(HeaterMode mode) {
+  switch (mode) {
+    case HEATER_MODE_OFF:
+      return "off";
+    case HEATER_MODE_MANUAL:
+      return "manual";
+    case HEATER_MODE_AUTO:
+      return "auto";
+    case HEATER_MODE_OVERRIDE:
+      return "override";
+  }
+  return "?";
+}
+
+const char *heater_cycle_state_name(HeaterCycleState state) {
+  switch (state) {
+    case HEATER_CYCLE_IDLE:
+      return "idle";
+    case HEATER_CYCLE_HEATING:
+      return "heating";
+    case HEATER_CYCLE_COOLDOWN:
+      return "cooldown";
+  }
+  return "?";
+}
+
+const char *heater_hold_name(HeaterHoldReason hold) {
+  switch (hold) {
+    case HEATER_HOLD_NONE:
+      return "none";
+    case HEATER_HOLD_CAN_NOT_GREEN:
+      return "can-not-green";
+    case HEATER_HOLD_SENSORS_INVALID:
+      return "sensors-invalid";
+    case HEATER_HOLD_CLOCK_UNSYNCED:
+      return "clock-unsynced";
+    case HEATER_HOLD_MODE_OFF_LOCKED:
+      return "mode-off-locked";
+    case HEATER_HOLD_SENSOR_STALE:
+      return "sensor-stale";
+    case HEATER_HOLD_SCHED_OFF:
+      return "sched-off";
+  }
+  return "?";
+}
+
+const char *heater_sched_reason_name(HeaterScheduleReason reason) {
+  switch (reason) {
+    case HEATER_SCHED_DAY:
+      return "day";
+    case HEATER_SCHED_NIGHT:
+      return "night";
+    case HEATER_SCHED_OFF:
+      return "off";
+    case HEATER_SCHED_FROST:
+      return "frost";
+    case HEATER_SCHED_UNSYNCED:
+      return "unsynced";
+    case HEATER_SCHED_MODE_OFF:
+      return "mode-off";
+  }
+  return "?";
+}
+
+const char *heater_result_name(HeaterCycleResult result) {
+  switch (result) {
+    case HEATER_CYCLE_RESULT_NONE:
+      return "hold";
+    case HEATER_CYCLE_RESULT_SEND:
+      return "send";
+    case HEATER_CYCLE_RESULT_MIN_ON:
+      return "suppressed-min-on";
+    case HEATER_CYCLE_RESULT_MIN_OFF:
+      return "suppressed-min-off";
+    case HEATER_CYCLE_RESULT_EDGE_BUDGET:
+      return "suppressed-edge-budget";
+    case HEATER_CYCLE_RESULT_DUTY_INTERVAL:
+      return "suppressed-duty-interval";
+  }
+  return "?";
+}

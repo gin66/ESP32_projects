@@ -217,7 +217,7 @@
 
 ## Phase 6 — Pump Guard (Later)
 
-### [ ] 6.1 Implement pump-current guard
+### [x] 6.1 Implement pump-current guard
 - Input: `CanState.ac_rms_dc` (0x2C waveform RMS in 0.1 ADC count)
 - Trigger: request heat + coil count < I_min for 10 min + ΔT < 2 K → send 1000, state `PUMP_BLOCKED`
 - Recovery: stay at 1000 for 30 min, then allow one supervised demand
@@ -227,15 +227,36 @@
 - Must not use "current high" as clear condition
 - 3-minute grace = `Taktsperre`
 - Equipment protection only (suspends AUTO; manual OFF/duty untouched)
+- Implemented in `haus_heater_ctl` (`pump_guard_update`) with
+  `HeaterPumpParams`: grace 180 s, confirm 600 s, hold 1800 s, ΔT 200 c°
+- **Disabled by default** (`HeaterPumpParams.enabled = false`): the installed
+  pump-switch position, coil `I_min`, τ and α are still missing, so enabling a
+  made-up threshold would be a false-trip risk
+- The guard never clears on "current high"; recovery is the 30 min timer or a
+  0.5 K further room drop
+- Latch sends 1000 once, forces an off-edge, and suspends only AUTO; a manual
+  mode change clears the latch and leaves manual frames untouched
+- Host tests cover grace, confirm, latch send, and the 30 min recovery
+- Remaining field work: record the switch position and coil threshold, then
+  call `heater_ctl_set_pump_params()` with `enabled = true`
 - See §5.7
 
 ---
 
 ## Phase 7 — HTTP Observability
 
-### [ ] 7.1 Implement `/heater` JSON endpoint
+### [x] 7.1 Implement `/heater` JSON endpoint
 - Fields: mode, state, setpoints, requested duty, reason, remaining minimum times, edge count
 - See §9, step 7
+- Implemented in `main.cpp`; reads the `heater_ctl` snapshot
+- Includes `mode`, `state`, `cycle`, `hold`, `reason`, `can_green`,
+  `clock_synced`, `override`(+remaining), `pump_blocked`(+remaining)
+- `setpoints`: day, night flow, night floor in °C
+- `requested_duty` (schedule), `planned_duty` (after cycle limits),
+  `last_sent_duty`, `duty_reported` (`-1` when no 0x280 yet)
+- `sched_reason`, `result`, `min_on_remaining_s`, `min_off_remaining_s`,
+  `duty_interval_remaining_s`, `edges_last_hour`
+- `trace` is the current SD experiment CSV path, or `""`
 
 ---
 

@@ -130,6 +130,10 @@ static void test_day(uint32_t start) {
           (unsigned)minute.produced_kwh4);
     CHECK((minute.flags & SAMPLE_FLAG_DUTY_STALE) == 0, "duty marked stale");
     CHECK((minute.flags & SAMPLE_FLAG_GAP) == 0, "fresh minute marked gap");
+    CHECK((minute.flags & SAMPLE_FLAG_BACKLIGHT_KNOWN) != 0,
+          "backlight state not recorded");
+    CHECK((minute.flags & SAMPLE_FLAG_BACKLIGHT) == 0,
+          "dark minute marked lit");
 
     const uint32_t last = start + (HAUS_L1_SAMPLES - 1u) * 60u;
     HausState again = fresh_state(last);
@@ -593,6 +597,18 @@ static void test_record_fields(void) {
           (unsigned)c.produced_kwh4);
     CHECK((c.flags & SAMPLE_FLAG_DUTY_STALE) == 0,
           "never-seen duty marked stale");
+    CHECK((c.flags & SAMPLE_FLAG_BACKLIGHT_KNOWN) != 0,
+          "dark minute lost the known bit");
+    CHECK((c.flags & SAMPLE_FLAG_BACKLIGHT) == 0, "dark minute marked lit");
+
+    const uint32_t t3 = t0 + 180u;
+    HausState lit = fresh_state(t3);
+    lit.climate.backlight_on = true;
+    CHECK(haus_history_sample(&lit, t3), "lit sample rejected");
+    const gui_sample_t &d = l1[(t3 % 86400u) / 60u];
+    CHECK((d.flags & SAMPLE_FLAG_BACKLIGHT_KNOWN) != 0, "lit minute unknown");
+    CHECK((d.flags & SAMPLE_FLAG_BACKLIGHT) != 0, "lit minute not marked");
+    CHECK(d.living_c100 == 2100, "lit minute dropped the SHT45 sample");
 }
 
 int main(void) {

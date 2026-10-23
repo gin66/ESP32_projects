@@ -706,6 +706,7 @@ void gui_update_state(void) {
   climate.hum_c100 = living_hum;
   climate.pressure_pa = living_pres;
   climate.climate_flags = climate_flags;
+  climate.backlight_on = gui_backlight_on();
   /* The SHT45 is on the local I2C bus, not on CAN. Timestamp it from the
    * wall clock; using can.timestamp made every living-room sample stale
    * whenever CAN was off. */

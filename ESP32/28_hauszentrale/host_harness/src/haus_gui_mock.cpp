@@ -476,6 +476,7 @@ static void apply_dump_state(CanState& can, ClimateState& climate) {
   climate.hum_c100 = hum;
   climate.pressure_pa = 0;
   climate.climate_flags = living == HAUS_CAN_TEMP_EMPTY ? 0 : CLIMATE_VALID_SHT45;
+  climate.backlight_on = (sample.flags & SAMPLE_FLAG_BACKLIGHT) != 0;
   climate.last_update_epoch = now;
 
   const uint32_t oldest = dump_oldest_epoch();
@@ -589,6 +590,7 @@ void gui_update_state(void) {
   climate.hum_c100 = mock_living_humidity(g_sim_time);
   climate.pressure_pa = mock_living_pressure(g_sim_time);
   climate.climate_flags = CLIMATE_VALID_AHT20 | CLIMATE_VALID_BMP280;
+  climate.backlight_on = gui_backlight_on();
   climate.last_update_epoch = g_sim_time;
 
   /* System: exercise all three indicator states in the host render. */

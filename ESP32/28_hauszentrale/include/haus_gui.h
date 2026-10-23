@@ -75,7 +75,7 @@ typedef struct {
   uint16_t hum_c100;         /* 12: 0.01 %RH */
   uint16_t power_dw;         /* 14: unused in new records; always 0 */
   uint32_t pressure_pa;      /* 16: Pa */
-  uint8_t flags;             /* 20: SAMPLE_FLAG_* */
+  uint8_t flags;             /* 20: SAMPLE_FLAG_* (incl. backlight) */
   uint8_t stale_mask;        /* 21: SAMPLE_STALE_* bits, per source */
   int16_t target_c100;       /* 22: Soll / setpoint (third chart series) */
   uint16_t ac_rms_dc;        /* 24: 0x2C waveform RMS, 0.1 ADC count */
@@ -89,14 +89,22 @@ typedef struct {
   uint32_t produced_kwh4;    /* 40: 1-0:2.8.0, unit 0.0001 kWh */
 } gui_sample_t;
 
-/* Sample flags. Bits 0x40 and 0x80 are free. DUTY_STALE marks a held 0x280
- * that is older than the live freshness window. It is not a second log. */
+/* Sample flags. DUTY_STALE marks a held 0x280 that is older than the live
+ * freshness window. It is not a second log.
+ *
+ * BACKLIGHT is the panel lamp at this minute, stored so a later comparison
+ * can separate SHT45 readings taken with the lamp on from those taken with
+ * it off. BACKLIGHT_KNOWN is set on every sample this firmware writes.
+ * Minutes recorded before the field exist have both bits clear: a clear
+ * BACKLIGHT bit is "off" only when BACKLIGHT_KNOWN is set. */
 #define SAMPLE_FLAG_MODELLED 0x01
 #define SAMPLE_FLAG_GAP 0x02
 #define SAMPLE_FLAG_STALE 0x04
 #define SAMPLE_FLAG_CLIMATE_AHT20 0x08
 #define SAMPLE_FLAG_CLIMATE_BMP280 0x10
 #define SAMPLE_FLAG_DUTY_STALE 0x20
+#define SAMPLE_FLAG_BACKLIGHT 0x40
+#define SAMPLE_FLAG_BACKLIGHT_KNOWN 0x80
 
 /* Per-source stale bits, in RollupColumn series order (0…8). */
 #define SAMPLE_STALE_CHAMBER 0x01
@@ -264,6 +272,7 @@ typedef struct {
   uint32_t pressure_pa;       /* Pa */
   uint8_t climate_flags;      /* CLIMATE_VALID_* */
   uint32_t last_update_epoch; /* last sensor read, unix s */
+  bool backlight_on;          /* panel lamp; copied into the minute flags */
 } ClimateState;
 
 /* Read-only merged view, assembled per call by gui_get_state(). */

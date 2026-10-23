@@ -639,6 +639,10 @@ bool haus_history_sample(const HausState* state, uint32_t epoch_seconds) {
   /* Held last report. The file is still one record per minute. */
   if (state->can.pwm_known && !state->can.pwm_fresh)
     s->flags |= SAMPLE_FLAG_DUTY_STALE;
+  /* The lamp state travels with the SHT45 minute. KNOWN distinguishes a
+   * recorded off from a minute written before this field existed. */
+  s->flags |= SAMPLE_FLAG_BACKLIGHT_KNOWN;
+  if (state->climate.backlight_on) s->flags |= SAMPLE_FLAG_BACKLIGHT;
 
   uint8_t stale = 0;
   if (s->temp[0] != HAUS_CAN_TEMP_EMPTY &&

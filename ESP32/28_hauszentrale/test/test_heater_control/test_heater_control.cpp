@@ -1,9 +1,11 @@
 #include <cassert>
+#include <cstddef>
 #include <cstdio>
 #include <ctime>
 #include <cstring>
 
 #include "haus_heater.h"
+#include "haus_heater_bin.h"
 #include "haus_water_model.h"
 
 /* ─── Helpers ────────────────────────────────────────────────────────────── */
@@ -464,6 +466,69 @@ int main() {
       assert(tx_src == HEATER_TX_NRF);
       assert(a->mode == HEATER_MODE_OVERRIDE);
     }
+
+    /* Scenario 7: Restored MANUAL, within 60 s write window — no transmit.
+     * The boiler received the value from the recent EEPROM write; no need
+     * to re-transmit. */
+    {
+      heater_authority_default(a);
+      a->eeprom_last_write_epoch = 100;  /* Last write at t=100. */
+      /* Boot at t=130 (30 s after last write, within 60 s window). */
+      a->override_start_epoch = 130;
+      bool ok = heater_handle_boot_restore(a, HEATER_MODE_MANUAL, 350,
+                                            280, true, true, true,
+                                            &tx_duty, &tx_send, &tx_src);
+      assert(ok == true);
+      assert(tx_duty == 350);
+      assert(tx_send == false);  /* Within write window — no transmit */
+      assert(tx_src == HEATER_TX_EEPROM);
+    }
+
+    /* Scenario 8: Restored MANUAL, outside 60 s write window — transmit.
+     * The last write was long enough ago that the boiler may have lost the
+     * value; re-transmit the persisted duty. */
+    {
+      heater_authority_default(a);
+      a->eeprom_last_write_epoch = 100;  /* Last write at t=100. */
+      /* Boot at t=200 (100 s after last write, outside 60 s window). */
+      a->override_start_epoch = 200;
+      bool ok = heater_handle_boot_restore(a, HEATER_MODE_MANUAL, 350,
+                                            280, true, true, true,
+                                            &tx_duty, &tx_send, &tx_src);
+      assert(ok == true);
+      assert(tx_duty == 350);
+      assert(tx_send == true);  /* Outside write window — transmit */
+      assert(tx_src == HEATER_TX_EEPROM);
+    }
+
+    /* Scenario 9: Restored MANUAL, walkback — persisted duty lower than
+     * bus, walk back at most 1 permille. */
+    {
+      heater_authority_default(a);
+      /* No recent write (eeprom_last_write_epoch = 0). */
+      a->override_start_epoch = 0;
+      bool ok = heater_handle_boot_restore(a, HEATER_MODE_MANUAL, 280,
+                                            350, true, true, true,
+                                            &tx_duty, &tx_send, &tx_src);
+      assert(ok == true);
+      assert(tx_duty == 349);  /* 350 - 1 (walkback) */
+      assert(tx_send == true);  /* 349 != 350, transmit */
+      assert(tx_src == HEATER_TX_EEPROM);
+    }
+
+    /* Scenario 10: Restored MANUAL, walkback — persisted duty within 1 of
+     * bus, transmit persisted duty directly. */
+    {
+      heater_authority_default(a);
+      a->override_start_epoch = 0;
+      bool ok = heater_handle_boot_restore(a, HEATER_MODE_MANUAL, 349,
+                                            350, true, true, true,
+                                            &tx_duty, &tx_send, &tx_src);
+      assert(ok == true);
+      assert(tx_duty == 349);  /* Walkback gives 349, matches persisted */
+      assert(tx_send == true);  /* 349 != 350, transmit */
+      assert(tx_src == HEATER_TX_EEPROM);
+    }
   }
 
   /* Sensor loss handling. */
@@ -793,6 +858,149 @@ int main() {
   }
 
   std::printf("test_heater_control (authority management 0.4): ok\n");
+
+  /* ─── Binary persistence tests (Phase 1.1) ─────────────────────────── */
+
+  /* T.1.1: File format — verify struct sizes and field offsets. */
+  {
+    assert(sizeof(HeaterBinPayload) == HAUS_HEATER_BIN_PAYLOAD_SIZE);
+    assert(HAUS_HEATER_BIN_PAYLOAD_SIZE == 11);
+    assert(HAUS_HEATER_BIN_FILE_SIZE == 21);
+
+    assert(offsetof(HeaterBinPayload, mode) == 0);
+    assert(offsetof(HeaterBinPayload, day_start_hour) == 1);
+    assert(offsetof(HeaterBinPayload, night_start_hour) == 2);
+    assert(offsetof(HeaterBinPayload, saved_duty) == 3);
+    assert(offsetof(HeaterBinPayload, T_day_c100) == 5);
+    assert(offsetof(HeaterBinPayload, night_setback_c100) == 7);
+    assert(offsetof(HeaterBinPayload, night_floor_c100) == 9);
+
+    std::printf("  file format: header=%u, payload=%u, total=%u\n",
+                (unsigned)HAUS_HEATER_BIN_HEADER_SIZE,
+                (unsigned)HAUS_HEATER_BIN_PAYLOAD_SIZE,
+                (unsigned)HAUS_HEATER_BIN_FILE_SIZE);
+  }
+
+  /* T.1.2: CRC32 — verify known constants. */
+  {
+    assert(HAUS_HEATER_BIN_MAGIC == 0x484E5452u);
+    assert(HAUS_HEATER_BIN_VERSION == 1);
+  }
+
+  /* T.1.3: Defaults — mode OFF, saved duty 1000, schedule from the template. */
+  {
+    HeaterConfig config;
+    memset(&config, 0xA5, sizeof(config));
+    heater_config_default(&config);
+
+    assert(config.mode == HEATER_MODE_OFF);
+    assert(config.saved_duty == 1000);
+    assert(config.schedule.day_start_hour == 6);
+    assert(config.schedule.night_start_hour == 22);
+    assert(config.schedule.T_day_c100 == 5500);
+    assert(config.schedule.night_setback_c100 == 1500);
+    assert(config.schedule.night_floor_c100 == 4200);
+  }
+
+  /* T.1.4: Encode/decode round-trip. */
+  {
+    HeaterConfig in;
+    heater_config_default(&in);
+    in.mode = HEATER_MODE_MANUAL;
+    in.saved_duty = 320;
+    in.schedule.day_start_hour = 5;
+    in.schedule.night_start_hour = 21;
+    in.schedule.T_day_c100 = 5800;
+    in.schedule.night_setback_c100 = 1200;
+    in.schedule.night_floor_c100 = 4300;
+
+    uint8_t buf[HAUS_HEATER_BIN_FILE_SIZE];
+    const size_t n = heater_bin_encode(buf, sizeof(buf), &in);
+    assert(n == HAUS_HEATER_BIN_FILE_SIZE);
+
+    HeaterConfig out;
+    memset(&out, 0, sizeof(out));
+    assert(heater_bin_decode(buf, n, &out));
+
+    assert(out.mode == in.mode);
+    assert(out.saved_duty == in.saved_duty);
+    assert(out.schedule.day_start_hour == in.schedule.day_start_hour);
+    assert(out.schedule.night_start_hour == in.schedule.night_start_hour);
+    assert(out.schedule.T_day_c100 == in.schedule.T_day_c100);
+    assert(out.schedule.night_setback_c100 == in.schedule.night_setback_c100);
+    assert(out.schedule.night_floor_c100 == in.schedule.night_floor_c100);
+  }
+
+  /* T.1.5: Encode refuses too-small buffers. */
+  {
+    HeaterConfig config;
+    heater_config_default(&config);
+    uint8_t small[HAUS_HEATER_BIN_FILE_SIZE - 1];
+    assert(heater_bin_encode(small, sizeof(small), &config) == 0);
+  }
+
+  /* T.1.6: Corrupt file handling — bad magic, version, CRC, field ranges.
+   * In every case decode returns false and leaves the caller's state alone. */
+  {
+    HeaterConfig good;
+    heater_config_default(&good);
+    good.mode = HEATER_MODE_AUTO;
+
+    uint8_t buf[HAUS_HEATER_BIN_FILE_SIZE];
+    assert(heater_bin_encode(buf, sizeof(buf), &good) ==
+           HAUS_HEATER_BIN_FILE_SIZE);
+
+    HeaterConfig out;
+    const HeaterConfig sentinel = good;
+    auto reset_output = [&out, &sentinel]() { out = sentinel; };
+
+    /* Bad magic. */
+    uint8_t bad[HAUS_HEATER_BIN_FILE_SIZE];
+    memcpy(bad, buf, sizeof(bad));
+    bad[0] ^= 0xFF;
+    reset_output();
+    assert(!heater_bin_decode(bad, sizeof(bad), &out));
+    assert(out.mode == sentinel.mode);
+
+    /* Bad version (offset 4, 16-bit). */
+    memcpy(bad, buf, sizeof(bad));
+    bad[4] = 0xFF;
+    bad[5] = 0xFF;
+    reset_output();
+    assert(!heater_bin_decode(bad, sizeof(bad), &out));
+    assert(out.mode == sentinel.mode);
+
+    /* Bad CRC: flip one payload byte. */
+    memcpy(bad, buf, sizeof(bad));
+    bad[HAUS_HEATER_BIN_HEADER_SIZE] ^= 0x01;
+    reset_output();
+    assert(!heater_bin_decode(bad, sizeof(bad), &out));
+    assert(out.mode == sentinel.mode);
+
+    /* Out-of-range mode with a valid CRC. */
+    HeaterConfig invalid;
+    heater_config_default(&invalid);
+    invalid.mode = (HeaterMode)(HEATER_MODE_OVERRIDE + 1);
+    assert(heater_bin_encode(bad, sizeof(bad), &invalid) == sizeof(bad));
+    reset_output();
+    assert(!heater_bin_decode(bad, sizeof(bad), &out));
+    assert(out.mode == sentinel.mode);
+
+    /* Out-of-range hour with a valid CRC. */
+    invalid = good;
+    invalid.schedule.day_start_hour = 24;
+    assert(heater_bin_encode(bad, sizeof(bad), &invalid) == sizeof(bad));
+    reset_output();
+    assert(!heater_bin_decode(bad, sizeof(bad), &out));
+    assert(out.mode == sentinel.mode);
+
+    /* Truncated buffer. */
+    reset_output();
+    assert(!heater_bin_decode(buf, HAUS_HEATER_BIN_FILE_SIZE - 1, &out));
+    assert(out.mode == sentinel.mode);
+  }
+
+  std::printf("test_heater_control (binary persistence 1.1): ok\n");
 
   std::printf("test_heater_control: ok\n");
   return 0;

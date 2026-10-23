@@ -208,6 +208,7 @@ void heater_authority_default(HeaterAuthority *auth) {
   auth->mode_off_locked = false;
   auth->last_transmitted_duty = 1000;
   auth->hold_reason = HEATER_HOLD_NONE;
+  auth->eeprom_last_write_epoch = 0;
 }
 
 bool heater_handle_manual_off(HeaterAuthority *auth,
@@ -453,6 +454,12 @@ bool heater_get_transmit_duty(const HeaterAuthority *auth,
   return false;
 }
 
+/* EEPROM write cooldown: minimum seconds between EEPROM writes. */
+#define HEATER_EEPROM_WRITE_COOLDOWN 60
+
+/* Maximum duty decrease per EEPROM write (lowest-permille walkback). */
+#define HEATER_EEPROM_MAX_DECREASE 1
+
 bool heater_handle_boot_restore(HeaterAuthority *auth,
                                  HeaterMode persisted_mode,
                                  uint16_t persisted_duty,
@@ -473,6 +480,9 @@ bool heater_handle_boot_restore(HeaterAuthority *auth,
   auth->clock_synced = clock_synced;
   auth->mode_off_locked = (persisted_mode == HEATER_MODE_OFF);
   auth->hold_reason = HEATER_HOLD_NONE;
+  /* Save boot time before clearing override state — needed for EEPROM write
+   * window check. */
+  uint32_t boot_epoch = auth->override_start_epoch;
   auth->override_start_epoch = 0;
 
   /* Handle each persisted mode according to boot transmit rules. */
@@ -485,12 +495,46 @@ bool heater_handle_boot_restore(HeaterAuthority *auth,
       *out_src = HEATER_TX_EEPROM;
       return true;
 
-    case HEATER_MODE_MANUAL:
-      /* Send saved_duty only when report differs. */
-      *out_duty = persisted_duty;
-      *out_send = (current_duty_on_bus != persisted_duty);
+    case HEATER_MODE_MANUAL: {
+      /* Send saved_duty only when report differs.
+       * Respect the EEPROM write window (60 s) and lowest-permille walkback. */
+      uint16_t tx_duty = persisted_duty;
+      bool should_send = (current_duty_on_bus != persisted_duty);
+
+      if (should_send) {
+        /* Check 60-second write window: if the last EEPROM write was recent,
+         * the boiler likely already has the value from that write. Don't
+         * transmit again — just show PWM_SRC_EEPROM. */
+        if (auth->eeprom_last_write_epoch > 0 &&
+            (auth->eeprom_last_write_epoch + HEATER_EEPROM_WRITE_COOLDOWN >
+             boot_epoch)) {
+          *out_duty = persisted_duty;
+          *out_send = false;
+          *out_src = HEATER_TX_EEPROM;
+          return true;
+        }
+
+        /* Lowest-permille walkback: if the persisted duty is lower than the
+         * current bus duty, don't jump directly — walk back at most 1
+         * permille per write. This prevents sudden large drops that could
+         * confuse the boiler's control loop. */
+        if (persisted_duty < current_duty_on_bus) {
+          const uint16_t max_decrease =
+              (current_duty_on_bus > persisted_duty + HEATER_EEPROM_MAX_DECREASE)
+                  ? HEATER_EEPROM_MAX_DECREASE
+                  : (current_duty_on_bus - persisted_duty);
+          tx_duty = current_duty_on_bus - max_decrease;
+          if (tx_duty < persisted_duty) {
+            tx_duty = persisted_duty;
+          }
+        }
+      }
+
+      *out_duty = tx_duty;
+      *out_send = (current_duty_on_bus != tx_duty);
       *out_src = HEATER_TX_EEPROM;
       return true;
+    }
 
     case HEATER_MODE_AUTO:
       /* Send nothing until first legal decision; show PWM_SRC_EEPROM. */

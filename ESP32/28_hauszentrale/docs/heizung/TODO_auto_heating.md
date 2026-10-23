@@ -46,7 +46,7 @@
 - Schedule/sensor recovery cannot override `MODE_OFF`
 - See §5.1
 
-### [ ] 0.5 Implement boot transmit rules
+### [x] 0.5 Implement boot transmit rules
 - Panel sends only when `0x280` disagrees with restored mode:
   - OFF + report is 1000: send nothing
   - OFF + report is heating duty: send 1000 once
@@ -54,17 +54,27 @@
   - AUTO: send nothing until first legal decision; show `PWM_SRC_EEPROM`
 - Handle `PWM_SRC_NRF` and foreign `0x280` → yield, don't overwrite remote
 - Handle EEPROM heartbeat edge cases (60 s write window, lowest-permille walkback)
+  - 60 s write window: if last EEPROM write was < 60 s ago, don't re-transmit
+  - Lowest-permille walkback: when restoring a lower duty, step down at most 1
+    permille per write (prevents sudden large drops)
 - See §5.2
 
 ---
 
 ## Phase 1 — Config Persistence and UI Mode
 
-### [ ] 1.1 Implement `/heater.bin` persistence
+### [x] 1.1 Implement `/heater.bin` persistence
 - Versioned binary: magic, version, CRC32 over payload
 - Pattern: follow `day-file`/`rollup.bin` (not `sensor_roles.bin` which has no CRC)
 - On bad file: reject, keep previous mode in RAM, never come up as AUTO
 - Persist: mode, schedule (day flow, night setback, frost parameters)
+- Also persists `saved_duty` (needed by the §5.2 MANUAL boot rule)
+- 21-byte file: 10-byte header (magic/version/CRC32) + 11-byte payload
+- File: `include/haus_heater_bin.h`, `src/haus_heater_bin.cpp`
+- Pure encode/decode split from SPIFFS I/O so host tests can run without flash
+- Corrupt/absent file: defaults (`OFF`) are written, so the next boot is safe
+- Host tests: round trip, size/layout, too-small buffer, bad magic/version/CRC,
+  out-of-range mode/hour, truncated buffer (decode leaves state unchanged)
 - See §8
 
 ### [ ] 1.2 Add AUTO mode control to HEATER detail page

@@ -180,6 +180,7 @@ typedef struct {
   bool mode_off_locked;                  /**< MODE_OFF cannot be overridden.   */
   uint16_t last_transmitted_duty;        /**< Last duty sent on bus.           */
   HeaterHoldReason hold_reason;          /**< Reason for AUTO HOLD.            */
+  uint32_t eeprom_last_write_epoch;      /**< Monotonic seconds of last EEPROM write (0 = never). */
 } HeaterAuthority;
 
 /* Initialize authority state with defaults. */

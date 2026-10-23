@@ -166,9 +166,18 @@ void setup() {
              (int)hc->mode, (unsigned)hc->saved_duty,
              hc->schedule.day_start_hour, hc->schedule.night_start_hour);
   }
-  /* Phase 4: AUTO transmits through the anti-short-cycling controller. */
+  /* Phase 4: AUTO transmits through the anti-short-cycling controller.
+   * HEATER_AUTO_SHADOW (=1 in platformio.ini) keeps AUTO in review mode:
+   * decisions are logged, but no 0x240 frame leaves the panel. */
+#ifndef HEATER_AUTO_SHADOW
+#define HEATER_AUTO_SHADOW 0
+#endif
   heater_ctl_init();
   heater_ctl_set_sender(gui_send_pwm);
+  heater_ctl_set_shadow(HEATER_AUTO_SHADOW != 0);
+  if (HEATER_AUTO_SHADOW)
+    TPL_LOGW("heater_ctl",
+             "AUTO shadow: decisions are logged, no frames are transmitted");
   {
     HeaterPumpParams pump;
     heater_pump_params_default(&pump);

@@ -1,14 +1,14 @@
 # Auto Heating — Implementation TODO List
 
 **Source:** `whitepaper_auto_heating.md` (rev 1.2, 2026-10-23)  
-**Status:** Phases 0–7 are in the tree (commits after `1759c78`). The gaps below block the §13 AUTO release.  
+**Status:** Phases 0–7 are in the tree (commits after `1759c78`). G.3 is closed; the remaining gaps below block the §13 AUTO release.  
 **Scope:** `ESP32/28_hauszentrale` + Wolf gas boiler (`AVR/01_heizung_temp`)
 
 ---
 
 ## Gaps in the current tree (review after `1759c78`)
 
-The checked boxes above mean the function exists and a host test calls it. These items are what the firmware that runs still gets wrong. A first boot with no `/heater.bin` writes mode OFF and does not transmit. Selecting AUTO commands the boiler.
+The checked boxes above mean the function exists and a host test calls it. These items are what the firmware that runs still gets wrong. A first boot with no `/heater.bin` writes mode OFF and does not transmit. With G.3 closed, selecting AUTO logs a decision but does not command the boiler (`HEATER_AUTO_SHADOW=1`).
 
 ### [ ] G.1 Wire boot transmit into the controller that runs
 - `heater_handle_boot_restore()` is host-tested. `main.cpp` never calls it
@@ -26,10 +26,20 @@ The checked boxes above mean the function exists and a host test calls it. These
 - `PUMP BLOCKED` and `FROST` badges have no live source
 - See §8, §13
 
-### [ ] G.3 Keep a shadow mode that does not transmit
+### [x] G.3 Keep a shadow mode that does not transmit
 - Phase 3's `heater_shadow_tick` is gone. Phase 4 transmits
 - §9 requires one schedule edge, or a few hours of logs, to be reviewed before AUTO may command the boiler
 - The next flash needs a mode that logs the decision and does not call `gui_send_pwm()`
+- Implemented as `heater_ctl_set_shadow()`: `ctl_send()` logs
+  `SHADOW would-send` and returns without calling the sender. The cycle still
+  advances, so suppression reasons match a live controller
+- One `SHADOW mode/cycle/sched/decision/req/planned/edges/water/room/soll`
+  line per control period, plus `hold` reasons for CAN, clock, and override
+- Manual UI frames bypass the controller and still transmit
+- On by default in this build (`-DHEATER_AUTO_SHADOW=1` in `platformio.ini`);
+  set it to `0` after the bench review to let AUTO command the boiler
+- Host test covers suppressed send, advancing cycle, and restore when shadow
+  is turned off
 - See §7.5, §9
 
 ### [ ] G.4 Yield when `0x280` shows a duty this panel did not send
@@ -211,7 +221,9 @@ The checked boxes above mean the function exists and a host test calls it. These
   `edges/h`, `water_in`, `water_out`, `room`, `soll`
 - Holds logged with a reason: `can-not-green`, `clock-unsynced`,
   `schedule`, `nrf` (yield)
-- Superseded on the live path: `heater_shadow_tick` is gone and `heater_ctl_tick` calls `gui_send_pwm()`. See G.3
+- Reinstated inside the live controller by G.3: `heater_ctl_tick` still makes
+  the decision, but `heater_ctl_set_shadow(true)` suppresses the sender and
+  logs one reviewable line per control period
 - Mode changes are logged once; entering OFF records a forced off-edge so a
   later AUTO respects `min_off`
 - No multi-day gate: review one schedule edge or a few hours of lines

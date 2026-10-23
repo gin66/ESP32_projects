@@ -470,6 +470,61 @@ int main() {
 
   std::printf("test_heater_control (runtime controller 4.1/4.2): ok\n");
 
+  /* ─── Shadow mode (G.3) ────────────────────────────────────────────── */
+  {
+    HeaterConfig cfg;
+    heater_config_init();
+    cfg = *heater_config_get();
+    cfg.mode = HEATER_MODE_AUTO;
+    heater_schedule_default(&cfg.schedule);
+    heater_config_apply(&cfg);
+
+    const uint32_t t0 = compute_utc_for_local(2026, 10, 14, 8, 0, 0);
+    HeaterCtlInputs in;
+    memset(&in, 0, sizeof(in));
+    in.can_green = true;
+    in.clock_synced = true;
+    in.utc_epoch = t0;
+    in.ac_fresh = true;
+    in.water_valid = true;
+    in.water_in_c100 = 3000;
+    in.water_out_c100 = 4000;
+    in.room_valid = true;
+    in.room_c100 = 2100;
+    in.pwm_known = true;
+    in.pwm_permille = 1000;
+
+    g_ctl_last_send = 0;
+    g_ctl_send_count = 0;
+    heater_ctl_init();
+    heater_ctl_set_sender(ctl_fake_send);
+    heater_ctl_set_shadow(true);
+    assert(heater_ctl_shadow());
+
+    /* The decision is SEND, but the sender must not be called. */
+    heater_ctl_tick(t0, &in);
+    const HeaterRuntime* rt = heater_ctl_get();
+    assert(g_ctl_send_count == 0);
+    assert(rt->cycle == HEATER_CYCLE_HEATING);
+    assert(rt->last_result == HEATER_CYCLE_RESULT_SEND);
+    assert(rt->planned_duty == 283);
+    assert(!rt->have_sent);
+
+    /* The cycle still advances, so the trace mirrors a live controller. */
+    heater_ctl_tick(t0 + 70, &in);
+    assert(g_ctl_send_count == 0);
+
+    /* Turning shadow off restores transmission. */
+    heater_ctl_init();
+    heater_ctl_set_sender(ctl_fake_send);
+    assert(!heater_ctl_shadow());
+    heater_ctl_tick(t0, &in);
+    assert(g_ctl_send_count == 1);
+    assert(g_ctl_last_send == 283);
+  }
+
+  std::printf("test_heater_control (shadow G.3): ok\n");
+
   /* ─── Authority management tests (Phase 0.4) ───────────────────────── */
 
   HeaterAuthority auth;

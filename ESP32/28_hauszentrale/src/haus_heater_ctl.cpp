@@ -34,6 +34,9 @@ static uint16_t s_expected_duty = 1000;
 static bool s_expected_valid = false;
 static bool s_mismatch_logged = false;
 
+static bool s_shadow = false;
+static uint32_t s_shadow_last_s = 0;
+
 static HeaterPumpParams s_pump;
 static bool s_pump_blocked = false;
 static uint32_t s_pump_blocked_until_s = 0;
@@ -72,6 +75,8 @@ void heater_ctl_init(void) {
   s_fault_seen = false;
   s_expected_valid = false;
   s_mismatch_logged = false;
+  s_shadow = false;
+  s_shadow_last_s = 0;
   s_pump_blocked = false;
   s_pump_blocked_until_s = 0;
   s_pump_bad_since_s = 0;
@@ -82,12 +87,20 @@ void heater_ctl_init(void) {
 
 void heater_ctl_set_sender(HeaterCtlSendFn fn) { s_send = fn; }
 
+void heater_ctl_set_shadow(bool enabled) { s_shadow = enabled; }
+bool heater_ctl_shadow(void) { return s_shadow; }
+
 void heater_ctl_set_pump_params(const HeaterPumpParams *params) {
   if (!params) return;
   s_pump = *params;
 }
 
 static void ctl_send(uint32_t now_s, uint16_t duty) {
+  if (s_shadow) {
+    /* §7.5: compute and log the decision; never touch 0x240. */
+    CTL_LOG("SHADOW would-send %u (not transmitted)", (unsigned)duty);
+    return;
+  }
   if (s_send && s_send(duty)) {
     s_expected_duty = duty;
     s_expected_valid = true;
@@ -307,6 +320,31 @@ void heater_ctl_tick(uint32_t now_s, const HeaterCtlInputs *in) {
           ? remaining_s(now_s, s_cycle.last_duty_change_s,
                         cfg->cycle.min_duty_interval_s)
           : 0;
+
+#ifdef ARDUINO
+  /* §7.5: one reviewable line per control period. The decision above still
+   * advances the cycle as if the frame had gone out, so suppression reasons
+   * match what a live controller would do. */
+  if (s_shadow && auto_mode &&
+      (s_shadow_last_s == 0 ||
+       elapsed_since(now_s, s_shadow_last_s) >= period)) {
+    s_shadow_last_s = now_s;
+    const char *decision =
+        s_rt.hold != HEATER_HOLD_NONE
+            ? "hold"
+            : (s_rt.override_active ? "yield"
+                                    : heater_result_name(s_rt.last_result));
+    CTL_LOG("SHADOW mode=%s cycle=%s sched=%s decision=%s req=%u planned=%u "
+            "edges=%u/h water_in=%d water_out=%d room=%d soll=%d hold=%s",
+            heater_mode_name(s_rt.mode), heater_cycle_state_name(s_rt.cycle),
+            heater_sched_reason_name(s_rt.sched_reason), decision,
+            (unsigned)s_rt.sched_duty, (unsigned)s_rt.planned_duty,
+            (unsigned)s_rt.edges_last_hour, (int)in->water_in_c100,
+            (int)in->water_out_c100, (int)in->room_c100,
+            s_rt.soll_valid ? (int)s_rt.soll_c100 : -1,
+            heater_hold_name(s_rt.hold));
+  }
+#endif
 }
 
 void heater_ctl_note_sent(uint16_t duty) {

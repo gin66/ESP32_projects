@@ -87,6 +87,12 @@ extern "C" {
 
 void heater_ctl_init(void);
 void heater_ctl_set_sender(HeaterCtlSendFn fn);
+
+/* Shadow mode: compute and log AUTO decisions but never call the sender.
+ * Manual UI frames do not go through this controller and are unaffected.
+ * See §7.5. */
+void heater_ctl_set_shadow(bool enabled);
+bool heater_ctl_shadow(void);
 void heater_pump_params_default(HeaterPumpParams *params);
 void heater_ctl_set_pump_params(const HeaterPumpParams *params);
 void heater_ctl_tick(uint32_t now_s, const HeaterCtlInputs *in);

@@ -137,11 +137,21 @@
 
 ## Phase 3 — Short Shadow Mode
 
-### [ ] 3.1 Implement shadow mode (compute and log, do not transmit)
+### [x] 3.1 Implement shadow mode (compute and log, do not transmit)
 - Before AUTO is allowed to transmit
 - One schedule edge, or a few hours (not a multi-day gate)
 - Log: decision and reason, suppressed reason (`min_on`, unsynced, NRF yield, `AUTO HOLD`), flow and room traces, planned duty inside `100..500` or `1000`, switching rate
 - Enable transmit after short review
+- Implemented in `src/main.cpp` (`heater_shadow_tick`), called at 1 Hz but
+  gated to `control_period_s` (60 s)
+- Log tag `heater_shadow`: `cycle`, `sched`, `decision`, `req`, `planned`,
+  `edges/h`, `water_in`, `water_out`, `room`, `soll`
+- Holds logged with a reason: `can-not-green`, `clock-unsynced`,
+  `schedule`, `nrf` (yield)
+- Never calls `gui_send_pwm()`; AUTO remains display-only
+- Mode changes are logged once; entering OFF records a forced off-edge so a
+  later AUTO respects `min_off`
+- No multi-day gate: review one schedule edge or a few hours of lines
 - See §7.5
 
 ---

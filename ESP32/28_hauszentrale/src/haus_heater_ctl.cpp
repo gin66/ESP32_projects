@@ -36,6 +36,7 @@ static bool s_mismatch_logged = false;
 
 static bool s_shadow = false;
 static uint32_t s_shadow_last_s = 0;
+static bool s_boot_restore_done = false;
 
 static HeaterPumpParams s_pump;
 static bool s_pump_blocked = false;
@@ -77,6 +78,7 @@ void heater_ctl_init(void) {
   s_mismatch_logged = false;
   s_shadow = false;
   s_shadow_last_s = 0;
+  s_boot_restore_done = false;
   s_pump_blocked = false;
   s_pump_blocked_until_s = 0;
   s_pump_bad_since_s = 0;
@@ -197,6 +199,25 @@ void heater_ctl_tick(uint32_t now_s, const HeaterCtlInputs *in) {
   s_rt.hold = HEATER_HOLD_NONE;
 
   const bool auto_mode = (cfg->mode == HEATER_MODE_AUTO);
+
+  /* G.1 / §5.2: reconcile the restored mode with the wire once, as soon as
+   * 0x280 is known on a green bus. No walkback and no EEPROM window: the
+   * panel sends only when the report disagrees with the restored mode. */
+  if (!s_boot_restore_done && in->pwm_known && in->can_green) {
+    s_boot_restore_done = true;
+    if (cfg->mode == HEATER_MODE_OFF && in->pwm_permille != 1000) {
+      CTL_LOG("boot OFF: wire %u -> 1000", (unsigned)in->pwm_permille);
+      ctl_send(now_s, 1000);
+    } else if (cfg->mode == HEATER_MODE_MANUAL &&
+               in->pwm_permille != cfg->saved_duty) {
+      CTL_LOG("boot MANUAL: wire %u -> saved %u",
+              (unsigned)in->pwm_permille, (unsigned)cfg->saved_duty);
+      ctl_send(now_s, cfg->saved_duty);
+    } else if (cfg->mode == HEATER_MODE_AUTO) {
+      CTL_LOG("boot AUTO: wire %u; waiting for first decision",
+              (unsigned)in->pwm_permille);
+    }
+  }
 
   /* A foreign writer yields AUTO for a bounded time. */
   if (auto_mode && !s_override && in->pwm_known &&

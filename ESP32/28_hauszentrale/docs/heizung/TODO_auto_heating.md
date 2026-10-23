@@ -1,7 +1,7 @@
 # Auto Heating — Implementation TODO List
 
 **Source:** `whitepaper_auto_heating.md` (rev 1.2, 2026-10-23)  
-**Status:** Phases 0–7 are in the tree (commits after `1759c78`). G.3 is closed; the remaining gaps below block the §13 AUTO release.  
+**Status:** Phases 0–7 are in the tree (commits after `1759c78`). G.1 and G.3 are closed; the remaining gaps below block the §13 AUTO release.  
 **Scope:** `ESP32/28_hauszentrale` + Wolf gas boiler (`AVR/01_heizung_temp`)
 
 ---
@@ -10,12 +10,21 @@
 
 The checked boxes above mean the function exists and a host test calls it. These items are what the firmware that runs still gets wrong. A first boot with no `/heater.bin` writes mode OFF and does not transmit. With G.3 closed, selecting AUTO logs a decision but does not command the boiler (`HEATER_AUTO_SHADOW=1`).
 
-### [ ] G.1 Wire boot transmit into the controller that runs
+### [x] G.1 Wire boot transmit into the controller that runs
 - `heater_handle_boot_restore()` is host-tested. `main.cpp` never calls it
 - OFF does not send 1000 when `0x280` is still a heating duty. The page can show OFF while the boiler keeps the previous duty, including after an AVR power cut inside the 60 s EEPROM window
 - MANUAL does not resend `saved_duty` when the report differs
 - AUTO already waits for the first legal decision inside `heater_ctl_tick`. That part is live
 - The 1-permille "lowest-permille walkback" in `heater_handle_boot_restore()` is not the §5.2 rule. §5.2 describes the AVR's own EEPROM window. Do not wire that walkback as written
+- Implemented once in `heater_ctl_tick`, after the first `0x280` report on a
+  green bus: OFF + heating duty → send 1000; MANUAL + differing report → send
+  `saved_duty`; AUTO → no frame, normal first-decision path
+- No walkback and no EEPROM-window suppression: the panel sends only when the
+  report disagrees. The old helper is left untouched and is not wired
+- Runs exactly once (`s_boot_restore_done`), so a later conflicting report is
+  not chased. With G.3 active the frame is logged, not transmitted
+- Host tests cover OFF/CAN-wait, OFF-already-1000, MANUAL send/skip, once-only,
+  and AUTO holding until the clock is synced
 - See §5.2
 
 ### [ ] G.2 Make the HEATER page tell the truth
@@ -116,7 +125,9 @@ The checked boxes above mean the function exists and a host test calls it. These
 - Sensor loss → hold, then `AUTO HOLD`; do not silently switch modes
 - Unsynced clock → hold; do not apply day flow until `CanState.synced`
 - Schedule/sensor recovery cannot override `MODE_OFF`
-- These transitions live in `heater_handle_*`. The running controller does not call them. See G.1 and G.4
+- Boot reconciliation now runs in `heater_ctl_tick` (G.1). The other
+  `heater_handle_*` transitions are still not called; foreign-writer handling
+  is G.4
 - See §5.1
 
 ### [x] 0.5 Implement boot transmit rules
@@ -130,7 +141,8 @@ The checked boxes above mean the function exists and a host test calls it. These
   - 60 s write window: if last EEPROM write was < 60 s ago, don't re-transmit
   - Lowest-permille walkback: when restoring a lower duty, step down at most 1
     permille per write (prevents sudden large drops)
-- The function is not on the live path, and the 1-permille walkback is not §5.2. See G.1
+- The live path implements the §5.2 rules directly (G.1). The old helper keeps
+  the 1-permille walkback but stays unwired
 - See §5.2
 
 ---

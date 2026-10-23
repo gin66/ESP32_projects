@@ -525,6 +525,93 @@ int main() {
 
   std::printf("test_heater_control (shadow G.3): ok\n");
 
+  /* ─── Boot reconciliation in the live controller (G.1) ─────────────── */
+  {
+    const uint32_t t0 = compute_utc_for_local(2026, 10, 14, 8, 0, 0);
+    HeaterCtlInputs in;
+    memset(&in, 0, sizeof(in));
+    in.can_green = true;
+    in.clock_synced = true;
+    in.utc_epoch = t0;
+    in.pwm_known = true;
+    in.pwm_permille = 300;
+
+    HeaterConfig cfg;
+    heater_config_init();
+    cfg = *heater_config_get();
+    heater_schedule_default(&cfg.schedule);
+
+    /* OFF with a heating duty: one 1000 frame. Wait for CAN first. */
+    cfg.mode = HEATER_MODE_OFF;
+    heater_config_apply(&cfg);
+    g_ctl_last_send = 0;
+    g_ctl_send_count = 0;
+    heater_ctl_init();
+    heater_ctl_set_sender(ctl_fake_send);
+    in.can_green = false;
+    heater_ctl_tick(t0, &in);
+    assert(g_ctl_send_count == 0);
+    in.can_green = true;
+    heater_ctl_tick(t0 + 1, &in);
+    assert(g_ctl_send_count == 1);
+    assert(g_ctl_last_send == 1000);
+    /* Once only, even if 0x280 still disagrees. */
+    heater_ctl_tick(t0 + 60, &in);
+    assert(g_ctl_send_count == 1);
+
+    /* OFF already at 1000: nothing. */
+    g_ctl_send_count = 0;
+    heater_ctl_init();
+    heater_ctl_set_sender(ctl_fake_send);
+    in.pwm_permille = 1000;
+    heater_ctl_tick(t0, &in);
+    assert(g_ctl_send_count == 0);
+
+    /* MANUAL sends the saved duty when the wire differs. */
+    cfg.mode = HEATER_MODE_MANUAL;
+    cfg.saved_duty = 350;
+    heater_config_apply(&cfg);
+    g_ctl_send_count = 0;
+    heater_ctl_init();
+    heater_ctl_set_sender(ctl_fake_send);
+    in.pwm_permille = 300;
+    heater_ctl_tick(t0, &in);
+    assert(g_ctl_send_count == 1);
+    assert(g_ctl_last_send == 350);
+    /* Once only: a later differing report is not chased. */
+    in.pwm_permille = 250;
+    heater_ctl_tick(t0 + 60, &in);
+    assert(g_ctl_send_count == 1);
+
+    /* MANUAL already at the saved duty: nothing. */
+    g_ctl_send_count = 0;
+    heater_ctl_init();
+    heater_ctl_set_sender(ctl_fake_send);
+    in.pwm_permille = 350;
+    heater_ctl_tick(t0, &in);
+    assert(g_ctl_send_count == 0);
+
+    /* AUTO never overwrites the wire at boot; it waits for a legal decision. */
+    cfg.mode = HEATER_MODE_AUTO;
+    heater_config_apply(&cfg);
+    g_ctl_send_count = 0;
+    heater_ctl_init();
+    heater_ctl_set_sender(ctl_fake_send);
+    in.pwm_permille = 300;
+    in.clock_synced = false;
+    in.utc_epoch = 0;
+    heater_ctl_tick(t0, &in);
+    assert(g_ctl_send_count == 0);
+    assert(heater_ctl_get()->hold == HEATER_HOLD_CLOCK_UNSYNCED);
+    in.clock_synced = true;
+    in.utc_epoch = t0;
+    heater_ctl_tick(t0 + 1, &in);
+    assert(g_ctl_send_count == 1);
+    assert(g_ctl_last_send == 283);
+  }
+
+  std::printf("test_heater_control (boot G.1): ok\n");
+
   /* ─── Authority management tests (Phase 0.4) ───────────────────────── */
 
   HeaterAuthority auth;

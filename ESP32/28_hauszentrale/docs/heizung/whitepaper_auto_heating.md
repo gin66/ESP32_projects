@@ -1,15 +1,18 @@
 # Automatic Heating Control for 28_hauszentrale
 
 **Status:** design proposal, not implemented  
-**Revision:** 1.1, 2026-10-23 — incorporates the review of that date. The
-review file was removed once this revision absorbed it.  
+**Revision:** 1.2, 2026-10-23 — adopts the existing duty table, defers any
+boiler visit, and models the two DS18B20s as pipe-wall sensors. The
+measurement-gate review was removed once this revision absorbed it.  
 **Scope:** `ESP32/28_hauszentrale` and the Wolf gas boiler installation served by
 `AVR/01_heizung_temp`  
 **Related:** [`../whitepaper.md`](../whitepaper.md) §7.9, §7.11; N15; S20  
 **Sources:** [`guegu1e.pdf`](guegu1e.pdf) (Wolf GU-E/GU-1E/GG-E/GG-1E planning and
 installation manual), [`3044603_0599_AWT1_analoger_witterungsgefuehrter_Temperaturregler.pdf`](3044603_0599_AWT1_analoger_witterungsgefuehrter_Temperaturregler.pdf)
 (Wolf AWT 1 analog weather-compensated controller), the 2026-10-18 S20 bench
-notes, the owner's one-time voltage campaign, and the review dated 2026-10-23.
+notes, the owner's one-time voltage campaign, and the owner's decision of
+2026-10-23 to run AUTO from the existing table and to treat the DS18B20
+readings as pipe-wall temperatures.
 
 **Revision history**
 
@@ -17,6 +20,7 @@ notes, the owner's one-time voltage campaign, and the review dated 2026-10-23.
 | --- | --- | --- |
 | 1.0 | 2026-10-23 | First design proposal |
 | 1.1 | 2026-10-23 | Processed review: one demand law, scheduled flow instead of room PI, corrected start-budget and night/frost logic, pump-latch recovery, ΔT sign, boot/NRF/unsynced behaviour, deliberate takeover, CRC persistence, model-lab order, test cases and decisions. The review file was removed after this text was checked against it |
+| 1.2 | 2026-10-23 | No boiler visit before AUTO. Off-table v1 is the adopted Soll inverse. A few days of operation, then a winter pipe-model loop. Both DS18B20s read the pipe wall; water-out is slow and may settle below Soll. That gap does not edit the duty knots. The measurement-gate review was removed after this text was checked against it |
 
 ---
 
@@ -43,13 +47,18 @@ Therefore:
 1. The first automatic release is a **scheduled-flow controller**, not a room
    PI. It reproduces the intent of the replaced AWT: two flow setpoints
    (day/night), a real off, and a frost demand.
-2. The existing `target_from_duty()` table remains a steady-state **interface
-   map**, not a plant model. It must be confirmed with the boiler's own
-   temperature display before it is used.
-3. A dedicated **Experiment and Model Lab** identifies the real relation between
-   PWM duty, control voltage, water in/out temperatures, room temperature and
-   pump current. The lab uses deterministic system identification; an LLM is an
-   analyst and experiment planner, not part of the control loop.
+2. The existing off-table v1 (`100 → 70 °C` through `500 → 42 °C`) is the
+   **adopted Soll inverse** for v1. It is a sparse steady-state hint, not a
+   confirmed boiler-display map and not a plant model. Duty 0 stays
+   manual-only. A visit to read the boiler display is a later branch, not a
+   precondition.
+3. After a few days of AUTO operation, a winter loop fits a **pipe-wall
+   model** of water-in, Soll and water-out. Both DS18B20s are clamped to the
+   pipe, not immersed. Water-out follows slowly and may settle below Soll.
+   That fit does not edit the duty knots. The lab uses deterministic system
+   identification; an LLM is an analyst and experiment planner, not part of
+   the control loop. A control-voltage measurement is deferred with the
+   boiler visit.
 4. The guarantee "no on/off within minutes" is a property of **AUTO's own
    demand edges**. Manual OFF, the nRF remote, another CAN writer, and the
    boiler's own `Taktsperre` can still change the physical state. The panel must
@@ -71,7 +80,8 @@ Therefore:
 - Later pump-current guard: if all thermostats are closed, stop the call for
   heat.
 - A host test environment with deterministic use cases.
-- A data-analysis tool for the PWM/voltage/water relation.
+- A data-analysis tool for operation logs: duty, the two pipe readings, room
+  and coil. A control-voltage channel is deferred.
 
 ### 2.2 Out of scope
 
@@ -89,12 +99,13 @@ Therefore:
 | Term | Meaning |
 | --- | --- |
 | **Duty** | `duty_permille` in `0x240`/`0x280`. `1000` is OFF, `100..500` is the panel's usable heating range. Lower duty = higher control voltage = more heat. |
-| **Soll** | Boiler flow-temperature target, in °C. The panel derives a *hint* from duty through the measured interface map. |
+| **Soll** | Boiler flow-temperature target, in °C. The temperature the boiler is asked to make the water. The panel derives the hint from duty through the adopted table. It is not a sensor reading. |
+| **Pipe reading** | A DS18B20 clamped to the outside of a pipe. `water_in` and `water_out` in the log are pipe-wall temperatures. The panel never sees the bulk water. |
 | **AUTO** | The new control mode. |
 | **MANUAL** | User-selected duty. |
 | **OFF** | Latched user intent: no automatic heating. |
 | **Demand edge** | A transition of AUTO's logical demand from off to on, or on to off. It is not a burner ignition. |
-| **Interface map** | The confirmed quasi-steady relation between duty and the boiler's displayed flow setpoint. |
+| **Adopted table** | Off-table v1: the quasi-steady hint `duty → Soll` used by v1. Domain Soll 42…70 °C ↔ duty 500…100. Adopted, not confirmed on the boiler display. |
 
 ---
 
@@ -193,9 +204,11 @@ separate voltage observation; that observation is not available continuously
 on the panel today.
 
 **Open instrumentation question:** add a voltage-sense channel to the panel, or
-record the control voltage with an external logger during experiments. Without
-one of these, the model lab can fit only the black-box relation
-`duty → water temperature`, not `duty → voltage → boiler state`.
+record the control voltage with an external logger during a later visit.
+Without one of these, the lab can fit only `duty → pipe reading`, not
+`duty → voltage → boiler state`. That chain is not a v1 blocker. The adopted
+table already supplies the Soll hint, and the pipe model in §5.8 is what the
+winter loop identifies.
 
 ### 3.5 Parent whitepaper is stale in three places
 
@@ -205,7 +218,7 @@ Implementing AUTO by "following `docs/whitepaper.md`" will undo the bench.
 | --- | --- | --- |
 | Duty direction | §7.9 and D27: 0 = off, 1000 = full on, because the AVR pin is high-time | S20 bench and `haus_ui.c`: the PC817 inverts that. `1000` is OFF, `0` is full heat, `100..500` is the measured Soll table. `haus_can_bus_send_pwm()` rejects `501..999` |
 | Transmit gesture | F19 / D28: only a confirm button transmits | The detail page transmits on switch click and on every slider tick |
-| Water out | §7.11 and Q9: no return probe, the zone is modelled | `haus_sensor_roles.cpp` seeds a third ROM as `SENSOR_FN_WATER_OUT`. `haus_water_model.h` still says there is no return probe. Until a live `0x180` identity confirms it, ΔT stays out of the law |
+| Water out | §7.11 and Q9: no return probe, the zone is modelled | `haus_sensor_roles.cpp` seeds a third ROM as `SENSOR_FN_WATER_OUT`, clamped to the pipe. `haus_water_model.h` still says there is no return probe and that the table is the water-out temperature. The header is stale. The table is only the Soll hint. A missing live `0x180` identity keeps ΔT out of the law and blocks a table edit; it does not block AUTO |
 
 N15 and D29 remain in force. They forbid a **safety** ramp, clamp, minimum pulse
 and dead-man in the panel, because a panel-side interlock is bypassed by the
@@ -288,32 +301,40 @@ Proves:
    saturated.
 
 Consequence for control: a static table such as `duty 100 → 70 °C` is a
-**quasi-steady observation**, not an actuator model. It is acceptable as an
-initial feed-forward hint. It is not acceptable as a guarantee of immediate
-response.
+**quasi-steady observation**, not an actuator model. v1 adopts it as the
+feed-forward hint. It is not a guarantee of immediate response, and it is not
+treated as confirmed on the boiler's display.
 
-### 4.4 The first measurement required
+### 4.4 Optional boiler visit
 
-One supervised visit, before any thermal soak:
+This visit is not a precondition for AUTO. Take it only when one of these is
+true:
+
+- the pipe model of §5.8 has a τ, a wait that is long against that τ has
+  passed, and the flow-pipe reading still has no slope,
+- the coil says the pump never started,
+- duty 100 is not enough heat and someone wants a point above 70 °C.
+
+Cover the duties that failed, not all eight by default. When the visit
+happens:
 
 1. Write down the voltmeter method, the node measured, and the load.
 2. Set the boiler flow-temperature selector to the documented position.
-3. At duty 0, 100, 200, 300, 400, 500 and 1000, record:
+3. At each chosen duty, record:
    - duty request and `0x280` report,
    - the boiler's own heating-temperature display (Soll),
    - the measured control voltage,
-   - water in/out and room temperature,
+   - both pipe readings and room temperature,
    - pump/coil state.
 4. Repeat after the boiler has settled, not immediately after the step.
 5. Mark any DHW charge or boiler fault.
 
-This produces the **interface card**: eight points that turn
-`target_from_duty()` from a bench guess into a confirmed table. Outside the
-confirmed points, AUTO holds. Duty 0 stays manual-only until it has a point on
-the map.
+A display reading is the only observation that may change a knot, and a
+person writes that knot by hand. A pipe reading never does. Duty 0 stays
+manual-only until it has a point. Outside the adopted domain, AUTO holds.
 
-The nine 30-minute thermal soaks are a later experiment. They measure the house,
-not the interface.
+Supervised thermal soaks measure the house and the pipe sensors. They are
+part of the winter loop in §6.4, not a gate in front of the first release.
 
 ---
 
@@ -383,14 +404,41 @@ The first release has no room PI. It schedules a flow temperature and a real
 off:
 
 ```
-day:    T_flow = T_day              default 55 °C, inside the confirmed map
-night:  T_flow = T_day - 15 K       floored at the bottom of the map (about 42 °C)
+day:    T_flow = T_day              default 55 °C → duty 283 on the adopted table
+night:  T_flow = T_day - 15 K       floored at 42 °C → duty 500
 off:    duty = 1000                 manual OFF, a real schedule-off, or economy lockout
-frost:  T_flow = a modest confirmed point, independent of the schedule
+frost:  T_flow = a modest point on the adopted table, independent of the schedule
 ```
 
-- `T_flow` is converted to duty through the confirmed interface map. Outside the
-  confirmed points, AUTO holds.
+The forward map is `OffTableModel` in `src/haus_water_model.cpp`, provenance
+`"off table v1"`. `target_from_duty()` already calls it. There is one table.
+`estimate()` ignores water-in and chamber. It returns false below duty 100
+and above duty 500, including duty 0 and duty 1000.
+
+| Duty permille | Soll |
+| --- | --- |
+| 100 | 70 °C |
+| 200 | 60 °C |
+| 300 | 54 °C |
+| 400 | 44 °C |
+| 500 | 42 °C |
+
+v1 adds the inverse on these same knots. Displayed Soll and commanded duty
+share the table. Do not add a second copy in the controller, and do not feed
+either result into `water_out`.
+
+- Domain: Soll 42…70 °C ↔ duty 500…100. Outside that band, AUTO holds.
+- The night floor sits on the endpoint 42 °C / duty 500. OFF is duty 1000 and
+  **bypasses the inverse**. A false return from the model must not hold a
+  heating duty when the law asked for OFF.
+- Day 55 °C lies between 60 °C (duty 200) and 54 °C (duty 300). The fraction
+  `(60 − 55) / (60 − 54) = 5/6`, so the duty is 283 when the 83.33 permille
+  is rounded to the nearest permille. The test states that rounding.
+- Duty 500 is the flat end of the table (400 → 44 °C, 500 → 42 °C). It is not
+  a well-resolved setpoint. The steep part is 200…400 (60 °C down to 44 °C):
+  a 50-permille step there is about 4 K, which matches the mover.
+- Duty 0 stays manual-only. Adopting the table is not a reason to invent a
+  point above 70 °C.
 - 15 K is the AWT's recommended flow setback for the hotter system. It is the
   quantity the manual actually defines. `T_day` is tuned slowly, the way the
   AWT page says: change, wait hours, valves open.
@@ -424,9 +472,10 @@ v1 policy:
 - Manual OFF is latched and absolute.
 - The OFF badge must say **"off — frost protection inactive"** (or include a
   separate frost-demand setting later). It must not silently imply protection.
-- A separate frost demand uses room or water below a low threshold and a modest
-  confirmed flow, independent of the day/night schedule. 16 °C is a comfort
-  floor, not freeze protection; choose a lower number.
+- A separate frost demand uses room or pipe below a low threshold and a modest
+  point on the adopted table, independent of the day/night schedule. 16 °C is
+  a comfort floor, not freeze protection; choose a lower number. The pipe
+  reading lags, so the threshold is not a water temperature.
 - If a future `off_allows_frost` setting is added, it is an explicit user
   choice, not a hidden behaviour.
 
@@ -442,7 +491,7 @@ satisfied = T_room > T_set + 0.3 K
 
 demand turns on  when too cold, after min_off, inside the start budget
 demand turns off when satisfied, after min_on
-while demand is on, duty = inverse_interface(T_flow_set)
+while demand is on, duty = the adopted inverse of §5.3 (T_flow_set)
 while demand is off, duty = 1000
 ```
 
@@ -525,37 +574,64 @@ The home screen's separate "pump on/off" text is derived from duty
 heat, displays as pump off. Experiment `pump_state` must come from the coil, not
 from that label.
 
+The `ΔT < 2 K` term is a difference of two pipe-wall readings. It opens on τ
+from §5.8, which has not been measured. A 10-minute test can therefore
+false-trip on a slow pipe. The guard stays later for this reason as well as
+for the missing coil threshold.
+
 The guard is equipment protection, not a safety interlock. It suspends AUTO
 only; manual OFF and manual duty remain untouched.
 
-### 5.8 Water temperatures and ΔT
+### 5.8 Pipe readings, not water
 
-On this installation the cooler pipe is water in (return) and the hotter pipe is
-water out (flow). Heat delivered to the house is proportional to:
+On this installation the cooler pipe is the return and the hotter pipe is the
+flow. Both DS18B20s are clamped to the outside of those pipes. The names
+`water_in` and `water_out` in the log are pipe-wall temperatures. The panel
+never sees the bulk water. Soll is the adopted table: the temperature the
+boiler is asked to make the water. It is not either probe.
+
+The boiler's own flow NTC, time constant about 100 s (§3.2), sits in the
+water. It is a different sensor. The pipe, the contact and the DS18B20 body
+are slower than that, and a wall reading can settle short of the water
+temperature. A pipe that finishes below Soll is then the sensor, not a missed
+setpoint and not a reason to raise the duty.
+
+The relation to identify in the winter loop, and not to close the v1 loop on,
+is:
 
 ```
-ΔT = water_out - water_in
+τ · dT_pipe_out / dt = T_inf − T_pipe_out
+T_inf = T_pipe_in + α · (T_soll − T_pipe_in)
 ```
 
-not `water_in - water_out`. The earlier draft had the sign wrong.
+τ is identified. It is not the boiler's 100 s. α lies between 0 and 1 and is
+identified; α = 1 is not assumed. When α is below 1, the steady pipe reading
+stays below Soll even if the boiler is holding the water there.
 
-`chamber_target_c` must not be one side of that difference. It is
-`target_from_duty()` of the duty the panel already commanded; feeding it back
-confirms the command that produced it. The controller must use both
-`temp_by_fn[WATER_IN]` and `temp_by_fn[WATER_OUT]`, both fresh measurements,
-neither equal to the Soll hint.
+The return probe is the same kind of sensor, so `water_out − water_in` is a
+difference of two wall readings. The sign runs from the cooler pipe to the
+hotter pipe. It is not the heat delivered to the house, and it is not a
+substitute for α, until this model exists. v1 keeps that difference out of
+the law.
 
-Whether the flow probe is really on the bus is unresolved across documents. The
-roles seed says it is installed; the parent whitepaper says it is not. Until a
-live `0x180` identity says the water-out ROM is present, ΔT stays out of the
-control law and the fault text says which probe is missing.
+`chamber_target_c` is `target_from_duty()` of the duty the panel already
+commanded. Feeding it back, or feeding `estimate()` into `water_out`, would
+confirm the command that produced it. v1 commands Soll through the inverse
+and does not read `T_pipe_out` as an error.
+
+Whether the flow probe is really on the bus is unresolved across documents.
+The roles seed says it is installed; the parent whitepaper says it is not.
+AUTO still runs if the live `0x180` identity shows no water-out probe:
+scheduled flow does not need the pipes. The refinement note then says "no
+pipe, table unchanged". A missing probe blocks a table edit. It does not
+block heat. The fault text says which probe is missing.
 
 ### 5.9 Failure handling
 
 | Condition | Behaviour |
 | --- | --- |
 | SHT45 stale | In v1 the schedule does not need it; if trim is active, hold the last duty. Badge `AUTO HOLD` |
-| Water sensors stale | ΔT leaves the law; the scheduled flow can continue if the interface map is valid. No undefined "reduced authority" |
+| Water sensors stale | The pipe model leaves the winter fit; scheduled flow continues on the adopted table. No undefined "reduced authority" |
 | Clock unsynced | Hold the restored duty; do not apply day flow |
 | CAN not green | AUTO unavailable, manual controls disabled as today |
 | `0x280` conflicts with request | Log once, show actual, do not retry-loop (S20.09) |
@@ -572,17 +648,19 @@ HOLD plus a reason.
 
 ### 6.1 Why a tool is required
 
-The boiler has internal state, hysteresis, a 3-minute start delay and a 100 s
-sensor time constant. The one-time campaign is not enough to design a stable
-controller. We need a repeatable way to answer:
+The boiler has internal state, hysteresis, a 3-minute start delay and its own
+100 s flow sensor. The panel's DS18B20s are slower still, and they read the
+pipe. v1 does not wait for a fitted plant model. The lab answers, from
+operation logs and only later from a supervised visit:
 
-- What does each duty actually do in steady state?
-- How long does it take?
-- What are the on/off and ignition thresholds?
-- How does the response change with water inlet temperature, room temperature
-  and load?
-- Does the panel's PC817 range cover the boiler's useful range?
-- When do the thermostats block flow, and what does pump current look like?
+- How slowly does the flow-pipe reading follow a held Soll, and what τ fits?
+- What α does it settle at, and does that stay below 1?
+- How does α move with the return pipe, the room and the number of open valves?
+- Which intervals are not plant data, because `duty_req` and `duty_rpt` disagree
+  or a DHW charge passed?
+- When do the thermostats block flow, and what does the coil look like?
+- Only on the §4.4 branch: does the boiler display match a knot, and does the
+  PC817 range cover the boiler's useful range?
 
 ### 6.2 Architecture
 
@@ -596,7 +674,7 @@ controller. We need a repeatable way to answer:
                        ▼                               ▼                      ▼
               deterministic analysis          LLM analyst            report / model.json
               (numpy/scipy)                   (hypotheses,            plots, Markdown
-              FOPDT, state detection,          experiment plans,
+              pipe model τ, α,             experiment plans,
               hysteresis, regression)          explanations)
 ```
 
@@ -604,9 +682,9 @@ Proposed location: `tools/heater_model/`.
 
 | Component | Purpose |
 | --- | --- |
-| `collect.py` | Read the panel's high-rate trace over HTTP/SD, or an external logger CSV |
-| `experiment.py` | Safe, supervised step/PRBS sequences; refuses to run unless `--allow-write` is given explicitly |
-| `identify.py` | Regime detection, static gain, FOPDT fit, hysteresis and delay estimation, cross-validation |
+| `collect.py` | Read operation logs over HTTP/SD, or an external logger CSV |
+| `experiment.py` | Optional supervised steps; refuses to run unless `--allow-write` is given explicitly. Not the first action |
+| `identify.py` | The pipe model of §5.8, then regime detection. It does not rewrite the duty knots |
 | `llm_analyst.py` | Sends downsampled traces and manual extracts to an LLM with tool access; produces hypotheses and experiment proposals, never actuator commands |
 | `report.py` | Generates `report.md`, plots, and a machine-readable `model.json` |
 | `model.md` | Model card: inputs, states, parameters, confidence, validity range |
@@ -625,58 +703,94 @@ ac_rms_dc,ac_angle_cdeg,pump_state,can_ok,target_c,note
 
 `duty_req` is what the panel sent; `duty_rpt` is what `0x280` reported. Keeping
 both is mandatory: a TX failure or another writer must not be mistaken for
-plant dynamics. `target_c` is the Soll hint, never a measured pipe value.
+plant dynamics. `water_in_c` and `water_out_c` are pipe-wall temperatures.
+`target_c` is the Soll hint, never a pipe value and never bulk water.
 `pump_state` comes from the coil, not the duty-derived home label.
 
 Experiment files stay in their own directory. They do not go into the minute
 record.
 
-### 6.4 Experiment order
+### 6.4 Order of operations
 
-1. **Interface card (first):** the eight-point measurement in §4.4. This is the
-   v1 model-lab gate. It replaces the nine 30-minute soaks as the first
-   experiment.
-2. **Precondition:** steady state, known flow-temperature selector, pump mode,
-   thermostat positions, DHW state documented.
-3. **Off baseline:** 30 min at duty 1000.
-4. **Step series:** use only points on the confirmed interface card, held long
-   enough for a steady state. Randomize the order between sessions.
-5. **On/off cycles:** verify the minimum on/off behaviour and the boiler's own
-   3-minute delay.
-6. **Load variation:** repeat at different room temperatures and with a known
-   number of open thermostats.
-7. **Pump-block test:** close all thermostats with supervision, record coil
-   counts and water ΔT, then reopen. This is a separate, explicitly approved
-   test.
-8. **Repeats:** at least three sessions per condition; report variability.
-9. **Safety:** the tool never exceeds the panel's legal values, never runs
-   unattended, and stops on stale water temperature or unexpected pump state.
+**Phase 0 — adopt.** The v1 inverse is off-table v1, labelled adopted. No
+boiler visit. Domain, day duty 283, night floor duty 500, and the OFF bypass
+are those in §5.3.
 
-Mark DHW charges and boiler faults in every run. They are disturbances, not
-plant gain.
+**Phase 1 — control.** Host tests of §7.1. Then a short shadow: one schedule
+edge, or a few hours, only to see that the logged decision stays inside
+`100…500` or `1000`. Several days of shadow before the first transmit are not
+the plan. Then AUTO transmits. Manual OFF still latches and still wins.
+
+**Phase 2 — first operation window.** A few days. Three is enough. Log
+`duty_req`, `duty_rpt`, both pipes, room, coil, mode and reason. Do not fit
+a model during the window. The window succeeds when the house ran and the log
+exists. Matching the flow pipe to 55 °C is not the pass criterion. A missing
+water-out probe does not fail the window (§5.8).
+
+**Phase 3 — winter iteration.** Repeat through the heating season. A person
+accepts each result. Stop when τ and α are stable across one cold week and
+one mild week, or when comfort is simply good enough.
+
+Each pass:
+
+1. Split the log into day, night and off. Drop every interval where
+   `duty_req` and `duty_rpt` disagree.
+2. On intervals that held one duty long enough to settle, record median
+   pipe-out, pipe-in and coil RMS.
+3. Fit §5.8. A settled gap under Soll is that model. It is not a wrong knot.
+
+Then one of these outcomes, and only one:
+
+| Outcome | When | What changes |
+| --- | --- | --- |
+| Unchanged | The same τ and α still describe the pipes | Nothing in the duty table |
+| Pipe-model note | τ or α moved, or the fit is still too thin to trust | Table stays. Record the new τ and α beside it |
+| Load term | α follows pipe-in, room, or how many valves are open | A term beside the table. The five knots stay |
+| New knot | A boiler-display reading exists for that duty | That one knot, written by hand. A pipe reading never justifies it |
+| Boiler visit | §4.4's branch | The duties that failed, not all eight by default |
+
+Until τ has been seen once, a few quiet days are not themselves a reason to
+visit the boiler.
+
+A DHW charge or a boiler fault is a disturbance. Mark it when the log shows a
+sudden pipe jump at constant duty. That does not require standing at the
+appliance.
+
+The supervised steps below stay available and stay optional. They are not
+step 1. The tool never exceeds the panel's legal values, never runs
+unattended, and stops on a stale pipe reading or an unexpected pump state.
+
+- Off baseline and step holds, only at duties on the adopted table, long
+  enough for the pipe rather than for the boiler's 100 s sensor.
+- On/off cycles, to compare the panel's minimum times with the boiler's
+  3-minute delay. The pipe slope is a late witness of that delay.
+- Load variation at different rooms and a known number of open thermostats.
+- Pump-block test: close all thermostats with supervision, record the coil
+  and both pipes, then reopen. Explicitly approved, and only after τ and α
+  exist, so a slow pipe is not read as a blocked circuit.
 
 ### 6.5 Identification
 
-Start simple and add complexity only when the data supports it:
+Two relations, kept apart. Fitting one gain from duty to a pipe reading
+reports a number that is neither Soll nor the water temperature.
 
-- **Static interface map:** quasi-steady `duty → boiler displayed Soll` (and
-  water temperatures) with confidence intervals. This is the v1 gate.
-- **FOPDT inside one regime:** `T(s)/duty(s) = K · e^(−θs) / (τs + 1)`.
-  Estimate gain `K` (expect negative in the heating range: lower duty = higher
-  temperature), delay `θ` and time constant `τ`. Do not fit one FOPDT across the
-  pump threshold and the ignition threshold; that reports a gain that does not
-  exist.
+- **Adopted table.** The five knots of §5.3 are the v1 inverse. They are not
+  a fit, and a pipe residual does not move them.
+- **Pipe model.** §5.8, fitted on intervals that held one duty. The product
+  is τ and α, plus a note when the fit is thin. α = 1 is a result, not a
+  constraint.
+- **Load term.** If α follows pipe-in, room or the number of open valves, add
+  that term beside the table. The knots stay.
+- **Later, and only inside one regime:** a first-order description of burner
+  behaviour. Do not fit one curve across the pump threshold and the ignition
+  threshold. Do not use the boiler's 100 s as τ for the pipe.
 - **Regime detection:** segment into OFF, pump-only, ignition wait, weak fire,
   strong fire, modulation and lockout. Start with thresholds on coil RMS and
-  the slope of the measured flow temperature; only then consider a hidden
-  Markov model.
-- **Hysteresis:** fit separate switching thresholds for rising and falling
-  water temperature and for the pump.
-- **Start delay:** estimate the empirical distribution of time from demand to
-  a positive water-temperature slope. Confound it with `Taktsperre`.
-- **Load model:** relate `water_out − water_in` and room temperature to the heat
-  drawn, so the same duty is not expected to produce the same result in every
-  season.
+  the slope of the flow-pipe reading; only then consider a hidden Markov
+  model. The slope is the pipe's slope.
+- **Hysteresis and start delay:** the boiler's own behaviour. A positive
+  pipe slope is a late and attenuated witness. Confound the delay with
+  `Taktsperre` and with τ before calling it an ignition time.
 
 ### 6.6 The LLM analyst
 
@@ -704,18 +818,21 @@ Guardrails:
   directory;
 - the tool refuses write access unless explicitly enabled and a human is
   present;
-- the lab's first output is the interface card, produced by deterministic code.
-  The LLM is optional and off the device.
+- the lab's first numerical product is the pipe-model note, produced by
+  deterministic code. It may say the duty table was left alone. The LLM is
+  optional and off the device. No iteration writes firmware by itself.
 
 ### 6.7 Outputs
 
-- `model.json`: regimes, parameters, uncertainty, validity range.
-- `report.md`: what was tested, what was learned, what remains unknown.
-- Plots: duty vs. water temperature, residuals, regime timeline, start-delay
-  histogram, pump-current vs. ΔT.
-- A short firmware-facing summary: recommended deadband, minimum on/off times,
-  and the safe duty range. This summary is reviewed by a human; it is not
-  generated into control code automatically.
+- `model.json`: τ, α, any load term, uncertainty and the validity range.
+  The five duty knots are recorded as adopted inputs, not as fitted outputs.
+- `report.md`: what was tested, what was learned, what remains unknown. The
+  first operation window's note lives here and may say "table unchanged".
+- Plots: pipe readings against Soll, the approach toward `T_inf`, residuals,
+  regime timeline, coil against the pipe difference.
+- A short firmware-facing summary, reviewed by a person before any number is
+  copied in. A knot changes only from a boiler-display reading. The state
+  machine and the safety rules do not depend on the learned model.
 
 ---
 
@@ -736,7 +853,7 @@ Required cases (v1 law):
 
 | # | Use case | Assertion |
 | --- | --- | --- |
-| 1 | Night onset | Flow drops to the night value; no off edge, no burner cycle |
+| 1 | Night onset | Flow floors at 42 °C, duty 500; no off edge |
 | 2 | Day transition | Flow returns to the day value, subject to the mover |
 | 3 | Real off / economy | OFF after `min_on`; at most 2 demand edges per rolling hour |
 | 4 | Manual OFF during AUTO | 1000, mode OFF, no AUTO sends for 24 simulated hours |
@@ -748,7 +865,7 @@ Required cases (v1 law):
 | 10 | Coil stale | Guard inactive, AUTO continues |
 | 11 | Frost demand | Modest flow despite night; manual OFF still wins and OFF badge says frost is off |
 | 12 | DST/weekend schedule | Correct local-time evaluation, fall-back and spring-gap hold |
-| 13 | Interface inverse round trip | `inverse(forward(d))` within tolerance for confirmed points |
+| 13 | Adopted inverse | Round trip on the five knots; day 55 °C → duty 283; night floor → duty 500; OFF is 1000 without consulting the model; AUTO never emits duty 0 |
 | 14 | Command domain | Always 1000 or 100..500 |
 | 15 | Foreign writer | `MODE_OVERRIDE`, then bounded return to AUTO |
 | 16 | Boot with restored duty | No transmit when `0x280` matches the mode; `PWM_SRC_EEPROM` visible |
@@ -758,15 +875,15 @@ Required cases (v1 law):
 
 Use a simple plant model in `host_harness/src/heater_sim.cpp`:
 
-- first-order water-temperature dynamics with transport delay,
-- hysteresis and minimum modulation,
+- the pipe-wall lag of §5.8, with α allowed below 1,
+- boiler hysteresis and minimum modulation, seen by the pipe only after τ,
 - a 3-minute ignition delay,
-- optional load disturbance.
+- optional load disturbance on α.
 
 Keep it for state-machine invariants. Stability on the real boiler comes from
-shadow mode and the interface map, not from an unidentified FOPDT. A simulator
-that the lab has not identified will bless a controller that matches the
-simulator.
+the short shadow and the adopted table, not from this simulator. A simulator
+the winter loop has not identified will bless a controller that matches the
+simulator. v1 does not close on the simulated pipe.
 
 ### 7.3 Level 3: replay
 
@@ -795,7 +912,8 @@ Extend the host renderer with:
 ### 7.5 Level 5: shadow mode on the bench
 
 Before AUTO is allowed to transmit, compute and log the decision while the
-manual path is authoritative.
+manual path is authoritative. This shadow is the short one in §6.4: one
+schedule edge, or a few hours. It is not a multi-day gate.
 
 Agreement between planned and actual duty is the wrong pass/fail: they differ
 because a person is holding the slider. Log instead:
@@ -806,7 +924,8 @@ because a person is holding the slider. Log instead:
 - whether the planned duty stayed inside `100..500` or `1000`,
 - the switching rate.
 
-Enable transmit after that review.
+Enable transmit after that short review. The following days are the operation
+window, and during them AUTO is already transmitting.
 
 ---
 
@@ -846,18 +965,19 @@ AUTO     [ OFF | MANUAL | AUTO ]
 
 ## 9. Integration order
 
-1. **Interface card** from §4.4, or a written statement that the points were not
-   measurable and why. This gates the inverse map.
-2. **Pure controller and host tests.** No firmware behaviour change.
-3. **Config persistence and UI mode.** Manual transmission only.
-4. **Shadow mode.** AUTO computes, logs, does not transmit.
-5. **Enable AUTO** with conservative defaults and deliberate takeover tested.
-6. **Pump guard** after the coil threshold and pump-switch position are
-   recorded.
+1. **Inverse of off-table v1 and the host tests.** No boiler visit.
+2. **Config persistence and UI mode.** Manual transmission only.
+3. **Short shadow.** AUTO computes, logs, does not transmit.
+4. **Enable AUTO** with the adopted defaults and deliberate takeover tested.
+5. **Operation window** of a few days. The note may say the table was left
+   alone.
+6. **Pump guard** after the coil threshold, the pump-switch position, and a
+   first τ and α. It does not precede the window.
 7. **HTTP observability:** `/heater` JSON with mode, state, setpoints, requested
    duty, reason, remaining minimum times and edge count.
-8. **Model lab results** update only the default parameters and the inverse
-   map; the state machine and safety rules do not depend on the learned model.
+8. **Winter iteration** updates the pipe-model note. A knot changes only when
+   a person copies in a boiler-display reading. The state machine and the
+   safety rules do not depend on the learned model.
 9. **Room trim** and **outdoor economy** are later modes with their own
    parameters and tests.
 
@@ -867,11 +987,14 @@ AUTO     [ OFF | MANUAL | AUTO ]
 
 | Risk | Mitigation |
 | --- | --- |
-| Treating the boiler as linear | Scheduled flow, slow moves, interface card, shadow mode, no open-loop guarantee |
+| Treating the boiler as linear | Scheduled flow, slow moves, adopted table, short shadow, no open-loop guarantee |
+| Unconfirmed duty table | Legal domain only, slow steps, manual OFF, winter correction. The boiler visit is the disambiguator, not the entry ticket |
+| Pipe reading chased toward Soll | v1 does not close on the pipe. A settled gap is α, not an error, and it does not move a knot |
+| Pipe difference used as heat | Kept out of the law until τ and α exist |
 | Short cycling | Minimum on/off, 2-edge budget, boiler `Taktsperre` acknowledged; count demand edges, not ignitions |
 | AUTO overrides a human | Manual OFF latches; takeover is deliberate; foreign writer gets a timed override |
 | Sensor loss causes hunting | HOLD and explicit badge; no undefined backup curve |
-| Pump guard false positive | 30 min timer/room-trend recovery, stale-input rejection, pump-switch precondition |
+| Pump guard false positive | Stays later until τ and α exist. Then 30 min timer/room-trend recovery, stale-input rejection, pump-switch precondition |
 | LLM hallucination in analysis | LLM is advisory; numerical fits are deterministic and validated |
 | No outdoor sensor | Scheduled flow and frost; document the lost weather compensation |
 | Boiler model differs from manual | Treat the manual as family-level; identify the installed unit |
@@ -885,16 +1008,16 @@ AUTO     [ OFF | MANUAL | AUTO ]
 | # | Decision | Recommendation |
 | --- | --- | --- |
 | 1 | What does v1 command? | Two scheduled flow setpoints and a real off. Room PI waits. |
-| 2 | Day flow, night setback | Start from a confirmed point near 55 °C and a 15 K flow setback, floored at the map. Replace 20.5 / 17.0 until room trim exists. |
+| 2 | Day flow, night setback | Day 55 °C → duty 283 on the adopted table. Night floors at 42 °C → duty 500. Replace 20.5 / 17.0 until room trim exists. |
 | 3 | Minimum on/off and edge budget | Keep 10 / 15 min. Set the budget to 2 per rolling hour so it can fire. Count demand edges, and say so. |
-| 4 | Water-out probe | Read the live `0x180` identities. The role seed says the probe is installed; the parent whitepaper says it is not. ΔT stays out of the law until both pipes are fresh measurements. |
+| 4 | Water probes | Both are pipe-wall sensors. Read the live `0x180` identities. A missing probe does not block AUTO. The pipe difference stays out of the law until τ and α exist. |
 | 5 | SHT45 missing | v1 scheduled flow does not need it. If trim is active, hold. No undefined backup curve. |
-| 6 | Pump guard | Later. Threshold in ADC counts. Recovery by timer and room trend. Record the pump-switch position first. |
+| 6 | Pump guard | Later, and only after a first τ and α. Threshold in ADC counts. Recovery by timer and room trend. Record the pump-switch position first. |
 | 7 | Does OFF survive reboot? | Yes. The AVR restores the last duty from EEPROM, and `1000` restores as off. The panel sends `1000` only when `0x280` disagrees. AUTO transmits nothing and displays `PWM_SRC_EEPROM`. |
 | 8 | Unsynced clock | Hold. Do not apply the day setpoint. |
 | 9 | nRF or any foreign `0x280` | Yield. Timed return to AUTO (`MODE_OVERRIDE`) rather than sticky MANUAL. Manual OFF stays sticky. |
 | 10 | Frost while OFF | Manual OFF is absolute in v1; badge "frost protection inactive". A later `off_allows_frost` setting may restore AWT-style frost. |
-| 11 | Interface measurement | One session: duty 0, 100, 200, 300, 400, 500, 1000, boiler display, and a defined voltmeter. This is the v1 model-lab gate. |
+| 11 | Boiler visit | Not before the first AUTO. Off-table v1 is the inverse. Visit only on the branch in §4.4, and only a display reading may change a knot. |
 | 12 | Outdoor sensor | Look for the old AF before buying one. Economy lockout is the feature it unlocks. |
 | 13 | Schedule clock | A battery RTC removes the WiFi coupling. Until then, hold across an unsynced boot. |
 
@@ -902,7 +1025,10 @@ AUTO     [ OFF | MANUAL | AUTO ]
 
 ## 12. Review disposition
 
-| Review item | Resolution in this revision |
+The 1.1 rows record the review that revision 1.1 absorbed. Where 1.2 disagrees,
+the later table wins.
+
+| Review item | Resolution in revision 1.1 |
 | --- | --- |
 | 1.1 PI and on/off machine not one controller | v1 is scheduled flow; the demand predicate is defined for the later trim mode (§5.3, §5.5) |
 | 1.2 Burner starts not observable | Count AUTO demand edges, not burner ignitions; boiler `Taktsperre` and minimum modulation acknowledged (§5.6) |
@@ -921,26 +1047,38 @@ AUTO     [ OFF | MANUAL | AUTO ]
 | §4 v1 law | Adopted: scheduled flow, no room PI, real off, later bounded trim (§5.3–§5.5) |
 | §5 Other ideas | Timed override, window-open freeze deferred (§5.3), shadow metric, simulator/replay limits, LLM fences, regime-wise identification added (§7.5, §6.5, §6.6) |
 | §7 Decisions | Replaced with the 13-decision table (§11) |
-| §8 Definition of done | Amended below (§13) |
+| §8 Definition of done | Amended below (§13); amended again in 1.2 |
+
+### Folded in revision 1.2
+
+| Point | Where it now lives |
+| --- | --- |
+| No boiler visit before AUTO | §1, §4.4, §9, decision 11 |
+| Off-table v1 is the adopted inverse; day 283, night 500, OFF bypasses it | §5.3, test 13 |
+| A few days of operation, then a winter loop | §6.4 |
+| Both DS18B20s read the pipe wall. Water-out is slow and may settle below Soll | §5.8 |
+| That gap is τ and α. It does not edit a knot | §6.4, §6.5 |
+| The pipe difference is not heat delivered, and it stays out of the v1 law | §5.8 |
+| A false model return must not refuse OFF. Duty 0 is not invented | §5.3 |
+| `haus_water_model.h` still says there is no return probe and that the table is water-out. The header is stale; correct it when that file is next edited | §3.5 |
 
 ---
 
 ## 13. Definition of done for the first AUTO release
 
-- The interface card exists, or a written statement says which of the seven
-  points were not measurable and why.
+- The inverse tests pass: five knots, day 55 °C → duty 283, night floor →
+  duty 500, OFF is 1000 without the model, AUTO never emits duty 0.
 - Controller and config compile on device and host.
 - All 17 use cases pass, including sanitizer runs.
 - Manual OFF and deliberate manual takeover are demonstrated on the bench.
 - The OFF badge states whether frost protection is active.
-- AUTO shadow mode has run for several days; switching rate and suppressed
-  reasons have been reviewed.
+- The short shadow has been reviewed, and AUTO has then transmitted.
+- A note exists after the first operation window. It may say the table was
+  left alone and that τ and α are not fitted yet.
 - Every AUTO transition is logged with mode, reason, flow setpoint, duty and
   timer state.
 - The UI shows mode, source and reason without ambiguity.
-- The model lab has produced `model.json` and `report.md` for the interface
-  card. "The thermal model is not identified yet" is true but does not gate the
-  first release.
+- A boiler visit and a fitted pipe model do not gate this release.
 
 ---
 
@@ -975,8 +1113,9 @@ AUTO     [ OFF | MANUAL | AUTO ]
   `11.28 V` at 100.
 - `src/haus_gui.cpp` `target_from_duty()` measured table.
 - `include/haus_water_model.h` and `src/haus_water_model.cpp`.
-- `src/haus_sensor_roles.cpp` seeded water-out ROM.
+- `src/haus_sensor_roles.cpp`: the two probes are on the water-in pipe and the water-out pipe.
 - `AVR/01_heizung_temp/src/pwm_out.cpp`, `eeprom_log.cpp`, `main.cpp`.
-- `test/test_*` host-test pattern.
+- `test/test_*` host-test pattern, including `test_water_model`.
 - `host_harness/` renderer and `dump_2026-10-23/` data.
 - Review of 2026-10-23, incorporated in revision 1.1. The file was removed.
+- Measurement-gate review of 2026-10-23, incorporated in revision 1.2. The file was removed.

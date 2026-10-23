@@ -14,6 +14,8 @@ struct WaterModel {
   virtual ~WaterModel() = default;
   virtual bool estimate(int16_t water_in_c100, uint16_t duty_permille,
                         int16_t chamber_c100, int16_t* out_c100) const = 0;
+  virtual bool target_from_duty(uint16_t duty_permille,
+                                int16_t* target_c100) const = 0;
   virtual const char* provenance() const = 0;
 };
 

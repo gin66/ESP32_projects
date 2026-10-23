@@ -1,0 +1,346 @@
+# Auto Heating — Implementation TODO List
+
+**Source:** `whitepaper_auto_heating.md` (rev 1.2, 2026-10-23)  
+**Status:** Design proposal, not implemented  
+**Scope:** `ESP32/28_hauszentrale` + Wolf gas boiler (`AVR/01_heizung_temp`)
+
+---
+
+## Phase 0 — Core Control Infrastructure
+
+### [x] 0.1 Define `HeaterMode` enum
+- File: `include/haus_heater.h` (created)
+- Enum values: `HEATER_MODE_OFF`, `HEATER_MODE_MANUAL`, `HEATER_MODE_AUTO`, `HEATER_MODE_OVERRIDE`
+- See §5.1
+
+### [x] 0.2 Implement inverse table (`OffTableModel`)
+- File: `src/haus_water_model.cpp` (extend existing)
+- Five knots: duty 100→70 °C, 200→60 °C, 300→54 °C, 400→44 °C, 500→42 °C
+- `target_from_duty()`: interpolate Soll from duty
+- `estimate()`: returns false for duty < 100 or > 500 (including 0 and 1000)
+- Domain: Soll 42…70 °C ↔ duty 500…100
+- Day 55 °C → duty 283 (interpolated between 60 °C/200 and 54 °C/300)
+- Night floor at 42 °C → duty 500 (bypasses inverse — OFF is duty 1000, never consults model)
+- Duty 0 stays manual-only
+- Host test: `test/test_heater_control/test_heater_control.cpp` (test case T.1 #13)
+- See §5.3
+
+### [x] 0.3 Implement scheduled flow law
+- Day flow: default 55 °C → duty 283
+- Night flow: `T_day - 15 K`, floored at 42 °C → duty 500
+- Real off: duty = 1000 (manual OFF, schedule-off, or economy lockout)
+- Frost demand: modest point on adopted table, independent of schedule
+- 15 K setback = AWT's recommended flow setback (not room)
+- Fixed preheat lead (60–90 min) — deferred until house time constant known
+- Schedule edge means "heating starts", not "room is warm"
+- See §5.3
+
+### [x] 0.4 Implement authority/boot/foreign-writer handling
+- Manual OFF while AUTO → `MODE_OFF`, send 1000 immediately, persist, cancel AUTO
+- Deliberate manual duty while AUTO → `MODE_MANUAL`, send user value once, persist
+- AUTO control → enter `MODE_AUTO` only when CAN is green and inputs are valid
+- Foreign `0x280` / nRF change → `MODE_OVERRIDE` for bounded time (2 h), then return to AUTO
+- Reboot → restore mode from `/heater.bin`; read `0x280`; send only when it disagrees
+- Sensor loss → hold, then `AUTO HOLD`; do not silently switch modes
+- Unsynced clock → hold; do not apply day flow until `CanState.synced`
+- Schedule/sensor recovery cannot override `MODE_OFF`
+- See §5.1
+
+### [ ] 0.5 Implement boot transmit rules
+- Panel sends only when `0x280` disagrees with restored mode:
+  - OFF + report is 1000: send nothing
+  - OFF + report is heating duty: send 1000 once
+  - MANUAL: send saved duty only when report differs
+  - AUTO: send nothing until first legal decision; show `PWM_SRC_EEPROM`
+- Handle `PWM_SRC_NRF` and foreign `0x280` → yield, don't overwrite remote
+- Handle EEPROM heartbeat edge cases (60 s write window, lowest-permille walkback)
+- See §5.2
+
+---
+
+## Phase 1 — Config Persistence and UI Mode
+
+### [ ] 1.1 Implement `/heater.bin` persistence
+- Versioned binary: magic, version, CRC32 over payload
+- Pattern: follow `day-file`/`rollup.bin` (not `sensor_roles.bin` which has no CRC)
+- On bad file: reject, keep previous mode in RAM, never come up as AUTO
+- Persist: mode, schedule (day flow, night setback, frost parameters)
+- See §8
+
+### [ ] 1.2 Add AUTO mode control to HEATER detail page
+- Mode selector: `[ OFF | MANUAL | AUTO ]`
+- Display: requested duty, in-force duty, flow range (e.g., "AUTO heating, flow 55 → 42 °C")
+- Takeover is deliberate: mode segment toggle, or slider **release** (not drag)
+- While AUTO selected, slider displays commanded duty, does not write the bus
+- A drag that started on AUTO screen does not change mode at `VALUE_CHANGED`
+- AUTO disabled when CAN not green or inputs invalid (show reason)
+- Badges: `AUTO`, `AUTO HOLD`, `PUMP BLOCKED`, `OVERRIDE`, `NIGHT`, `FROST`, `off — frost protection inactive`
+- `PWM_SRC_EEPROM` shown while wire carries AVR's restored duty
+- Request full redraw after writes (as `haus_config_set_can_enabled()` does)
+- See §8
+
+---
+
+## Phase 2 — Anti-Short-Cycling
+
+### [ ] 2.1 Implement demand-edge state machine
+- States: `IDLE → HEATING → COOLDOWN → IDLE`
+- Parameters (all persisted and configurable):
+  - Control period: 60 s
+  - Minimum on time: 10 min
+  - Minimum off time: 15 min
+  - Maximum demand edges per rolling hour: 2
+  - Minimum interval between duty changes: 5 min
+  - Maximum duty step: 50 permille
+  - Future room hysteresis (trim only): ±0.3 K
+  - Future flow deadband (trim only): 2 K
+- Rules:
+  - OFF sent only after `min_on` (except manual OFF and pump guard)
+  - ON sent only after `min_off` and within edge budget
+  - Duty may move while HEATING; only on/off transitions are limited
+  - Frost protection may override `min_off` and edge budget
+  - Manual OFF beats frost protection
+  - Budget counts **AUTO demand edges**, not burner ignitions
+  - Guarantee explicitly scoped to AUTO output (boiler's `Taktsperre` still applies)
+- See §5.6
+
+---
+
+## Phase 3 — Short Shadow Mode
+
+### [ ] 3.1 Implement shadow mode (compute and log, do not transmit)
+- Before AUTO is allowed to transmit
+- One schedule edge, or a few hours (not a multi-day gate)
+- Log: decision and reason, suppressed reason (`min_on`, unsynced, NRF yield, `AUTO HOLD`), flow and room traces, planned duty inside `100..500` or `1000`, switching rate
+- Enable transmit after short review
+- See §7.5
+
+---
+
+## Phase 4 — Enable AUTO
+
+### [ ] 4.1 Enable AUTO transmission with adopted defaults
+- Deliberate takeover tested
+- See §9, step 4
+
+### [ ] 4.2 Implement failure handling
+- SHT45 stale → scheduled flow continues; if trim active, hold. Badge `AUTO HOLD`
+- Water sensors stale → pipe model leaves winter fit; scheduled flow continues on adopted table
+- Clock unsynced → hold restored duty; do not apply day flow
+- CAN not green → AUTO unavailable, manual controls disabled
+- `0x280` conflicts with request → log once, show actual, do not retry-loop
+- Command outside legal range → reject, log, hold
+- Foreign writer / nRF → `MODE_OVERRIDE` for bounded time, then return to AUTO
+- Boiler fault or DHW charge → log as disturbance; do not fit as plant gain
+- No undefined open-loop fallback; fallback is HOLD + reason
+- See §5.9
+
+---
+
+## Phase 5 — Operation Window
+
+### [ ] 5.1 Implement experiment logger (1 Hz, monotonic timestamps)
+- CSV format: `epoch_ms,seq,duty_req,duty_rpt,water_in_c,water_out_c,room_c,room_rh,ac_rms_dc,ac_angle_cdeg,pump_state,can_ok,target_c,note`
+- `duty_req` = what panel sent; `duty_rpt` = what `0x280` reported (both mandatory)
+- `water_in_c`, `water_out_c` = pipe-wall temperatures (not bulk water)
+- `target_c` = Soll hint from table (never a pipe value)
+- `pump_state` = from coil, not duty-derived label
+- Store experiment files in `experiments/<id>/` (not in minute record)
+- See §6.3
+
+---
+
+## Phase 6 — Pump Guard (Later)
+
+### [ ] 6.1 Implement pump-current guard
+- Input: `CanState.ac_rms_dc` (0x2C waveform RMS in 0.1 ADC count)
+- Trigger: request heat + coil count < I_min for 10 min + ΔT < 2 K → send 1000, state `PUMP_BLOCKED`
+- Recovery: stay at 1000 for 30 min, then allow one supervised demand
+- Clear early if room has fallen further (valve opened)
+- Ignore guard while coil sample is stale
+- Record installed pump-switch position first
+- Must not use "current high" as clear condition
+- 3-minute grace = `Taktsperre`
+- Equipment protection only (suspends AUTO; manual OFF/duty untouched)
+- See §5.7
+
+---
+
+## Phase 7 — HTTP Observability
+
+### [ ] 7.1 Implement `/heater` JSON endpoint
+- Fields: mode, state, setpoints, requested duty, reason, remaining minimum times, edge count
+- See §9, step 7
+
+---
+
+## Phase 8 — Winter Iteration
+
+### [ ] 8.1 Implement experiment and model lab tools
+- Location: `tools/heater_model/`
+- Components:
+  - `collect.py` — read operation logs over HTTP/SD or external logger CSV
+  - `experiment.py` — optional supervised steps; refuses unless `--allow-write`
+  - `identify.py` — pipe model (§5.8) fitting, then regime detection
+  - `llm_analyst.py` — sends downsampled traces to LLM; produces hypotheses and experiment proposals (never actuator commands)
+  - `report.py` — generates `report.md`, plots, and `model.json`
+  - `model.md` — model card: inputs, states, parameters, confidence, validity range
+- See §6.2
+
+### [ ] 8.2 Implement pipe model fitting (§5.8)
+- Two relations, kept apart:
+  - `τ · dT_pipe_out / dt = T_inf − T_pipe_out`
+  - `T_inf = T_pipe_in + α · (T_soll − T_pipe_in)`
+- τ is identified (not the boiler's 100 s)
+- α lies between 0 and 1 (identified; α = 1 is a result, not a constraint)
+- When α < 1, steady pipe reading stays below Soll — that is the model, not an error
+- Output: `model.json` (τ, α, any load term, uncertainty, validity range)
+- The five duty knots are recorded as adopted inputs, not fitted outputs
+- See §6.5, §6.7
+
+### [ ] 8.3 Implement regime detection
+- Segment: OFF, pump-only, ignition wait, weak fire, strong fire, modulation, lockout
+- Start with thresholds on coil RMS and slope of flow-pipe reading
+- Only then consider a hidden Markov model
+- See §6.5
+
+### [ ] 8.4 Implement winter iteration loop
+- Each pass: split log into day/night/off; drop intervals where `duty_req` ≠ `duty_rpt`
+- On intervals that held one duty long enough to settle, record median pipe-out, pipe-in, coil RMS
+- Fit §5.8 model
+- Outcomes (only one): unchanged / pipe-model note / load term / new knot / boiler visit
+- See §6.4
+
+---
+
+## Phase 9 — Room Trim and Outdoor Economy (Future)
+
+### [ ] 9.1 Implement room-temperature trim (not v1)
+- Compare SHT45 with a second thermometer (panel sits on H1, living room, next to un-dimmable backlight)
+- Add at most a few kelvin of flow trim from room error
+- `too cold = T_room < T_set - 0.3 K`
+- `satisfied = T_room > T_set + 0.3 K`
+- Requirements:
+  - Radiator valves in panel's room fully open while trim active
+  - Trim is clamped; integrator frozen when transmitted duty does not change
+  - One room sensor does not become the house thermostat
+  - `T_flow_set` comes from schedule, not from an integrator running during off state
+- See §5.5
+
+### [ ] 9.2 Implement outdoor economy lockout (future)
+- Requires outdoor sensor (look for old AF before buying one)
+- AWT's summer switch: pump and burner off above adjustable outdoor temperature (recommended 15–20 °C)
+- Preferred energy feature before any room trim
+- See §3.3, §11 decision #12
+
+---
+
+## Optional — Boiler Visit (Deferred)
+
+### [ ] B.1 Conduct supervised boiler visit (only when triggered)
+- Triggers:
+  - Pipe model has τ, long wait against τ passes, flow-pipe reading still has no slope
+  - Coil says pump never started
+  - Duty 100 is not enough heat and someone wants a point above 70 °C
+- Procedure:
+  1. Write down voltmeter method, node measured, and load
+  2. Set boiler flow-temperature selector to documented position
+  3. At each chosen duty, record: duty request/report, boiler's own heating-temperature display, measured control voltage, both pipe readings, room temperature, pump/coil state
+  4. Repeat after boiler has settled (not immediately after step)
+  5. Mark any DHW charge or boiler fault
+- A display reading is the only observation that may change a knot (written by hand)
+- A pipe reading never justifies a knot change
+- Duty 0 stays manual-only until it has a point
+- See §4.4
+
+---
+
+## Test Environment (All Levels)
+
+### [ ] T.1 Level 1: Pure controller tests
+- File: `test/test_heater_control/`
+- Flags: `-std=c++17 -Wall -Wextra -Wconversion -Wshadow -Werror`
+- Commands: `make test`, `make sanitize` (address/undefined sanitizers)
+- 17 required test cases:
+  1. Night onset — flow floors at 42 °C, duty 500; no off edge
+  2. Day transition — flow returns to day value, subject to mover
+  3. Real off / economy — OFF after `min_on`; at most 2 demand edges per rolling hour
+  4. Manual OFF during AUTO — 1000, mode OFF, no AUTO sends for 24 simulated hours
+  5. Deliberate manual takeover — Mode MANUAL, one user frame, AUTO cancelled
+  6. AUTO re-entry — No send until preconditions valid
+  7. Missing SHT45 in v1 — Scheduled flow continues; trim, if active, holds
+  8. Unsynced clock — Hold restored duty; no day-flow jump
+  9. Pump blocked — OFF latch after debounce; recovery by 30 min timer or room drop
+  10. Coil stale — Guard inactive, AUTO continues
+  11. Frost demand — Modest flow despite night; manual OFF still wins
+  12. DST/weekend schedule — Correct local-time evaluation, fall-back and spring-gap hold
+  13. Adopted inverse — Round trip on five knots; day 55 °C → duty 283; night floor → duty 500; OFF is 1000; AUTO never emits duty 0
+  14. Command domain — Always 1000 or 100..500
+  15. Foreign writer — `MODE_OVERRIDE`, then bounded return to AUTO
+  16. Boot with restored duty — No transmit when `0x280` matches mode; `PWM_SRC_EEPROM` visible
+  17. Seven-day simulation — Bounded demand edges, no invariant violation
+- See §7.1
+
+### [ ] T.2 Level 2: Closed-loop simulator
+- File: `host_harness/src/heater_sim.cpp`
+- Model: pipe-wall lag (§5.8) with α < 1, boiler hysteresis, 3-min ignition delay, optional load disturbance
+- Keep for state-machine invariants
+- See §7.2
+
+### [ ] T.3 Level 3: Replay
+- Replay `dump_2026-10-23/sd/data_*.bin` and `rollup.bin` through existing dump loader
+- Explicit mode/duty injection
+- Drives plant side; cannot score AUTO decision
+- See §7.3
+
+### [ ] T.4 Level 4: UI render tests
+- Generate reference images:
+  - `output_heater_auto.png`
+  - `output_heater_night.png`
+  - `output_heater_hold.png`
+  - `output_heater_pump_blocked.png`
+  - `output_heater_manual.png`
+  - `output_heater_frost_off.png`
+- See §7.4
+
+---
+
+## Housekeeping / Documentation
+
+### [ ] D.1 Update parent whitepaper (`docs/whitepaper.md`) in three places
+- Duty direction (§7.9 and D27): correct to match S20 bench (`1000` = OFF, `0` = full heat)
+- Transmit gesture (F19 / D28): detail page transmits on switch click and slider tick
+- Water out (§7.11 and Q9): `haus_sensor_roles.cpp` seeds third ROM as `SENSOR_FN_WATER_OUT`; table is Soll hint, not water-out temperature
+- See §3.5
+
+### [ ] D.2 Verify DS18B20 probe identities via live `0x180`
+- Confirm both DS18B20s are clamped to pipes (not immersed)
+- Confirm `water_in` and `water_out` roles
+- Note: a missing probe does not block AUTO (scheduled flow does not need pipes)
+- See §5.8, §11 decision #4
+
+### [ ] D.3 Document pipe-wall sensor limitations
+- Both DS18B20s read pipe wall, not bulk water
+- Pipe reading can settle short of water temperature (contact + DS18B20 body slower than boiler's 100 s NTC)
+- A pipe finishing below Soll is the sensor, not a missed setpoint
+- See §5.8
+
+### [ ] D.4 Create model card template
+- Inputs, states, parameters, confidence, validity range
+- See §6.2 (`model.md`)
+
+---
+
+## Summary: Integration Order (from §9)
+
+| Step | Task | Phase |
+|------|------|-------|
+| 1 | Inverse of off-table v1 + host tests | Phase 0 + T.1 |
+| 2 | Config persistence + UI mode | Phase 1 |
+| 3 | Short shadow (compute, log, do not transmit) | Phase 3 |
+| 4 | Enable AUTO with adopted defaults | Phase 4 |
+| 5 | Operation window (few days) | Phase 5 |
+| 6 | Pump guard (after τ and α exist) | Phase 6 |
+| 7 | HTTP observability (`/heater` JSON) | Phase 7 |
+| 8 | Winter iteration (pipe-model note) | Phase 8 |
+| 9 | Room trim + outdoor economy | Phase 9 |

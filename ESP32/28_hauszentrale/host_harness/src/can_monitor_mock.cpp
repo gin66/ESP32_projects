@@ -23,6 +23,7 @@ can_id_entry_t s_entries[16];
 int s_count = 0;
 sml_reassembly_t s_sml[CAN_MONITOR_SML_SLOTS];
 can_monitor_adc_wave_t s_wave;
+can_monitor_adc_span_t s_span;
 can_monitor_counters_t s_counters;
 bool s_ready = false;
 
@@ -92,6 +93,11 @@ void ensure(void) {
   s_wave.valid = true;
   s_wave.generation = 1;
   s_wave.seen_ms = now_ms();
+  s_span.valid = true;
+  s_span.seen_ms = s_wave.seen_ms;
+  s_span.pp_count = 768;
+  s_span.max_count = 812;
+  s_span.min_count = 44;
   for (int i = 0; i < CAN_MONITOR_WAVE_SLOTS; i++) {
     const double s =
         std::sin(2.0 * 3.14159265358979 * (double)i / (double)CAN_MONITOR_WAVE_SLOTS);
@@ -190,6 +196,14 @@ bool can_monitor_get_adc_wave(can_monitor_adc_wave_t* out) {
   ensure();
   if (!out) return false;
   *out = s_wave;
+  return out->valid;
+}
+
+bool can_monitor_get_adc_span(can_monitor_adc_span_t* out) {
+  ensure();
+  if (!out) return false;
+  *out = s_span;
+  out->seen_ms = now_ms();
   return out->valid;
 }
 

@@ -47,6 +47,7 @@ can_id_entry_t s_table[CAN_MONITOR_MAX_IDS];
 int s_count = 0;
 sml_reassembly_t s_sml[CAN_MONITOR_SML_SLOTS];
 can_monitor_adc_wave_t s_wave;
+can_monitor_adc_span_t s_span;
 uint16_t s_wave_stage[CAN_MONITOR_WAVE_SLOTS];
 uint8_t s_wave_next = 0; /* 0 => no set in progress, else next part 1..4 */
 can_monitor_counters_t s_counters;
@@ -270,6 +271,15 @@ void on_frame(const Frame& f) {
       break;
     case HAUS_PROTO_HEIZUNG_ADC:
       s_counters.proto_adc++;
+      if (f.len >= 7) {
+        haus_can_adc_t adc;
+        haus_can_get_adc(f.data, &adc);
+        s_span.valid = true;
+        s_span.seen_ms = millis();
+        s_span.pp_count = adc.pp_count;
+        s_span.max_count = adc.max_count;
+        s_span.min_count = adc.min_count;
+      }
       break;
     case HAUS_PROTO_HEIZUNG_EE:
       s_counters.proto_ee++;
@@ -308,6 +318,7 @@ void can_monitor_task(void*) {
       std::memset(s_table, 0, sizeof(s_table));
       std::memset(s_sml, 0, sizeof(s_sml));
       std::memset(&s_wave, 0, sizeof(s_wave));
+      std::memset(&s_span, 0, sizeof(s_span));
       std::memset(s_wave_stage, 0, sizeof(s_wave_stage));
       s_wave_next = 0;
       std::memset(&s_counters, 0, sizeof(s_counters));
@@ -380,6 +391,14 @@ bool can_monitor_get_adc_wave(can_monitor_adc_wave_t* out) {
   if (!out) return false;
   portENTER_CRITICAL(&s_data_lock);
   *out = s_wave;
+  portEXIT_CRITICAL(&s_data_lock);
+  return out->valid;
+}
+
+bool can_monitor_get_adc_span(can_monitor_adc_span_t* out) {
+  if (!out) return false;
+  portENTER_CRITICAL(&s_data_lock);
+  *out = s_span;
   portEXIT_CRITICAL(&s_data_lock);
   return out->valid;
 }

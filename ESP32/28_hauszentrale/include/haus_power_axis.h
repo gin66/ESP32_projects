@@ -2,8 +2,9 @@
  * @file haus_power_axis.h
  * @brief Power chart scaling: linear or logarithmic with a 0 W special case.
  *
- * All values are decawatts (0.1 W), the unit stored in gui_sample_t.power_dw
- * and RollupColumn series 6. The log axis keeps a small linear band from 0 to
+ * All values are decawatts (0.1 W), the unit of RollupColumn series 6 and of
+ * legacy minute records. New minute records leave power_dw at 0 and store
+ * cumulative energy instead. The log axis keeps a small linear band from 0 to
  * 10 W so 0 W can be drawn and read as an ordinary tick instead of log(0).
  * Above 10 W the axis is logarithmic.
  */

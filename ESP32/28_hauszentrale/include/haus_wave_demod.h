@@ -37,6 +37,45 @@ typedef struct {
 bool haus_wave_demod(const uint16_t slot[HAUS_WAVE_BINS],
                      haus_wave_demod_t* out);
 
+/* Signed step from prev_deg to now_deg, wrapped into (−180, 180]. */
+float haus_wave_angle_step(float prev_deg, float now_deg);
+
+/* In-RAM reduction of successive waveforms. The minute file stores one rate;
+ * these steps are not persisted. A flat window (RMS below 1 count) is ignored
+ * so a forced angle of 0 cannot invent a jump. */
+#define HAUS_ANGLE_RATE_STEPS 64u
+#define HAUS_ANGLE_RATE_MIN_DT_MS 200u
+#define HAUS_ANGLE_RATE_MAX_DT_MS 5000u
+#define HAUS_ANGLE_RATE_MIN_RMS 1.0f
+#define HAUS_ANGLE_RATE_WINDOW_MS 60000u
+
+typedef struct {
+  float ddeg;
+  uint32_t dt_ms;
+  uint32_t t_ms;
+} haus_angle_step_t;
+
+typedef struct {
+  bool have_angle;
+  float angle_deg;
+  uint32_t t_ms;
+  uint8_t count;
+  uint8_t next;
+  haus_angle_step_t step[HAUS_ANGLE_RATE_STEPS];
+} haus_angle_rate_t;
+
+void haus_angle_rate_reset(haus_angle_rate_t* track);
+
+/* Record one waveform. Returns true only when a step was stored. */
+bool haus_angle_rate_observe(haus_angle_rate_t* track, float angle_deg,
+                             float rms_counts, uint32_t t_ms);
+
+/* Mean rate of steps whose time is inside the last window_ms (inclusive).
+ * window_ms 0 selects HAUS_ANGLE_RATE_WINDOW_MS. *cdeg_s is 0.01 °/s.
+ * Returns false when the window holds no step. */
+bool haus_angle_rate_cdeg_s(const haus_angle_rate_t* track, uint32_t now_ms,
+                            uint32_t window_ms, int16_t* cdeg_s);
+
 #ifdef __cplusplus
 }
 #endif

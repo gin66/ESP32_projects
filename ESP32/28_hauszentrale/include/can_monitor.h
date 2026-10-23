@@ -142,6 +142,17 @@ bool can_monitor_get_sml(int slot, sml_reassembly_t* out);
  *  frames (0x2C1..0x2C5) have been assembled. */
 bool can_monitor_get_adc_wave(can_monitor_adc_wave_t* out);
 
+/** Latest 0x2C0 min/max/pp. pp_count is raw ADC counts, not amps. */
+typedef struct {
+  bool valid;
+  uint32_t seen_ms;
+  uint16_t pp_count;
+  uint16_t max_count;
+  uint16_t min_count;
+} can_monitor_adc_span_t;
+
+bool can_monitor_get_adc_span(can_monitor_adc_span_t* out);
+
 /** Snapshot of the counters (read-only, updated by the consumer). */
 const can_monitor_counters_t* can_monitor_counters(void);
 

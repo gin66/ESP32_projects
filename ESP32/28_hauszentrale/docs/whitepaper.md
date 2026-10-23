@@ -1,6 +1,7 @@
 # White Paper: 28_hauszentrale — House Central on the Waveshare ESP32-S3-Touch-LCD-7
 
 **Status:** COMPLETE — all sections written. Open questions in §12 remain to be answered before phase 1.
+**Revision:** 1.10 — the minute record is 44 bytes. It stores the reported PWM duty, the coil angle rate, the `0x2C0` peak-to-peak count, and the cumulative consumed and produced meter registers at 0.0001 kWh. Instantaneous watts leave the minute record. A firmware update does not migrate older day files and must not truncate or delete a file whose layout it does not own (§7.4, §7.10, §9.7).
 **Revision:** 1.9 — the local climate sensor is a **Sensirion SHT45** at I²C `0x44` (temperature + relative humidity). It replaces the abandoned AHT20 + BMP280 plan: there is **no pressure sensor** on this board, and pressure is removed from the UI, the mockup and this document's product description. The binary record keeps a reserved pressure slot so the on-disk format did not change (§3.5, §7.8, §8.13, Q24).
 **Revision:** 1.8 — adds **double bookkeeping** for history: the hourly rollup is written to an independent 12-month SPIFFS ring as well as the SD store, so an SD-card failure cannot erase week/month history. Also records the project-specific SD bring-up through the CH422G CS and SPI3 (§7.10, §8.15.4, §9.7).
 **Revision:** 1.7 — redefines the home SD dot as a removal indicator: **green = present, readable, safe to remove; red = write in progress; grey = absent**. Faulty storage remains an evidence-based, sticky state but moves to the storage panel and log bar rather than a dot colour (§8.15.1, D44, R28).
@@ -9,7 +10,7 @@
 **Revision:** 1.4 — adds the bench verification of the physical board (§3.1.1: ESP32-S3 rev v0.2, **16 MB** flash correcting the 8 MB identity, MAC `28:84:85:a7:a6:78`, CH9102 USB-UART bridge, the mechanical UART switch, and the `rtc_pcf85063` / IDF 5.5.4 demo currently on the flash), the mechanical-switch constraint on §3.3 and the §7.5 runbook, D49–D51, Q22–Q23
 **Revision:** 1.3 — adds the memory map (§10.5), the three-tier history store (§7.10), the modelled water-out temperature (§7.11), the CAN enable switch (§7.12, §8.14), the 4 mm type scale (§8.1.1) and the bottom nav pane (§8.11)
 **Revision:** 1.2 — adds the living-room AHT20 + BMP280 local I²C sensors (§3.5, §7.8, F15–F17, N13–N14, §8.13), heater/pump PWM duty control (§3.6, §7.9, F18–F21, N15–N16, §8.6.1), and the declarative-UI analysis (§4.4, D31–D32)
-**Last update:** 2026-10-17
+**Last update:** 2026-10-23
 
 ---
 
@@ -530,7 +531,7 @@ treated as in-scope battery engineering under §2.2.
 | N3 | CAN reception never blocks the LVGL task. |
 | N4 | SD writes never block the LVGL task. |
 | N5 | House-state code (decoding, formatting, chart maths) is pure C++ with **no Arduino, ESP-IDF or LVGL dependencies**, so it compiles natively on macOS. |
-| N6 | Memory budget: **heap** allocations stay under 64 KB (§10.5.3). Static PSRAM (§10.5.1) is sized at compile time and never reallocated — the 1 MB log ring, the decoded background (768 KB, §8.3), the day buffer and the rollup. The LVGL draw buffers stay in **internal** RAM, because the panel's DMA cannot cross the octal-PSRAM boundary. The chart working set is ~24 KB (§9.3), not 6 KB. |
+| N6 | Memory budget: **heap** allocations stay under 64 KB (§10.5.3). Static PSRAM (§10.5.1) is sized at compile time and never reallocated — the 1 MB log ring, the decoded background (768 KB, §8.3), the day buffer and the rollup. The LVGL draw buffers stay in **internal** RAM, because the panel's DMA cannot cross the octal-PSRAM boundary. The chart working set is 34 848 B (§9.3), not 6 KB. |
 | N7 | The device stays reachable: OTA and the optional log/control WebSocket behave as in every other project. WiFi is not a runtime dependency — the panel keeps operating offline, never reboots because the AP disappeared, and refreshes NTP once an hour when the link is up. |
 | N8 | Fonts and background images live in PSRAM or flash, not internal RAM. |
 | N9 | Rebuilding `platformio.ini` for a board switch requires changing exactly one `-D` flag. |
@@ -938,24 +939,31 @@ and passing afterwards**; it is the regression test for this step.
 host build can implement it too:
 
 ```cpp
-// src/app/recorder.h
+// include/haus_gui.h — gui_sample_t. One record per minute.
 struct Sample {
-  uint32_t epoch;          // minute-aligned unix time
-  int16_t  chamber_c100;   // 0.01 C   \ CAN, resolved by function (§7.7)
-  int16_t  water_in_c100;  // 0.01 C   /
-  int16_t  water_out_c100; // 0.01 C   /
-  int16_t  living_c100;    // 0.01 C     SHT45, local I2C (§7.8)
-  uint16_t hum_c100;       // 0.01 %RH   /
-  uint32_t pressure_pa;    // reserved: always 0 (no pressure sensor)
-  uint16_t power_dw;      // decawatts (0.1 W). SML watts × 10, saturated at 6553.5 W
-  uint8_t  flags;          // VALID bits + FAULT bits, incl. climate-present + TEMP_MODELLED
-  uint8_t  stale_mask;     // per-source stale bit; see below
-  int16_t  target_c100;    // Soll / setpoint for the third chart series
-  uint16_t ac_rms_dc;      // 0x2C waveform RMS, 0.1 ADC count (S29.01)
-  int16_t  ac_angle_cdeg;  // 0x2C waveform angle, 0.01 degree (S29.01)
+  uint32_t epoch;             // minute-aligned unix time
+  int16_t  temp[3];           // chamber, water-in, water-out, 0.01 °C (§7.7)
+  int16_t  living_c100;       // 0.01 °C, SHT45 (§7.8)
+  uint16_t hum_c100;          // 0.01 %RH
+  uint16_t power_dw;          // unused in new records; always written 0
+  uint32_t pressure_pa;       // reserved: always 0 (no pressure sensor)
+  uint8_t  flags;             // SAMPLE_FLAG_*, incl. climate-present
+  uint8_t  stale_mask;        // per-source stale bit; see below
+  int16_t  target_c100;       // Soll. Not a copy of the reported duty
+  uint16_t ac_rms_dc;         // 0x2C waveform RMS, 0.1 ADC count
+  int16_t  ac_angle_cdeg;     // 0x2C waveform angle, 0.01 degree
+  uint16_t duty_permille;     // last 0x280; 0xFFFF if never seen
+  int16_t  angle_rate_cdeg_s; // 0.01 °/s over the minute; INT16_MIN if unknown
+  uint16_t ac_pp;             // 0x2C0 peak-to-peak counts; 0 if never seen
+  uint8_t  pwm_src;           // PWM_SRC_* or 0xFF if never seen
+  uint8_t  reserved;          // zero
+  uint32_t consumed_kwh4;     // OBIS 1.8.0, unit 0.0001 kWh
+  uint32_t produced_kwh4;     // OBIS 2.8.0, unit 0.0001 kWh
 };
-// 4 + 6 + 2 + 2 + 4 + 2 + 1 + 1 + 2 + 2 + 2 = 28 bytes, no padding.
-static_assert(sizeof(Sample) == 28, "fixed-size records enable seeking");
+// 44 bytes, natural alignment. The first 28 bytes keep the previous offsets,
+// which is why power_dw remains as a hole: moving it would shift pressure_pa.
+static_assert(sizeof(Sample) == 44, "fixed-size records");
+static_assert(offsetof(Sample, duty_permille) == 28, "prefix stays put");
 
 struct Recorder {
   virtual bool   open(const char *path) = 0;
@@ -999,10 +1007,18 @@ not one per minute.
   recorder task. The card is not held open across a webserver read; reads and
   writes share `tpl_sd_lock()`, and a failed lock wait defers a flush instead of
   declaring the card lost (§8.15.4).
-- **Fixed-size records are the key decision.** With a 28-byte record, reading the
-  last 1440 samples is `seek(-1440*28, SEEK_END)` — no parsing, no scan, no index
-  to maintain or corrupt. §9 depends on this, and every byte figure in §9 is
-  derived from 28.
+**Sentinels for the appended fields.** Duty 0 is full heat, so "never seen" is
+`0xFFFF`, not 0. An angle rate of 0 means the coil clock and the mains clock
+were in step, so "unknown" is `INT16_MIN`. A meter reading of 0 kWh is legal,
+so an unseen register is `0xFFFFFFFF`. `ac_pp` uses 0 for "never seen": an idle
+coil is tens of counts, not zero. `target_c100` is the Soll temperature. It is
+not the duty the AVR reported, and it is not the feedback for the duty field.
+
+- **Fixed-size records are the key decision.** The minute record is 44 bytes.
+  In RAM the slot is `(epoch % 86400) / 60`. On the card the day file is 1 440
+  records in blocks of 64, each block followed by a CRC32, so a record is not
+  at `index * 44`. The minute-file figures in §9 come from 44. `ChartColumn`
+  in §9.3 is a separate 28-byte chart view and did not change.
 
 **Power source for F4 — SML, and the decoder already exists.** The source is
 `AVR/07_stromzaehler`, and **Q1 is answered**: household power comes from the SML
@@ -1017,9 +1033,15 @@ on three of them (`ESP32/15_power_log_eink/src/main.cpp:187-247`):
 
 | OBIS | Meaning | Use |
 | ---- | ------- | --- |
-| `1-0:16.7.0/255` | Stromeffektivwert, in W | **the household power — this is F4** |
-| `1-0:1.8.0/255` | total consumption | daily/monthly energy deltas |
-| `1-0:2.8.0/255` | total production | export, if ever wanted |
+| `1-0:16.7.0/255` | Stromeffektivwert, in W | **live household power — F4 on the screen.** Not written into the minute record |
+| `1-0:1.8.0/255` | total consumption, `000000.0000*kWh` | stored each minute as `consumed_kwh4` |
+| `1-0:2.8.0/255` | total production, `000000.0000*kWh` | stored each minute as `produced_kwh4` |
+
+The meter listing has four decimal places. One stored count is 0.0001 kWh,
+which is 0.1 Wh. A step of 0.001 kWh is 10 counts. The same two registers are
+still appended to `/energy.csv` (four decimal places) and mirrored once an hour
+into `/energy_ring.bin`. The minute record is the one that lines the registers
+up with duty, water temperatures and the coil.
 
 So rev 1.2's claim that `haus_can.h` "has no semantic decoder … needs either a small
 SML `1P.1.0` parser or a protocol addition" was wrong in the useful direction: the
@@ -1046,9 +1068,10 @@ a third of a second, then quiet. Consequences:
 - Decoding happens on the **CAN task**, on message completion, so the expensive
   `libsml` parse never sits in the RX drain loop where it would delay the next
   frame.
-- The power value is **sampled, not streamed**: L1 keeps the per-minute value
-  (§7.10), so a burst that arrives every second costs one assignment per second
-  and nothing more.
+- Instantaneous watts stay in RAM for the screen. The minute record does not
+  keep them: consumed and produced energy already cover that, and a watt sample
+  once a minute is the wrong quantity. A burst still costs one assignment per
+  second in RAM and one pair of counters when the minute closes.
 
 **The `0x2C0` fallback stays, but with no unit.** `AVR/01_heizung_temp/README.md`
 derives a current in amperes via a documented chain (`÷10` turns ratio, `×30 A/V`,
@@ -1057,7 +1080,11 @@ since changed to 1k/1k/1k with an 18k leg. The AVR samples on the internal 1.1 V
 bandgap (`src/adc_monitor.cpp:42`) and publishes raw counts, so the numbers on the
 wire are valid; what they mean in amps is not. It is therefore a **unitless activity
 indicator** — useful for "is the pump running", useless as a watt figure — and it
-is never the primary source. Q14 stays open on whether to show it at all.
+is never the household-power source. The minute record does store the raw
+peak-to-peak count (`ac_pp`) next to the waveform RMS and the angle rate of
+that waveform, because those three describe the pump coil. The rate is reduced
+in RAM from successive waveforms and stored once per minute, in units of
+0.01 °/s. Q14 stays open on whether to show an amp figure at all.
 
 Recommended: SML primary with an `SML` badge, `0x2C0` as a dimmed unitless activity
 bar, and an explicit "—" when SML has not produced a value. A wall panel showing a
@@ -1439,10 +1466,10 @@ ever scans a sample file.
 
 | Tier | Granularity | Where | Size | Answers |
 | ---- | ----------- | ----- | ---- | ------- |
-| **L0** samples | 1 min | SD, one file per day | 40 412 B/day (40 320 + CRCs) | nothing directly — the durable record |
-| **L1** day buffer | 1 min | PSRAM, today only | 40 320 B | **1 day**, at full resolution |
+| **L0** samples | 1 min | SD, one file per day | 63 452 B/day (63 360 + 23 CRC32s) | nothing directly — the durable record |
+| **L1** day buffer | 1 min | PSRAM, today only | 63 360 B | **1 day**, at full resolution |
 | **L2** rollup | 1 hour, 31 days | PSRAM, loaded at boot | 98 208 B | **1 week** and **1 month** |
-| **L2-SPIFFS** hourly mirror | 1 hour, 12 months | SPIFFS, rotating ring | 1 156 320 B | an independent copy of **1 week** and **1 month**, surviving SD failure |
+| **L2-SPIFFS** hourly mirror | 1 hour, 12 months | SPIFFS, rotating ring | 1 156 328 B (1 156 320 + 8-byte header) | an independent copy of **1 week** and **1 month**, surviving SD failure |
 
 **L2 column layout** — one column per hour, 744 of them:
 
@@ -1463,8 +1490,11 @@ Nine series — chamber, water-in, water-out, living-room temperature, humidity,
 pressure, power, AC RMS and AC angle — because `int32_t` min/max/sum is what
 makes this 132 B rather than a narrower `int16_t` layout. The pressure slot is
 kept at zero on this board (it carried pressure in the abandoned AHT20 + BMP280
-design). Power is stored in decawatts, the same unit as the minute sample; RMS
-is 0.1 ADC count and angle is 0.01 degree. The struct is
+design). Series 6 stays decawatts for hours that already have a value. New
+minute records write `power_dw` as 0 and do not fold into that series, so a
+later hour is not pulled down to 0 W. RMS is 0.1 ADC count and angle is
+0.01 degree. The column layout did not change with revision 1.10, which is why
+a `/rollup.bin` of 98 256 B is still this firmware's file. The struct is
 written and read as a flat block with no per-field
 endianness concerns beyond the usual little-endian assumption both the ESP32 and
 the host harness share (N5).
@@ -1496,15 +1526,16 @@ resolution.
 **Boot sequence.**
 
 ```
-1. mount SD (if present), open /rollup.bin   (98 256 B, ~40 ms)
-   — if the card is absent or the rollup is unreadable, load the SPIFFS ring
-2. read the newest /data_YYYYMMDD.bin         (34 652 B, ~20 ms, SD only)
+1. mount SD (if present), open /rollup.bin   (98 256 B)
+   — a different size is left unread; load the SPIFFS ring instead
+2. read the newest /data_YYYYMMDD.bin whose size is 63 452 B
+   — any other size is left unread and is not migrated
 3. re-apply those samples to L2                -> catches up SD columns
 4. replay them into a fresh L1 for today
 5. ui_init() and first frame
 ```
 
-Steps 1–4 total ~100 KB and complete **before the first frame is drawn**, so no
+Steps 1–4 read about 160 KB when both files match and complete **before the first frame is drawn**, so no
 chart is ever seen half-populated and there is no spinner on the home screen. If
 the card is absent, step 2 is skipped, L1 starts empty, and the week/month views
 come from the SPIFFS ring while the 1-day view honestly says "no data" — never an
@@ -1518,7 +1549,8 @@ empty axis that reads as "nothing happened" (§9.5).
 3. rewrite `/rollup.bin` with the current 744 columns, one write
 4. clear L1 and start a new day
 
-The SD card therefore sees two writes a day, 34 652 + 77 424 = 112 076 B. A card
+The SD card therefore sees two writes a day, 63 452 + 98 256 = 161 708 B, and
+only when each path is absent or already that size (foreign files, below). A card
 that is only ever written twice a day will outlast the panel it is in. The SPIFFS
 ring sees one small append an hour, and it keeps the week/month record alive even
 if the card is already damaged.
@@ -1530,6 +1562,50 @@ writing every minute, protects the last minute at the cost of 1 440 writes a day
 and an SD card that fails in months. For a wall panel that is not attended, the
 second failure is worse than the first, so the day's buffer is the right trade.
 It is recorded as **Q16** because it is a judgement, not a derivation.
+
+**Firmware updates do not migrate history, and they must not destroy it.**
+
+Flashing the application — ArduinoOTA, `POST /update`, or a USB `esptool`
+write of the app partition — does not erase the SD card or SPIFFS. The reboot
+does drop today's minute buffer, which is the same loss any reboot already
+has (R23). `pio run --target uploadfs` and a partition-table change do erase
+SPIFFS. Those are not a firmware update of the app.
+
+This revision does not convert old records.
+
+| File | This firmware | On the next boot after an app flash |
+| ---- | ------------- | ------------------------------------ |
+| `/data_YYYYMMDD.bin` | 63 452 B, 44-byte records | A file of another size is left unread. The 24-byte files already on the card are 34 652 B. A 28-byte file would be 40 412 B. Neither is migrated or deleted |
+| `/rollup.bin` | 98 256 B, 132-byte columns | Read and, at midnight, rewritten only when it is already 98 256 B. Any other size is left in place. Week and month views then come from the SPIFFS ring |
+| `/rollup_ring.bin` | magic `RNGH`, version 4, 1 156 328 B | Reused when magic, version and size all match. A mismatch is left in place. The ring is then unavailable until a person removes that file |
+| `/energy_ring.bin` | magic `ENGY`, version 1, 11 528 B | Same rule as the hourly ring |
+| `/energy.csv` | appended text | Old lines stay. New lines print four decimal places. The file is never rewritten |
+| `/sensor_roles.bin`, `/config.ini`, `/bg.png`, `/ui.json` | unchanged by this revision | Not part of the minute-record format |
+
+There is no migration code. A day of the old layout is not worth a converter,
+and a converter that guesses is worse than a file left untouched.
+
+**The rule for the next layout change.** A new record size, a new rollup
+column, or a new ring magic or version uses a new path (`data_vN_YYYYMMDD.bin`,
+`rollup_vN.bin`, `rollup_ring_vN.bin`, `energy_ring_vN.bin`). The firmware may
+open a history path for writing only when `haus_history_file_owned()` is true:
+the file is absent, or it is already the size this build owns. For a SPIFFS
+ring the header magic and version have to match as well. Anything else is left
+where it is. The firmware does not rename it, truncate it, or `remove()` it.
+
+Two paths used to break that rule, and both are closed. Retention used to
+delete every `data_YYYYMMDD.bin` past the age limit without looking at the
+size; it now deletes only a file of 63 452 B. `SD.open(path, FILE_WRITE)` and
+`SPIFFS.open(path, "w")` truncate. The day write, the rollup write, and both
+ring openers now refuse a file they do not own. An incomplete file of the
+*current* ring version, including a zero-length file from a failed create, may
+still be replaced, because that file is this version's own unfinished write.
+A foreign file that occupies the canonical path means the new data is not
+stored there: the log says so, the card is not marked faulty, and the midnight
+rollover still advances so the next day is not stuck in RAM. Removing the
+foreign file by hand (the card in a reader) lets the next midnight create the
+current file. The web delete routes keep refusing these names, so that removal
+is a deliberate act with the card, not a click (§8.15.4, R32).
 
 ### 7.11 Modelled Water-Out Temperature
 
@@ -2509,29 +2585,28 @@ first-class feature of this project, not an extra.
 
 ### 9.2 Time ranges and point budgets
 
-Base resolution is one sample per minute (§7.4), record size 28 B (§7.4). At the
+Base resolution is one sample per minute (§7.4), record size 44 B (§7.4). At the
 chart's actual width of 440 px (§8.6):
 
 | Range | Samples | Raw span | Samples / column | What the column shows |
 | ----- | ------- | -------- | ---------------- | -------------------- |
-| **1 day** | 1 440 | 40 320 B | 3.3 | min–max envelope + mean dot |
-| **1 week** | 10 080 | 282 240 B | 22.9 | min–max envelope + mean line |
-| **1 month** | 43 200 | 1 209 600 B | 98.2 | min–max envelope + mean line |
+| **1 day** | 1 440 | 63 360 B | 3.3 | min–max envelope + mean dot |
+| **1 week** | 10 080 | 443 520 B | 22.9 | min–max envelope + mean line |
+| **1 month** | 43 200 | 1 900 800 B | 98.2 | min–max envelope + mean line |
 
-"Raw span" is the size of the underlying samples. After §7.10 the week and month
-views do not read it; they rescale the rollup (§9.5). 1 440 × 28 = 40 320 exactly.
-Earlier drafts wrote the day buffer as 33 792 (33 × 1024), which is not a whole
-number of records.
+"Raw span" is the size of the underlying samples, without the day-file CRC
+trailers. After §7.10 the week and month views do not read it; they rescale the
+rollup (§9.5). 1 440 × 44 = 63 360 exactly.
 
 At roughly three minutes per column even the one-day view is over-sampled, which
 is why the chart is an **envelope**, not a polyline: a single 90 s thermostat cycle
 spans a third of a column even in the one-day view, and is invisible in a plain
 average at 1 month.
 
-A raw month (1 209 600 B, thirty days of 40 320 B) fits in the 8 MB PSRAM, so it
+A raw month (1 900 800 B, thirty days of 63 360 B) fits in the 8 MB PSRAM, so it
 *could* be cached wholesale. It is deliberately not (§9.5). Retention (§9.7):
-24 months is 24 × 1 040 412 B ≈ 25 MB of daily files, plus one 98 256 B rollup,
-which still sits under the 50 MB free-space floor.
+24 months is 24 × 30 × 63 452 B ≈ 45.7 MB of daily files, plus one 98 256 B
+rollup. The 50 MB figure is free space on the card, not a budget for those files.
 
 ### 9.3 Record format and downsampling
 
@@ -2539,13 +2614,16 @@ Two-tier. The **store** is fixed-size binary; the **view** is a downsampled
 envelope.
 
 ```
-store:  /data_YYYYMMDD.bin   1 440 × 28 B = 40 320 B, written whole at midnight (§7.10)
-        seek within a day file: index * 24                O(1)
+store:  /data_YYYYMMDD.bin   1 440 × 44 B = 63 360 B, plus 23 CRC32s = 63 452 B,
+                             written whole at midnight (§7.10)
+        in RAM the slot is (epoch % 86400) / 60
+        on the card a record sits in a 64-record block, so the offset is not index * 44
         week and month views do not read these files (§9.5)
 
 view:   struct ChartColumn { uint32_t t; int16_t mn[2]; int16_t mx[2];
                              int32_t  sum[2]; uint16_t n[2]; uint8_t flags; };
-        440 columns x 28 B = ~12.3 KB
+        440 columns x 28 B = 12 320 B
+        ChartColumn is not the minute record. It stays 28 B.
 ```
 
 Only **two** series are held per column set, not four. The water-out screen is the
@@ -2556,7 +2634,7 @@ carrying four would be a third of the structure spent on nothing.
 Downsampling is done **streaming**, never by loading the window first:
 
 ```
-for (chunk of 512 records:            # 12 KB working buffer
+for (chunk of 512 records:            # 22 528 B working buffer
     read  -> Sample[512]
     for each sample:
         col = (sample.epoch - t0) * px / (t1 - t0)
@@ -2564,7 +2642,7 @@ for (chunk of 512 records:            # 12 KB working buffer
 finalise: mean = sum / n, flagged where n == 0
 ```
 
-Peak RAM for a chart build is therefore **~24 KB** (12 KB chunk + 12.3 KB
+Peak RAM for a chart build is therefore **34 848 B** (22 528 B chunk + 12 320 B
 columns), not 1 MB. This is what keeps N6 honest, and it means a 32 GB SD card is
 enough for well over two years rather than eight weeks.
 
@@ -2614,10 +2692,10 @@ views read pre-aggregated columns out of PSRAM and never touch the card.**
 
 | Range | Source | Cost | Reads SD? |
 | ----- | ------ | ---- | --------- |
-| **1 day** | L1 day buffer, 1 440 × 28 B in PSRAM | ~1 ms, no I/O | no |
+| **1 day** | L1 day buffer, 1 440 × 44 B in PSRAM | ~1 ms, no I/O | no |
 | **1 week** | L2 rollup, 168 hourly columns | <1 ms, a rescale | no |
 | **1 month** | L2 rollup, 744 hourly columns | ~1 ms, a rescale | no |
-| *boot only* | `/rollup.bin` + newest daily file | ~100 KB, ~55 ms | once, before first frame |
+| *boot only* | `/rollup.bin` + newest daily file, and only when each file is this firmware's size | ~160 KB | once, before first frame |
 
 Rev 1.2's 500 ms month build, the recorder-task offload, the four-entry LRU chart
 cache and the "chart loading" spinner **all disappear**. They existed to hide a card
@@ -2659,9 +2737,10 @@ history views lose trust.
 
 ### 9.7 File rotation and retention
 
-- **One file per day**: `/data_YYYYMMDD.bin`, 34 652 B, written **once** at local
+- **One file per day**: `/data_YYYYMMDD.bin`, 63 452 B, written **once** at local
   midnight by the recorder task (§7.10). Two writes a day in total, including the
-  rollup — against the 1 440 a per-minute append would cost.
+  rollup — against the 1 440 a per-minute append would cost. A file of any other
+  size at that path is left untouched.
 - The file is named by the wall clock, and the day boundary comes from the **last
   sample's epoch**, not from `localtime()` alone, so an NTP step cannot produce a
   file with a nonsense name or split a day across two files.
@@ -2670,19 +2749,23 @@ history views lose trust.
   than interpolating across them. This is the deliberate side of the write-endurance
   trade (§7.10, Q16, R23).
 - **Double bookkeeping:** as each hour closes, the same rollup column is appended
-  to the **SPIFFS ring** independently of the card. A 12-month ring is ~753 KB and
-  rotates oldest-first. If the card fails or is removed, the week and month views
-  keep working; only the current day's minute detail is lost.
-- **Retention: 24 months on SD**, configurable in SPIFFS config, at 1 209 600 B/month ≈ 25 MB.
-  On startup and daily, the oldest files beyond the limit are deleted. Deleting is
-  never more than one file per pass, so a card with 30 stale months does not stall
-  the recorder. The SPIFFS ring retains 12 months independently.
+  to the **SPIFFS ring** independently of the card. A 12-month ring is 1 156 328 B
+  and rotates oldest-first. If the card fails or is removed, the week and month views
+  keep working; only the current day's minute detail is lost. A ring whose magic,
+  version or size does not match is not rebuilt over (§7.10).
+- **Retention: 24 months on SD**, configurable in SPIFFS config. One month of the
+  current day files is 30 × 63 452 = 1 903 560 B, so 24 months is about 45.7 MB.
+  On startup and daily, the oldest *current-layout* files beyond the limit are
+  deleted. Deleting is never more than one file per pass, so a card with 30 stale
+  months does not stall the recorder. A `data_YYYYMMDD.bin` of any other size is
+  never deleted by retention. It stays until a person removes it. The SPIFFS ring
+  retains 12 months independently and is not part of this deletion.
 - **Free-space guard:** if free space drops below 50 MB, retention is forced to
   3 months and the home screen's SD dot turns amber. Losing a month of history is
-  acceptable; filling the card and losing *everything* is not. The floor was set
-  for the old 12-byte record and is deliberately *not* lowered for the 28-byte one
-  — 50 MB is still ~3 months of headroom on a 64 GB card, and the guard exists to
-  catch a genuinely full card, not to ration.
+  acceptable; filling the card and losing *everything* is not. One month is now
+  1.9 MB, so 50 MB free is about 26 months of minute files. The guard exists to
+  catch a genuinely full card. It will not free that space by deleting an older
+  layout: those files are not this firmware's to remove.
 - **Card removal mid-write:** the SD driver drops, the recorder sets a fault flag
   and retries every 30 s. Samples during the outage are simply absent — which §9.3
   renders as gaps, correctly.
@@ -2754,7 +2837,7 @@ struct CanState {                 // owner: canTask
   bool     has_pending;
   uint32_t pwm_pending_since_ms;
 
-  uint16_t power_dw;        // decawatts, same unit as Sample.power_dw (§7.4)
+  uint16_t power_dw;        // live decawatts for the screen; not written to history (§7.4)
   uint8_t  power_src;       // NONE / SML / ADC
   int32_t  watts;
   int32_t  watts_last;
@@ -2893,7 +2976,7 @@ draw buffers are sized `TPL_WS7_DRAW_LINES` lines and live in internal SRAM.
 - **Chart build:** ~1 ms, because the week and month views read pre-aggregated
   columns out of RAM (§7.10) rather than streaming the SD card. The only build
   that touches the card is the 1-day view on a cold boot, ~20 ms.
-- **Boot history restore:** ~100 KB read from SD (§7.10) — under 100 ms, done
+- **Boot history restore:** ~160 KB read from SD when both files match (§7.10) — under 100 ms, done
   before the first frame so no chart ever renders half-populated.
 - **Idle return to home:** 3 minutes.
 
@@ -2913,20 +2996,20 @@ and never reallocated. Nothing in this table is touched by the LVGL draw path
 | Purpose | Bytes | Notes |
 | ------- | ----- | ----- |
 | Debug ring | 1 048 576 | §7.6. `MALLOC_CAP_SPIRAM \| MALLOC_CAP_8BIT`, never freed |
-| **L1 day buffer** (minute samples, today) | 40 320 | §7.10. 1 440 × 28 B |
+| **L1 day buffer** (minute samples, today) | 63 360 | §7.10. 1 440 × 44 B |
 | **L2 hour rollup** (31 days) | 98 208 | §7.10. 744 columns × 132 B |
 | Decoded background image | 768 000 | §8.3. RGB565, 480 × 800 |
 | LVGL chart canvas | 228 800 | §9.4. 440 × 260 × 2 B |
-| Downsampling chunk buffer | 14 336 | §9.3. 512 × 28 B |
+| Downsampling chunk buffer | 22 528 | §9.3. 512 × 44 B |
 | LVGL chart columns (build scratch) | 12 320 | §9.3. 440 × 28 B |
 | LVGL objects, styles, font bitmaps | ~65 536 | estimate, asserted after `ui_init()` |
 | WiFi + OTA + WebSocket buffers | ~65 536 | ESP-IDF / Arduino internals |
-| **Subtotal** | **≈ 2.30 MB** | |
-| **Headroom** | **≈ 5.7 MB** | the deliberate margin |
+| **Subtotal** | **≈ 2.37 MB** | L1 grew by 23 040 B and the chart chunk by 8 192 B |
+| **Headroom** | **≈ 5.6 MB** | the deliberate margin |
 
 The headroom is the point. A 1 MB ring and a 768 KB image already commit 1.8 MB
-before any history exists; the tiered store (§7.10) adds ~100 KB and the whole
-history subsystem therefore costs **1.1 % of PSRAM**. That is what makes it
+before any history exists; the tiered store (§7.10) adds about 160 KB (L1 + L2)
+and the whole history subsystem therefore costs about **2 % of PSRAM**. That is what makes it
 affordable to add a second and third retention tier later without re-planning the
 board.
 
@@ -2966,15 +3049,17 @@ SD write, and phase 12's soak test fails if either drops by more than 8 KB over
 
 | Tier | Path | Write pattern | Size |
 | ---- | ---- | ------------- | ---- |
-| Daily samples | `/data_YYYYMMDD.bin` (SD) | **once per day**, whole file, 64-record CRC blocks | 34 652 B |
-| Rollup (L2) | `/rollup.bin` (SD) | once per day, whole file, 64-column CRC blocks | 98 256 B |
-| Hourly mirror | `/rollup_ring.bin` (SPIFFS) | one column as each hour closes | 1 156 320 B for 12 months |
+| Daily samples | `/data_YYYYMMDD.bin` (SD) | **once per day**, whole file, 64-record CRC blocks. A different size is not overwritten | 63 452 B |
+| Rollup (L2) | `/rollup.bin` (SD) | once per day, whole file, 64-column CRC blocks. A different size is not overwritten | 98 256 B |
+| Hourly mirror | `/rollup_ring.bin` (SPIFFS) | one column as each hour closes. A mismatched header is not rebuilt | 1 156 328 B for 12 months |
+| Energy text | `/energy.csv` (SD) | append one line per minute. Never rewritten | grows |
+| Energy ring | `/energy_ring.bin` (SPIFFS) | one record per hour, 30 days. A mismatched header is not rebuilt | 11 528 B |
 | Log dumps | `/log_*.txt` (SD) | on demand + before every reset (§7.6) | up to 1 MB |
 | Assets | `/bg.png`, `/ui.json`, config (SPIFFS) | never or rarely | ~120 KB+ |
 
-**1 040 412 B per 30-day month** of daily files (30 × 40 412), plus one 98 256 B
-rollup. At 24 months that is ≈ 25 MB, and the 50 MB free-space floor (§9.7) is
-untouched. The old 1.01 MB figure used 33 792 B/day.
+**1 903 560 B per 30-day month** of daily files (30 × 63 452), plus one 98 256 B
+rollup. At 24 months that is ≈ 45.7 MB. The 50 MB free-space floor (§9.7) is
+free space, not this total. Earlier drafts used 34 652 B/day and 40 412 B/day.
 
 The write count is the design point, not the size. A per-minute append is 1 440
 writes/day; writing the day once is **one**. That is the entire reason for the
@@ -2984,7 +3069,7 @@ written 525 000 times a year to store data that does not change within the day.
 
 The **SPIFFS hourly ring** is the second, independent bookkeeping store. The
 partition is 0x3B0000 (3 899 392 B, 3.72 MB); 12 months of 132 B columns is
-1 156 320 B, leaving ample room for the background PNG and configuration. Its write
+1 156 328 B including its header, leaving ample room for the background PNG and configuration. Its write
 rate is one column an hour, not one a minute. The ring is not a fallback that is
 only written when the card fails: it is always written, so the card is never the
 sole custodian of the week/month history.
@@ -3050,7 +3135,7 @@ Each of these changes the design, so none is silently decided above.
 | -- | -------- | ------ | -------------------- |
 | **Q9** | **There is no water-out temperature on the bus.** Where does the third zone's data come from? | Decides whether the third temperature is measured | **Answered for now:** option **(b)** is implemented. `WaterModel` v1 uses the measured duty → off/Soll table (100→70, 200→60, 300→54, 400→44, 500→42 °C) and is permanently labelled MODELLED (`~`, dashed line, flag) and excluded from statistics. A real return-line DS18B20 still supersedes it automatically when fitted (§7.11). |
 | **Q5** | Does the current `tpl_sd` need to keep working on this board at all, given the recorder supersedes it? | Could delete ~200 lines from `tpl_sd` for this project, or keep the file browser for convenience | Recommend keeping `/sd/list` + `/sd/download` — browsing the recorded history over HTTP is genuinely useful. Q20 is now answered (b): `tpl_sd` mounts here via `TplSdBackend` |
-| **Q6** | Retention: 24 months at 1 209 600 B/month is ≈ 25 MB. Is more wanted? | Storage and the free-space guard threshold | Jochen; default 24 |
+| **Q6** | Retention: 24 months at 1 903 560 B/month is ≈ 46 MB. Is more wanted? | Storage and the free-space guard threshold | Jochen; default 24 |
 | **Q8** | Is EEZ Studio in scope for the home screen? | Either hand-authored LVGL (faster, more control, matches project 26's current state) or generated (draggable, but cannot express the flame/pipes) | Recommend hand-authored; EEZ cannot produce the vector heater or the envelope chart |
 | **Q10** | Should the WebSocket log sink be authenticated? | `tpl_websocket` is unauthenticated on the LAN today; log content is house telemetry | Recommend accepting it on a home LAN, consistent with the existing unauthenticated `/update` OTA endpoint. If the answer is no, the change belongs in `tpl_websocket` for all projects, not here |
 | **Q11** | Should `tpl_debug_log`'s PSRAM ring be made the template default for **all** projects, or stay opt-in? | Affects every existing project's RAM footprint | Recommend staying opt-in for now, defaulting on for boards with no console once the module is proven |
@@ -3149,8 +3234,8 @@ debugging a UI bug and an actuator bug in the same session.
 | D4 | Background PNG in SPIFFS, decoded once to static PSRAM | Embed the raw RGB565 blob | 768 KB against a 3 MB shared app slot; PNG is ~120 KB and re-encodes cheaply |
 | D5 | Vector heater via `lv_canvas` | A bitmap with baked-in colours | The flame and pipes must react to live values; a bitmap can only go stale (§8.4) |
 | D6 | Invisible `lv_obj_t` overlay buttons as zones | Coordinate tests in the read callback | Independent of the drawing; LVGL handles press, click and focus (§8.5) |
-| D7 | Fixed-size records, now 28 B | Text CSV, as `15_power_log_eink` uses | Enables `seek()` — a month window is a seek, not a scan (§7.4, §9.5) |
-| D8 | Streaming downsample to a per-pixel envelope | Cache the whole month in PSRAM | Bounds RAM at ~24 KB instead of ~1 MB, and keeps N6 true (R12) |
+| D7 | Fixed-size records, now 44 B | Text CSV, as `15_power_log_eink` uses | The minute slot in RAM is an index, not a scan. The day file adds a CRC32 per 64 records (§7.4, §9.5) |
+| D8 | Streaming downsample to a per-pixel envelope | Cache the whole month in PSRAM | Bounds RAM at 34 848 B instead of ~1.9 MB, and keeps N6 true (R12) |
 | D9 | Gap markers rather than interpolation | Connecting points across a dropout | Asserting measurements that were never taken is the failure mode a history view must not have (R6) |
 | D10 | `HausState` copy-out + one triple buffer per producer (atomic publish index) | In-place `g_state` with a sequence counter, or direct global reads | Each reader gets a coherent block the writer cannot overwrite; no retry loop, no writer lock. Makes the threading contract explicit and keeps the host build honest (N5, §10.2) |
 | D11 | Recorder owns writes, `tpl_sd` owns the mount and browser, shared `tpl_sd_lock()` | Extend `tpl_sd` with a write path | The recorder's chunked writes and sentinel probe stay project-specific; `TplSdBackend` supplies the CH422G CS and the lock serializes both sides (§8.15.4, R7) |

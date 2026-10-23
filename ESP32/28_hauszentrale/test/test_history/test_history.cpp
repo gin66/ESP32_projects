@@ -44,11 +44,20 @@ static HausState fresh_state(uint32_t epoch) {
     st.can.temp_by_fn[SENSOR_FN_WATER_IN] = 4000;
     st.can.temp_by_fn[SENSOR_FN_WATER_OUT] = 6000;
     st.can.pwm_permille = 500;
+    st.can.pwm_known = true;
+    st.can.pwm_fresh = true;
+    st.can.pwm_src = GUI_PWM_SRC_CAN;
     st.can.watts = 1000;
     st.can.valid = true;
     st.can.ac_fresh = true;
     st.can.ac_rms_dc = 1368;
     st.can.ac_angle_cdeg = -4500;
+    st.can.angle_rate_cdeg_s = 200;
+    st.can.ac_pp = 480;
+    st.can.energy_consumption_kwh = 12.3456;
+    st.can.energy_production_kwh = 1.0;
+    st.can.energy_consumption_valid = true;
+    st.can.energy_production_valid = true;
     st.can.last_update_epoch = epoch;
     st.climate.climate_flags = CLIMATE_VALID_AHT20 | CLIMATE_VALID_BMP280;
     st.climate.living_c100 = 2100;
@@ -103,7 +112,24 @@ static void test_day(uint32_t start) {
         CHECK(c.n[8] == 60 && c.sum[8] == -4500 * 60,
               "hour %u AC angle n/sum = %u/%d", (unsigned)h,
               (unsigned)c.n[8], (int)c.sum[8]);
+        CHECK(c.n[6] == 0, "hour %u stored watts: n[6] = %u", (unsigned)h,
+              (unsigned)c.n[6]);
     }
+
+    const gui_sample_t &minute =
+        haus_history_l1()[(start % 86400u) / 60u];
+    CHECK(minute.duty_permille == 500, "duty = %u",
+          (unsigned)minute.duty_permille);
+    CHECK(minute.power_dw == 0, "power_dw = %u", (unsigned)minute.power_dw);
+    CHECK(minute.angle_rate_cdeg_s == 200, "angle rate = %d",
+          (int)minute.angle_rate_cdeg_s);
+    CHECK(minute.ac_pp == 480, "pp = %u", (unsigned)minute.ac_pp);
+    CHECK(minute.consumed_kwh4 == 123456u, "consumed = %u",
+          (unsigned)minute.consumed_kwh4);
+    CHECK(minute.produced_kwh4 == 10000u, "produced = %u",
+          (unsigned)minute.produced_kwh4);
+    CHECK((minute.flags & SAMPLE_FLAG_DUTY_STALE) == 0, "duty marked stale");
+    CHECK((minute.flags & SAMPLE_FLAG_GAP) == 0, "fresh minute marked gap");
 
     const uint32_t last = start + (HAUS_L1_SAMPLES - 1u) * 60u;
     HausState again = fresh_state(last);
@@ -132,12 +158,22 @@ static uint32_t test_rollover(uint32_t start) {
           "day bytes = %u", (unsigned)haus_history_test_day_bytes());
     CHECK(haus_history_test_rollup_bytes() == HAUS_ROLLUP_FILE_BYTES,
           "rollup bytes = %u", (unsigned)haus_history_test_rollup_bytes());
-    CHECK(HAUS_L1_BYTES == 40320u, "L1 size = %u", (unsigned)HAUS_L1_BYTES);
+    CHECK(HAUS_L1_BYTES == 63360u, "L1 size = %u", (unsigned)HAUS_L1_BYTES);
     CHECK(HAUS_L2_BYTES == 98208u, "L2 size = %u", (unsigned)HAUS_L2_BYTES);
-    CHECK(HAUS_DAY_FILE_BYTES == 40412u, "day file = %u",
+    CHECK(HAUS_DAY_FILE_BYTES == 63452u, "day file = %u",
           (unsigned)HAUS_DAY_FILE_BYTES);
     CHECK(HAUS_ROLLUP_FILE_BYTES == 98256u, "rollup file = %u",
           (unsigned)HAUS_ROLLUP_FILE_BYTES);
+    CHECK(haus_history_file_owned(false, 0, HAUS_DAY_FILE_BYTES),
+          "an absent day file may be created");
+    CHECK(haus_history_file_owned(true, HAUS_DAY_FILE_BYTES, HAUS_DAY_FILE_BYTES),
+          "a current day file may be replaced");
+    CHECK(!haus_history_file_owned(true, 34652u, HAUS_DAY_FILE_BYTES),
+          "a 24-byte day file must be left");
+    CHECK(!haus_history_file_owned(true, 40412u, HAUS_DAY_FILE_BYTES),
+          "a 28-byte day file must be left");
+    CHECK(!haus_history_file_owned(true, 68496u, HAUS_ROLLUP_FILE_BYTES),
+          "a foreign rollup must be left");
 
     return next;
 }
@@ -507,8 +543,60 @@ static void test_role_remap(void) {
     CHECK(l1[0].temp[0] == 100, "board/chamber alias is a no-op");
 }
 
+/* ─── J: duty, angle rate, energy ─────────────────────────────────────────── */
+
+static void test_record_fields(void) {
+    SECTION("J1  duty 0 and 1000 are stored; unseen duty and energy are sentinels");
+
+    const uint32_t t0 = local_midnight(2025, 1, 2);
+
+    HausState off = fresh_state(t0);
+    off.can.pwm_permille = 0;
+    off.can.pwm_fresh = false;
+    CHECK(haus_history_sample(&off, t0), "duty 0 rejected");
+    const gui_sample_t *l1 = haus_history_l1();
+    const gui_sample_t &a = l1[(t0 % 86400u) / 60u];
+    CHECK(a.duty_permille == 0, "duty 0 stored as %u", (unsigned)a.duty_permille);
+    CHECK((a.flags & SAMPLE_FLAG_DUTY_STALE) != 0, "held duty not marked");
+    CHECK(a.power_dw == 0, "watts stored in the minute record");
+
+    const uint32_t t1 = t0 + 60u;
+    HausState endpoint = fresh_state(t1);
+    endpoint.can.pwm_permille = 1000;
+    CHECK(haus_history_sample(&endpoint, t1), "duty 1000 rejected");
+    const gui_sample_t &b = l1[(t1 % 86400u) / 60u];
+    CHECK(b.duty_permille == 1000, "duty 1000 stored as %u",
+          (unsigned)b.duty_permille);
+
+    const uint32_t t2 = t0 + 120u;
+    HausState unseen = fresh_state(t2);
+    unseen.can.pwm_known = false;
+    unseen.can.pwm_permille = 0;
+    unseen.can.angle_rate_cdeg_s = HAUS_ANGLE_RATE_NONE;
+    unseen.can.ac_pp = 0;
+    unseen.can.energy_consumption_valid = false;
+    unseen.can.energy_production_valid = false;
+    unseen.can.energy_consumption_kwh = 0.0;
+    unseen.can.energy_production_kwh = 0.0;
+    CHECK(haus_history_sample(&unseen, t2), "unseen sample rejected");
+    const gui_sample_t &c = l1[(t2 % 86400u) / 60u];
+    CHECK(c.duty_permille == HAUS_DUTY_NONE, "unseen duty = %u",
+          (unsigned)c.duty_permille);
+    CHECK(c.pwm_src == HAUS_PWM_SRC_NONE, "unseen src = %u",
+          (unsigned)c.pwm_src);
+    CHECK(c.angle_rate_cdeg_s == HAUS_ANGLE_RATE_NONE, "unseen rate = %d",
+          (int)c.angle_rate_cdeg_s);
+    CHECK(c.ac_pp == 0, "unseen pp = %u", (unsigned)c.ac_pp);
+    CHECK(c.consumed_kwh4 == HAUS_ENERGY_NONE, "unseen consumed = %u",
+          (unsigned)c.consumed_kwh4);
+    CHECK(c.produced_kwh4 == HAUS_ENERGY_NONE, "unseen produced = %u",
+          (unsigned)c.produced_kwh4);
+    CHECK((c.flags & SAMPLE_FLAG_DUTY_STALE) == 0,
+          "never-seen duty marked stale");
+}
+
 int main(void) {
-    CHECK(sizeof(gui_sample_t) == 28u, "gui_sample_t = %u",
+    CHECK(sizeof(gui_sample_t) == 44u, "gui_sample_t = %u",
           (unsigned)sizeof(gui_sample_t));
     CHECK(sizeof(RollupColumn) == 132u, "RollupColumn = %u",
           (unsigned)sizeof(RollupColumn));
@@ -532,6 +620,7 @@ int main(void) {
     test_write_failure();
     test_retention(local_midnight(2024, 10, 14));
     test_role_remap();
+    test_record_fields();
 
     if (g_failures != 0u) {
         printf("%u/%u checks FAILED\n", (unsigned)g_failures,

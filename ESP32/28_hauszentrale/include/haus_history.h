@@ -41,6 +41,14 @@
   (HAUS_L2_BYTES +             \
    4u * ((HAUS_L2_COLUMNS + HAUS_BLOCK_RECORDS - 1) / HAUS_BLOCK_RECORDS))
 
+/* A firmware may create or replace a history file only when the path is
+ * absent or already this size. Any other size is a layout it must not
+ * truncate, rename, or delete. */
+static inline bool haus_history_file_owned(bool exists, uint64_t size,
+                                          uint64_t expect) {
+  return !exists || size == expect;
+}
+
 /* IEEE 802.3 CRC32. Exposed so the host test can corrupt and re-check blocks.
  */
 uint32_t haus_crc32(const void* data, size_t len);
@@ -120,8 +128,9 @@ void haus_history_flush_hour(uint32_t epoch_seconds);
  * number of columns restored. Call before the first frame. */
 size_t haus_history_restore(uint32_t now_epoch);
 
-/* Delete at most one expired /data_YYYYMMDD.bin per call. Returns 1 when a
- * file was deleted, 0 when none was expired, -1 on an I/O error. */
+/* Delete at most one expired /data_YYYYMMDD.bin per call, and only when its
+ * size is HAUS_DAY_FILE_BYTES. A different size is left on the card. Returns
+ * 1 when a file was deleted, 0 when none was expired, -1 on an I/O error. */
 int haus_history_retention_step(uint32_t now_epoch, int max_months);
 
 /* Effective retention: 3 months while free space is below 50 MB, otherwise

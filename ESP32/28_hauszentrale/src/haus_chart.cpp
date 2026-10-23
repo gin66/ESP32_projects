@@ -2,7 +2,7 @@
  * @file haus_chart.cpp
  * @brief Streaming downsample into 440 ChartColumn envelopes.
  *
- * Chunk buffers are static: a 512-sample chunk (12 KB) and a 64-column rollup
+ * Chunk buffers are static: a 512-sample chunk (22 KB) and a 64-column rollup
  * chunk (5.6 KB). No heap is used here.
  */
 
@@ -91,7 +91,9 @@ static bool sample_value(const gui_sample_t* s, int series, int32_t* value) {
     case 7:
       if (s->stale_mask & SAMPLE_STALE_POWER) return false;
       if (s->flags & SAMPLE_FLAG_GAP) return false;
-      *value = (int32_t)s->power_dw; /* deciwatts (0.1 W) */
+      /* New minute records leave this slot at 0. Do not draw that as 0 W. */
+      if (s->power_dw == 0) return false;
+      *value = (int32_t)s->power_dw; /* deciwatts (0.1 W), legacy records */
       return true;
     case GUI_SERIES_AC_RMS:
       if (s->stale_mask & SAMPLE_STALE_AC) return false;

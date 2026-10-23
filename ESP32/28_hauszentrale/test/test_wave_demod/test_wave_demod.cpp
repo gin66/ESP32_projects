@@ -179,11 +179,61 @@ static void test_captured_waves(void) {
         "captured angle should decrease over the ten seconds");
 }
 
+static void test_angle_rate(void) {
+  SECTION("E  angle step and the one-minute rate");
+
+  check_near(haus_wave_angle_step(10.0f, 12.0f), 2.0f, 1e-4f, "step +2", 0);
+  check_near(haus_wave_angle_step(170.0f, -170.0f), 20.0f, 1e-4f, "step +20",
+             0);
+  check_near(haus_wave_angle_step(-170.0f, 170.0f), -20.0f, 1e-4f, "step -20",
+             0);
+
+  haus_angle_rate_t track;
+  haus_angle_rate_reset(&track);
+  CHECK(!haus_angle_rate_observe(&track, 0.0f, 0.0f, 0),
+        "flat window recorded a step");
+  int16_t rate = 0;
+  CHECK(!haus_angle_rate_cdeg_s(&track, 0, 0, &rate),
+        "empty tracker returned a rate");
+
+  CHECK(!haus_angle_rate_observe(&track, 0.0f, 10.0f, 0),
+        "first waveform should only set the reference");
+  CHECK(haus_angle_rate_observe(&track, 2.0f, 10.0f, 1000),
+        "second waveform stored no step");
+  CHECK(haus_angle_rate_observe(&track, 4.0f, 10.0f, 2000),
+        "third waveform stored no step");
+  CHECK(haus_angle_rate_cdeg_s(&track, 2000, 0, &rate), "rate query failed");
+  CHECK(rate == 200, "rate = %d, want 200", (int)rate);
+  CHECK(!haus_angle_rate_cdeg_s(&track, 2000u + 60001u, 0, &rate),
+        "rate outside the 60 s window");
+
+  haus_angle_rate_reset(&track);
+  CHECK(!haus_angle_rate_observe(&track, 10.0f, 0.1f, 0),
+        "low RMS recorded a step");
+  CHECK(!haus_angle_rate_observe(&track, 50.0f, 10.0f, 1000),
+        "first good waveform after a flat window stored a step");
+  CHECK(haus_angle_rate_observe(&track, 52.0f, 10.0f, 2000),
+        "following waveform stored no step");
+  CHECK(haus_angle_rate_cdeg_s(&track, 2000, 0, &rate),
+        "rate after a flat window failed");
+  CHECK(rate == 200, "flat window poisoned the rate: %d", (int)rate);
+
+  haus_angle_rate_reset(&track);
+  CHECK(!haus_angle_rate_observe(&track, 0.0f, 10.0f, 0), "gap reference");
+  CHECK(!haus_angle_rate_observe(&track, 90.0f, 10.0f, 6000),
+        "gap longer than 5 s stored a step");
+  CHECK(haus_angle_rate_observe(&track, 92.0f, 10.0f, 7000),
+        "step after a long gap was dropped");
+  CHECK(haus_angle_rate_cdeg_s(&track, 7000, 0, &rate), "post-gap rate failed");
+  CHECK(rate == 200, "long gap aliased into the rate: %d", (int)rate);
+}
+
 int main(void) {
   printf("haus_wave_demod tests\n");
   test_known_sine();
   test_dc_and_flat();
   test_captured_waves();
+  test_angle_rate();
 
   printf("\n%u checks, %u failures\n", (unsigned)g_checks,
          (unsigned)g_failures);

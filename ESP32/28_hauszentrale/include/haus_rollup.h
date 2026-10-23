@@ -4,8 +4,9 @@
  *
  * One column per hour, 744 per 31-day window. Nine measured series plus the
  * Soll/setpoint: chamber, water-in, water-out, living room, humidity, pressure,
- * power, AC RMS and AC angle. Power is kept in decawatts, the same unit as
- * gui_sample_t.power_dw. The AC series are 0.1 ADC count and 0.01 degree.
+ * power, AC RMS and AC angle. Series 6 remains decawatts for hours that
+ * already have it. New minute records do not feed it. The AC series are
+ * 0.1 ADC count and 0.01 degree.
  * The target is a real series (future automatic control), carried as a single
  * value per hour. The layout is written and read as a flat block, so both the
  * ESP32 and the host harness must agree on its size exactly.

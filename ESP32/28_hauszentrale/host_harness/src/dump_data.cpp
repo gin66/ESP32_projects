@@ -167,6 +167,7 @@ void load_day_file(const std::string& path) {
         s.target_c100 = v.target_c100;
         s.ac_rms_dc = 0;
         s.ac_angle_cdeg = 0;
+        gui_sample_mark_absent(&s);
       }
       if (s.epoch == 0) continue;
       g_samples[s.epoch - (s.epoch % 60)] = s;
@@ -302,6 +303,7 @@ void fill_from_rollup(uint32_t epoch, gui_sample_t* s) {
   s->living_c100 = HAUS_CAN_TEMP_EMPTY;
   s->target_c100 = GUI_EMPTY;
   s->flags = SAMPLE_FLAG_GAP;
+  gui_sample_mark_absent(s);
   if (!rollup_for_epoch(epoch, &col)) return;
 
   s->temp[0] = series_mean(col, 0);

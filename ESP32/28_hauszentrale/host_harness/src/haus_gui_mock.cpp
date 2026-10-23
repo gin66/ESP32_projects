@@ -207,7 +207,7 @@ static uint32_t mock_living_pressure(uint32_t epoch) {
  *
  *  Pre-compute 30 days of minute-resolution samples for chart queries.
  *  Stored in a flat array: 30 days × 1440 minutes = 43200 samples.
- *  Each sample is 24 bytes, so ~1 MB total.
+ *  Each sample is one gui_sample_t, so the array follows the minute record.
  */
 
 #define MAX_HISTORY_DAYS 30
@@ -243,8 +243,15 @@ static void init_history(void) {
         (uint16_t)(1368 + (int)(sin(t * 0.001) * 20.0));
     g_history[idx].ac_angle_cdeg =
         (int16_t)(5500 + (int)(sin(t * 0.002) * 120.0));
-    /* No SML/ADC power source exists yet. Do not fabricate watts: the power
-     * screen must exercise the same empty state as the device. */
+    g_history[idx].duty_permille = mock_pwm_duty(t);
+    g_history[idx].angle_rate_cdeg_s = HAUS_ANGLE_RATE_NONE;
+    g_history[idx].ac_pp = 486;
+    g_history[idx].pwm_src = GUI_PWM_SRC_CAN;
+    g_history[idx].reserved = 0;
+    g_history[idx].consumed_kwh4 = HAUS_ENERGY_NONE;
+    g_history[idx].produced_kwh4 = HAUS_ENERGY_NONE;
+    /* Host charts keep synthetic watts in power_dw. Device minute records
+     * write that slot as 0 and store the meter registers instead. */
     g_history[idx].flags = SAMPLE_FLAG_CLIMATE_AHT20 |
                            SAMPLE_FLAG_CLIMATE_BMP280;
     g_history[idx].stale_mask = 0;
@@ -442,6 +449,28 @@ static void apply_dump_state(CanState& can, ClimateState& climate) {
   can.ac_rms_dc = ac_rms;
   can.ac_angle_cdeg = ac_angle;
   can.ac_fresh = ac_rms != 0 || ac_angle != 0;
+  can.pwm_known = false;
+  can.angle_rate_cdeg_s = HAUS_ANGLE_RATE_NONE;
+  can.ac_pp = 0;
+  if (!use_rollup) {
+    if (sample.duty_permille != HAUS_DUTY_NONE) {
+      can.pwm_permille = sample.duty_permille;
+      can.pwm_known = true;
+      can.pwm_src = sample.pwm_src;
+      can.pwm_fresh = (sample.flags & SAMPLE_FLAG_DUTY_STALE) == 0;
+      can.active = can.pwm_fresh && can.pwm_permille < 1000;
+    }
+    can.angle_rate_cdeg_s = sample.angle_rate_cdeg_s;
+    can.ac_pp = sample.ac_pp;
+    if (sample.consumed_kwh4 != HAUS_ENERGY_NONE) {
+      can.energy_consumption_kwh = (double)sample.consumed_kwh4 / 10000.0;
+      can.energy_consumption_valid = true;
+    }
+    if (sample.produced_kwh4 != HAUS_ENERGY_NONE) {
+      can.energy_production_kwh = (double)sample.produced_kwh4 / 10000.0;
+      can.energy_production_valid = true;
+    }
+  }
 
   climate.living_c100 = living;
   climate.hum_c100 = hum;
@@ -461,6 +490,7 @@ static void apply_dump_state(CanState& can, ClimateState& climate) {
   if (g_target_override >= 0) can.chamber_target_c = (int16_t)g_target_override;
   if (g_pwm_override >= 0) {
     can.pwm_permille = (uint16_t)g_pwm_override;
+    can.pwm_known = true;
     can.pwm_fresh = g_pwm_fresh_override;
     can.pwm_src = can.pwm_fresh ? PWM_SRC_CAN : PWM_SRC_EEPROM;
     can.active = can.pwm_fresh && can.pwm_permille < 1000;
@@ -510,6 +540,9 @@ void gui_update_state(void) {
   can.ac_rms_dc = 1368;
   can.ac_angle_cdeg = 5500;
   can.ac_fresh = true;
+  can.ac_pp = 486;
+  can.angle_rate_cdeg_s = 200;
+  can.pwm_known = true;
 
   /* Synthetic SML power for the host design screens. */
   can.watts = mock_power_w(g_sim_time);
@@ -736,6 +769,7 @@ size_t gui_read_samples_chunk(uint32_t start_epoch, size_t first, size_t count,
       out[i].living_c100 = GUI_EMPTY;
       out[i].target_c100 = GUI_EMPTY;
       out[i].flags = SAMPLE_FLAG_GAP;
+      gui_sample_mark_absent(&out[i]);
     }
   }
   return count;

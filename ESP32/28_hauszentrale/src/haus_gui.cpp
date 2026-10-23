@@ -199,6 +199,7 @@ static bool sample_from_l2(uint32_t epoch, gui_sample_t* s) {
   if (col->n[7] != 0) s->ac_rms_dc = (uint16_t)(col->sum[7] / col->n[7]);
   if (col->n[8] != 0) s->ac_angle_cdeg = (int16_t)(col->sum[8] / col->n[8]);
   s->target_c100 = col->target_c100;
+  gui_sample_mark_absent(s);
   return true;
 }
 
@@ -221,8 +222,9 @@ size_t gui_read_samples_chunk(uint32_t start_epoch, size_t first, size_t count,
       out[i].temp[0] = out[i].temp[1] = out[i].temp[2] = HAUS_CAN_TEMP_EMPTY;
       out[i].living_c100 = HAUS_CAN_TEMP_EMPTY;
       out[i].target_c100 = HAUS_CAN_TEMP_EMPTY;
-      /* A missing minute is a gap, not a measured 0 W. */
+      /* A missing minute is a gap, not a measured 0 W or duty 0 (full heat). */
       out[i].flags = SAMPLE_FLAG_GAP;
+      gui_sample_mark_absent(&out[i]);
     }
   }
   return count;
@@ -592,10 +594,12 @@ void gui_update_state(void) {
   /* PWM — reported-by-0x280 value; nothing received yet. */
   haus_can_pwm_t pwm;
   read_pwm(&pwm);
+  can.pwm_known = snap.pwm_seen_ms != 0;
   can.pwm_permille = pwm.duty_permille;
   can.frequency_hz = pwm.frequency_hz;
-  can.pwm_src = (uint8_t)haus_can_pwm_source(pwm.flags);
-  can.pwm_fresh = (snap.pwm_seen_ms != 0) &&
+  can.pwm_src = can.pwm_known ? (uint8_t)haus_can_pwm_source(pwm.flags)
+                             : HAUS_PWM_SRC_NONE;
+  can.pwm_fresh = can.pwm_known &&
                   ((uint32_t)(millis() - snap.pwm_seen_ms) < 5000u);
   can.active = can.pwm_fresh && (can.pwm_permille < 1000);
   can.pwm_pending = 0xFFFF;
@@ -603,11 +607,13 @@ void gui_update_state(void) {
   can.has_pending = false;
   can.pwm_pending_since_ms = 0;
 
-  /* AC waveform (0x2C1..0x2C5): demodulate once per state update. */
+  /* AC waveform (0x2C1..0x2C5): demodulate once per state update.
+   * The angle rate is reduced here and stored once a minute by the recorder. */
   can_monitor_adc_wave_t wave;
   can.ac_rms_dc = 0;
   can.ac_angle_cdeg = 0;
   can.ac_fresh = false;
+  can.angle_rate_cdeg_s = HAUS_ANGLE_RATE_NONE;
   if (can_monitor_get_adc_wave(&wave) && wave.valid) {
     haus_wave_demod_t demod;
     if (haus_wave_demod(wave.slot, &demod)) {
@@ -620,8 +626,26 @@ void gui_update_state(void) {
       can.ac_rms_dc = (uint16_t)rms;
       can.ac_angle_cdeg = (int16_t)angle;
       can.ac_fresh = (uint32_t)(millis() - wave.seen_ms) < 5000u;
+
+      static haus_angle_rate_t rate_track;
+      static uint32_t rate_seen_ms = 0;
+      static bool rate_seen = false;
+      if (!rate_seen || wave.seen_ms != rate_seen_ms) {
+        rate_seen = true;
+        rate_seen_ms = wave.seen_ms;
+        haus_angle_rate_observe(&rate_track, demod.angle_deg, demod.rms_counts,
+                                wave.seen_ms);
+      }
+      int16_t rate = HAUS_ANGLE_RATE_NONE;
+      if (haus_angle_rate_cdeg_s(&rate_track, (uint32_t)millis(), 0, &rate)) {
+        can.angle_rate_cdeg_s = rate;
+      }
     }
   }
+
+  can_monitor_adc_span_t span;
+  can.ac_pp = 0;
+  if (can_monitor_get_adc_span(&span) && span.valid) can.ac_pp = span.pp_count;
 
   /* Household power — no SML decode yet. */
   int32_t watts = 0;

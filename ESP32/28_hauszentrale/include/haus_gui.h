@@ -7,7 +7,7 @@
  * or host specifics.
  *
  * Data structures:
- *   gui_sample_t      — 28 bytes, one minute of sensor data
+ *   gui_sample_t      — 44 bytes, one minute of sensor data
  *   SensorFn          — the function a sensor is bound to
  *   CanState          — immutable block owned by canTask
  *   ClimateState      — immutable block owned by sensorTask
@@ -50,28 +50,53 @@ typedef enum {
   GUI_STATUS_ERROR,        /* red: fault */
 } gui_status_t;
 
-/* ─── Sample (28 bytes, static_assert on both host and device) ──────────── */
+/* ─── Sample (44 bytes, static_assert on both host and device) ─────────────
+ *
+ * One record per minute. Appended fields keep the original offsets so a
+ * reader of the first 28 bytes still finds the same quantities. power_dw
+ * is that leftover slot: new records write 0. Instantaneous watts are not
+ * stored; consumed_kwh4 and produced_kwh4 are the meter registers.
+ *
+ * One energy count is 0.0001 kWh, the digit in the meter listing
+ * 1-0:1.8.0*255(000000.0000*kWh) and 1-0:2.8.0*255(000000.0000*kWh).
+ * 0.001 kWh is 10 counts. 0 is a legal empty register, so unseen is
+ * HAUS_ENERGY_NONE.
+ */
+
+#define HAUS_DUTY_NONE 0xFFFFu
+#define HAUS_ANGLE_RATE_NONE ((int16_t)INT16_MIN)
+#define HAUS_PWM_SRC_NONE 0xFFu
+#define HAUS_ENERGY_NONE 0xFFFFFFFFu
 
 typedef struct {
-  uint32_t epoch;       /* 0: minute-aligned unix time */
-  int16_t temp[3];      /* 4: chamber, water_in, water_out */
-  int16_t living_c100;  /* 10: living room, HAUS_CAN_TEMP_EMPTY if absent */
-  uint16_t hum_c100;    /* 12: 0.01 %RH */
-  uint16_t power_dw;    /* 14: decawatts, saturated at 65535 */
-  uint32_t pressure_pa; /* 16: Pa */
-  uint8_t flags;        /* 20: SAMPLE_FLAG_* */
-  uint8_t stale_mask;   /* 21: SAMPLE_STALE_* bits, per source */
-  int16_t target_c100;  /* 22: Soll / setpoint (third chart series) */
-  uint16_t ac_rms_dc;   /* 24: 0x2C waveform RMS, 0.1 ADC count */
-  int16_t ac_angle_cdeg;/* 26: 0x2C waveform angle, 0.01 degree */
+  uint32_t epoch;            /* 0: minute-aligned unix time */
+  int16_t temp[3];           /* 4: chamber, water_in, water_out */
+  int16_t living_c100;       /* 10: living room, HAUS_CAN_TEMP_EMPTY if absent */
+  uint16_t hum_c100;         /* 12: 0.01 %RH */
+  uint16_t power_dw;         /* 14: unused in new records; always 0 */
+  uint32_t pressure_pa;      /* 16: Pa */
+  uint8_t flags;             /* 20: SAMPLE_FLAG_* */
+  uint8_t stale_mask;        /* 21: SAMPLE_STALE_* bits, per source */
+  int16_t target_c100;       /* 22: Soll / setpoint (third chart series) */
+  uint16_t ac_rms_dc;        /* 24: 0x2C waveform RMS, 0.1 ADC count */
+  int16_t ac_angle_cdeg;     /* 26: 0x2C waveform angle, 0.01 degree */
+  uint16_t duty_permille;    /* 28: last 0x280; HAUS_DUTY_NONE if never seen */
+  int16_t angle_rate_cdeg_s; /* 30: 0.01 °/s; HAUS_ANGLE_RATE_NONE if unknown */
+  uint16_t ac_pp;            /* 32: 0x2C0 peak-to-peak counts; 0 if never seen */
+  uint8_t pwm_src;           /* 34: PWM_SRC_* or HAUS_PWM_SRC_NONE */
+  uint8_t reserved;          /* 35: zero */
+  uint32_t consumed_kwh4;    /* 36: 1-0:1.8.0, unit 0.0001 kWh */
+  uint32_t produced_kwh4;    /* 40: 1-0:2.8.0, unit 0.0001 kWh */
 } gui_sample_t;
 
-/* Sample flags */
+/* Sample flags. Bits 0x40 and 0x80 are free. DUTY_STALE marks a held 0x280
+ * that is older than the live freshness window. It is not a second log. */
 #define SAMPLE_FLAG_MODELLED 0x01
 #define SAMPLE_FLAG_GAP 0x02
 #define SAMPLE_FLAG_STALE 0x04
 #define SAMPLE_FLAG_CLIMATE_AHT20 0x08
 #define SAMPLE_FLAG_CLIMATE_BMP280 0x10
+#define SAMPLE_FLAG_DUTY_STALE 0x20
 
 /* Per-source stale bits, in RollupColumn series order (0…8). */
 #define SAMPLE_STALE_CHAMBER 0x01
@@ -84,12 +109,29 @@ typedef struct {
 #define SAMPLE_STALE_AC 0x80
 
 #if defined(__cplusplus)
-static_assert(sizeof(gui_sample_t) == 28,
-              "gui_sample_t must be 28 bytes (fixed-size records)");
+static_assert(sizeof(gui_sample_t) == 44,
+              "gui_sample_t must be 44 bytes (fixed-size records)");
+static_assert(offsetof(gui_sample_t, duty_permille) == 28,
+              "appended fields must keep the original 28-byte prefix");
 #else
-_Static_assert(sizeof(gui_sample_t) == 28,
-               "gui_sample_t must be 28 bytes (fixed-size records)");
+_Static_assert(sizeof(gui_sample_t) == 44,
+               "gui_sample_t must be 44 bytes (fixed-size records)");
+_Static_assert(offsetof(gui_sample_t, duty_permille) == 28,
+               "appended fields must keep the original 28-byte prefix");
 #endif
+
+/* Fields a rollup or a gap cannot know. Duty 0 would read as full heat and
+ * a zero angle rate would read as clocks locked. */
+static inline void gui_sample_mark_absent(gui_sample_t* s) {
+  if (!s) return;
+  s->duty_permille = HAUS_DUTY_NONE;
+  s->angle_rate_cdeg_s = HAUS_ANGLE_RATE_NONE;
+  s->ac_pp = 0;
+  s->pwm_src = HAUS_PWM_SRC_NONE;
+  s->reserved = 0;
+  s->consumed_kwh4 = HAUS_ENERGY_NONE;
+  s->produced_kwh4 = HAUS_ENERGY_NONE;
+}
 
 /* ─── Sensor function (whitepaper §10.2) ─────────────────────────────────── */
 
@@ -132,12 +174,15 @@ typedef struct {
   uint16_t ac_rms_dc;    /* 0x2C waveform RMS, 0.1 ADC count */
   int16_t ac_angle_cdeg; /* 0x2C waveform angle, 0.01 degree */
   bool ac_fresh;         /* a complete 0x2C waveform arrived recently */
+  uint16_t ac_pp;        /* 0x2C0 peak-to-peak counts; 0 = never seen */
+  int16_t angle_rate_cdeg_s; /* 0.01 °/s over the last minute of waveforms */
+  bool pwm_known;        /* a 0x280 has been seen; permille is meaningful */
   uint16_t pwm_pending; /* slider position; 0xFFFF == none pending */
   uint16_t requested_permille;
   bool has_pending;
   uint32_t pwm_pending_since_ms;
 
-  uint16_t power_dw; /* decawatts, same unit as Sample.power_dw */
+  uint16_t power_dw; /* live decawatts for the screen; not written to history */
   uint8_t power_src; /* NONE / SML / ADC */
   int32_t watts;
   int32_t watts_last;

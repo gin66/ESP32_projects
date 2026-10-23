@@ -4,3 +4,4 @@ package-lock.json
 __pycache__
 build
 ESP32/28_hauszentrale/test/test_power_axis/test_power_axis
+ESP32/28_hauszentrale/test/test_wave_demod/test_wave_demod

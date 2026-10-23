@@ -4,12 +4,13 @@
  *
  * L1/L2 are allocated once from PSRAM and never reallocated. The SPIFFS ring
  * is a fixed 12-month file indexed by epoch hour; appending an hour is one
- * seek plus 88 bytes, with no metadata write.
+ * seek plus one RollupColumn, with no metadata write.
  */
 
 #include "haus_history.h"
 #include "haus_sd.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -254,7 +255,26 @@ static void format_day_path(uint32_t epoch, char* out, size_t n) {
   snprintf(out, n, "/data_%s.bin", date);
 }
 
-enum SdWriteResult { SD_WRITE_OK, SD_WRITE_IO_ERROR, SD_WRITE_BUSY };
+enum SdWriteResult {
+  SD_WRITE_OK,
+  SD_WRITE_IO_ERROR,
+  SD_WRITE_BUSY,
+  SD_WRITE_FOREIGN
+};
+
+#ifndef HAUS_HOST
+/* FILE_WRITE truncates. Refuse that when the path holds another layout. */
+static bool sd_write_blocked(const char* path, size_t expect) {
+  File f = SD.open(path, FILE_READ);
+  if (!f) return false;
+  const size_t sz = f.size();
+  f.close();
+  if (haus_history_file_owned(true, sz, expect)) return false;
+  TPL_LOGW("history", "%s is %u bytes, want %u; leaving it", path,
+           (unsigned)sz, (unsigned)expect);
+  return true;
+}
+#endif
 
 static SdWriteResult sd_write_day(uint32_t epoch) {
   format_day_path(epoch, s_last_day_path, sizeof(s_last_day_path));
@@ -276,6 +296,10 @@ static SdWriteResult sd_write_day(uint32_t epoch) {
   /* Midnight is the one write that cannot be deferred without losing the day;
    * wait out a browse/large read. */
   if (!haus_sd_lock(60000)) return SD_WRITE_BUSY;
+  if (sd_write_blocked(s_last_day_path, HAUS_DAY_FILE_BYTES)) {
+    haus_sd_unlock();
+    return SD_WRITE_FOREIGN;
+  }
   File f = SD.open(s_last_day_path, FILE_WRITE);
   bool ok = (bool)f;
   for (size_t base = 0; ok && base < HAUS_L1_SAMPLES;
@@ -326,6 +350,10 @@ static SdWriteResult sd_write_rollup_to(uint32_t epoch, uint32_t lock_ms) {
 #else
   const uint32_t last_hour = epoch / 3600u;
   if (!haus_sd_lock(lock_ms)) return SD_WRITE_BUSY;
+  if (sd_write_blocked("/rollup.bin", HAUS_ROLLUP_FILE_BYTES)) {
+    haus_sd_unlock();
+    return SD_WRITE_FOREIGN;
+  }
 
   File f = SD.open("/rollup.bin", FILE_WRITE);
   bool ok = (bool)f;
@@ -454,16 +482,21 @@ static bool write_daily_files(uint32_t epoch) {
     return false;
   }
 
-  const bool day_ok = day_res == SD_WRITE_OK;
-  const bool rollup_ok = rollup_res == SD_WRITE_OK;
-  if (!day_ok) TPL_LOGW("history", "day file not written");
-  if (!rollup_ok) TPL_LOGW("history", "rollup not written");
+  /* A foreign file is left in place. That is not a card error, and the
+   * rollover still advances so the next day is not pinned in RAM. */
+  const bool day_ok = day_res == SD_WRITE_OK || day_res == SD_WRITE_FOREIGN;
+  const bool rollup_ok =
+      rollup_res == SD_WRITE_OK || rollup_res == SD_WRITE_FOREIGN;
+  if (day_res == SD_WRITE_IO_ERROR) TPL_LOGW("history", "day file not written");
+  if (rollup_res == SD_WRITE_IO_ERROR)
+    TPL_LOGW("history", "rollup not written");
 
   /* S23.19: a card that was never present is ABSENT, not FAULTY. Only a write
    * that fails against a card we have actually mounted (or mounted earlier)
    * is a storage fault. */
   const bool had_card = haus_sd_is_mounted() || haus_sd_ever_mounted();
-  if (!day_ok || !rollup_ok) haus_sd_note_io_error();
+  if (day_res == SD_WRITE_IO_ERROR || rollup_res == SD_WRITE_IO_ERROR)
+    haus_sd_note_io_error();
 
   if (day_ok && rollup_ok) {
     s_last_rollover_epoch = epoch;
@@ -518,9 +551,10 @@ static RollupColumn* apply_sample_to_l2(const gui_sample_t* s) {
   if ((s->flags & SAMPLE_FLAG_CLIMATE_BMP280) &&
       !(stale & SAMPLE_STALE_PRESSURE))
     add_series(col, 5, (int32_t)s->pressure_pa);
-  /* Power is a measured series too. A valid 0 W is data; only a gap or a
-   * stale SML source is omitted. */
-  if (!(stale & SAMPLE_STALE_POWER) && !(s->flags & SAMPLE_FLAG_GAP))
+  /* Older records may still carry decawatts. New minutes write power_dw 0
+   * and must not pull the hourly mean down to zero. */
+  if (!(stale & SAMPLE_STALE_POWER) && !(s->flags & SAMPLE_FLAG_GAP) &&
+      s->power_dw != 0)
     add_series(col, 6, (int32_t)s->power_dw);
   if (!(stale & SAMPLE_STALE_AC)) {
     add_series(col, 7, (int32_t)s->ac_rms_dc);
@@ -528,6 +562,15 @@ static RollupColumn* apply_sample_to_l2(const gui_sample_t* s) {
   }
 
   return col;
+}
+
+/* energy_*_kwh is the OBIS register in kWh. One count is 0.0001 kWh,
+ * the digit in 000000.0000*kWh. */
+static uint32_t energy_kwh4(double kwh, bool valid) {
+  if (!valid || kwh < 0.0 || kwh != kwh) return HAUS_ENERGY_NONE;
+  const double units = kwh * 10000.0;
+  if (units >= 4294967295.0) return HAUS_ENERGY_NONE;
+  return (uint32_t)llround(units);
 }
 
 bool haus_history_sample(const HausState* state, uint32_t epoch_seconds) {
@@ -567,11 +610,25 @@ bool haus_history_sample(const HausState* state, uint32_t epoch_seconds) {
   s->pressure_pa = pressure_valid ? state->climate.pressure_pa : 0;
   s->target_c100 = state->can.chamber_target_c;
 
-  uint32_t power_dw = state->can.valid ? (uint32_t)state->can.watts * 10u : 0u;
-  if (power_dw > 65535u) power_dw = 65535u;
-  s->power_dw = (uint16_t)power_dw;
+  /* Watts are not a history quantity. The slot stays so the prefix layout
+   * does not move, and the power chart treats 0 as "no sample". */
+  s->power_dw = 0;
   s->ac_rms_dc = state->can.ac_fresh ? state->can.ac_rms_dc : 0;
   s->ac_angle_cdeg = state->can.ac_fresh ? state->can.ac_angle_cdeg : 0;
+  s->angle_rate_cdeg_s = state->can.angle_rate_cdeg_s;
+  s->ac_pp = state->can.ac_pp;
+  s->reserved = 0;
+  if (state->can.pwm_known) {
+    s->duty_permille = state->can.pwm_permille;
+    s->pwm_src = state->can.pwm_src;
+  } else {
+    s->duty_permille = HAUS_DUTY_NONE;
+    s->pwm_src = HAUS_PWM_SRC_NONE;
+  }
+  s->consumed_kwh4 = energy_kwh4(state->can.energy_consumption_kwh,
+                                 state->can.energy_consumption_valid);
+  s->produced_kwh4 = energy_kwh4(state->can.energy_production_kwh,
+                                 state->can.energy_production_valid);
 
   s->flags = state->can.water_modelled ? SAMPLE_FLAG_MODELLED : 0x00;
   if (living_valid) s->flags |= SAMPLE_FLAG_CLIMATE_AHT20;
@@ -579,6 +636,9 @@ bool haus_history_sample(const HausState* state, uint32_t epoch_seconds) {
   /* No SML/ADC power source: do not store a zero as a measured sample. The
    * power chart would otherwise draw a synthetic zero line. */
   if (!state->can.valid) s->flags |= SAMPLE_FLAG_GAP;
+  /* Held last report. The file is still one record per minute. */
+  if (state->can.pwm_known && !state->can.pwm_fresh)
+    s->flags |= SAMPLE_FLAG_DUTY_STALE;
 
   uint8_t stale = 0;
   if (s->temp[0] != HAUS_CAN_TEMP_EMPTY &&
@@ -663,21 +723,43 @@ static uint32_t s_energy_cache_epoch = 0;
 static bool s_energy_ring_ready = false;
 static uint32_t s_last_energy_hour = UINT32_MAX;
 
+/* 1 = reuse, 0 = create (absent or an incomplete file of this version),
+ * -1 = a different layout. The caller must not open "w" or remove on -1. */
+static int spiffs_ring_disposition(const char* path, size_t need,
+                                   uint32_t magic, uint16_t version) {
+  File f = SPIFFS.open(path, "r");
+  if (!f) return 0;
+  struct {
+    uint32_t magic;
+    uint16_t version;
+    uint16_t reserved;
+  } h;
+  const size_t sz = f.size();
+  const bool read_ok = f.readBytes((char*)&h, sizeof(h)) == sizeof(h);
+  f.close();
+  if (read_ok && h.magic == magic && h.version == version && sz == need)
+    return 1;
+  if (sz == 0 ||
+      (read_ok && h.magic == magic && h.version == version && sz < need)) {
+    TPL_LOGW("history", "%s incomplete (%u bytes); replacing this version",
+             path, (unsigned)sz);
+    return 0;
+  }
+  TPL_LOGW("history",
+           "%s is %u bytes, magic 0x%08x version %u; leaving it", path,
+           (unsigned)sz, read_ok ? (unsigned)h.magic : 0u,
+           read_ok ? (unsigned)h.version : 0u);
+  return -1;
+}
+
 static bool energy_ring_open_or_create(void) {
   static const size_t need =
       sizeof(EnergyRingHeader) + HAUS_ENERGY_RING_HOURS * sizeof(EnergyRingRecord);
-  File f = SPIFFS.open("/energy_ring.bin", "r");
-  if (f) {
-    EnergyRingHeader h;
-    const bool size_ok = (f.size() == need);
-    const bool read_ok = (f.readBytes((char*)&h, sizeof(h)) == sizeof(h));
-    f.close();
-    if (size_ok && read_ok && h.magic == ENERGY_RING_MAGIC &&
-        h.version == ENERGY_RING_VERSION) {
-      return true;
-    }
-  }
-  f = SPIFFS.open("/energy_ring.bin", "w");
+  const int kind = spiffs_ring_disposition(
+      "/energy_ring.bin", need, ENERGY_RING_MAGIC, ENERGY_RING_VERSION);
+  if (kind == 1) return true;
+  if (kind < 0) return false;
+  File f = SPIFFS.open("/energy_ring.bin", "w");
   if (!f) return false;
   EnergyRingHeader h = {.magic = ENERGY_RING_MAGIC,
                         .version = ENERGY_RING_VERSION,
@@ -778,7 +860,7 @@ void haus_history_log_energy(const HausState* state, uint32_t epoch_seconds) {
       if (f.size() == 0) {
         f.println("epoch,consumed_kwh,produced_kwh");
       }
-      f.printf("%lu,%.3f,%.3f\n", (unsigned long)epoch_seconds,
+      f.printf("%lu,%.4f,%.4f\n", (unsigned long)epoch_seconds,
                state->can.energy_consumption_kwh,
                state->can.energy_production_kwh);
       f.close();
@@ -1003,20 +1085,12 @@ int haus_history_retention_step(uint32_t now_epoch, int max_months) {
 
 static bool ring_open_or_create(void) {
   static const size_t need = sizeof(RingHeader) + HAUS_RING_BYTES;
-  File f = SPIFFS.open(HAUS_RING_PATH, "r");
-  if (f) {
-    RingHeader h;
-    const bool size_ok = (f.size() == need);
-    const bool read_ok = (f.readBytes((char*)&h, sizeof(h)) == sizeof(h));
-    f.close();
-    if (size_ok && read_ok && h.magic == RING_MAGIC &&
-        h.version == RING_VERSION) {
-      return true;
-    }
-    TPL_LOGW("history", "ring header/size mismatch; rebuilding");
-  }
+  const int kind = spiffs_ring_disposition(HAUS_RING_PATH, need, RING_MAGIC,
+                                           RING_VERSION);
+  if (kind == 1) return true;
+  if (kind < 0) return false;
 
-  f = SPIFFS.open(HAUS_RING_PATH, "w");
+  File f = SPIFFS.open(HAUS_RING_PATH, "w");
   if (!f) {
     TPL_LOGE("history", "cannot create %s", HAUS_RING_PATH);
     return false;
@@ -1147,7 +1221,15 @@ static bool find_newest_day_file(char* out, size_t n) {
       if (name.startsWith("/")) name = name.substring(1);
       if (name.length() == 17 && name.startsWith("data_") &&
           name.endsWith(".bin")) {
-        if (newest.length() == 0 || name > newest) newest = name;
+        if (!haus_history_file_owned(true, (uint64_t)f.size(),
+                                    HAUS_DAY_FILE_BYTES)) {
+          TPL_LOGW("history",
+                   "day file %s is %u bytes, want %u; leaving it unread",
+                   name.c_str(), (unsigned)f.size(),
+                   (unsigned)HAUS_DAY_FILE_BYTES);
+        } else if (newest.length() == 0 || name > newest) {
+          newest = name;
+        }
       }
     }
     f.close();
@@ -1170,6 +1252,13 @@ static void restore_day_file(const char* path, uint32_t now_epoch) {
 
   File f = SD.open(path, FILE_READ);
   if (!f) return;
+  if (f.size() != HAUS_DAY_FILE_BYTES) {
+    TPL_LOGW("history",
+             "day file %s is %u bytes, want %u; leaving it unread", path,
+             (unsigned)f.size(), (unsigned)HAUS_DAY_FILE_BYTES);
+    f.close();
+    return;
+  }
 
   static gui_sample_t* block = NULL;
   if (!block) block = io_samples();
@@ -1239,7 +1328,9 @@ int haus_history_retention_step(uint32_t now_epoch, int max_months) {
       String name = f.name();
       if (name.startsWith("/")) name = name.substring(1);
       if (name.length() == 17 && name.startsWith("data_") &&
-          name.endsWith(".bin")) {
+          name.endsWith(".bin") &&
+          haus_history_file_owned(true, (uint64_t)f.size(),
+                                 HAUS_DAY_FILE_BYTES)) {
         uint32_t epoch = 0;
         if (parse_day_epoch(name.c_str(), &epoch) &&
             (oldest_epoch == 0 || epoch < oldest_epoch)) {

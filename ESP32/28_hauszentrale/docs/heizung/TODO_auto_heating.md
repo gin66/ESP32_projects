@@ -1,8 +1,70 @@
 # Auto Heating — Implementation TODO List
 
 **Source:** `whitepaper_auto_heating.md` (rev 1.2, 2026-10-23)  
-**Status:** Design proposal, not implemented  
+**Status:** Phases 0–7 are in the tree (commits after `1759c78`). The gaps below block the §13 AUTO release.  
 **Scope:** `ESP32/28_hauszentrale` + Wolf gas boiler (`AVR/01_heizung_temp`)
+
+---
+
+## Gaps in the current tree (review after `1759c78`)
+
+The checked boxes above mean the function exists and a host test calls it. These items are what the firmware that runs still gets wrong. A first boot with no `/heater.bin` writes mode OFF and does not transmit. Selecting AUTO commands the boiler.
+
+### [ ] G.1 Wire boot transmit into the controller that runs
+- `heater_handle_boot_restore()` is host-tested. `main.cpp` never calls it
+- OFF does not send 1000 when `0x280` is still a heating duty. The page can show OFF while the boiler keeps the previous duty, including after an AVR power cut inside the 60 s EEPROM window
+- MANUAL does not resend `saved_duty` when the report differs
+- AUTO already waits for the first legal decision inside `heater_ctl_tick`. That part is live
+- The 1-permille "lowest-permille walkback" in `heater_handle_boot_restore()` is not the §5.2 rule. §5.2 describes the AVR's own EEPROM window. Do not wire that walkback as written
+- See §5.2
+
+### [ ] G.2 Make the HEATER page tell the truth
+- `src/ui/haus_ui.c` still says "AUTO is shadow: it does not send yet."
+- `heater_ctl_tick` sends about one second after AUTO is selected
+- The page runs its own `heater_schedule_compute()` with frost forced off. It does not read `heater_ctl_get()`, so it cannot show a suppressed start, a duty step, a failed send, or the yield timer
+- The two text lines should come from that snapshot: what (day or night, Soll, asked duty) and why (cycle result, duty on the wire, the one timer blocking the next frame)
+- `PUMP BLOCKED` and `FROST` badges have no live source
+- See §8, §13
+
+### [ ] G.3 Keep a shadow mode that does not transmit
+- Phase 3's `heater_shadow_tick` is gone. Phase 4 transmits
+- §9 requires one schedule edge, or a few hours of logs, to be reviewed before AUTO may command the boiler
+- The next flash needs a mode that logs the decision and does not call `gui_send_pwm()`
+- See §7.5, §9
+
+### [ ] G.4 Yield when `0x280` shows a duty this panel did not send
+- The live path enters `MODE_OVERRIDE` only for `PWM_SRC_NRF`
+- Any other writer is logged once and can be overwritten on the next schedule step
+- The tested `heater_handle_foreign_writer()` is not called from `main.cpp`
+- See §5.1, §5.2
+
+### [ ] G.5 Repeat a frame that `gui_send_pwm()` did not accept
+- `heater_cycle_step()` advances, then `ctl_send()` logs the failure and leaves the cycle as if the frame went out
+- That duty is not sent again until the target changes
+- A conflicting `0x280` stays log-once (§5.9). A failed transmit is a different case
+- See §5.9
+
+### [ ] G.6 Decide the first AUTO step
+- The cycle starts idle with last duty 1000 and ignores the duty already on `0x280`
+- The first `SEND` is the full day or night duty (283 or 500), not a 50-permille walk from the wire
+- The 50-permille limit in §5.6 applies while `HEATING`. Confirm whether the first edge must step as well
+- See §5.6
+
+### [ ] G.7 Frost demand never runs
+- `heater_ctl_tick` passes `frost_active = false`
+- The threshold is still an open number. Do not invent it
+- Manual OFF remains the only real off. Night is duty 500, not 1000
+- See §5.3, §5.4
+
+### [ ] G.8 Finish the host tests §7.1 actually requires
+- `test/test_heater_control/Makefile` has no `make test` or `make sanitize` target. The binary passes when built by hand
+- A sanitizer run prints undefined behavior in `payload_from_config()` (`haus_heater_bin.cpp`) when the rejection test stores `(HeaterMode)(HEATER_MODE_OVERRIDE + 1)`, and the process still exits 0
+- Case 4 ("24 simulated hours") and case 17 ("seven-day simulation") call the unused authority API a handful of times. They do not drive `heater_ctl_tick` across that time
+- Case 12 checks two hours on 20 Oct 2026. The spring-gap hold and the fall-back hold are not tested
+- Local time is a hand-rolled `mktime` conversion in `haus_heater.cpp`, not `localtime` under `CET-1CEST,M3.5.0/2:00,M10.5.0/3:00`
+- T.2, T.3, and the T.4 images are still open
+- §13 still needs the bench shadow review and the operation-window note
+- See §7.1, §13
 
 ---
 
@@ -44,6 +106,7 @@
 - Sensor loss → hold, then `AUTO HOLD`; do not silently switch modes
 - Unsynced clock → hold; do not apply day flow until `CanState.synced`
 - Schedule/sensor recovery cannot override `MODE_OFF`
+- These transitions live in `heater_handle_*`. The running controller does not call them. See G.1 and G.4
 - See §5.1
 
 ### [x] 0.5 Implement boot transmit rules
@@ -57,6 +120,7 @@
   - 60 s write window: if last EEPROM write was < 60 s ago, don't re-transmit
   - Lowest-permille walkback: when restoring a lower duty, step down at most 1
     permille per write (prevents sudden large drops)
+- The function is not on the live path, and the 1-permille walkback is not §5.2. See G.1
 - See §5.2
 
 ---
@@ -69,7 +133,7 @@
 - On bad file: reject, keep previous mode in RAM, never come up as AUTO
 - Persist: mode, schedule (day flow, night setback, frost parameters)
 - Also persists `saved_duty` (needed by the §5.2 MANUAL boot rule)
-- 21-byte file: 10-byte header (magic/version/CRC32) + 11-byte payload
+- Version 2 file is 36 bytes: 10-byte header (magic/version/CRC32) + 26-byte payload. A version-1 file is rejected
 - File: `include/haus_heater_bin.h`, `src/haus_heater_bin.cpp`
 - Pure encode/decode split from SPIFFS I/O so host tests can run without flash
 - Corrupt/absent file: defaults (`OFF`) are written, so the next boot is safe
@@ -88,13 +152,12 @@
 - `PWM_SRC_EEPROM` shown while wire carries AVR's restored duty
 - Request full redraw after writes (as `haus_config_set_can_enabled()` does)
 - Implemented in `src/ui/haus_ui.c` (`pwm_*`), config cache in `haus_heater_bin`
-- AUTO is shadow-only: it computes and displays the schedule, never transmits
-  (Phase 3/4 enable transmission)
+- The page still says AUTO is shadow and never transmits. The controller does transmit. See G.2 and G.3
 - Switch = manual OFF/ON: OFF persists `MODE_OFF` and sends 1000; ON sends the
   saved manual duty once and persists `MODE_MANUAL`
 - Slider sends on `LV_EVENT_RELEASED` only, so a drag cannot produce a burst
 - AUTO segment disabled (dimmed) while CAN is not green or the clock is unsynced
-- `FROST`/`PUMP BLOCKED` badges exist but have no state source until Phase 4/6
+- `FROST`/`PUMP BLOCKED` badges exist and still have no live source. See G.2 and G.7
 - Host tests cover the config cache; UI render variants are T.4
 - See §8
 
@@ -130,7 +193,7 @@
   OVERRIDE / pump guard) without clearing the rolling budget
 - Host tests cover min_on, min_off, budget, rolling expiry, duty stepping,
   frost override, and forced off
-- Not wired to transmission yet; Phase 3 (shadow) and Phase 4 consume it
+- `heater_ctl_tick` consumes it and can transmit. The first edge does not step from the wire. See G.5 and G.6
 - See §5.6
 
 ---
@@ -148,7 +211,7 @@
   `edges/h`, `water_in`, `water_out`, `room`, `soll`
 - Holds logged with a reason: `can-not-green`, `clock-unsynced`,
   `schedule`, `nrf` (yield)
-- Never calls `gui_send_pwm()`; AUTO remains display-only
+- Superseded on the live path: `heater_shadow_tick` is gone and `heater_ctl_tick` calls `gui_send_pwm()`. See G.3
 - Mode changes are logged once; entering OFF records a forced off-edge so a
   later AUTO respects `min_off`
 - No multi-day gate: review one schedule edge or a few hours of lines
@@ -183,7 +246,7 @@
   does not advance while held
 - nRF source → `MODE_OVERRIDE` for 2 h; the cycle gets a forced off-edge on
   entry, then AUTO resumes (no blind re-send at expiry)
-- `0x280` mismatch is logged once (`expected`/`reported`) and is not retried
+- `0x280` mismatch is logged once (`expected`/`reported`) and is not retried. A failed `gui_send_pwm()` is also not retried. See G.4 and G.5
 - Boiler fault on `0x280` is logged once as a disturbance; DHW charge is not
   visible on the current CAN set
 - Room/pipe sensors are not preconditions: scheduled flow needs neither
@@ -314,7 +377,9 @@
 - See §5.5
 
 ### [ ] 9.2 Implement outdoor economy lockout (future)
-- Requires outdoor sensor (look for old AF before buying one)
+- No `0x180` probe will be assigned to outdoor weather
+- A later summer switch may use an internet forecast. A missing or old forecast leaves the schedule running and does not set the flow temperature
+- Look for the old AF before buying a probe, if a local sensor is still wanted
 - AWT's summer switch: pump and burner off above adjustable outdoor temperature (recommended 15–20 °C)
 - Preferred energy feature before any room trim
 - See §3.3, §11 decision #12
@@ -423,8 +488,9 @@
 |------|------|-------|
 | 1 | Inverse of off-table v1 + host tests | Phase 0 + T.1 |
 | 2 | Config persistence + UI mode | Phase 1 |
-| 3 | Short shadow (compute, log, do not transmit) | Phase 3 |
-| 4 | Enable AUTO with adopted defaults | Phase 4 |
+| 3 | Short shadow (compute, log, do not transmit) | Phase 3, then G.3 |
+| 3a | Fix the live-path gaps before AUTO may command the boiler | G.1–G.8 |
+| 4 | Enable AUTO with adopted defaults | Phase 4, after G.3 |
 | 5 | Operation window (few days) | Phase 5 |
 | 6 | Pump guard (after τ and α exist) | Phase 6 |
 | 7 | HTTP observability (`/heater` JSON) | Phase 7 |

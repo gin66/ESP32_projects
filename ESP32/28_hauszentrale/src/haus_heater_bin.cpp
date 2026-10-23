@@ -49,10 +49,10 @@ typedef struct __attribute__((packed)) {
 
 #if defined(__cplusplus)
 static_assert(sizeof(HeaterBinFile) == HAUS_HEATER_BIN_FILE_SIZE,
-              "HeaterBinFile must be exactly 21 bytes");
+              "HeaterBinFile must be exactly 36 bytes");
 #else
 _Static_assert(sizeof(HeaterBinFile) == HAUS_HEATER_BIN_FILE_SIZE,
-               "HeaterBinFile must be exactly 21 bytes");
+               "HeaterBinFile must be exactly 36 bytes");
 #endif
 
 /* ─── Field-range checks ─────────────────────────────────────────────────── */
@@ -78,6 +78,24 @@ static bool payload_is_valid(const HeaterBinPayload *p) {
     return false;
   if (p->night_floor_c100 < 0 || p->night_floor_c100 > 10000)
     return false;
+
+  /* Anti-short-cycling parameters. */
+  if (p->control_period_s < 1 || p->control_period_s > 3600)
+    return false;
+  if (p->min_on_s > 7200)
+    return false;
+  if (p->min_off_s > 7200)
+    return false;
+  if (p->max_edges_per_hour < 1 || p->max_edges_per_hour > HEATER_EDGE_HISTORY)
+    return false;
+  if (p->min_duty_interval_s > 3600)
+    return false;
+  if (p->max_duty_step < 1 || p->max_duty_step > 1000)
+    return false;
+  if (p->room_hysteresis_c100 > 500)
+    return false;
+  if (p->flow_deadband_c100 > 1000)
+    return false;
   return true;
 }
 
@@ -91,6 +109,14 @@ static void payload_from_config(HeaterBinPayload *p,
   p->T_day_c100 = config->schedule.T_day_c100;
   p->night_setback_c100 = config->schedule.night_setback_c100;
   p->night_floor_c100 = config->schedule.night_floor_c100;
+  p->control_period_s = config->cycle.control_period_s;
+  p->min_on_s = config->cycle.min_on_s;
+  p->min_off_s = config->cycle.min_off_s;
+  p->max_edges_per_hour = config->cycle.max_edges_per_hour;
+  p->min_duty_interval_s = config->cycle.min_duty_interval_s;
+  p->max_duty_step = config->cycle.max_duty_step;
+  p->room_hysteresis_c100 = config->cycle.room_hysteresis_c100;
+  p->flow_deadband_c100 = config->cycle.flow_deadband_c100;
 }
 
 static void config_from_payload(const HeaterBinPayload *p,
@@ -102,6 +128,14 @@ static void config_from_payload(const HeaterBinPayload *p,
   config->schedule.T_day_c100 = p->T_day_c100;
   config->schedule.night_setback_c100 = p->night_setback_c100;
   config->schedule.night_floor_c100 = p->night_floor_c100;
+  config->cycle.control_period_s = p->control_period_s;
+  config->cycle.min_on_s = p->min_on_s;
+  config->cycle.min_off_s = p->min_off_s;
+  config->cycle.max_edges_per_hour = p->max_edges_per_hour;
+  config->cycle.min_duty_interval_s = p->min_duty_interval_s;
+  config->cycle.max_duty_step = p->max_duty_step;
+  config->cycle.room_hysteresis_c100 = p->room_hysteresis_c100;
+  config->cycle.flow_deadband_c100 = p->flow_deadband_c100;
 }
 
 /* ─── Public API ─────────────────────────────────────────────────────────── */
@@ -112,6 +146,7 @@ void heater_config_default(HeaterConfig *config) {
   config->mode = HEATER_MODE_OFF;
   config->saved_duty = 1000;
   heater_schedule_default(&config->schedule);
+  heater_cycle_params_default(&config->cycle);
 }
 
 /* ─── Runtime cache ──────────────────────────────────────────────────────── */

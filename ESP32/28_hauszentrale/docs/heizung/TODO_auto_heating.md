@@ -102,8 +102,9 @@
 
 ## Phase 2 — Anti-Short-Cycling
 
-### [ ] 2.1 Implement demand-edge state machine
+### [x] 2.1 Implement demand-edge state machine
 - States: `IDLE → HEATING → COOLDOWN → IDLE`
+- Pure state machine in `haus_heater` (`heater_cycle_*`), host-tested
 - Parameters (all persisted and configurable):
   - Control period: 60 s
   - Minimum on time: 10 min
@@ -121,6 +122,15 @@
   - Manual OFF beats frost protection
   - Budget counts **AUTO demand edges**, not burner ignitions
   - Guarantee explicitly scoped to AUTO output (boiler's `Taktsperre` still applies)
+- Parameters live in `HeaterConfig.cycle`, persisted in `/heater.bin` (format v2)
+- `heater_cycle_step()` returns `SEND` with one duty, or the suppression reason
+  (`MIN_ON`, `MIN_OFF`, `EDGE_BUDGET`, `DUTY_INTERVAL`)
+- On-edges are timestamped in a rolling 1 h window (`HEATER_EDGE_HISTORY` = 8)
+- `heater_cycle_force_off()` records an external off-edge (manual OFF /
+  OVERRIDE / pump guard) without clearing the rolling budget
+- Host tests cover min_on, min_off, budget, rolling expiry, duty stepping,
+  frost override, and forced off
+- Not wired to transmission yet; Phase 3 (shadow) and Phase 4 consume it
 - See §5.6
 
 ---

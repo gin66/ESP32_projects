@@ -455,6 +455,94 @@ bool heater_is_mode_off_locked(const HeaterAuthority *auth);
 /* Get the current hold reason (for UI display). */
 HeaterHoldReason heater_get_hold_reason(const HeaterAuthority *auth);
 
+/* ─── Anti-short-cycling (Phase 2.1, §5.6) ──────────────────────────────── */
+
+/* Parameters for the AUTO demand-edge state machine. All times are seconds.
+ * The config is persisted in /heater.bin; the two future trim parameters are
+ * carried so a later phase can use them without another format change. */
+typedef struct {
+  uint16_t control_period_s;     /**< Caller tick period (default 60).       */
+  uint16_t min_on_s;             /**< Minimum HEATING time (default 600).    */
+  uint16_t min_off_s;            /**< Minimum off time (default 900).        */
+  uint8_t max_edges_per_hour;    /**< AUTO on-edges per rolling hour (2).    */
+  uint16_t min_duty_interval_s;  /**< Min time between duty moves (300).     */
+  uint16_t max_duty_step;        /**< Max permille change per move (50).     */
+  uint16_t room_hysteresis_c100; /**< Future room trim (30 = 0.3 K).         */
+  uint16_t flow_deadband_c100;   /**< Future flow trim (200 = 2.0 K).        */
+} HeaterCycleParams;
+
+typedef enum {
+  HEATER_CYCLE_IDLE = 0,   /**< No AUTO demand; may start after min_off. */
+  HEATER_CYCLE_HEATING,    /**< AUTO has an on-edge and owns the duty.   */
+  HEATER_CYCLE_COOLDOWN,   /**< Off-edge sent; min_off is running.       */
+} HeaterCycleState;
+
+typedef enum {
+  HEATER_CYCLE_RESULT_NONE = 0,      /**< Nothing to do.                 */
+  HEATER_CYCLE_RESULT_SEND,          /**< Transmit out_duty once.        */
+  HEATER_CYCLE_RESULT_MIN_ON,        /**< Off refused: min_on running.   */
+  HEATER_CYCLE_RESULT_MIN_OFF,       /**< On refused: min_off running.   */
+  HEATER_CYCLE_RESULT_EDGE_BUDGET,   /**< On refused: hour budget spent. */
+  HEATER_CYCLE_RESULT_DUTY_INTERVAL, /**< Move refused: 5 min not elapsed. */
+} HeaterCycleResult;
+
+#define HEATER_EDGE_HISTORY 8
+
+typedef struct {
+  HeaterCycleState state;
+  uint32_t state_since;          /**< When the current state was entered. */
+  uint32_t last_off_s;           /**< Timestamp of the last off-edge.     */
+  bool have_last_off;            /**< false until the first off-edge.     */
+  uint32_t last_duty_change_s;   /**< Last sent duty change.              */
+  uint16_t last_duty;            /**< Last AUTO duty sent (1000 = off).   */
+  uint32_t edge_s[HEATER_EDGE_HISTORY]; /**< Recent AUTO on-edge times.   */
+  uint8_t edge_n;                /**< Valid entries in edge_s (<= 8).      */
+  uint8_t edge_head;             /**< Next write index.                    */
+} HeaterCycle;
+
+/* Fill params with the adopted defaults from §5.6. */
+void heater_cycle_params_default(HeaterCycleParams *params);
+
+/* Initialize the state machine: IDLE, no history, last duty 1000. */
+void heater_cycle_init(HeaterCycle *cycle);
+
+/* Note an external off-edge (manual OFF, OVERRIDE yield, pump guard). Keeps
+ * the rolling budget, but starts min_off from now_s. */
+void heater_cycle_force_off(HeaterCycle *cycle, uint32_t now_s);
+
+/* Number of AUTO on-edges still inside the rolling hour. */
+uint8_t heater_cycle_edge_count(const HeaterCycle *cycle, uint32_t now_s);
+
+/* Advance the AUTO demand-edge state machine.
+ *
+ * Parameters:
+ *   cycle         — state (non-NULL, updated).
+ *   params        — adopted parameters (non-NULL).
+ *   now_s         — monotonic seconds.
+ *   frost_active  — frost demand; overrides min_off and the edge budget.
+ *   requested_duty — schedule output: 100..500 for heat, 1000 for off.
+ *   out_duty      — duty to transmit when the result is SEND (non-NULL).
+ *
+ * Returns:
+ *   HEATER_CYCLE_RESULT_SEND (and out_duty) when one frame is due; a
+ *   suppression reason otherwise. Manual OFF and the pump guard are external
+ *   and are not overridden here.
+ *
+ * Rules (§5.6):
+ *   - OFF only after min_on.
+ *   - ON only after min_off and inside the edge budget.
+ *   - Duty may move while HEATING, rate-limited by min_duty_interval and
+ *     max_duty_step.
+ *   - Frost overrides min_off and the edge budget.
+ *   - The budget counts AUTO on-edges, not burner ignitions.
+ */
+HeaterCycleResult heater_cycle_step(HeaterCycle *cycle,
+                                    const HeaterCycleParams *params,
+                                    uint32_t now_s,
+                                    bool frost_active,
+                                    uint16_t requested_duty,
+                                    uint16_t *out_duty);
+
 #ifdef __cplusplus
 }
 #endif

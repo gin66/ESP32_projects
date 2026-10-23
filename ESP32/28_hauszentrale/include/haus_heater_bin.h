@@ -3,15 +3,16 @@
  * @brief SPIFFS-backed heater configuration persistence (/heater.bin).
  *
  * Versioned binary file that stores the heater's authority mode, the last
- * manual duty, and the schedule (day flow, night setback, night floor) so the
- * panel can restore its previous state after a reboot.
+ * manual duty, the schedule (day flow, night setback, night floor), and the
+ * anti-short-cycling parameters so the panel can restore its previous state
+ * after a reboot.
  *
  * File format (little-endian, packed):
  *
  *   Offset  Size  Field
  *   ------  ----  -----
  *   0       4     magic  (0x484E5452u = "HNTQ")
- *   4       2     version (currently 1)
+ *   4       2     version (currently 2)
  *   6       4     CRC32 over payload (bytes 10..end)
  *   10      1     mode (HeaterMode)
  *   11      1     day_start_hour
@@ -20,9 +21,20 @@
  *   15      2     T_day_c100 (c°)
  *   17      2     night_setback_c100 (c°)
  *   19      2     night_floor_c100 (c°)
+ *   21      2     control_period_s
+ *   23      2     min_on_s
+ *   25      2     min_off_s
+ *   27      1     max_edges_per_hour
+ *   28      2     min_duty_interval_s
+ *   30      2     max_duty_step
+ *   32      2     room_hysteresis_c100
+ *   34      2     flow_deadband_c100
  *
- * Total payload: 11 bytes.
- * Total file: 21 bytes (10-byte header + 11-byte payload).
+ * Total payload: 26 bytes.
+ * Total file: 36 bytes (10-byte header + 26-byte payload).
+ *
+ * Version 1 (21-byte file, no cycle parameters) is rejected; the panel then
+ * comes up in safe OFF defaults.
  *
  * On bad file (magic mismatch, version mismatch, CRC error, out-of-range
  * fields):
@@ -41,7 +53,7 @@
 
 #include "haus_heater.h"
 
-/* ─── Payload structure (11 bytes, packed) ──────────────────────────────── */
+/* ─── Payload structure (26 bytes, packed) ──────────────────────────────── */
 /* Defined outside extern "C" so it's visible to both C and C++ host tests. */
 
 typedef struct __attribute__((packed)) {
@@ -52,28 +64,37 @@ typedef struct __attribute__((packed)) {
   int16_t T_day_c100;         /**< Day flow temperature in c° (byte 5).  */
   int16_t night_setback_c100; /**< Night setback in c° (byte 7).        */
   int16_t night_floor_c100;   /**< Night floor temperature in c° (byte 9). */
+  uint16_t control_period_s;  /**< Anti-short-cycling tick (byte 11).    */
+  uint16_t min_on_s;          /**< Minimum HEATING time (byte 13).      */
+  uint16_t min_off_s;         /**< Minimum off time (byte 15).          */
+  uint8_t max_edges_per_hour; /**< AUTO on-edges per hour (byte 17).    */
+  uint16_t min_duty_interval_s; /**< Min duty-move interval (byte 18).  */
+  uint16_t max_duty_step;     /**< Max permille per move (byte 20).      */
+  uint16_t room_hysteresis_c100; /**< Future trim (byte 22).            */
+  uint16_t flow_deadband_c100; /**< Future trim (byte 24).              */
 } HeaterBinPayload;
 
 /* File layout constants. */
 #define HAUS_HEATER_BIN_HEADER_SIZE 10  /* magic(4) + version(2) + CRC32(4) */
-#define HAUS_HEATER_BIN_PAYLOAD_SIZE 11 /* mode + hours + duty + 3 c° fields  \
-                                         */
-#define HAUS_HEATER_BIN_FILE_SIZE 21    /* header + payload */
+#define HAUS_HEATER_BIN_PAYLOAD_SIZE 26 /* mode + hours + duty + 3 c° +      \
+                                          cycle parameters */
+#define HAUS_HEATER_BIN_FILE_SIZE 36    /* header + payload */
 
 /* Magic number: "HNTQ" (Heater NTC Query — mnemonic for heater config). */
 #define HAUS_HEATER_BIN_MAGIC 0x484E5452u
 
 /* Current file format version. */
-#define HAUS_HEATER_BIN_VERSION 1
+#define HAUS_HEATER_BIN_VERSION 2
 
 /* SPIFFS path. */
 #define HAUS_HEATER_BIN_PATH "/heater.bin"
 
 /* Runtime configuration: persisted mode, manual duty, and schedule. */
 typedef struct {
-  HeaterMode mode;         /**< Authority mode (OFF on first boot). */
-  uint16_t saved_duty;     /**< Last manual duty (100..1000).        */
-  HeaterSchedule schedule; /**< Day/night flow schedule.            */
+  HeaterMode mode;          /**< Authority mode (OFF on first boot). */
+  uint16_t saved_duty;      /**< Last manual duty (100..1000).        */
+  HeaterSchedule schedule;  /**< Day/night flow schedule.            */
+  HeaterCycleParams cycle;  /**< Anti-short-cycling parameters.      */
 } HeaterConfig;
 
 /* Fill config with safe defaults: mode OFF, saved duty 1000, schedule default.

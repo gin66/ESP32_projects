@@ -255,6 +255,99 @@ int main() {
 
   std::printf("test_heater_control (scheduled flow): ok\n");
 
+  /* ─── Anti-short-cycling state machine (Phase 2.1) ─────────────────── */
+  {
+    HeaterCycleParams cp;
+    heater_cycle_params_default(&cp);
+    assert(cp.control_period_s == 60);
+    assert(cp.min_on_s == 600);
+    assert(cp.min_off_s == 900);
+    assert(cp.max_edges_per_hour == 2);
+    assert(cp.min_duty_interval_s == 300);
+    assert(cp.max_duty_step == 50);
+
+    HeaterCycle cyc;
+    heater_cycle_init(&cyc);
+    assert(cyc.state == HEATER_CYCLE_IDLE);
+    uint16_t d = 0;
+
+    /* First AUTO on-edge. */
+    assert(heater_cycle_step(&cyc, &cp, 1000, false, 300, &d) ==
+           HEATER_CYCLE_RESULT_SEND);
+    assert(d == 300);
+    assert(cyc.state == HEATER_CYCLE_HEATING);
+    assert(heater_cycle_edge_count(&cyc, 1000) == 1);
+
+    /* Duty movement waits min_duty_interval and moves at most 50 permille. */
+    assert(heater_cycle_step(&cyc, &cp, 1060, false, 200, &d) ==
+           HEATER_CYCLE_RESULT_DUTY_INTERVAL);
+    assert(heater_cycle_step(&cyc, &cp, 1300, false, 200, &d) ==
+           HEATER_CYCLE_RESULT_SEND);
+    assert(d == 250);
+    assert(heater_cycle_step(&cyc, &cp, 1600, false, 200, &d) ==
+           HEATER_CYCLE_RESULT_SEND);
+    assert(d == 200);
+
+    /* OFF before min_on is suppressed. */
+    assert(heater_cycle_step(&cyc, &cp, 1300, false, 1000, &d) ==
+           HEATER_CYCLE_RESULT_MIN_ON);
+    assert(cyc.state == HEATER_CYCLE_HEATING);
+
+    /* After min_on the off-edge is sent and cooldown begins. */
+    assert(heater_cycle_step(&cyc, &cp, 1650, false, 1000, &d) ==
+           HEATER_CYCLE_RESULT_SEND);
+    assert(d == 1000);
+    assert(cyc.state == HEATER_CYCLE_COOLDOWN);
+
+    /* ON before min_off is suppressed. */
+    assert(heater_cycle_step(&cyc, &cp, 1700, false, 300, &d) ==
+           HEATER_CYCLE_RESULT_MIN_OFF);
+
+    /* Second legal cycle. */
+    assert(heater_cycle_step(&cyc, &cp, 2600, false, 300, &d) ==
+           HEATER_CYCLE_RESULT_SEND);
+    assert(d == 300);
+    assert(heater_cycle_edge_count(&cyc, 2600) == 2);
+
+    /* Real off after min_on. */
+    assert(heater_cycle_step(&cyc, &cp, 2650, false, 1000, &d) ==
+           HEATER_CYCLE_RESULT_MIN_ON);
+    assert(heater_cycle_step(&cyc, &cp, 3250, false, 1000, &d) ==
+           HEATER_CYCLE_RESULT_SEND);
+    assert(d == 1000);
+
+    /* Normal demand is blocked by min_off; frost overrides min_off and the
+     * exhausted edge budget. */
+    assert(heater_cycle_step(&cyc, &cp, 3300, false, 300, &d) ==
+           HEATER_CYCLE_RESULT_MIN_OFF);
+    assert(heater_cycle_step(&cyc, &cp, 3300, true, 300, &d) ==
+           HEATER_CYCLE_RESULT_SEND);
+    assert(d == 300);
+    assert(cyc.state == HEATER_CYCLE_HEATING);
+
+    /* Off after min_on, then the budget rejects a third on-edge. */
+    assert(heater_cycle_step(&cyc, &cp, 3900, false, 1000, &d) ==
+           HEATER_CYCLE_RESULT_SEND);
+    assert(heater_cycle_step(&cyc, &cp, 4800, false, 300, &d) ==
+           HEATER_CYCLE_RESULT_EDGE_BUDGET);
+
+    /* The oldest on-edge leaves the rolling hour, so a demand can return. */
+    assert(heater_cycle_step(&cyc, &cp, 6300, false, 300, &d) ==
+           HEATER_CYCLE_RESULT_SEND);
+    assert(heater_cycle_edge_count(&cyc, 6300) == 2);
+
+    /* An external off (manual OFF / override) starts min_off again but keeps
+     * the rolling budget. */
+    heater_cycle_force_off(&cyc, 7000);
+    assert(cyc.state == HEATER_CYCLE_COOLDOWN);
+    assert(heater_cycle_step(&cyc, &cp, 7100, false, 300, &d) ==
+           HEATER_CYCLE_RESULT_MIN_OFF);
+    assert(heater_cycle_step(&cyc, &cp, 8000, false, 300, &d) ==
+           HEATER_CYCLE_RESULT_SEND);
+  }
+
+  std::printf("test_heater_control (anti-short-cycling 2.1): ok\n");
+
   /* ─── Authority management tests (Phase 0.4) ───────────────────────── */
 
   HeaterAuthority auth;
@@ -864,8 +957,8 @@ int main() {
   /* T.1.1: File format — verify struct sizes and field offsets. */
   {
     assert(sizeof(HeaterBinPayload) == HAUS_HEATER_BIN_PAYLOAD_SIZE);
-    assert(HAUS_HEATER_BIN_PAYLOAD_SIZE == 11);
-    assert(HAUS_HEATER_BIN_FILE_SIZE == 21);
+    assert(HAUS_HEATER_BIN_PAYLOAD_SIZE == 26);
+    assert(HAUS_HEATER_BIN_FILE_SIZE == 36);
 
     assert(offsetof(HeaterBinPayload, mode) == 0);
     assert(offsetof(HeaterBinPayload, day_start_hour) == 1);
@@ -874,6 +967,14 @@ int main() {
     assert(offsetof(HeaterBinPayload, T_day_c100) == 5);
     assert(offsetof(HeaterBinPayload, night_setback_c100) == 7);
     assert(offsetof(HeaterBinPayload, night_floor_c100) == 9);
+    assert(offsetof(HeaterBinPayload, control_period_s) == 11);
+    assert(offsetof(HeaterBinPayload, min_on_s) == 13);
+    assert(offsetof(HeaterBinPayload, min_off_s) == 15);
+    assert(offsetof(HeaterBinPayload, max_edges_per_hour) == 17);
+    assert(offsetof(HeaterBinPayload, min_duty_interval_s) == 18);
+    assert(offsetof(HeaterBinPayload, max_duty_step) == 20);
+    assert(offsetof(HeaterBinPayload, room_hysteresis_c100) == 22);
+    assert(offsetof(HeaterBinPayload, flow_deadband_c100) == 24);
 
     std::printf("  file format: header=%u, payload=%u, total=%u\n",
                 (unsigned)HAUS_HEATER_BIN_HEADER_SIZE,
@@ -884,7 +985,7 @@ int main() {
   /* T.1.2: CRC32 — verify known constants. */
   {
     assert(HAUS_HEATER_BIN_MAGIC == 0x484E5452u);
-    assert(HAUS_HEATER_BIN_VERSION == 1);
+    assert(HAUS_HEATER_BIN_VERSION == 2);
   }
 
   /* T.1.3: Defaults — mode OFF, saved duty 1000, schedule from the template. */
@@ -900,6 +1001,14 @@ int main() {
     assert(config.schedule.T_day_c100 == 5500);
     assert(config.schedule.night_setback_c100 == 1500);
     assert(config.schedule.night_floor_c100 == 4200);
+    assert(config.cycle.control_period_s == 60);
+    assert(config.cycle.min_on_s == 600);
+    assert(config.cycle.min_off_s == 900);
+    assert(config.cycle.max_edges_per_hour == 2);
+    assert(config.cycle.min_duty_interval_s == 300);
+    assert(config.cycle.max_duty_step == 50);
+    assert(config.cycle.room_hysteresis_c100 == 30);
+    assert(config.cycle.flow_deadband_c100 == 200);
   }
 
   /* T.1.4: Encode/decode round-trip. */
@@ -913,6 +1022,14 @@ int main() {
     in.schedule.T_day_c100 = 5800;
     in.schedule.night_setback_c100 = 1200;
     in.schedule.night_floor_c100 = 4300;
+    in.cycle.control_period_s = 45;
+    in.cycle.min_on_s = 700;
+    in.cycle.min_off_s = 1000;
+    in.cycle.max_edges_per_hour = 3;
+    in.cycle.min_duty_interval_s = 240;
+    in.cycle.max_duty_step = 40;
+    in.cycle.room_hysteresis_c100 = 25;
+    in.cycle.flow_deadband_c100 = 150;
 
     uint8_t buf[HAUS_HEATER_BIN_FILE_SIZE];
     const size_t n = heater_bin_encode(buf, sizeof(buf), &in);
@@ -929,6 +1046,14 @@ int main() {
     assert(out.schedule.T_day_c100 == in.schedule.T_day_c100);
     assert(out.schedule.night_setback_c100 == in.schedule.night_setback_c100);
     assert(out.schedule.night_floor_c100 == in.schedule.night_floor_c100);
+    assert(out.cycle.control_period_s == in.cycle.control_period_s);
+    assert(out.cycle.min_on_s == in.cycle.min_on_s);
+    assert(out.cycle.min_off_s == in.cycle.min_off_s);
+    assert(out.cycle.max_edges_per_hour == in.cycle.max_edges_per_hour);
+    assert(out.cycle.min_duty_interval_s == in.cycle.min_duty_interval_s);
+    assert(out.cycle.max_duty_step == in.cycle.max_duty_step);
+    assert(out.cycle.room_hysteresis_c100 == in.cycle.room_hysteresis_c100);
+    assert(out.cycle.flow_deadband_c100 == in.cycle.flow_deadband_c100);
   }
 
   /* T.1.5: Encode refuses too-small buffers. */

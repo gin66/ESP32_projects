@@ -566,3 +566,132 @@ HeaterHoldReason heater_get_hold_reason(const HeaterAuthority *auth) {
   if (!auth) return HEATER_HOLD_NONE;
   return auth->hold_reason;
 }
+
+/* ─── Anti-short-cycling (Phase 2.1, §5.6) ──────────────────────────────── */
+
+void heater_cycle_params_default(HeaterCycleParams *params) {
+  if (!params) return;
+  memset(params, 0, sizeof(*params));
+  params->control_period_s = 60;
+  params->min_on_s = 600;
+  params->min_off_s = 900;
+  params->max_edges_per_hour = 2;
+  params->min_duty_interval_s = 300;
+  params->max_duty_step = 50;
+  params->room_hysteresis_c100 = 30;
+  params->flow_deadband_c100 = 200;
+}
+
+void heater_cycle_init(HeaterCycle *cycle) {
+  if (!cycle) return;
+  memset(cycle, 0, sizeof(*cycle));
+  cycle->state = HEATER_CYCLE_IDLE;
+  cycle->last_duty = 1000;
+}
+
+void heater_cycle_force_off(HeaterCycle *cycle, uint32_t now_s) {
+  if (!cycle) return;
+  cycle->state = HEATER_CYCLE_COOLDOWN;
+  cycle->state_since = now_s;
+  cycle->last_off_s = now_s;
+  cycle->have_last_off = true;
+  cycle->last_duty = 1000;
+  cycle->last_duty_change_s = now_s;
+}
+
+uint8_t heater_cycle_edge_count(const HeaterCycle *cycle, uint32_t now_s) {
+  if (!cycle) return 0;
+  uint8_t n = 0;
+  for (uint8_t i = 0; i < cycle->edge_n; i++) {
+    if ((uint32_t)(now_s - cycle->edge_s[i]) < 3600u) n++;
+  }
+  return n;
+}
+
+static void heater_cycle_edge_add(HeaterCycle *cycle, uint32_t now_s) {
+  cycle->edge_s[cycle->edge_head] = now_s;
+  cycle->edge_head = (uint8_t)((cycle->edge_head + 1) % HEATER_EDGE_HISTORY);
+  if (cycle->edge_n < HEATER_EDGE_HISTORY) cycle->edge_n++;
+}
+
+HeaterCycleResult heater_cycle_step(HeaterCycle *cycle,
+                                    const HeaterCycleParams *params,
+                                    uint32_t now_s,
+                                    bool frost_active,
+                                    uint16_t requested_duty,
+                                    uint16_t *out_duty) {
+  if (!cycle || !params || !out_duty) return HEATER_CYCLE_RESULT_NONE;
+  *out_duty = cycle->last_duty;
+
+  const bool want_heat = frost_active || requested_duty <= 500;
+  uint16_t target = want_heat ? requested_duty : 1000;
+  if (target < 100 || target > 500) target = want_heat ? 500 : 1000;
+
+  /* OFF is only sent after min_on. */
+  if (cycle->state == HEATER_CYCLE_HEATING) {
+    if (!want_heat) {
+      if ((uint32_t)(now_s - cycle->state_since) < params->min_on_s)
+        return HEATER_CYCLE_RESULT_MIN_ON;
+
+      cycle->state = HEATER_CYCLE_COOLDOWN;
+      cycle->state_since = now_s;
+      cycle->last_off_s = now_s;
+      cycle->have_last_off = true;
+      cycle->last_duty = 1000;
+      cycle->last_duty_change_s = now_s;
+      *out_duty = 1000;
+      return HEATER_CYCLE_RESULT_SEND;
+    }
+
+    /* Duty may move while HEATING, rate-limited by time and step. */
+    if (target == cycle->last_duty) return HEATER_CYCLE_RESULT_NONE;
+    if ((uint32_t)(now_s - cycle->last_duty_change_s) <
+        params->min_duty_interval_s)
+      return HEATER_CYCLE_RESULT_DUTY_INTERVAL;
+
+    uint16_t step = params->max_duty_step;
+    const uint16_t delta =
+        (target > cycle->last_duty) ? (uint16_t)(target - cycle->last_duty)
+                                    : (uint16_t)(cycle->last_duty - target);
+    if (step > delta) step = delta;
+    if (step == 0) return HEATER_CYCLE_RESULT_NONE;
+
+    const uint16_t next = (target > cycle->last_duty)
+                              ? (uint16_t)(cycle->last_duty + step)
+                              : (uint16_t)(cycle->last_duty - step);
+    cycle->last_duty = next;
+    cycle->last_duty_change_s = now_s;
+    *out_duty = next;
+    return HEATER_CYCLE_RESULT_SEND;
+  }
+
+  /* Cooldown ends silently after min_off; the next on-edge starts a cycle. */
+  if (cycle->state == HEATER_CYCLE_COOLDOWN && !want_heat &&
+      (uint32_t)(now_s - cycle->last_off_s) >= params->min_off_s) {
+    cycle->state = HEATER_CYCLE_IDLE;
+    cycle->state_since = now_s;
+  }
+
+  if (!want_heat) {
+    *out_duty = 1000;
+    return HEATER_CYCLE_RESULT_NONE;
+  }
+
+  /* ON is only sent after min_off and inside the rolling edge budget.
+   * Frost overrides both limits (§5.6 rule 4). */
+  if (!frost_active && cycle->have_last_off &&
+      (uint32_t)(now_s - cycle->last_off_s) < params->min_off_s)
+    return HEATER_CYCLE_RESULT_MIN_OFF;
+
+  if (!frost_active && params->max_edges_per_hour > 0 &&
+      heater_cycle_edge_count(cycle, now_s) >= params->max_edges_per_hour)
+    return HEATER_CYCLE_RESULT_EDGE_BUDGET;
+
+  cycle->state = HEATER_CYCLE_HEATING;
+  cycle->state_since = now_s;
+  cycle->last_duty = target;
+  cycle->last_duty_change_s = now_s;
+  heater_cycle_edge_add(cycle, now_s);
+  *out_duty = target;
+  return HEATER_CYCLE_RESULT_SEND;
+}

@@ -28,12 +28,6 @@ target/
 [0-9][0-9]_*/include/haus_nrf.h
 .DS_Store
 sweep/
-23_LED_matrix/tools/test_harness/test_harness
-23_LED_matrix/tests/test_xy_index
-23_LED_matrix/tests/test_wave_plot
-23_LED_matrix/tests/test_wave_effect
-23_LED_matrix/tests/test_sine
-22_WS2814_Lichtband/tools/test_harness/test_harness
 06_wasserzaehler/test_rs/*.JPG
 06_wasserzaehler/test_rs/*.png
 06_wasserzaehler/dump_*
@@ -42,12 +36,3 @@ sweep/
 28_hauszentrale/dump_*
 28_hauszentrale/host_harness/output*.png
 28_hauszentrale/host_harness/build/
-28_hauszentrale/test/test_history/test_history
-28_hauszentrale/test/test_history/test_history_san
-28_hauszentrale/test/test_history/*.dSYM
-28_hauszentrale/test/test_chart/test_chart
-28_hauszentrale/test/test_chart/test_chart_san
-28_hauszentrale/test/test_chart/*.dSYM
-28_hauszentrale/test/test_sensor_map/test_sensor_map
-28_hauszentrale/test/test_sensor_map/test_sensor_map_san
-28_hauszentrale/test/test_sensor_map/*.dSYM

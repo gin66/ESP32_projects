@@ -6,6 +6,7 @@
 
 #include "haus_heater.h"
 #include "haus_heater_bin.h"
+#include "haus_heater_ctl.h"
 #include "haus_water_model.h"
 
 /* ─── Helpers ────────────────────────────────────────────────────────────── */
@@ -65,6 +66,15 @@ static uint32_t compute_utc_for_local(int year, int month, int day,
 }
 
 /* ─── Tests ──────────────────────────────────────────────────────────────── */
+
+static uint16_t g_ctl_last_send = 0;
+static int g_ctl_send_count = 0;
+
+static bool ctl_fake_send(uint16_t duty) {
+  g_ctl_last_send = duty;
+  g_ctl_send_count++;
+  return true;
+}
 
 int main() {
   const WaterModel *m = water_model_default();
@@ -347,6 +357,118 @@ int main() {
   }
 
   std::printf("test_heater_control (anti-short-cycling 2.1): ok\n");
+
+  /* ─── Runtime AUTO controller (Phase 4) ────────────────────────────── */
+  {
+    HeaterConfig cfg;
+    heater_config_init();
+    cfg = *heater_config_get();
+    cfg.mode = HEATER_MODE_AUTO;
+    heater_schedule_default(&cfg.schedule);
+    heater_config_apply(&cfg);
+
+    const uint32_t t0 = compute_utc_for_local(2026, 10, 14, 8, 0, 0);
+    HeaterCtlInputs in;
+    memset(&in, 0, sizeof(in));
+    in.can_green = true;
+    in.clock_synced = true;
+    in.utc_epoch = t0;
+    in.ac_fresh = true;
+    in.water_valid = true;
+    in.water_in_c100 = 3000;
+    in.water_out_c100 = 4000;
+    in.room_valid = true;
+    in.room_c100 = 2100;
+    in.pwm_known = true;
+    in.pwm_permille = 1000;
+
+    g_ctl_last_send = 0;
+    g_ctl_send_count = 0;
+    heater_ctl_init();
+    heater_ctl_set_sender(ctl_fake_send);
+
+    /* Day schedule sends one AUTO on-edge. */
+    heater_ctl_tick(t0, &in);
+    assert(g_ctl_send_count == 1);
+    assert(g_ctl_last_send == 283);
+    const HeaterRuntime* rt = heater_ctl_get();
+    assert(rt->mode == HEATER_MODE_AUTO);
+    assert(rt->cycle == HEATER_CYCLE_HEATING);
+    assert(rt->last_result == HEATER_CYCLE_RESULT_SEND);
+    assert(rt->last_sent_duty == 283);
+
+    /* Inside the control period: nothing. */
+    heater_ctl_tick(t0 + 10, &in);
+    assert(g_ctl_send_count == 1);
+
+    /* Unsynced clock holds; no frame. */
+    in.utc_epoch = 0;
+    in.clock_synced = false;
+    heater_ctl_tick(t0 + 70, &in);
+    assert(g_ctl_send_count == 1);
+    assert(heater_ctl_get()->hold == HEATER_HOLD_CLOCK_UNSYNCED);
+
+    /* CAN loss holds. */
+    in.utc_epoch = t0 + 130;
+    in.clock_synced = true;
+    in.can_green = false;
+    heater_ctl_tick(t0 + 130, &in);
+    assert(g_ctl_send_count == 1);
+    assert(heater_ctl_get()->hold == HEATER_HOLD_CAN_NOT_GREEN);
+
+    /* A foreign nRF writer yields for the bounded window. */
+    in.can_green = true;
+    in.pwm_src = HEATER_CTL_PWM_SRC_NRF;
+    heater_ctl_tick(t0 + 200, &in);
+    assert(g_ctl_send_count == 1);
+    rt = heater_ctl_get();
+    assert(rt->override_active);
+    assert(rt->mode == HEATER_MODE_OVERRIDE);
+    assert(rt->override_remaining_s > 0);
+
+    /* After 2 h the remote is gone; AUTO resumes on the next decision. */
+    in.pwm_src = 0;
+    heater_ctl_tick(t0 + 200 + HEATER_OVERRIDE_MAX_S + 10, &in);
+    rt = heater_ctl_get();
+    assert(!rt->override_active);
+    assert(g_ctl_send_count == 2);
+    assert(g_ctl_last_send == 283);
+
+    /* Pump guard: disabled by default; enable for the test. */
+    HeaterPumpParams pump;
+    heater_pump_params_default(&pump);
+    pump.enabled = true;
+    pump.rms_min_dc = 100;
+    pump.grace_s = 180;
+    pump.confirm_s = 600;
+    pump.hold_s = 1800;
+    pump.delta_c100 = 200;
+    heater_ctl_set_pump_params(&pump);
+
+    /* Low coil, equal pipes. Grace expires, then 10 min confirm. */
+    in.ac_rms_dc = 50;
+    in.water_in_c100 = 3500;
+    in.water_out_c100 = 3500;
+    heater_ctl_tick(t0 + 7590, &in);
+    assert(!heater_ctl_get()->pump_blocked);
+    heater_ctl_tick(t0 + 7600, &in);
+    assert(!heater_ctl_get()->pump_blocked);
+    heater_ctl_tick(t0 + 8200, &in);
+    rt = heater_ctl_get();
+    assert(rt->pump_blocked);
+    assert(g_ctl_send_count == 3);
+    assert(g_ctl_last_send == 1000);
+
+    /* Recovery: 30 min at 1000, then one supervised demand. */
+    in.ac_fresh = false;
+    heater_ctl_tick(t0 + 8200 + 1810, &in);
+    rt = heater_ctl_get();
+    assert(!rt->pump_blocked);
+    assert(g_ctl_send_count == 4);
+    assert(g_ctl_last_send == 283);
+  }
+
+  std::printf("test_heater_control (runtime controller 4.1/4.2): ok\n");
 
   /* ─── Authority management tests (Phase 0.4) ───────────────────────── */
 
@@ -1129,6 +1251,9 @@ int main() {
 
   /* T.1.7: Runtime cache used by the HEATER page (1.2). */
   {
+    HeaterConfig reset;
+    heater_config_default(&reset);
+    heater_config_apply(&reset);
     heater_config_init();
     const HeaterConfig* cached = heater_config_get();
     assert(cached != NULL);

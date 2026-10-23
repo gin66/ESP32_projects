@@ -158,11 +158,17 @@
 
 ## Phase 4 — Enable AUTO
 
-### [ ] 4.1 Enable AUTO transmission with adopted defaults
+### [x] 4.1 Enable AUTO transmission with adopted defaults
 - Deliberate takeover tested
 - See §9, step 4
+- Implemented in `haus_heater_ctl` (`heater_ctl_tick`), wired from `main.cpp`
+- AUTO now sends through `gui_send_pwm()` only on a `SEND` decision; the
+  schedule, edge budget, and duty stepping are unchanged
+- Manual takeover (switch/segment/slider release) still writes the bus from
+  the UI and changes the persisted mode, which stops AUTO on the next tick
+- Host tests cover the first on-edge, control-period gating, and last sent duty
 
-### [ ] 4.2 Implement failure handling
+### [x] 4.2 Implement failure handling
 - SHT45 stale → scheduled flow continues; if trim active, hold. Badge `AUTO HOLD`
 - Water sensors stale → pipe model leaves winter fit; scheduled flow continues on adopted table
 - Clock unsynced → hold restored duty; do not apply day flow
@@ -173,6 +179,16 @@
 - Boiler fault or DHW charge → log as disturbance; do not fit as plant gain
 - No undefined open-loop fallback; fallback is HOLD + reason
 - See §5.9
+- `heater_ctl` holds (no frame) on CAN not green / clock unsynced; the cycle
+  does not advance while held
+- nRF source → `MODE_OVERRIDE` for 2 h; the cycle gets a forced off-edge on
+  entry, then AUTO resumes (no blind re-send at expiry)
+- `0x280` mismatch is logged once (`expected`/`reported`) and is not retried
+- Boiler fault on `0x280` is logged once as a disturbance; DHW charge is not
+  visible on the current CAN set
+- Room/pipe sensors are not preconditions: scheduled flow needs neither
+- UI already disables manual controls when CAN is not green
+- Host tests cover clock hold, CAN hold, override entry/expiry, and resume
 
 ---
 

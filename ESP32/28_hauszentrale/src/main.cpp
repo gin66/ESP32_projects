@@ -24,6 +24,7 @@
 #include <time.h>
 
 #include <cassert>
+#include <cstring>
 
 #include "haus_can_bus.h"
 #include "haus_config.h"
@@ -33,7 +34,7 @@
 #include "haus_sensor_roles.h"
 #include "haus_sht45.h"
 #include "haus_heater_bin.h"
-#include "haus_water_model.h"
+#include "haus_heater_ctl.h"
 #include "haus_touch_test.h"
 #include "haus_ui.h"
 #include "template.h"
@@ -163,6 +164,17 @@ void setup() {
     TPL_LOGI("heater_bin", "mode=%d, duty=%u, day=%u:%02u",
              (int)hc->mode, (unsigned)hc->saved_duty,
              hc->schedule.day_start_hour, hc->schedule.night_start_hour);
+  }
+  /* Phase 4: AUTO transmits through the anti-short-cycling controller. */
+  heater_ctl_init();
+  heater_ctl_set_sender(gui_send_pwm);
+  {
+    HeaterPumpParams pump;
+    heater_pump_params_default(&pump);
+    heater_ctl_set_pump_params(&pump);
+    if (!pump.enabled)
+      TPL_LOGW("heater_ctl",
+               "pump guard disabled until the coil threshold is calibrated");
   }
 
   /* S4.02: reset the ST7262 through the CH422G before bring-up */
@@ -455,140 +467,6 @@ void setup() {
   gui_request_redraw();
 }
 
-/* ─── Shadow controller (Phase 3.1) ─────────────────────────────────────── */
-
-/* AUTO is shadow-only: the schedule and the anti-short-cycling state machine
- * compute a decision every control period, log it, and never write 0x240.
- * Phase 4 flips this to transmission after a short review. */
-static HeaterCycle s_shadow_cycle;
-static bool s_shadow_ready = false;
-static uint32_t s_shadow_last_s = 0;
-static HeaterMode s_shadow_mode = HEATER_MODE_OFF;
-
-static const char* shadow_state_name(HeaterCycleState state) {
-  switch (state) {
-    case HEATER_CYCLE_IDLE:
-      return "idle";
-    case HEATER_CYCLE_HEATING:
-      return "heating";
-    case HEATER_CYCLE_COOLDOWN:
-      return "cooldown";
-  }
-  return "?";
-}
-
-static const char* shadow_result_name(HeaterCycleResult result) {
-  switch (result) {
-    case HEATER_CYCLE_RESULT_NONE:
-      return "hold";
-    case HEATER_CYCLE_RESULT_SEND:
-      return "would-send";
-    case HEATER_CYCLE_RESULT_MIN_ON:
-      return "suppressed-min_on";
-    case HEATER_CYCLE_RESULT_MIN_OFF:
-      return "suppressed-min_off";
-    case HEATER_CYCLE_RESULT_EDGE_BUDGET:
-      return "suppressed-budget";
-    case HEATER_CYCLE_RESULT_DUTY_INTERVAL:
-      return "suppressed-duty-interval";
-  }
-  return "?";
-}
-
-static const char* shadow_sched_name(HeaterScheduleReason reason) {
-  switch (reason) {
-    case HEATER_SCHED_DAY:
-      return "day";
-    case HEATER_SCHED_NIGHT:
-      return "night";
-    case HEATER_SCHED_OFF:
-      return "off";
-    case HEATER_SCHED_FROST:
-      return "frost";
-    case HEATER_SCHED_UNSYNCED:
-      return "unsynced";
-    case HEATER_SCHED_MODE_OFF:
-      return "mode-off";
-  }
-  return "?";
-}
-
-static void heater_shadow_tick(uint32_t now_s) {
-  const HeaterConfig* cfg = heater_config_get();
-  const uint16_t period = cfg->cycle.control_period_s
-                              ? cfg->cycle.control_period_s
-                              : 60;
-
-  if (!s_shadow_ready) {
-    heater_cycle_init(&s_shadow_cycle);
-    s_shadow_ready = true;
-    s_shadow_mode = cfg->mode;
-    s_shadow_last_s = now_s;
-  }
-
-  bool mode_changed = false;
-  if (cfg->mode != s_shadow_mode) {
-    TPL_LOGI("heater_shadow", "mode %d -> %d", (int)s_shadow_mode,
-             (int)cfg->mode);
-    if (cfg->mode == HEATER_MODE_OFF)
-      heater_cycle_force_off(&s_shadow_cycle, now_s);
-    s_shadow_mode = cfg->mode;
-    mode_changed = true;
-  }
-
-  if (cfg->mode != HEATER_MODE_AUTO) return;
-  if (!mode_changed && (uint32_t)(now_s - s_shadow_last_s) < period) return;
-  s_shadow_last_s = now_s;
-
-  HausState st;
-  gui_get_state(&st);
-  const bool can_ok = st.can.can_status == GUI_STATUS_OK;
-
-  if (!can_ok) {
-    TPL_LOGI("heater_shadow", "HOLD reason=can-not-green");
-    return;
-  }
-  if (!st.can.synced || st.can.timestamp == 0) {
-    TPL_LOGI("heater_shadow", "HOLD reason=clock-unsynced");
-    return;
-  }
-  if (st.can.pwm_src == GUI_PWM_SRC_NRF) {
-    TPL_LOGI("heater_shadow", "YIELD reason=nrf (foreign writer)");
-    return;
-  }
-
-  uint16_t sched_duty = 1000;
-  HeaterScheduleReason sched_reason = HEATER_SCHED_UNSYNCED;
-  if (!heater_schedule_compute(&cfg->schedule, st.can.timestamp,
-                               st.can.synced, cfg->mode, false, &sched_duty,
-                               &sched_reason)) {
-    TPL_LOGI("heater_shadow", "HOLD reason=schedule (%s)",
-             shadow_sched_name(sched_reason));
-    return;
-  }
-
-  uint16_t planned = 1000;
-  const HeaterCycleResult result = heater_cycle_step(
-      &s_shadow_cycle, &cfg->cycle, now_s, false, sched_duty, &planned);
-
-  int16_t soll_c100 = 0;
-  const WaterModel* wm = water_model_default();
-  const bool have_soll =
-      planned <= 500 && wm && wm->target_from_duty(planned, &soll_c100);
-
-  TPL_LOGI("heater_shadow",
-           "cycle=%s sched=%s decision=%s req=%u planned=%u edges=%u/h "
-           "water_in=%d water_out=%d room=%d soll=%d",
-           shadow_state_name(s_shadow_cycle.state),
-           shadow_sched_name(sched_reason), shadow_result_name(result),
-           (unsigned)sched_duty, (unsigned)planned,
-           (unsigned)heater_cycle_edge_count(&s_shadow_cycle, now_s),
-           (int)st.can.temp_by_fn[SENSOR_FN_WATER_IN],
-           (int)st.can.temp_by_fn[SENSOR_FN_WATER_OUT],
-           (int)st.climate.living_c100,
-           have_soll ? (int)soll_c100 : -1);
-}
-
 /* ─── Loop ───────────────────────────────────────────────────────────────── */
 
 void loop() {
@@ -643,7 +521,27 @@ void loop() {
   if (now - last_ui_ms >= 1000) {
     last_ui_ms = now;
     gui_update_state();
-    heater_shadow_tick(now / 1000u);
+    {
+      HausState st;
+      gui_get_state(&st);
+      HeaterCtlInputs in;
+      memset(&in, 0, sizeof(in));
+      in.can_green = st.can.can_status == GUI_STATUS_OK;
+      in.clock_synced = st.can.synced;
+      in.utc_epoch = st.can.timestamp;
+      in.pwm_known = st.can.pwm_known;
+      in.pwm_src = st.can.pwm_src;
+      in.pwm_permille = st.can.pwm_permille;
+      in.ac_fresh = st.can.ac_fresh;
+      in.ac_rms_dc = st.can.ac_rms_dc;
+      in.water_in_c100 = st.can.temp_by_fn[SENSOR_FN_WATER_IN];
+      in.water_out_c100 = st.can.temp_by_fn[SENSOR_FN_WATER_OUT];
+      in.water_valid = in.water_in_c100 != HAUS_CAN_TEMP_EMPTY &&
+                       in.water_out_c100 != HAUS_CAN_TEMP_EMPTY;
+      in.room_valid = (st.climate.climate_flags & CLIMATE_VALID_SHT45) != 0;
+      in.room_c100 = st.climate.living_c100;
+      heater_ctl_tick(now / 1000u, &in);
+    }
     if (s_disp && display_on) haus_ui_update();
   }
 

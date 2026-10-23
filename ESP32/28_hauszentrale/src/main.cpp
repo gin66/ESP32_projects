@@ -490,16 +490,19 @@ void loop() {
   /* Data refresh at 1 Hz. Refreshing at loop rate invalidates every label
    * hundreds of times per second, which the single-buffered RGB panel shows
    * as flicker and tearing. */
+  /* Keep acquiring/logging data while the display is dark, but skip LVGL
+   * redraws and the flame animation to cut CPU load. */
+  const bool display_on = gui_backlight_on();
   if (now - last_ui_ms >= 1000) {
     last_ui_ms = now;
     gui_update_state();
-    if (s_disp) haus_ui_update();
+    if (s_disp && display_on) haus_ui_update();
   }
 
   /* Flame breathing at 20 Hz; it only touches opacity when it changes. */
   if (now - last_anim_ms >= 50) {
     last_anim_ms = now;
-    haus_ui_animate();
+    if (display_on) haus_ui_animate();
   }
 
   if (!haus_touch_test_active() && tpl_ws7_touch_points() >= 3) {
@@ -519,6 +522,10 @@ void loop() {
      * tap. */
     if (!s_prev_touch_pressed && !gui_backlight_on()) {
       gui_set_backlight(true);
+      /* The UI was not repainted while dark; refresh it immediately. */
+      gui_update_state();
+      gui_request_redraw();
+      if (s_disp) haus_ui_update();
     }
   } else if (gui_backlight_on() &&
              (now - s_last_touch_ms) >= BACKLIGHT_OFF_MS) {

@@ -925,6 +925,30 @@ static void build_zones(void) {
 static bool ensure_chart_buffers(void);
 static void can_wave_tick(void);
 
+static void home_display_off_cb(lv_event_t* e) {
+  (void)e;
+  gui_set_backlight(false);
+}
+
+static void build_home_power_button(void) {
+  lv_obj_t* btn = lv_obj_create(lv_screen_active());
+  lv_obj_set_size(btn, 44, 44);
+  lv_obj_set_pos(btn, 20, 420);
+  lv_obj_set_style_bg_opa(btn, 0, 0);
+  lv_obj_set_style_border_width(btn, 1, 0);
+  lv_obj_set_style_border_color(btn, lv_color_hex(C_LINE), 0);
+  lv_obj_set_style_radius(btn, 22, 0);
+  lv_obj_set_style_pad_all(btn, 0, 0);
+  obj_set_scrollable(btn, false);
+  obj_set_clickable(btn, true);
+  lv_obj_add_event_cb(btn, home_display_off_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_t* icon =
+      label_make(btn, LV_SYMBOL_POWER, 0, 0, &lv_font_montserrat_24, C_INK);
+  lv_obj_center(icon);
+  label_make(lv_screen_active(), "DISPLAY", 76, 432, &lv_font_montserrat_16,
+             C_DIM);
+}
+
 lv_obj_t* haus_ui_init(void) {
   ensure_chart_buffers();
   g_current_screen = UI_SCREEN_HOME;
@@ -952,6 +976,7 @@ lv_obj_t* haus_ui_init(void) {
   build_living();
   build_power();
   build_zones();
+  build_home_power_button();
   nav_build(UI_SCREEN_HOME);
 
   /* Paint the honest initial state immediately: the widgets above are built

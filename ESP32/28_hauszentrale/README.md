@@ -29,12 +29,23 @@ There is no project-specific config file: build options are in
 
 ## Flash over OTA (normal path)
 
-The panel serves the web updater at `http://hauszentrale.local/update` (fallback
-IP: `192.168.1.146`). ArduinoOTA on port 3232 is not used on this board.
+The panel runs ArduinoOTA on port 3232:
+
+```bash
+pio run -e esp32ota --target upload
+```
+
+The `esp32ota` environment uses `tools/ota_upload.py` instead of PlatformIO's
+built-in espota launcher. PlatformIO's bundled Python does not complete the
+espota callback on this Mac; the wrapper runs the same espota tool with the
+system Python and binds the callback to the Mac's `en0` LAN address. Override
+that address with `HAUS_OTA_HOST_IP=...` if needed.
+
+The web updater remains available as a fallback:
 
 ```bash
 pio run -e esp32ota
-curl -s --max-time 90 \
+curl -s --max-time 120 \
   -F "firmware=@.pio/build/esp32ota/firmware.bin" \
   http://hauszentrale.local/update
 sleep 20

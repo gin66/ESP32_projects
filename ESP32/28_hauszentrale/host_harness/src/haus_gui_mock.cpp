@@ -14,7 +14,9 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <vector>
 
+#include "dump_data.h"
 #include "haus_can.h"
 #include "haus_config.h"
 #include "haus_gui.h"
@@ -263,9 +265,24 @@ static void init_history(void) {
 #define MOCK_LOG_BYTES 65536
 static char g_mock_log[MOCK_LOG_BYTES];
 static bool g_mock_log_ready = false;
+static std::vector<char> g_dump_log;
+static const char* g_log_ptr = g_mock_log;
+static size_t g_log_len = 0;
 
 static void init_mock_log(void) {
   if (g_mock_log_ready) return;
+
+  int dump_len = 0;
+  const char* dumped = dump_log(&dump_len);
+  if (dumped && dump_len > 0) {
+    g_dump_log.assign(dumped, dumped + dump_len);
+    g_dump_log.push_back('\0');
+    g_log_ptr = g_dump_log.data();
+    g_log_len = (size_t)dump_len;
+    g_mock_log_ready = true;
+    return;
+  }
+
   static const char* levels = "EWID";
   static const char* tags[] = {"esp_lcd", "twai", "haus",   "sd",
                                "boot",    "wifi", "history"};
@@ -279,28 +296,33 @@ static void init_mock_log(void) {
                      52.0 + (i % 17) * 0.35);
     if (n > 0) off += (size_t)n;
   }
+  g_log_ptr = g_mock_log;
+  g_log_len = strlen(g_mock_log);
   g_mock_log_ready = true;
 }
 
 const char* gui_log_dump(int* out_len) {
   init_mock_log();
-  if (out_len) *out_len = (int)strlen(g_mock_log);
-  return g_mock_log;
+  if (out_len) *out_len = (int)g_log_len;
+  return g_log_ptr;
 }
 
 int gui_log_length(void) {
   init_mock_log();
-  return (int)strlen(g_mock_log);
+  return (int)g_log_len;
 }
 
 void gui_log_clear(void) {
+  g_dump_log.clear();
   g_mock_log[0] = '\0';
+  g_log_ptr = g_mock_log;
+  g_log_len = 0;
   g_mock_log_ready = true;
 }
 
 int gui_log_save(void) { return 1; }
 
-uint32_t gui_log_dropped(void) { return 21418; }
+uint32_t gui_log_dropped(void) { return dump_loaded() ? 0 : 21418; }
 
 /* ─── Sensor info ───────────────────────────────────────────────────────────
  */
@@ -330,6 +352,120 @@ static gui_sensor_info_t g_sensors[GUI_MAX_SENSORS] = {
 static TripleBuffer<CanState> g_can;
 static bool g_can_enabled = true;
 static TripleBuffer<ClimateState> g_climate;
+
+static int16_t rollup_mean(const RollupColumn* col, int series) {
+  if (!col || series < 0 || series >= HAUS_HISTORY_SERIES ||
+      col->n[series] == 0)
+    return GUI_EMPTY;
+  return (int16_t)(col->sum[series] / col->n[series]);
+}
+
+/* Apply a real dump to the producer blocks. Minute samples are preferred for
+ * "now"; when only a newer hourly column exists, use its means. */
+static void apply_dump_state(CanState& can, ClimateState& climate) {
+  gui_sample_t sample;
+  RollupColumn rollup;
+  const bool has_sample = dump_latest_sample(&sample);
+  const bool has_rollup = dump_latest_rollup(&rollup);
+  if (!has_sample && !has_rollup) return;
+
+  const uint32_t sample_epoch = has_sample ? sample.epoch : 0;
+  const uint32_t rollup_epoch = has_rollup ? rollup.t * 60u : 0;
+  const bool use_rollup = has_rollup && rollup_epoch > sample_epoch;
+  const uint32_t now = use_rollup ? rollup_epoch : sample_epoch;
+  if (now == 0) return;
+
+  int16_t temp0 = HAUS_CAN_TEMP_EMPTY;
+  int16_t temp1 = HAUS_CAN_TEMP_EMPTY;
+  int16_t temp2 = HAUS_CAN_TEMP_EMPTY;
+  int16_t target = 0;
+  int16_t living = HAUS_CAN_TEMP_EMPTY;
+  uint16_t hum = 0;
+  uint16_t power_dw = 0;
+  uint16_t ac_rms = 0;
+  int16_t ac_angle = 0;
+
+  if (use_rollup) {
+    temp0 = rollup_mean(&rollup, 0);
+    temp1 = rollup_mean(&rollup, 1);
+    temp2 = rollup_mean(&rollup, 2);
+    living = rollup_mean(&rollup, 3);
+    const int16_t h = rollup_mean(&rollup, 4);
+    hum = h == GUI_EMPTY ? 0 : (uint16_t)h;
+    power_dw = rollup.n[6] ? (uint16_t)(rollup.sum[6] / rollup.n[6]) : 0;
+    ac_rms = rollup.n[7] ? (uint16_t)(rollup.sum[7] / rollup.n[7]) : 0;
+    ac_angle = rollup.n[8] ? (int16_t)(rollup.sum[8] / rollup.n[8]) : 0;
+    target = rollup.target_c100;
+  } else {
+    temp0 = sample.temp[0];
+    temp1 = sample.temp[1];
+    temp2 = sample.temp[2];
+    target = sample.target_c100;
+    const bool climate_valid =
+        (sample.flags & (SAMPLE_FLAG_CLIMATE_AHT20 | SAMPLE_FLAG_CLIMATE_BMP280)) !=
+        0;
+    if (climate_valid) {
+      living = sample.living_c100;
+      hum = sample.hum_c100;
+    }
+    power_dw = sample.power_dw;
+    ac_rms = sample.ac_rms_dc;
+    ac_angle = sample.ac_angle_cdeg;
+  }
+
+  can.timestamp = now;
+  can.synced = true;
+  can.last_update_epoch = now;
+  can.temp_c100[0] = temp0;
+  can.temp_c100[1] = temp1;
+  can.temp_c100[2] = temp2;
+  can.temp_c100[3] = HAUS_CAN_TEMP_EMPTY;
+  can.fn_of_slot[0] = temp0 == HAUS_CAN_TEMP_EMPTY ? SENSOR_FN_NONE
+                                                  : SENSOR_FN_CHAMBER;
+  can.fn_of_slot[1] = temp1 == HAUS_CAN_TEMP_EMPTY ? SENSOR_FN_NONE
+                                                  : SENSOR_FN_WATER_IN;
+  can.fn_of_slot[2] = temp2 == HAUS_CAN_TEMP_EMPTY ? SENSOR_FN_NONE
+                                                  : SENSOR_FN_WATER_OUT;
+  can.fn_of_slot[3] = SENSOR_FN_NONE;
+  for (int i = 0; i < SENSOR_FN_COUNT; i++)
+    can.temp_by_fn[i] = HAUS_CAN_TEMP_EMPTY;
+  can.temp_by_fn[SENSOR_FN_CHAMBER] = temp0;
+  can.temp_by_fn[SENSOR_FN_BOARD] = temp0;
+  can.temp_by_fn[SENSOR_FN_WATER_IN] = temp1;
+  can.temp_by_fn[SENSOR_FN_WATER_OUT] = temp2;
+  can.chamber_target_c = target;
+  can.watts = (int32_t)power_dw / 10;
+  can.watts_last = can.watts;
+  can.power_dw = power_dw;
+  can.valid = power_dw != 0;
+  can.power_src = can.valid ? GUI_PWR_SRC_SML : GUI_PWR_SRC_NONE;
+  can.ac_rms_dc = ac_rms;
+  can.ac_angle_cdeg = ac_angle;
+  can.ac_fresh = ac_rms != 0 || ac_angle != 0;
+
+  climate.living_c100 = living;
+  climate.hum_c100 = hum;
+  climate.pressure_pa = 0;
+  climate.climate_flags = living == HAUS_CAN_TEMP_EMPTY ? 0 : CLIMATE_VALID_SHT45;
+  climate.last_update_epoch = now;
+
+  const uint32_t oldest = dump_oldest_epoch();
+  can.uptime_seconds = oldest != 0 && now > oldest ? now - oldest : 0;
+
+  const uint64_t sd_used = dump_sd_bytes();
+  const uint64_t spiffs_used = dump_spiffs_bytes();
+  if (sd_used) can.sd_used_bytes = sd_used;
+  if (spiffs_used) can.spiffs_used_bytes = (uint32_t)spiffs_used;
+
+  /* Screenshot variants override the Soll/duty after the real dump. */
+  if (g_target_override >= 0) can.chamber_target_c = (int16_t)g_target_override;
+  if (g_pwm_override >= 0) {
+    can.pwm_permille = (uint16_t)g_pwm_override;
+    can.pwm_fresh = g_pwm_fresh_override;
+    can.pwm_src = can.pwm_fresh ? PWM_SRC_CAN : PWM_SRC_EEPROM;
+    can.active = can.pwm_fresh && can.pwm_permille < 1000;
+  }
+}
 
 void gui_update_state(void) {
   CanState& can = g_can.write();
@@ -381,6 +517,39 @@ void gui_update_state(void) {
   can.valid = true;
   can.power_src = GUI_PWR_SRC_SML;
   can.power_dw = can.watts * 10u;
+  /* Prefer the logged meter registers; older dumps have no energy.csv. */
+  double consumed = 0.0;
+  double produced = 0.0;
+  if (dump_energy_latest(&consumed, &produced)) {
+    can.energy_consumption_kwh = consumed;
+    can.energy_production_kwh = produced;
+    can.energy_consumption_valid = true;
+    can.energy_production_valid = true;
+  } else {
+    can.energy_consumption_kwh = 12345.678;
+    can.energy_production_kwh = 2345.678;
+    can.energy_consumption_valid = true;
+    can.energy_production_valid = true;
+  }
+  can.sml_voltage_v[0] = 230.1;
+  can.sml_voltage_v[1] = 229.8;
+  can.sml_voltage_v[2] = 230.4;
+  can.sml_current_a[0] = 1.23;
+  can.sml_current_a[1] = 0.98;
+  can.sml_current_a[2] = 1.45;
+  can.sml_phase_deg[0] = 0.0;
+  can.sml_phase_deg[1] = -120.0;
+  can.sml_phase_deg[2] = 120.0;
+  can.sml_frequency_hz = 50.02;
+  can.sml_voltage_valid = true;
+  can.sml_current_valid = true;
+  can.sml_phase_valid = true;
+  can.sml_frequency_valid = true;
+  can.sml_history_kwh[0] = 12.345;
+  can.sml_history_kwh[1] = 86.789;
+  can.sml_history_kwh[2] = 345.678;
+  can.sml_history_kwh[3] = 4123.456;
+  can.sml_history_mask = 0x0F;
 
   /* Living room (synthetic values for host UI verification). */
   climate.living_c100 = mock_living_temp(g_sim_time);
@@ -442,6 +611,8 @@ void gui_update_state(void) {
   can.sd_fault = 0;
   can.i2c_fault = 0;
 
+  if (dump_loaded()) apply_dump_state(can, climate);
+
   g_can.publish();
   g_climate.publish();
 }
@@ -475,11 +646,34 @@ uint8_t gui_spiffs_files(gui_spiffs_file_t* out, uint8_t max) {
 }
 
 int gui_get_history(const gui_history_request_t* req) {
-  init_history();
-
   if (!req || !req->samples || !req->out_count) return -1;
-
   *req->out_count = 0;
+
+  if (dump_loaded()) {
+    const uint32_t oldest = dump_oldest_epoch();
+    const uint32_t newest = dump_newest_epoch();
+    uint32_t start = req->start_epoch;
+    uint32_t end = req->end_epoch;
+    if (start < oldest) start = oldest;
+    if (end > newest) end = newest;
+    if (start > end) return 0;
+
+    const uint32_t total = (end - start) / 60u + 1u;
+    uint32_t step = 1;
+    if (total > req->max_samples)
+      step = (total + req->max_samples - 1u) / req->max_samples;
+    uint16_t written = 0;
+    for (uint32_t t = start; t <= end && written < req->max_samples;
+         t += 60u * step) {
+      gui_sample_t one[1];
+      dump_read_samples_chunk(t, 0, 1, one);
+      req->samples[written++] = one[0];
+    }
+    *req->out_count = written;
+    return 0;
+  }
+
+  init_history();
 
   /* Find the range of samples that fall within [start_epoch, end_epoch]. */
   int start_idx = -1, end_idx = -1;
@@ -527,6 +721,8 @@ static int history_index_for(uint32_t epoch) {
 size_t gui_read_samples_chunk(uint32_t start_epoch, size_t first, size_t count,
                               gui_sample_t* out) {
   if (!out || count == 0) return 0;
+  if (dump_loaded())
+    return dump_read_samples_chunk(start_epoch, first, count, out);
   const uint32_t base = start_epoch - (start_epoch % 60u);
   for (size_t i = 0; i < count; i++) {
     const uint32_t epoch = base + (uint32_t)(first + i) * 60u;
@@ -548,6 +744,8 @@ size_t gui_read_samples_chunk(uint32_t start_epoch, size_t first, size_t count,
 size_t gui_read_rollup_chunk(uint32_t start_epoch, size_t first, size_t count,
                              RollupColumn* out) {
   if (!out || count == 0) return 0;
+  if (dump_loaded())
+    return dump_read_rollup_chunk(start_epoch, first, count, out);
   const uint32_t base = start_epoch - (start_epoch % 3600u);
   for (size_t i = 0; i < count; i++) {
     const uint32_t hour = base + (uint32_t)(first + i) * 3600u;
@@ -603,6 +801,8 @@ size_t gui_read_rollup_chunk(uint32_t start_epoch, size_t first, size_t count,
 size_t gui_read_target_samples_chunk(uint32_t start_epoch, size_t first,
                                      size_t count, int16_t* out) {
   if (!out || count == 0) return 0;
+  if (dump_loaded())
+    return dump_read_target_samples_chunk(start_epoch, first, count, out);
   const uint32_t base = start_epoch - (start_epoch % 60u);
   for (size_t i = 0; i < count; i++) {
     const uint32_t epoch = base + (uint32_t)(first + i) * 60u;
@@ -615,6 +815,8 @@ size_t gui_read_target_samples_chunk(uint32_t start_epoch, size_t first,
 size_t gui_read_target_hours_chunk(uint32_t start_epoch, size_t first,
                                    size_t count, int16_t* out) {
   if (!out || count == 0) return 0;
+  if (dump_loaded())
+    return dump_read_target_hours_chunk(start_epoch, first, count, out);
   const uint32_t base = start_epoch - (start_epoch % 3600u);
   for (size_t i = 0; i < count; i++) {
     const uint32_t hour = base + (uint32_t)(first + i) * 3600u;
@@ -624,11 +826,16 @@ size_t gui_read_target_hours_chunk(uint32_t start_epoch, size_t first,
 }
 
 uint32_t gui_history_newest_epoch(void) {
+  if (dump_loaded()) return dump_newest_epoch();
   init_history();
   return g_history[MAX_HISTORY_SAMPLES - 1].epoch;
 }
 
 bool gui_history_has_data(uint32_t start_epoch, uint32_t end_epoch) {
+  if (dump_loaded()) {
+    return end_epoch >= dump_oldest_epoch() &&
+           start_epoch <= dump_newest_epoch();
+  }
   init_history();
   return end_epoch >= g_history[0].epoch &&
          start_epoch <= g_history[MAX_HISTORY_SAMPLES - 1].epoch;
@@ -649,25 +856,45 @@ bool gui_can_actual(bool* known) {
   return g_can_enabled;
 }
 
-static uint8_t s_mock_roles[3] = {SENSOR_FN_BOARD, SENSOR_FN_WATER_IN,
-                                  SENSOR_FN_WATER_OUT};
-static const uint8_t s_mock_roms[3][8] = {
+static uint8_t s_mock_roles[4] = {SENSOR_FN_BOARD, SENSOR_FN_WATER_IN,
+                                  SENSOR_FN_WATER_OUT, SENSOR_FN_NONE};
+static uint8_t s_mock_roms[4][8] = {
     {0x28, 0x1B, 0xF7, 0x57, 0x04, 0xE1, 0x3C, 0x26},
     {0x28, 0x76, 0xC2, 0x57, 0x04, 0xE1, 0x3C, 0xF9},
     {0x28, 0xB9, 0xEE, 0x81, 0xE3, 0xE1, 0x3C, 0x2E},
+    {0, 0, 0, 0, 0, 0, 0, 0},
 };
+static uint8_t s_role_count = 3;
+static bool s_roles_ready = false;
 
-uint8_t gui_roles_count(void) { return 3; }
+static void init_roles(void) {
+  if (s_roles_ready) return;
+  s_roles_ready = true;
+  if (!dump_loaded()) return;
+  const uint8_t count = dump_roles_count();
+  if (count == 0 || count > 4) return;
+  s_role_count = count;
+  for (uint8_t i = 0; i < count; i++) {
+    dump_roles_get(i, s_mock_roms[i], &s_mock_roles[i]);
+  }
+}
+
+uint8_t gui_roles_count(void) {
+  init_roles();
+  return s_role_count;
+}
 
 bool gui_roles_get(uint8_t index, uint8_t rom[8], uint8_t* function) {
-  if (index >= 3) return false;
+  init_roles();
+  if (index >= s_role_count) return false;
   if (rom) memcpy(rom, s_mock_roms[index], 8);
   if (function) *function = s_mock_roles[index];
   return true;
 }
 
 bool gui_roles_set(uint8_t index, uint8_t function) {
-  if (index >= 3 || function >= SENSOR_FN_COUNT) return false;
+  init_roles();
+  if (index >= s_role_count || function >= SENSOR_FN_COUNT) return false;
   s_mock_roles[index] = function;
   return true;
 }

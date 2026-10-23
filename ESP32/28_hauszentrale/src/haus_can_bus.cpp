@@ -190,6 +190,47 @@ static void tx_timestamp(void) {
   snapshot_unlock();
 }
 
+static const uint32_t kCanAlerts =
+    TWAI_ALERT_RX_DATA | TWAI_ALERT_ERR_PASS | TWAI_ALERT_BUS_ERROR |
+    TWAI_ALERT_RX_QUEUE_FULL | TWAI_ALERT_BUS_RECOVERED;
+
+static void can_arm_alerts(void) {
+  uint32_t configured = 0; /* must be non-NULL (S17.04) */
+  twai_reconfigure_alerts(kCanAlerts, &configured);
+}
+
+/* Full controller restart. twai_initiate_recovery() only works when the
+ * controller is in BUS_OFF and waits for 128 recessive bits; a stuck bus or a
+ * failed recovery leaves the driver unusable until it is reinstalled. This is
+ * the same sequence the Settings switch uses, but without stopping the task. */
+static bool can_hard_restart(void) {
+  TPL_LOGW("can", "controller stuck; reinstalling TWAI driver");
+  twai_stop();
+  twai_driver_uninstall();
+
+  twai_general_config_t g = TWAI_GENERAL_CONFIG_DEFAULT(
+      (gpio_num_t)HAUS_CAN_TX, (gpio_num_t)HAUS_CAN_RX, TWAI_MODE_NORMAL);
+  twai_timing_config_t t = TWAI_TIMING_CONFIG_125KBITS();
+  twai_filter_config_t f = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+
+  esp_err_t err = twai_driver_install(&g, &t, &f);
+  if (err == ESP_OK) err = twai_start();
+  if (err != ESP_OK) {
+    TPL_LOGE("can", "driver restart failed: %s", esp_err_to_name(err));
+    snapshot_lock();
+    s_snap.bus_fault = true;
+    snapshot_unlock();
+    return false;
+  }
+  can_arm_alerts();
+  s_last_tx_ms = (uint32_t)millis();
+  snapshot_lock();
+  s_snap.bus_fault = false;
+  snapshot_unlock();
+  TPL_LOGI("can", "TWAI driver reinstalled");
+  return true;
+}
+
 static void can_task(void* arg) {
   (void)arg;
   TPL_LOGI("can", "canTask started (RX %d / TX %d, 125 kbps)", HAUS_CAN_RX,
@@ -232,7 +273,12 @@ static void can_task(void* arg) {
         snapshot_unlock();
         TPL_LOGW("can", "RX queue full");
       }
-      if (alerts & TWAI_ALERT_BUS_RECOVERED) TPL_LOGI("can", "bus recovered");
+      if (alerts & TWAI_ALERT_BUS_RECOVERED) {
+        /* Alerts may have been disabled by the controller during bus-off.
+         * Re-arm them so the next fault is visible. */
+        can_arm_alerts();
+        TPL_LOGI("can", "bus recovered");
+      }
     }
 
     /* A lone or failed node goes BUS_OFF after 32 failed transmissions. TWAI
@@ -241,6 +287,8 @@ static void can_task(void* arg) {
      * Poll at 10 Hz, not once per drained frame: under a flood the loop runs
      * ~1000 times/s and the register read competes with the RGB DMA. */
     static uint32_t last_status_ms = 0;
+    static uint32_t not_running_since_ms = 0;
+    static uint32_t last_recovery_ms = 0;
     const uint32_t status_now_ms = (uint32_t)millis();
     twai_status_info_t status;
     if (status_now_ms - last_status_ms >= 100u &&
@@ -256,9 +304,34 @@ static void can_task(void* arg) {
         TPL_LOGI("can", "TWAI state %u -> %u (TEC %u, REC %u)", (unsigned)prev,
                  (unsigned)status.state, (unsigned)status.tx_error_counter,
                  (unsigned)status.rx_error_counter);
+
+      if (status.state == TWAI_STATE_RUNNING ||
+          status.state == TWAI_STATE_STOPPED) {
+        not_running_since_ms = 0;
+      } else if (not_running_since_ms == 0) {
+        not_running_since_ms = status_now_ms;
+      }
+
       if (status.state == TWAI_STATE_BUS_OFF) {
-        TPL_LOGW("can", "bus-off; initiating recovery");
-        twai_initiate_recovery();
+        /* Do not hammer the controller: one recovery request per second. It
+         * leaves BUS_OFF for RECOVERING on success. */
+        if (status_now_ms - last_recovery_ms >= 1000u) {
+          last_recovery_ms = status_now_ms;
+          TPL_LOGW("can", "bus-off; initiating recovery");
+          twai_initiate_recovery();
+        }
+      }
+
+      /* BUS_OFF or RECOVERING must leave within a few seconds. A stuck bus
+       * (wrong baud rate, shorted lines) otherwise needs the Settings switch:
+       * reinstall the driver so a hardware glitch cannot wedge CAN forever. */
+      if (not_running_since_ms != 0 &&
+          status_now_ms - not_running_since_ms >= 5000u) {
+        if (can_hard_restart()) {
+          not_running_since_ms = 0;
+        } else {
+          not_running_since_ms = status_now_ms;
+        }
       }
     }
 
@@ -344,11 +417,7 @@ bool haus_can_bus_start(void) {
     return false;
   }
 
-  const uint32_t wanted = TWAI_ALERT_RX_DATA | TWAI_ALERT_ERR_PASS |
-                          TWAI_ALERT_BUS_ERROR | TWAI_ALERT_RX_QUEUE_FULL |
-                          TWAI_ALERT_BUS_RECOVERED;
-  uint32_t configured = 0; /* must be non-NULL (S17.04) */
-  twai_reconfigure_alerts(wanted, &configured);
+  can_arm_alerts();
 
   snapshot_reset();
   {

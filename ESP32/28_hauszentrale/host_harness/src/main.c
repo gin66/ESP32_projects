@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "dump_data.h"
 #include "haus_gui.h"
 #include "haus_ui.h"
 #include "lodepng.h"
@@ -92,54 +93,52 @@ static int render_to_png(const char* filename) {
 
 void mock_set_home_case(int target_c100, int pwm_permille, bool fresh);
 
-static void home_off(void) {
-  mock_set_home_case(6000, 1000, false);
-  haus_ui_init();
-}
+enum screen_kind {
+  SK_HOME,
+  SK_HEATER,
+  SK_POWER,
+  SK_LIVING,
+  SK_PUMP_ANGLE,
+  SK_PUMP_RMS,
+  SK_SETTINGS,
+  SK_STORAGE,
+  SK_CAN,
+  SK_LOG,
+  SK_ROLES,
+  SK_SML,
+  SK_HOME_OFF,
+  SK_HOME_40,
+  SK_HOME_60,
+};
 
-static void home_40(void) {
-  mock_set_home_case(4000, 300, true);
-  haus_ui_init();
-}
-
-static void home_60(void) {
-  mock_set_home_case(6000, 200, true);
-  haus_ui_init();
-}
-
-static void build_water(void) { haus_ui_build_water(3); /* UI_SCREEN_WATER_OUT */ }
-
-static void build_pump(void) {
-  haus_ui_build_ac();
-  haus_ui_set_ac_series(1);
-  haus_ui_update();
-}
-
-static void build_pump_rms(void) {
-  haus_ui_build_ac();
-  haus_ui_set_ac_series(0);
-  haus_ui_update();
-}
-
-static void build_chamber_week(void) {
-  haus_ui_build_detail();
-  haus_ui_set_range(1);
-  haus_ui_update();
-}
-
-static void build_chamber_month(void) {
-  haus_ui_build_detail();
-  haus_ui_set_range(2);
-  haus_ui_update();
-}
+typedef struct {
+  enum screen_kind kind;
+  int range; /* 0 day, 1 week, 2 month */
+  const char* name;
+} screen_def_t;
 
 /* ─── Main ──────────────────────────────────────────────────────────────────
  */
 
 int main(int argc, char* argv[]) {
   const char* output_dir = ".";
-  if (argc > 1) {
-    output_dir = argv[1];
+  const char* dump_dir = NULL;
+  for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "--dump") == 0 && i + 1 < argc) {
+      dump_dir = argv[++i];
+    } else if (strncmp(argv[i], "--dump=", 7) == 0) {
+      dump_dir = argv[i] + 7;
+    } else {
+      output_dir = argv[i];
+    }
+  }
+
+  if (dump_load(dump_dir)) {
+    printf("dump: %s (samples and hourly columns loaded)\n",
+           dump_directory());
+  } else {
+    fprintf(stderr,
+            "warning: no dump found; using the synthetic heater model\n");
   }
 
   lv_init();
@@ -167,42 +166,117 @@ int main(int argc, char* argv[]) {
   lv_display_set_draw_buffers(disp, &draw_buf, NULL);
   lv_display_set_render_mode(disp, LV_DISPLAY_RENDER_MODE_FULL);
 
-  static void (*const build_funcs[])(void) = {
-      (void (*)(void))haus_ui_init,
-      (void (*)(void))haus_ui_build_detail,
-      build_water,
-      (void (*)(void))haus_ui_build_living,
-      (void (*)(void))haus_ui_build_power,
-      build_pump,
-      build_pump_rms,
-      (void (*)(void))haus_ui_build_settings,
-      (void (*)(void))haus_ui_build_storage,
-      (void (*)(void))haus_ui_build_can,
-      (void (*)(void))haus_ui_build_log,
-      (void (*)(void))haus_ui_build_roles,
-      build_chamber_week,
-      build_chamber_month,
-      home_off,
-      home_40,
-      home_60,
-  };
-  static const char* const screen_names[] = {
-      "home",    "heater",       "water",       "living",     "power",
-      "pump",    "pump_rms",     "settings",    "storage",    "can",
-      "log",     "roles",        "heater_week", "heater_month",
-      "home_off", "home_40",     "home_60",
+  static const screen_def_t screens[] = {
+      {SK_HOME, 0, "home"},
+      {SK_HEATER, 0, "heater_day"},
+      {SK_HEATER, 1, "heater_week"},
+      {SK_HEATER, 2, "heater_month"},
+      {SK_POWER, 0, "power_day"},
+      {SK_POWER, 1, "power_week"},
+      {SK_POWER, 2, "power_month"},
+      {SK_LIVING, 0, "living_day"},
+      {SK_LIVING, 1, "living_week"},
+      {SK_LIVING, 2, "living_month"},
+      {SK_PUMP_ANGLE, 0, "pump_angle_day"},
+      {SK_PUMP_ANGLE, 1, "pump_angle_week"},
+      {SK_PUMP_ANGLE, 2, "pump_angle_month"},
+      {SK_PUMP_RMS, 0, "pump_rms_day"},
+      {SK_PUMP_RMS, 1, "pump_rms_week"},
+      {SK_PUMP_RMS, 2, "pump_rms_month"},
+      {SK_SETTINGS, 0, "settings"},
+      {SK_STORAGE, 0, "storage"},
+      {SK_CAN, 0, "can"},
+      {SK_LOG, 0, "log"},
+      {SK_ROLES, 0, "roles"},
+      {SK_SML, 0, "sml"},
+      {SK_HOME_OFF, 0, "home_off"},
+      {SK_HOME_40, 0, "home_40"},
+      {SK_HOME_60, 0, "home_60"},
   };
 
+  const char* only = getenv("HAUS_ONLY");
+  for (size_t i = 0; i < sizeof(screens) / sizeof(screens[0]); i++) {
+    const screen_def_t* sd = &screens[i];
+    if (only && strcmp(only, sd->name) != 0) continue;
 
-  for (size_t i = 0; i < sizeof(build_funcs) / sizeof(build_funcs[0]); i++) {
     char filename[512];
     snprintf(filename, sizeof(filename), "%s/output_%s.png", output_dir,
-             screen_names[i]);
+             sd->name);
 
     haus_ui_deinit();
     haus_ui_set_range(0);
-    build_funcs[i]();
+    /* LVGL only repaints dirty areas into the shared display buffer. The
+     * previous screen's pixels would otherwise survive where the new screen
+     * has no opaque object, which showed up as uninitialised noise around
+     * the chart. Start every screen from the panel background. */
+    {
+      uint32_t* px = (uint32_t*)raw_buf;
+      for (size_t k = 0; k < BUF_SIZE / 4; k++) px[k] = 0xFF0E0C0Bu;
+    }
+
+    switch (sd->kind) {
+      case SK_HOME:
+        haus_ui_init();
+        break;
+      case SK_HEATER:
+        haus_ui_build_detail();
+        haus_ui_set_range(sd->range);
+        break;
+      case SK_POWER:
+        haus_ui_build_power();
+        haus_ui_set_range(sd->range);
+        break;
+      case SK_LIVING:
+        haus_ui_build_living();
+        haus_ui_set_range(sd->range);
+        break;
+      case SK_PUMP_ANGLE:
+        haus_ui_build_ac();
+        haus_ui_set_ac_series(1);
+        haus_ui_set_range(sd->range);
+        break;
+      case SK_PUMP_RMS:
+        haus_ui_build_ac();
+        haus_ui_set_ac_series(0);
+        haus_ui_set_range(sd->range);
+        break;
+      case SK_SETTINGS:
+        haus_ui_build_settings();
+        break;
+      case SK_STORAGE:
+        haus_ui_build_storage();
+        break;
+      case SK_CAN:
+        haus_ui_build_can();
+        break;
+      case SK_LOG:
+        haus_ui_build_log();
+        break;
+      case SK_ROLES:
+        haus_ui_build_roles();
+        break;
+      case SK_SML:
+        haus_ui_build_sml();
+        break;
+      case SK_HOME_OFF:
+        mock_set_home_case(6000, 1000, false);
+        haus_ui_init();
+        break;
+      case SK_HOME_40:
+        mock_set_home_case(4000, 300, true);
+        haus_ui_init();
+        break;
+      case SK_HOME_60:
+        mock_set_home_case(6000, 200, true);
+        haus_ui_init();
+        break;
+    }
+
     haus_ui_update();
+    /* Force a full-screen repaint: LVGL otherwise only refreshes invalid
+     * objects and can leave parts of the previous screen (or uninitialised
+     * pixels) in the shared display buffer. */
+    lv_obj_invalidate(lv_screen_active());
     lv_refr_now(disp);
     render_to_png(filename);
   }

@@ -78,15 +78,73 @@ bool sml_power_parse(const uint8_t* body, size_t len) {
 
       if (obis_matches(entry, "1-0:1.8.0/255")) {
         s_reading.consumption_wh = value;
+        s_reading.has_consumption = true;
         published = true;
       } else if (obis_matches(entry, "1-0:2.8.0/255")) {
         s_reading.production_wh = value;
+        s_reading.has_production = true;
         published = true;
       } else if (obis_matches(entry, "1-0:16.7.0/255")) {
         if (entry->status && ((*entry->status->data.status16 & 0x20) != 0)) {
           value = -value;
         }
         s_reading.current_w = value;
+        published = true;
+      } else if (obis_matches(entry, "1-0:32.7.0/255")) {
+        s_reading.voltage_v[0] = value;
+        s_reading.has_voltage = true;
+        published = true;
+      } else if (obis_matches(entry, "1-0:52.7.0/255")) {
+        s_reading.voltage_v[1] = value;
+        s_reading.has_voltage = true;
+        published = true;
+      } else if (obis_matches(entry, "1-0:72.7.0/255")) {
+        s_reading.voltage_v[2] = value;
+        s_reading.has_voltage = true;
+        published = true;
+      } else if (obis_matches(entry, "1-0:31.7.0/255")) {
+        s_reading.current_a[0] = value;
+        s_reading.has_current = true;
+        published = true;
+      } else if (obis_matches(entry, "1-0:51.7.0/255")) {
+        s_reading.current_a[1] = value;
+        s_reading.has_current = true;
+        published = true;
+      } else if (obis_matches(entry, "1-0:71.7.0/255")) {
+        s_reading.current_a[2] = value;
+        s_reading.has_current = true;
+        published = true;
+      } else if (obis_matches(entry, "1-0:81.7.1/255")) {
+        s_reading.phase_deg[0] = value;
+        s_reading.has_phase = true;
+        published = true;
+      } else if (obis_matches(entry, "1-0:81.7.2/255")) {
+        s_reading.phase_deg[1] = value;
+        s_reading.has_phase = true;
+        published = true;
+      } else if (obis_matches(entry, "1-0:81.7.3/255")) {
+        s_reading.phase_deg[2] = value;
+        s_reading.has_phase = true;
+        published = true;
+      } else if (obis_matches(entry, "1-0:14.7.0/255")) {
+        s_reading.frequency_hz = value;
+        s_reading.has_frequency = true;
+        published = true;
+      } else if (obis_matches(entry, "1-0:1.8.0/96")) {
+        s_reading.history_wh[0] = value;
+        s_reading.history_mask |= 0x01;
+        published = true;
+      } else if (obis_matches(entry, "1-0:1.8.0/97")) {
+        s_reading.history_wh[1] = value;
+        s_reading.history_mask |= 0x02;
+        published = true;
+      } else if (obis_matches(entry, "1-0:1.8.0/98")) {
+        s_reading.history_wh[2] = value;
+        s_reading.history_mask |= 0x04;
+        published = true;
+      } else if (obis_matches(entry, "1-0:1.8.0/99")) {
+        s_reading.history_wh[3] = value;
+        s_reading.history_mask |= 0x08;
         published = true;
       }
     }

@@ -95,10 +95,13 @@ static bool sample_value(const gui_sample_t* s, int series, int32_t* value) {
       return true;
     case GUI_SERIES_AC_RMS:
       if (s->stale_mask & SAMPLE_STALE_AC) return false;
+      /* No waveform means no value; do not draw a flat 0 line. */
+      if (s->ac_rms_dc == 0) return false;
       *value = (int32_t)s->ac_rms_dc; /* 0.1 ADC count */
       return true;
     case GUI_SERIES_AC_ANGLE:
       if (s->stale_mask & SAMPLE_STALE_AC) return false;
+      if (s->ac_rms_dc == 0) return false;
       *value = (int32_t)s->ac_angle_cdeg; /* 0.01 degree */
       return true;
     default:
@@ -130,6 +133,8 @@ static void add_value(ChartColumn* col, int slot, int32_t value,
 static void add_rollup(ChartColumn* col, int slot, const RollupColumn* r,
                        int src, uint32_t epoch, uint32_t* newest) {
   if (r->n[src] == 0) return;
+  /* AC RMS/angle: a zero waveform is missing data, not a zero reading. */
+  if ((src == 7 || src == 8) && r->sum[7] == 0 && r->sum[8] == 0) return;
   const int16_t mn = clamp16(r->mn[src]);
   const int16_t mx = clamp16(r->mx[src]);
   if (col->n[slot] == 0) {

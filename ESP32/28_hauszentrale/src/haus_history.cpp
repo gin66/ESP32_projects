@@ -303,8 +303,9 @@ static SdWriteResult sd_write_day(uint32_t epoch) {
 #endif
 }
 
-static SdWriteResult sd_write_rollup(uint32_t epoch) {
+static SdWriteResult sd_write_rollup_to(uint32_t epoch, uint32_t lock_ms) {
 #ifdef HAUS_HOST
+  (void)lock_ms;
   if (s_test_fail_writes) return SD_WRITE_IO_ERROR;
   const uint32_t last_hour = epoch / 3600u;
   for (size_t i = 0; i < HAUS_L2_COLUMNS; i++) {
@@ -324,7 +325,7 @@ static SdWriteResult sd_write_rollup(uint32_t epoch) {
   return SD_WRITE_OK;
 #else
   const uint32_t last_hour = epoch / 3600u;
-  if (!haus_sd_lock(60000)) return SD_WRITE_BUSY;
+  if (!haus_sd_lock(lock_ms)) return SD_WRITE_BUSY;
 
   File f = SD.open("/rollup.bin", FILE_WRITE);
   bool ok = (bool)f;
@@ -358,6 +359,81 @@ static SdWriteResult sd_write_rollup(uint32_t epoch) {
   }
   return ok ? SD_WRITE_OK : SD_WRITE_IO_ERROR;
 #endif
+}
+
+static SdWriteResult sd_write_rollup(uint32_t epoch) {
+  return sd_write_rollup_to(epoch, 60000);
+}
+
+static int history_series_for_fn(uint8_t fn) {
+  /* The chamber zone aliases the BOARD probe, so both share series 0. */
+  if (fn == SENSOR_FN_CHAMBER || fn == SENSOR_FN_BOARD) return 0;
+  if (fn == SENSOR_FN_WATER_IN) return 1;
+  if (fn == SENSOR_FN_WATER_OUT) return 2;
+  return -1;
+}
+
+static void swap_rollup_series(RollupColumn* col, int a, int b) {
+  if (!col || a < 0 || b < 0 || a == b) return;
+  int32_t v;
+  uint16_t u;
+  v = col->mn[a]; col->mn[a] = col->mn[b]; col->mn[b] = v;
+  v = col->mx[a]; col->mx[a] = col->mx[b]; col->mx[b] = v;
+  v = col->sum[a]; col->sum[a] = col->sum[b]; col->sum[b] = v;
+  u = col->n[a]; col->n[a] = col->n[b]; col->n[b] = u;
+}
+
+void haus_history_remap_pair(uint8_t fn_a, uint8_t fn_b) {
+  const int a = history_series_for_fn(fn_a);
+  const int b = history_series_for_fn(fn_b);
+  if (a < 0 || b < 0 || a == b || !s_l1 || !s_l2) return;
+
+  for (size_t i = 0; i < HAUS_L1_SAMPLES; i++) {
+    const int16_t t = s_l1[i].temp[a];
+    s_l1[i].temp[a] = s_l1[i].temp[b];
+    s_l1[i].temp[b] = t;
+  }
+  for (size_t i = 0; i < HAUS_L2_COLUMNS; i++) {
+    swap_rollup_series(&s_l2[i], a, b);
+  }
+
+#ifdef HAUS_HOST
+  for (size_t i = 0; i < HAUS_RING_HOURS; i++) {
+    swap_rollup_series(&s_ring_storage[i], a, b);
+  }
+#else
+  /* The ring is the boot fallback when the SD rollup is unreadable. Rewrite
+   * only the columns that exist; a role change is a rare, explicit action. */
+  if (s_ring_ready) {
+    File f = SPIFFS.open(HAUS_RING_PATH, "r+");
+    if (f) {
+      for (size_t i = 0; i < HAUS_RING_HOURS; i++) {
+        const size_t off = sizeof(RingHeader) + i * sizeof(RollupColumn);
+        RollupColumn col;
+        if (!f.seek(off) ||
+            f.readBytes((char*)&col, sizeof(col)) != sizeof(col)) {
+          break;
+        }
+        if (col.t == 0) continue;
+        swap_rollup_series(&col, a, b);
+        if (!f.seek(off) ||
+            f.write((const uint8_t*)&col, sizeof(col)) != sizeof(col)) {
+          break;
+        }
+      }
+      f.close();
+    }
+  }
+#endif
+
+  /* Keep the SD rollup consistent, so the next boot does not restore the
+   * old labels from /rollup.bin. */
+  const time_t now = time(nullptr);
+  /* Do not stall the UI behind a busy card: 100 ms is enough when the bus is
+   * free, otherwise the next midnight rollover rewrites the file anyway. */
+  if (now > 1700000000) (void)sd_write_rollup_to((uint32_t)now, 100);
+
+  TPL_LOGI("history", "relabelled series %d <-> %d after role change", a, b);
 }
 
 /* Returns false only when the card stayed busy long enough that the rollover
@@ -555,6 +631,165 @@ bool haus_history_sample(const HausState* state, uint32_t epoch_seconds) {
 
   s_last_sample_epoch = epoch_seconds;
   return true;
+}
+
+/* ─── SPIFFS energy backup ring ───────────────────────────────────────────
+ *
+ * The SD card is the primary log. The meter registers are cumulative, so a
+ * single value per hour is enough to recover after a card loss or removal.
+ */
+#define ENERGY_RING_MAGIC 0x454E4759u /* "ENGY" */
+#define ENERGY_RING_VERSION 1
+
+typedef struct __attribute__((packed)) {
+  uint32_t magic;
+  uint16_t version;
+  uint16_t reserved;
+} EnergyRingHeader;
+
+typedef struct __attribute__((packed)) {
+  uint32_t epoch;         /* hour-aligned seconds */
+  float consumption_kwh;
+  float production_kwh;
+  uint32_t reserved;
+} EnergyRingRecord;
+
+static bool s_energy_cache_valid = false;
+static double s_energy_cache_consumption = 0.0;
+static double s_energy_cache_production = 0.0;
+static uint32_t s_energy_cache_epoch = 0;
+
+#ifndef HAUS_HOST
+static bool s_energy_ring_ready = false;
+static uint32_t s_last_energy_hour = UINT32_MAX;
+
+static bool energy_ring_open_or_create(void) {
+  static const size_t need =
+      sizeof(EnergyRingHeader) + HAUS_ENERGY_RING_HOURS * sizeof(EnergyRingRecord);
+  File f = SPIFFS.open("/energy_ring.bin", "r");
+  if (f) {
+    EnergyRingHeader h;
+    const bool size_ok = (f.size() == need);
+    const bool read_ok = (f.readBytes((char*)&h, sizeof(h)) == sizeof(h));
+    f.close();
+    if (size_ok && read_ok && h.magic == ENERGY_RING_MAGIC &&
+        h.version == ENERGY_RING_VERSION) {
+      return true;
+    }
+  }
+  f = SPIFFS.open("/energy_ring.bin", "w");
+  if (!f) return false;
+  EnergyRingHeader h = {.magic = ENERGY_RING_MAGIC,
+                        .version = ENERGY_RING_VERSION,
+                        .reserved = 0};
+  f.write((const uint8_t*)&h, sizeof(h));
+  uint8_t zero[256];
+  memset(zero, 0, sizeof(zero));
+  size_t remaining = HAUS_ENERGY_RING_HOURS * sizeof(EnergyRingRecord);
+  while (remaining > 0) {
+    const size_t chunk = remaining < sizeof(zero) ? remaining : sizeof(zero);
+    if (f.write(zero, chunk) != chunk) {
+      f.close();
+      SPIFFS.remove("/energy_ring.bin");
+      return false;
+    }
+    remaining -= chunk;
+  }
+  f.close();
+  TPL_LOGI("history", "energy ring created (%u hours)",
+           (unsigned)HAUS_ENERGY_RING_HOURS);
+  return true;
+}
+
+static void energy_ring_load(void) {
+  s_energy_cache_valid = false;
+  s_energy_ring_ready = energy_ring_open_or_create();
+  if (!s_energy_ring_ready) return;
+  File f = SPIFFS.open("/energy_ring.bin", "r");
+  if (!f) return;
+  uint32_t newest = 0;
+  EnergyRingRecord rec;
+  for (size_t i = 0; i < HAUS_ENERGY_RING_HOURS; i++) {
+    if (!f.seek(sizeof(EnergyRingHeader) + i * sizeof(rec)) ||
+        f.readBytes((char*)&rec, sizeof(rec)) != sizeof(rec)) {
+      break;
+    }
+    if (rec.epoch > newest) {
+      newest = rec.epoch;
+      s_energy_cache_consumption = rec.consumption_kwh;
+      s_energy_cache_production = rec.production_kwh;
+      s_energy_cache_epoch = rec.epoch;
+      s_energy_cache_valid = true;
+    }
+  }
+  f.close();
+}
+
+static void energy_ring_write(const HausState* state, uint32_t epoch) {
+  const uint32_t hour = epoch / 3600u;
+  if (hour == s_last_energy_hour) return;
+  s_last_energy_hour = hour;
+  if (!s_energy_ring_ready) s_energy_ring_ready = energy_ring_open_or_create();
+  if (!s_energy_ring_ready) return;
+
+  EnergyRingRecord rec;
+  rec.epoch = hour * 3600u;
+  rec.consumption_kwh = (float)state->can.energy_consumption_kwh;
+  rec.production_kwh = (float)state->can.energy_production_kwh;
+  rec.reserved = 0;
+  const size_t slot = (size_t)(hour % HAUS_ENERGY_RING_HOURS);
+  const size_t off = sizeof(EnergyRingHeader) + slot * sizeof(rec);
+  File f = SPIFFS.open("/energy_ring.bin", "r+");
+  if (f) {
+    if (f.seek(off) && f.write((const uint8_t*)&rec, sizeof(rec)) == sizeof(rec)) {
+      s_energy_cache_consumption = rec.consumption_kwh;
+      s_energy_cache_production = rec.production_kwh;
+      s_energy_cache_epoch = rec.epoch;
+      s_energy_cache_valid = true;
+    }
+    f.close();
+  }
+}
+#endif /* !HAUS_HOST */
+
+bool haus_history_energy_latest(double* consumed_kwh, double* produced_kwh,
+                                uint32_t* epoch) {
+  if (!s_energy_cache_valid) return false;
+  if (consumed_kwh) *consumed_kwh = s_energy_cache_consumption;
+  if (produced_kwh) *produced_kwh = s_energy_cache_production;
+  if (epoch) *epoch = s_energy_cache_epoch;
+  return true;
+}
+
+void haus_history_log_energy(const HausState* state, uint32_t epoch_seconds) {
+#ifdef HAUS_HOST
+  (void)state;
+  (void)epoch_seconds;
+#else
+  if (!state || epoch_seconds < 24u * 3600u) return;
+  if (!state->can.energy_consumption_valid &&
+      !state->can.energy_production_valid)
+    return;
+  /* SD is the primary log, but a missing or busy card must not prevent the
+   * SPIFFS backup from recording the registers. */
+  if (haus_sd_is_mounted() && haus_sd_lock(2000)) {
+    File f = SD.open("/energy.csv", FILE_APPEND);
+    if (f) {
+      if (f.size() == 0) {
+        f.println("epoch,consumed_kwh,produced_kwh");
+      }
+      f.printf("%lu,%.3f,%.3f\n", (unsigned long)epoch_seconds,
+               state->can.energy_consumption_kwh,
+               state->can.energy_production_kwh);
+      f.close();
+    }
+    haus_sd_unlock();
+  }
+
+  /* Mirror one record per hour into SPIFFS so a missing card does not lose
+   * the cumulative registers. */
+  energy_ring_write(state, epoch_seconds);
+#endif
 }
 
 void haus_history_flush_hour(uint32_t epoch_seconds) {
@@ -845,6 +1080,7 @@ bool haus_history_init(void) {
              (unsigned)HAUS_L1_BYTES, (unsigned)HAUS_L2_BYTES, (void*)s_l1,
              (void*)s_l2);
   }
+  energy_ring_load();
   return s_ring_ready;
 }
 
@@ -1260,6 +1496,7 @@ static void recorder_task(void* arg) {
             TPL_LOGI("history", "first sample at epoch %u\n", (unsigned)now);
           }
         }
+        haus_history_log_energy(&st, (uint32_t)now);
       }
     }
     vTaskDelay(1000 / portTICK_PERIOD_MS);

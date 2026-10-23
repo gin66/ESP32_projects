@@ -10,6 +10,7 @@
 
 #include <cstring>
 
+#include "haus_history.h"
 #include "tpl_debug_log.h"
 
 typedef struct __attribute__((packed)) {
@@ -66,11 +67,28 @@ bool haus_sensor_roles_save(void) {
 
 bool haus_sensor_roles_set(uint8_t index, uint8_t function) {
   if (index >= s_count || function >= SENSOR_FN_COUNT) return false;
-  if (s_roles[index].function == function) return true;
+  const uint8_t old = s_roles[index].function;
+  if (old == function) return true;
+
+  /* Keep the table a permutation: assigning a function that another probe
+   * already owns exchanges the two roles instead of leaving two probes with
+   * the same label (which made one of them invisible to the resolver). */
+  for (uint8_t i = 0; i < s_count; i++) {
+    if (i != index && s_roles[i].function == function) {
+      s_roles[i].function = old;
+      break;
+    }
+  }
   s_roles[index].function = function;
   TPL_LOGI("roles", "role %u -> %s", (unsigned)index,
            haus_sensor_fn_name(function));
-  return haus_sensor_roles_save();
+
+  if (!haus_sensor_roles_save()) return false;
+
+  /* The physical probes did not move; only their labels did. Carry the
+   * correction into the already stored minutes and hours. */
+  haus_history_remap_pair(old, function);
+  return true;
 }
 
 bool haus_sensor_roles_init(void) {

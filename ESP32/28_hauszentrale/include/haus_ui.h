@@ -53,10 +53,14 @@ lv_obj_t* haus_ui_build_power(void);
 lv_obj_t* haus_ui_build_living(void);
 lv_obj_t* haus_ui_build_ac(void);
 void haus_ui_set_ac_series(int series);
+
+/** Power chart scale: -1 auto, 0 W, 1 kW, 2 logarithmic (0 W special). */
+void haus_ui_set_power_scale(int mode);
 lv_obj_t* haus_ui_build_settings(void);
 lv_obj_t* haus_ui_build_storage(void);
 lv_obj_t* haus_ui_build_can(void);
 lv_obj_t* haus_ui_build_roles(void);
+lv_obj_t* haus_ui_build_sml(void);
 
 /** Build the full-bleed log screen (S15). */
 lv_obj_t* haus_ui_build_log(void);

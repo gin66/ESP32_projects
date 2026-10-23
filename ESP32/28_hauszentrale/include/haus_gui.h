@@ -143,6 +143,26 @@ typedef struct {
   int32_t watts_last;
   bool valid;
 
+  /* Cumulative SML meter registers, kWh. Not graphed; logged to SD and
+   * shown on the power screen's side panel. */
+  double energy_consumption_kwh; /* 1-0:1.8.0/255 */
+  double energy_production_kwh;  /* 1-0:2.8.0/255 */
+  bool energy_consumption_valid;
+  bool energy_production_valid;
+  bool energy_from_cache; /* values restored from the SPIFFS ring */
+
+  /* Live SML phase quantities and historical meter registers. */
+  double sml_voltage_v[3];
+  double sml_current_a[3];
+  double sml_phase_deg[3];
+  double sml_frequency_hz;
+  double sml_history_kwh[4]; /* day, week, month, year */
+  bool sml_voltage_valid;
+  bool sml_current_valid;
+  bool sml_phase_valid;
+  bool sml_frequency_valid;
+  uint8_t sml_history_mask; /* bit 0 day, 1 week, 2 month, 3 year */
+
   gui_status_t can_status;
   gui_status_t duty_status;
   gui_status_t sd_status;

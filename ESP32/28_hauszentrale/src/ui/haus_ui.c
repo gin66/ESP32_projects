@@ -27,6 +27,7 @@
 #endif
 
 #include "can_monitor.h"
+#include "haus_power_axis.h"
 
 #if __has_include("version.h")
 #include "version.h"
@@ -70,7 +71,7 @@ static inline void ui_label_set_recolor(lv_obj_t* l, bool en) {
 #define NAV_X (SCREEN_W - NAV_W)
 #define NAV_Y 0
 #define NAV_H SCREEN_H
-#define NAV_TABS 6
+#define NAV_TABS 5
 #define CONTENT_W NAV_X
 #define CONTENT_H SCREEN_H
 
@@ -110,27 +111,29 @@ enum ui_screen_id {
   UI_SCREEN_CAN,
   UI_SCREEN_LOG,
   UI_SCREEN_ROLES,
+  UI_SCREEN_SML,
 };
 
 static const int nav_screens[NAV_TABS] = {
-    UI_SCREEN_HOME,  UI_SCREEN_CHAMBER, UI_SCREEN_WATER_IN,
-    UI_SCREEN_POWER, UI_SCREEN_LIVING,  UI_SCREEN_SETTINGS,
+    UI_SCREEN_HOME, UI_SCREEN_CHAMBER, UI_SCREEN_POWER, UI_SCREEN_LIVING,
+    UI_SCREEN_SETTINGS,
 };
 
 static const char* nav_icons[NAV_TABS] = {
     LV_SYMBOL_HOME,     /* home */
-    NULL,               /* chamber (drawn as a thermometer) */
-    NULL,               /* water (drawn as waves) */
+    NULL,               /* heating (drawn as water waves) */
     LV_SYMBOL_CHARGE,   /* power: electricity bolt, not a power button */
-    NULL,               /* living room (drawn as a house) */
+    NULL,               /* living room (drawn as a thermometer) */
     LV_SYMBOL_SETTINGS, /* gear */
 };
 
 static int nav_index_for(int screen) {
-  if (screen == UI_SCREEN_WATER_OUT) screen = UI_SCREEN_WATER_IN;
+  if (screen == UI_SCREEN_WATER_IN || screen == UI_SCREEN_WATER_OUT)
+    screen = UI_SCREEN_CHAMBER;
   if (screen == UI_SCREEN_STORAGE) screen = UI_SCREEN_SETTINGS;
   if (screen == UI_SCREEN_ROLES) screen = UI_SCREEN_SETTINGS;
   if (screen == UI_SCREEN_AC) screen = UI_SCREEN_SETTINGS;
+  if (screen == UI_SCREEN_SML) screen = UI_SCREEN_SETTINGS;
   for (int i = 0; i < NAV_TABS; i++)
     if (nav_screens[i] == screen) return i;
   return -1;
@@ -149,6 +152,7 @@ static void detail_update(void);
 static void log_screen_update(void);
 static void can_screen_update(void);
 static void settings_can_refresh(void);
+static void sml_screen_update(void);
 static void can_overlay_close(void);
 static void build_status_hotspot(void);
 static void pwm_control_update(void);
@@ -181,6 +185,7 @@ static lv_obj_t* s_living_temp;
 static lv_obj_t* s_living_unit;
 static lv_obj_t* s_living_temp_tol;
 static lv_obj_t* s_living_rh;
+static lv_obj_t* s_living_rh_unit;
 static lv_obj_t* s_living_rh_tol;
 static lv_obj_t* s_power_num;
 static lv_obj_t* s_power_bolt;
@@ -407,14 +412,14 @@ static void nav_click_cb(lv_event_t* e) {
 }
 
 static void ui_jump(int screen) {
-  if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_ROLES) return;
+  if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_SML) return;
   s_depth = 1;
   s_stack[0] = screen;
   ui_nav_go(screen);
 }
 
 static void ui_push(int screen) {
-  if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_ROLES) return;
+  if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_SML) return;
   if (s_depth < UI_STACK_MAX) s_stack[s_depth++] = screen;
   ui_nav_go(screen);
 }
@@ -467,9 +472,9 @@ static void nav_build(int active_screen) {
     const int icon_y = tab_h / 2 - 14;
     if (nav_icons[i] == NULL) {
       if (i == 1)
-        nav_thermo(tab, NAV_W / 2, icon_y, color);
-      else if (i == 2)
         nav_waves(tab, NAV_W / 2, tab_h / 2 - 10, color);
+      else if (i == 3)
+        nav_thermo(tab, NAV_W / 2, icon_y, color);
       else
         nav_house(tab, NAV_W / 2, icon_y, color);
     } else {
@@ -834,10 +839,12 @@ static void build_heater(void) {
 static void build_living(void) {
   hline_w(lv_screen_active(), 12, 180, 256, C_LINE);
 
-  label_make(lv_screen_active(), LV_SYMBOL_TINT, 20, 194,
-             &lv_font_montserrat_24, C_COLD);
-  s_living_temp = label_make(lv_screen_active(), "--", 56, 190,
-                             &lv_font_montserrat_32, C_COLD);
+  /* Temperature gets the thermometer mark, humidity the water drop. */
+  nav_thermo(lv_screen_active(), 28, 188, C_COLD);
+  /* Stack temperature and humidity. Both use the same 52 px face as the
+   * power value so the column reads from a distance. */
+  s_living_temp = label_make(lv_screen_active(), "--", 56, 180,
+                             &haus_large_52, C_COLD);
   s_living_unit = label_make(lv_screen_active(), "°C", 0, 0,
                              &lv_font_montserrat_16, C_COLD);
   lv_obj_align_to(s_living_unit, s_living_temp, LV_ALIGN_OUT_RIGHT_BOTTOM, 4,
@@ -846,20 +853,25 @@ static void build_living(void) {
                                  &lv_font_montserrat_16, C_FAINT);
   obj_set_hidden(s_living_temp_tol, true);
 
-  s_living_rh = label_make(lv_screen_active(), "-- %rH", 172, 190,
-                           &lv_font_montserrat_24, C_CYAN);
+  label_make(lv_screen_active(), LV_SYMBOL_TINT, 20, 246,
+             &lv_font_montserrat_24, C_CYAN);
+  s_living_rh = label_make(lv_screen_active(), "--", 56, 238,
+                           &haus_large_52, C_CYAN);
+  s_living_rh_unit = label_make(lv_screen_active(), " %rH", 0, 0,
+                                &lv_font_montserrat_16, C_CYAN);
+  lv_obj_align_to(s_living_rh_unit, s_living_rh, LV_ALIGN_OUT_RIGHT_BOTTOM, 2,
+                  -2);
   s_living_rh_tol = label_make(lv_screen_active(), "", 0, 0,
                                &lv_font_montserrat_16, C_FAINT);
   obj_set_hidden(s_living_rh_tol, true);
 }
 
 static void build_power(void) {
-  hline_w(lv_screen_active(), 12, 260, 256, C_LINE);
+  hline_w(lv_screen_active(), 12, 306, 256, C_LINE);
 
   s_power_num =
-      label_make(lv_screen_active(), "--", 56, 266, &lv_font_montserrat_48,
-                 C_INK);
-  s_power_bolt = label_make(lv_screen_active(), LV_SYMBOL_CHARGE, 20, 278,
+      label_make(lv_screen_active(), "--", 56, 312, &haus_large_52, C_INK);
+  s_power_bolt = label_make(lv_screen_active(), LV_SYMBOL_CHARGE, 20, 324,
                             &lv_font_montserrat_32, C_ACCENT);
   s_power_src =
       label_make(lv_screen_active(), "W", 0, 0, &lv_font_montserrat_16, C_DIM);
@@ -887,10 +899,10 @@ static void build_zones(void) {
     int screen;
   } zones[5] = {
       {380, 110, 300, 220, UI_SCREEN_CHAMBER},
-      {270, 360, 200, 100, UI_SCREEN_WATER_IN},
-      {490, 360, 210, 100, UI_SCREEN_WATER_OUT},
-      {0, 180, 270, 72, UI_SCREEN_LIVING},
-      {0, 260, 270, 72, UI_SCREEN_POWER},
+      {270, 360, 200, 100, UI_SCREEN_CHAMBER},
+      {490, 360, 210, 100, UI_SCREEN_CHAMBER},
+      {0, 178, 270, 130, UI_SCREEN_LIVING},
+      {0, 306, 270, 72, UI_SCREEN_POWER},
   };
 
   for (int i = 0; i < 5; i++) {
@@ -974,6 +986,10 @@ void haus_ui_update(void) {
   }
   if (g_current_screen == UI_SCREEN_SETTINGS) {
     settings_can_refresh();
+    return;
+  }
+  if (g_current_screen == UI_SCREEN_SML) {
+    sml_screen_update();
     return;
   }
   if (g_current_screen != UI_SCREEN_HOME) {
@@ -1172,12 +1188,17 @@ void haus_ui_update(void) {
                     6, -2);
   }
   if (state.climate.climate_flags & CLIMATE_VALID_SHT45) {
-    snprintf(buf, sizeof(buf), "%u %%rH", state.climate.hum_c100 / 100);
+    snprintf(buf, sizeof(buf), "%u", state.climate.hum_c100 / 100);
     txt(s_living_rh, buf);
     lv_obj_set_style_text_color(s_living_rh, lv_color_hex(C_CYAN), 0);
   } else {
-    txt(s_living_rh, "-- %rH");
+    txt(s_living_rh, "--");
     lv_obj_set_style_text_color(s_living_rh, lv_color_hex(0x444444), 0);
+  }
+  if (s_living_rh_unit && s_living_rh) {
+    lv_obj_set_style_text_color(s_living_rh_unit, lv_color_hex(C_CYAN), 0);
+    lv_obj_align_to(s_living_rh_unit, s_living_rh, LV_ALIGN_OUT_RIGHT_BOTTOM, 2,
+                    -2);
   }
   if (s_living_rh_tol && s_living_rh) {
     lv_obj_align_to(s_living_rh_tol, s_living_rh, LV_ALIGN_OUT_RIGHT_BOTTOM, 6,
@@ -1330,7 +1351,7 @@ static lv_obj_t* s_legend_t;
 static lv_obj_t* s_chart_readout;
 static lv_obj_t* s_chart_readout_b;
 static lv_obj_t* s_chart_age;
-static lv_obj_t* s_axis_lbl[5];
+static lv_obj_t* s_axis_lbl[6];
 static lv_obj_t* s_x_lbl[4];
 static lv_obj_t* s_scrub_line;
 static lv_obj_t* s_scrub_bubble;
@@ -1342,7 +1363,6 @@ static int s_range_w = 440;
 static lv_obj_t* s_detail_value;
 static lv_obj_t* s_header_badge;
 static lv_obj_t* s_header_badge_lbl;
-static lv_obj_t* s_above_target;
 static lv_obj_t* s_power_unit_lbl;
 static lv_obj_t* s_side_h;
 static lv_obj_t* s_side_big;
@@ -1401,6 +1421,13 @@ static char* s_log_recolor = NULL;
 
 static double s_axis_lo, s_axis_hi;
 static int s_axis_key = -1;
+static int s_axis_ticks = 5;
+/* Power scale: -1 auto (W/kW by magnitude), 0 W, 1 kW, 2 logarithmic.
+ * Log is the default: household power spans standby to kW and reads better
+ * on a logarithmic axis. The Settings row still cycles all four modes. */
+static int s_power_scale_mode = 2;
+static bool s_axis_log = false;
+static haus_power_axis_t s_power_axis;
 static bool s_chart_force = true;
 static uint32_t s_chart_last_sample;
 static bool s_chart_hourly;
@@ -1504,15 +1531,10 @@ static void chart_cfg_for(int detail, chart_cfg_t* cfg) {
   cfg->b = -1;
   switch (detail) {
     case UI_SCREEN_CHAMBER:
-      cfg->a = 0;
-      cfg->use_target = 1;
-      cfg->hourly_ok = 1;
-      cfg->unit = CHART_UNIT_TEMP;
-      cfg->color_a = C_COLD;
-      cfg->color_b = C_COLD;
-      break;
     case UI_SCREEN_WATER_IN:
     case UI_SCREEN_WATER_OUT:
+      /* One chart for the heating circuit: water in, water out and Soll.
+       * The BOARD probe is a room sensor, not a heater/chamber measurement. */
       cfg->a = 1;
       cfg->b = 2;
       cfg->use_target = 1;
@@ -1581,7 +1603,8 @@ static void chart_legend_update(const chart_cfg_t* cfg) {
     case UI_SCREEN_WATER_OUT:
       break;
     case UI_SCREEN_CHAMBER:
-      a = "- heater";
+      a = "- in";
+      b = "- out";
       t = "-- Soll";
       break;
     case UI_SCREEN_POWER:
@@ -1620,7 +1643,7 @@ static void chart_build_target(uint32_t t0, uint32_t t1, bool hourly) {
       const size_t n = total - first < 64 ? total - first : 64;
       gui_read_target_hours_chunk(t0, first, n, chunk);
       for (size_t i = 0; i < n; i++) {
-        if (chunk[i] == HAUS_CAN_TEMP_EMPTY || chunk[i] == GUI_EMPTY) continue;
+        if (chunk[i] <= 0 || chunk[i] == GUI_EMPTY) continue;
         const uint32_t t = (t0 - t0 % 3600u) + (uint32_t)(first + i) * 3600u;
         const size_t col = chart_col_for(t, t0, t1);
         s_target_sum[col] += chunk[i];
@@ -1636,7 +1659,7 @@ static void chart_build_target(uint32_t t0, uint32_t t1, bool hourly) {
                            : HAUS_CHART_CHUNK_SAMPLES;
       gui_read_target_samples_chunk(t0, first, n, chunk);
       for (size_t i = 0; i < n; i++) {
-        if (chunk[i] == HAUS_CAN_TEMP_EMPTY || chunk[i] == GUI_EMPTY) continue;
+        if (chunk[i] <= 0 || chunk[i] == GUI_EMPTY) continue;
         const uint32_t t = (t0 - t0 % 60u) + (uint32_t)(first + i) * 60u;
         const size_t col = chart_col_for(t, t0, t1);
         s_target_sum[col] += chunk[i];
@@ -1652,20 +1675,6 @@ static void chart_build_target(uint32_t t0, uint32_t t1, bool hourly) {
   }
 }
 
-static uint32_t local_midnight(uint32_t now) {
-  time_t t = (time_t)now;
-  struct tm tm;
-  if (localtime_r(&t, &tm)) {
-    tm.tm_hour = 0;
-    tm.tm_min = 0;
-    tm.tm_sec = 0;
-    tm.tm_isdst = -1;
-    const time_t m = mktime(&tm);
-    if (m > 0) return (uint32_t)m;
-  }
-  return now > 86400u ? now - 86400u : 0;
-}
-
 static void chart_build(void) {
   HausState st;
   gui_get_state(&st);
@@ -1674,13 +1683,12 @@ static void chart_build(void) {
   if (now == 0) return;
   if (!ensure_chart_buffers()) return;
 
-  /* L1 is today's minute buffer. A rolling 24 h window would read
-   * yesterday's slots as today's future slots, so the 1-day view is
-   * local midnight .. now. The week/month view still rolls. */
+  /* The 1-day view is the last 24 hours, not since local midnight. Older
+   * minutes come from the hourly rollup when L1 only holds today. */
   uint32_t t0;
   const uint32_t t1 = now;
   if (g_range == UI_RANGE_DAY) {
-    t0 = local_midnight(now);
+    t0 = now > 86400u ? now - 86400u : 0;
   } else {
     const uint32_t span =
         (g_range == UI_RANGE_WEEK) ? 7u * 86400u : 30u * 86400u;
@@ -1727,9 +1735,17 @@ static void chart_build(void) {
 }
 
 static int chart_value_y(int32_t v) {
-  const double span = s_axis_hi - s_axis_lo;
-  if (span <= 0) return CHART_Y1;
-  double y = CHART_Y1 - ((double)v - s_axis_lo) * (CHART_Y1 - CHART_Y0) / span;
+  double frac;
+  if (s_axis_log) {
+    frac = haus_power_axis_fraction(&s_power_axis, v);
+  } else {
+    const double span = s_axis_hi - s_axis_lo;
+    if (span <= 0) return CHART_Y1;
+    frac = ((double)v - s_axis_lo) / span;
+  }
+  if (frac < 0.0) frac = 0.0;
+  if (frac > 1.0) frac = 1.0;
+  double y = CHART_Y1 - frac * (CHART_Y1 - CHART_Y0);
   if (y < CHART_Y0) y = CHART_Y0;
   if (y > CHART_Y1) y = CHART_Y1;
   return (int)(y + 0.5);
@@ -1761,7 +1777,12 @@ static void chart_nice_axis(double lo, double hi) {
 
 static void chart_axis(chart_cfg_t* cfg) {
   const int key = g_detail_screen * 16 + g_range * 4 +
-                  (g_detail_screen == UI_SCREEN_LIVING ? g_living_series : 0);
+                  (g_detail_screen == UI_SCREEN_LIVING ? g_living_series : 0) +
+                  (g_detail_screen == UI_SCREEN_POWER
+                       ? (s_power_scale_mode + 1) * 64
+                       : 0);
+  s_axis_log = (cfg->unit == CHART_UNIT_POWER && s_power_scale_mode == 2);
+  s_axis_ticks = 5;
   bool have = false;
   int32_t mn = 0, mx = 0;
 
@@ -1798,12 +1819,74 @@ static void chart_axis(chart_cfg_t* cfg) {
   if (!have) {
     s_axis_lo = 0;
     s_axis_hi = (cfg->unit == CHART_UNIT_POWER) ? 10000 : 1;
+    if (s_axis_log) {
+      haus_power_axis_build(&s_power_axis, 0, 50000, true);
+      s_axis_lo = s_power_axis.lo;
+      s_axis_hi = s_power_axis.hi;
+    }
+    s_axis_key = key;
+    return;
+  }
+
+  if (s_axis_log) {
+    if (mn < 0) mn = 0;
+    haus_power_axis_build(&s_power_axis, mn, mx, true);
+    s_axis_lo = s_power_axis.lo;
+    s_axis_hi = s_power_axis.hi;
+    s_axis_key = key;
+    return;
+  }
+
+  if (cfg->unit == CHART_UNIT_POWER) {
+    /* Power is non-negative here. Build a fixed four-division axis from 0 so
+     * the ticks are readable and no kW tick below 0 W is invented. */
+    if (mn < 0) mn = 0;
+    static const int32_t steps[] = {500,  1000,  2000,  2500,  5000,
+                                    10000, 20000, 50000, 100000};
+    int32_t step = steps[sizeof(steps) / sizeof(steps[0]) - 1];
+    for (size_t i = 0; i < sizeof(steps) / sizeof(steps[0]); i++) {
+      if ((int64_t)steps[i] * 4 >= (int64_t)mx) {
+        step = steps[i];
+        break;
+      }
+    }
+    s_axis_lo = 0;
+    s_axis_hi = step * 4;
+    s_axis_key = key;
+    return;
+  }
+
+  if (g_detail_screen == UI_SCREEN_LIVING && g_living_series == 0 &&
+      cfg->unit == CHART_UNIT_TEMP) {
+    /* Room temperature is normally 20..30 C. Use 2 C grid steps (6 labels)
+     * instead of the generic 5-division axis. */
+    s_axis_lo = 2000;
+    s_axis_hi = 3000;
+    s_axis_ticks = 6;
+    s_axis_key = key;
+    return;
+  }
+
+  if (cfg->unit == CHART_UNIT_AC_RMS) {
+    /* RMS is a magnitude and can never be negative. Use a four-division
+     * axis from zero instead of the signed generic axis. */
+    if (mn < 0) mn = 0;
+    static const int32_t steps[] = {10, 20, 50, 100, 200, 500, 1000, 2000,
+                                    5000};
+    int32_t step = steps[sizeof(steps) / sizeof(steps[0]) - 1];
+    for (size_t i = 0; i < sizeof(steps) / sizeof(steps[0]); i++) {
+      if ((int64_t)steps[i] * 4 >= (int64_t)mx) {
+        step = steps[i];
+        break;
+      }
+    }
+    s_axis_lo = 0;
+    s_axis_hi = step * 4;
     s_axis_key = key;
     return;
   }
 
   int32_t min_span = 1000;
-  if (cfg->unit == CHART_UNIT_POWER) min_span = 10000;
   if (mx - mn < min_span) {
     const int32_t mid = (mn + mx) / 2;
     mn = mid - min_span / 2;
@@ -1834,10 +1917,15 @@ static void chart_format_value(char* buf, size_t n, int32_t v, int unit) {
       snprintf(buf, n, "%.1f", v / 100.0);
       break;
     case CHART_UNIT_POWER:
-      if (v >= 10000)
-        snprintf(buf, n, "%.2f", v / 10000.0);
-      else
+      if (s_power_scale_mode == 0 || s_power_scale_mode == 2) {
         snprintf(buf, n, "%d", (int)(v / 10));
+      } else if (s_power_scale_mode == 1) {
+        snprintf(buf, n, "%.2f", v / 10000.0);
+      } else if (v >= 10000) {
+        snprintf(buf, n, "%.2f", v / 10000.0);
+      } else {
+        snprintf(buf, n, "%d", (int)(v / 10));
+      }
       break;
     case CHART_UNIT_AC_RMS:
       snprintf(buf, n, "%.1f", v / 10.0);
@@ -1852,20 +1940,45 @@ static void chart_format_value(char* buf, size_t n, int32_t v, int unit) {
 }
 
 static void chart_format_axis(char* buf, size_t n, int32_t v, int unit) {
-  if (unit == CHART_UNIT_POWER && s_axis_hi >= 10000) {
-    snprintf(buf, n, "%.1f", v / 10000.0);
-  } else {
-    chart_format_value(buf, n, v, unit);
+  if (unit == CHART_UNIT_POWER) {
+    if (s_power_scale_mode == 0 || s_power_scale_mode == 2)
+      snprintf(buf, n, "%d", (int)(v / 10));
+    else if (s_power_scale_mode == 1 ||
+             (s_power_scale_mode < 0 && s_axis_hi >= 10000))
+      snprintf(buf, n, "%.1f", v / 10000.0);
+    else
+      snprintf(buf, n, "%d", (int)(v / 10));
+    return;
   }
+  chart_format_value(buf, n, v, unit);
 }
 
 static void chart_labels(chart_cfg_t* cfg) {
   char buf[32];
-  for (int i = 0; i < 5; i++) {
-    const double frac = (double)i / 4.0;
-    const int32_t v = (int32_t)(s_axis_hi - frac * (s_axis_hi - s_axis_lo));
-    chart_format_axis(buf, sizeof(buf), v, cfg->unit);
-    txt(s_axis_lbl[i], buf);
+  if (s_axis_log) {
+    for (int i = 0; i < 5; i++) {
+      const int32_t v = s_power_axis.ticks[4 - i]; /* top label first */
+      const double frac = haus_power_axis_fraction(&s_power_axis, v);
+      const int y = CHART_Y1 - (int)(frac * (CHART_Y1 - CHART_Y0) + 0.5);
+      lv_obj_set_y(s_axis_lbl[i], y - 8);
+      chart_format_axis(buf, sizeof(buf), v, cfg->unit);
+      txt(s_axis_lbl[i], buf);
+    }
+  } else {
+    const int ticks = s_axis_ticks > 1 ? s_axis_ticks : 5;
+    for (int i = 0; i < ticks; i++) {
+      const double frac = (double)i / (double)(ticks - 1);
+      const int32_t v = (int32_t)(s_axis_hi - frac * (s_axis_hi - s_axis_lo));
+      const int y = CHART_Y0 + (int)(frac * (CHART_Y1 - CHART_Y0) + 0.5);
+      lv_obj_set_y(s_axis_lbl[i], y - 8);
+      chart_format_axis(buf, sizeof(buf), v, cfg->unit);
+      txt(s_axis_lbl[i], buf);
+      obj_set_hidden(s_axis_lbl[i], false);
+    }
+    for (int i = ticks; i < 6; i++) obj_set_hidden(s_axis_lbl[i], true);
+  }
+  if (s_axis_log) {
+    for (int i = 5; i < 6; i++) obj_set_hidden(s_axis_lbl[i], true);
   }
 
   const char* x[4];
@@ -1909,9 +2022,22 @@ static void chart_draw(void) {
   for (int i = 0; i < CHART_W * CHART_H; i++)
     ((uint16_t*)s_chart_pixels)[i] = bg;
 
+  chart_cfg_t cfg;
+  chart_cfg_for(g_detail_screen, &cfg);
+  chart_axis(&cfg);
+
   const uint16_t line = c565(C_LINE);
-  for (int i = 0; i <= 4; i++) {
-    const int y = CHART_Y0 + i * (CHART_Y1 - CHART_Y0) / 4;
+  const int grid_ticks = s_axis_ticks > 1 ? s_axis_ticks : 5;
+  for (int i = 0; i < grid_ticks; i++) {
+    int y;
+    if (s_axis_log) {
+      const double frac =
+          haus_power_axis_fraction(&s_power_axis, s_power_axis.ticks[grid_ticks - 1 - i]);
+      y = CHART_Y1 - (int)(frac * (CHART_Y1 - CHART_Y0) + 0.5);
+    } else {
+      const double frac = (double)i / (double)(grid_ticks - 1);
+      y = CHART_Y0 + (int)(frac * (CHART_Y1 - CHART_Y0) + 0.5);
+    }
     chart_hline(CHART_X0, CHART_X1, y, line);
   }
   /* Three divisions to match the four x labels below the chart. */
@@ -1923,9 +2049,6 @@ static void chart_draw(void) {
   chart_vline(CHART_X0, CHART_Y0, CHART_Y1, c565(C_DIM));
   chart_vline(CHART_X1, CHART_Y0, CHART_Y1, c565(C_DIM));
 
-  chart_cfg_t cfg;
-  chart_cfg_for(g_detail_screen, &cfg);
-  chart_axis(&cfg);
   chart_labels(&cfg);
 
   bool any = false;
@@ -1955,7 +2078,7 @@ static void chart_draw(void) {
 
   for (size_t i = 0; i < HAUS_CHART_COLUMNS; i++) {
     const ChartColumn* c = &s_cols[i];
-    const int x = CHART_X0 + (int)((uint64_t)i * (CHART_X1 - CHART_X0) /
+    const int x = CHART_X0 + (int)((uint64_t)i * (CHART_X1 - CHART_X0 - 1) /
                                    (HAUS_CHART_COLUMNS - 1));
     const bool gap = (c->n[0] == 0) && (cfg.b < 0 || c->n[1] == 0) &&
                      !(cfg.use_target && s_target_n[i]);
@@ -2025,22 +2148,25 @@ static void chart_draw(void) {
   HausState chart_state;
   gui_get_state(&chart_state);
 
-  /* Mean lines. */
+  /* Mean lines. Hourly charts map one source hour to a chart column, so
+   * neighbouring data columns can be 2-3 columns apart with empty columns
+   * between them. Connect those, but break the line at a real outage. */
+  const uint32_t gap_limit = s_chart_hourly ? 2u * 3600u : 10u * 60u;
   for (int s = 0; s < 2; s++) {
     if (s == 1 && cfg.b < 0) break;
     int px = -1, py = 0;
+    uint32_t last_t = 0;
     for (size_t i = 0; i < HAUS_CHART_COLUMNS; i++) {
       const int slot = s;
-      if (s_cols[i].n[slot] == 0) {
-        px = -1;
-        continue;
-      }
-      const int x = CHART_X0 + (int)((uint64_t)i * (CHART_X1 - CHART_X0) /
+      if (s_cols[i].n[slot] == 0) continue;
+      if (px >= 0 && (uint32_t)(s_cols[i].t - last_t) > gap_limit) px = -1;
+      const int x = CHART_X0 + (int)((uint64_t)i * (CHART_X1 - CHART_X0 - 1) /
                                      (HAUS_CHART_COLUMNS - 1));
       const int y = chart_value_y(s_cols[i].sum[slot] / s_cols[i].n[slot]);
       if (px >= 0) chart_line(px, py, x, y, s == 0 ? ca : cb);
       px = x;
       py = y;
+      last_t = s_cols[i].t;
     }
   }
 
@@ -2048,17 +2174,17 @@ static void chart_draw(void) {
   if (cfg.use_target) {
     const uint16_t ct = c565(C_ACCENT);
     int px = -1, py = 0;
+    uint32_t last_t = 0;
     for (size_t i = 0; i < HAUS_CHART_COLUMNS; i++) {
-      if (!s_target_n[i]) {
-        px = -1;
-        continue;
-      }
-      const int x = CHART_X0 + (int)((uint64_t)i * (CHART_X1 - CHART_X0) /
+      if (!s_target_n[i]) continue;
+      if (px >= 0 && (uint32_t)(s_cols[i].t - last_t) > gap_limit) px = -1;
+      const int x = CHART_X0 + (int)((uint64_t)i * (CHART_X1 - CHART_X0 - 1) /
                                      (HAUS_CHART_COLUMNS - 1));
       const int y = chart_value_y(s_target[i]);
       if (px >= 0) chart_dash_line(px, py, x, y, ct);
       px = x;
       py = y;
+      last_t = s_cols[i].t;
     }
     int last = -1;
     for (size_t i = 0; i < HAUS_CHART_COLUMNS; i++)
@@ -2109,11 +2235,11 @@ static bool chart_live_value(int series, int32_t* out) {
       if (*out > 65535) *out = 65535;
       break;
     case GUI_SERIES_AC_RMS:
-      if (!st.can.ac_fresh) return false;
+      if (!st.can.ac_fresh || st.can.ac_rms_dc == 0) return false;
       *out = (int32_t)st.can.ac_rms_dc;
       break;
     case GUI_SERIES_AC_ANGLE:
-      if (!st.can.ac_fresh) return false;
+      if (!st.can.ac_fresh || st.can.ac_rms_dc == 0) return false;
       *out = (int32_t)st.can.ac_angle_cdeg;
       break;
     default:
@@ -2161,52 +2287,6 @@ static void chart_readout_line(lv_obj_t* label, int slot, int series,
   txt(label, line);
 }
 
-/* S23.27: count time above the target from individual samples, not from a
- * bucket mean. Day view is exact (one sample per minute). Week/month use the
- * hourly min/max to estimate the above-target fraction when the bucket
- * straddles the target. */
-static uint32_t above_target_seconds(void) {
-  uint32_t above = 0;
-  if (s_chart_t1 <= s_chart_t0) return 0;
-
-  if (g_range == UI_RANGE_DAY) {
-    const size_t total = (size_t)((s_chart_t1 - s_chart_t0) / 60u) + 1u;
-    for (size_t first = 0; first < total; first += 64) {
-      gui_sample_t chunk[64];
-      const size_t n = total - first < 64 ? total - first : 64;
-      gui_read_samples_chunk(s_chart_t0, first, n, chunk);
-      for (size_t i = 0; i < n; i++) {
-        if (chunk[i].epoch < s_chart_t0 || chunk[i].epoch > s_chart_t1)
-          continue;
-        if (chunk[i].target_c100 <= 0 ||
-            chunk[i].temp[0] == HAUS_CAN_TEMP_EMPTY)
-          continue;
-        if (chunk[i].temp[0] > chunk[i].target_c100) above += 60u;
-      }
-    }
-    return above;
-  }
-
-  const size_t total = (size_t)((s_chart_t1 - s_chart_t0) / 3600u) + 1u;
-  for (size_t first = 0; first < total; first += 16) {
-    RollupColumn chunk[16];
-    const size_t n = total - first < 16 ? total - first : 16;
-    gui_read_rollup_chunk(s_chart_t0, first, n, chunk);
-    for (size_t i = 0; i < n; i++) {
-      const RollupColumn* r = &chunk[i];
-      if (r->target_c100 <= 0 || r->n[0] == 0) continue;
-      if (r->mn[0] > r->target_c100) {
-        above += (uint32_t)r->n[0] * 60u;
-      } else if (r->mx[0] > r->target_c100 && r->mx[0] > r->mn[0]) {
-        /* Linear estimate across the bucket's observed min/max. */
-        const int64_t hot = (int64_t)(r->mx[0] - r->target_c100) * r->n[0];
-        above += (uint32_t)(hot * 60 / (r->mx[0] - r->mn[0]));
-      }
-    }
-  }
-  return above;
-}
-
 static void chart_update_readouts(void) {
   if (!s_cols || !s_chart_readout) return;
   chart_cfg_t cfg;
@@ -2223,7 +2303,7 @@ static void chart_update_readouts(void) {
     }
   }
   if (!newest) {
-    txt(s_chart_age, "data age --");
+    txt(s_chart_age, "no data yet");
     obj_set_hidden(s_chart_stale, true);
     return;
   }
@@ -2231,15 +2311,15 @@ static void chart_update_readouts(void) {
   const uint32_t age = s_chart_now > newest ? s_chart_now - newest : 0;
   char agebuf[96];
   if (age < 90)
-    snprintf(agebuf, sizeof(agebuf), "data age now");
+    snprintf(agebuf, sizeof(agebuf), "last sample just now");
   else if (age < 3600)
-    snprintf(agebuf, sizeof(agebuf), "data age %u min ago",
+    snprintf(agebuf, sizeof(agebuf), "last sample %u min ago",
              (unsigned)(age / 60));
   else if (age < 86400)
-    snprintf(agebuf, sizeof(agebuf), "data age %u h ago",
+    snprintf(agebuf, sizeof(agebuf), "last sample %u h ago",
              (unsigned)(age / 3600));
   else
-    snprintf(agebuf, sizeof(agebuf), "data age %u d ago",
+    snprintf(agebuf, sizeof(agebuf), "last sample %u d ago",
              (unsigned)(age / 86400));
   if (g_range != UI_RANGE_DAY) {
     size_t used = strlen(agebuf);
@@ -2248,13 +2328,15 @@ static void chart_update_readouts(void) {
   }
   txt(s_chart_age, agebuf);
 
-  if (g_detail_screen == UI_SCREEN_CHAMBER && s_above_target) {
-    const uint32_t above_s = above_target_seconds();
-    char ab[40];
-    snprintf(ab, sizeof(ab), "above target %uh %02um",
-             (unsigned)(above_s / 3600), (unsigned)((above_s / 60) % 60));
-    txt(s_above_target, ab);
+  bool have_soll = false;
+  for (size_t i = 0; i < HAUS_CHART_COLUMNS; i++) {
+    if (s_target_n[i] && s_target[i] > 0) {
+      have_soll = true;
+      break;
+    }
   }
+  if (s_legend_t) obj_set_hidden(s_legend_t, !have_soll);
+
 
   if (age > 3600) {
     time_t t = (time_t)newest;
@@ -2347,16 +2429,23 @@ static void chart_build_widgets(int top) {
   s_chart_canvas = lv_canvas_create(c);
   lv_obj_set_size(s_chart_canvas, CHART_W, CHART_H);
   lv_obj_set_pos(s_chart_canvas, 0, 0);
+#ifndef HAUS_HOST
   s_chart_pixels = (uint8_t*)lv_malloc(CHART_W * CHART_H * 2);
+#else
+  /* Keep one buffer for the whole harness run. LVGL can still hold a cached
+   * reference to a freed canvas buffer across a screen rebuild, which left
+   * parts of the chart undrawn. */
+  if (!s_chart_pixels) s_chart_pixels = (uint8_t*)lv_malloc(CHART_W * CHART_H * 2);
+#endif
   if (s_chart_pixels) {
     lv_canvas_set_buffer(s_chart_canvas, s_chart_pixels, CHART_W, CHART_H,
                          LV_COLOR_FORMAT_RGB565);
   }
   obj_set_clickable(s_chart_canvas, false);
 
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 6; i++) {
     s_axis_lbl[i] =
-        label_make(c, "", 0, CHART_Y0 + i * (CHART_Y1 - CHART_Y0) / 4 - 8,
+        label_make(c, "", 0, CHART_Y0 + i * (CHART_Y1 - CHART_Y0) / 5 - 8,
                    &lv_font_montserrat_16, C_DIM);
     lv_obj_set_width(s_axis_lbl[i], 48);
     lv_obj_set_style_text_align(s_axis_lbl[i], LV_TEXT_ALIGN_RIGHT, 0);
@@ -2676,7 +2765,8 @@ static void detail_value_update(void) {
 
   switch (g_detail_screen) {
     case UI_SCREEN_CHAMBER:
-      v = st.can.temp_by_fn[SENSOR_FN_CHAMBER];
+      /* The big value is the heating flow, not the room/board probe. */
+      v = st.can.temp_by_fn[SENSOR_FN_WATER_OUT];
       break;
     case UI_SCREEN_WATER_IN:
       v = st.can.temp_by_fn[SENSOR_FN_WATER_IN];
@@ -2750,7 +2840,6 @@ static void side_panel_update(void) {
   obj_set_hidden(s_side_hr2, true);
   obj_set_hidden(s_side_hr3, true);
   for (int i = 0; i < 3; i++) obj_set_hidden(s_side_legend[i], true);
-  const int16_t ch = st.can.temp_by_fn[SENSOR_FN_CHAMBER];
   const int16_t wi = st.can.temp_by_fn[SENSOR_FN_WATER_IN];
   const int16_t wo = st.can.temp_by_fn[SENSOR_FN_WATER_OUT];
 
@@ -2779,11 +2868,11 @@ static void side_panel_update(void) {
     }
     obj_set_hidden(s_side_big2, false);
 
-    txt(s_side_delta_lbl, "DELTA");
+    txt(s_side_delta_lbl, "DELTA OUT-IN");
     obj_set_hidden(s_side_delta_lbl, false);
     obj_set_hidden(s_side_hr3, false);
-    if (wi != HAUS_CAN_TEMP_EMPTY && ch != HAUS_CAN_TEMP_EMPTY) {
-      snprintf(b, sizeof(b), "%.1f °C", (wi - ch) / 100.0);
+    if (wi != HAUS_CAN_TEMP_EMPTY && wo != HAUS_CAN_TEMP_EMPTY) {
+      snprintf(b, sizeof(b), "%+.1f °C", (wo - wi) / 100.0);
       txt(s_side_delta, b);
       lv_obj_set_style_text_color(s_side_delta, lv_color_hex(C_INK), 0);
     } else {
@@ -2819,12 +2908,25 @@ static void side_panel_update(void) {
     }
     txt(s_side_big, b);
     lv_obj_set_style_text_color(s_side_big, lv_color_hex(C_INK), 0);
-    txt(s_side_l[0], st.can.power_src == GUI_PWR_SRC_SML ? "SML live"
-                                                          : "no source");
-    txt(s_side_l[1], "");
-    txt(s_side_l[2], "");
-    txt(s_side_l[3], "");
-    txt(s_side_l[4], "");
+
+    /* Cumulative meter registers: recorded on SD, never graphed. */
+    char e[40];
+    txt(s_side_l[0], "consumed");
+    if (st.can.energy_consumption_valid)
+      snprintf(e, sizeof(e), "%.1f kWh", st.can.energy_consumption_kwh);
+    else
+      snprintf(e, sizeof(e), "--");
+    txt(s_side_l[1], e);
+    txt(s_side_l[2], "produced");
+    if (st.can.energy_production_valid)
+      snprintf(e, sizeof(e), "%.1f kWh", st.can.energy_production_kwh);
+    else
+      snprintf(e, sizeof(e), "--");
+    txt(s_side_l[3], e);
+    txt(s_side_l[4], st.can.energy_from_cache
+                          ? "SPIFFS cache"
+                          : (st.can.power_src == GUI_PWR_SRC_SML ? "SML live"
+                                                                 : "no source"));
     txt(s_side_note, "");
     return;
   }
@@ -2941,12 +3043,13 @@ static void living_series_cb(lv_event_t* e) {
   living_series_set((int)(intptr_t)lv_event_get_user_data(e));
 }
 
-static void living_tabs_build(int top) {
+static void living_tabs_build(int x, int top, int width) {
   static const char* names[2] = {"Temp", "RH"};
+  const int tab_w = width / 2;
   for (int i = 0; i < 2; i++) {
     lv_obj_t* tab = lv_obj_create(lv_screen_active());
-    lv_obj_set_size(tab, 140, 30);
-    lv_obj_set_pos(tab, 20 + i * 148, top);
+    lv_obj_set_size(tab, tab_w, 30);
+    lv_obj_set_pos(tab, x + i * tab_w, top);
     lv_obj_set_style_bg_opa(tab, i == g_living_series ? 32 : LV_OPA_TRANSP, 0);
     lv_obj_set_style_bg_color(tab, lv_color_hex(C_ACCENT), 0);
     lv_obj_set_style_border_width(tab, 1, 0);
@@ -2960,7 +3063,7 @@ static void living_tabs_build(int top) {
                         (void*)(intptr_t)i);
     s_living_tab[i] = label_make(tab, names[i], 0, 0, &lv_font_montserrat_16,
                                  i == g_living_series ? C_INK : C_DIM);
-    lv_obj_set_width(s_living_tab[i], 140);
+    lv_obj_set_width(s_living_tab[i], tab_w);
     lv_obj_set_style_text_align(s_living_tab[i], LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_pos(s_living_tab[i], 0, 6);
   }
@@ -3503,6 +3606,11 @@ static void side_panel_build(void) {
   }
 }
 
+static void open_sml_cb(lv_event_t* e) {
+  (void)e;
+  ui_push(UI_SCREEN_SML);
+}
+
 static lv_obj_t* detail_build(int screen, const char* title, int nav_index,
                               const char* badge, uint32_t badge_color) {
   (void)nav_index;
@@ -3521,7 +3629,7 @@ static lv_obj_t* detail_build(int screen, const char* title, int nav_index,
                        : label_make(root, "--", 20, 50, &haus_large_52, C_INK);
 
   if (screen == UI_SCREEN_LIVING) {
-    living_tabs_build(108);
+    range_build(108, 440);
   } else if (screen == UI_SCREEN_AC) {
     range_build(108, 300);
     ac_tabs_build_compact(108, 338, 200);
@@ -3529,10 +3637,7 @@ static lv_obj_t* detail_build(int screen, const char* title, int nav_index,
     range_build(water ? 56 : 108, 440);
   }
 
-  if (screen == UI_SCREEN_CHAMBER) {
-    s_above_target = label_make(root, "above target --", 20, 152,
-                                &lv_font_montserrat_16, C_ACCENT);
-  } else if (screen == UI_SCREEN_POWER) {
+  if (screen == UI_SCREEN_POWER) {
     label_make(root, "power (SML)", 20, 152, &lv_font_montserrat_16, C_DIM);
   }
 
@@ -3542,12 +3647,32 @@ static lv_obj_t* detail_build(int screen, const char* title, int nav_index,
   if (water || screen == UI_SCREEN_POWER || screen == UI_SCREEN_LIVING) {
     side_panel_build();
   }
+  if (screen == UI_SCREEN_POWER) {
+    lv_obj_t* sml = lv_obj_create(root);
+    lv_obj_set_size(sml, 228, 32);
+    lv_obj_set_pos(sml, 474, 330);
+    lv_obj_set_style_bg_opa(sml, 0, 0);
+    lv_obj_set_style_border_width(sml, 1, 0);
+    lv_obj_set_style_border_color(sml, lv_color_hex(C_LINE), 0);
+    lv_obj_set_style_radius(sml, 6, 0);
+    lv_obj_set_style_pad_all(sml, 0, 0);
+    obj_set_scrollable(sml, false);
+    obj_set_clickable(sml, true);
+    lv_obj_add_event_cb(sml, open_sml_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t* lbl = label_make(sml, "SML METER >", 0, 0, &haus_body_21,
+                               C_ACCENT);
+    lv_obj_center(lbl);
+  }
+  if (screen == UI_SCREEN_LIVING) {
+    /* Series switch lives in the side panel; the top row is the range. */
+    living_tabs_build(474, 400, 228);
+  }
 
   s_chart_readout = label_make(root, "min --   max --   mean --   now --", 20,
                                water ? 380 : 432, &lv_font_montserrat_16,
                                C_DIM);
   s_chart_readout_b = NULL;
-  s_chart_age = label_make(root, "data age --", 20, water ? 406 : 458,
+  s_chart_age = label_make(root, "last sample --", 20, water ? 406 : 458,
                            &lv_font_montserrat_16, C_FAINT);
 
   if (screen == UI_SCREEN_CHAMBER) pwm_control_build(0);
@@ -3580,7 +3705,7 @@ void haus_ui_set_range(int range) {
 }
 
 lv_obj_t* haus_ui_build_detail(void) {
-  return detail_build(UI_SCREEN_CHAMBER, "HEATER", UI_SCREEN_CHAMBER,
+  return detail_build(UI_SCREEN_CHAMBER, "HEATING", UI_SCREEN_CHAMBER,
                       "RESTORED", C_DIM);
 }
 
@@ -3603,6 +3728,11 @@ lv_obj_t* haus_ui_build_ac(void) {
 }
 
 void haus_ui_set_ac_series(int series) { ac_series_set(series); }
+
+void haus_ui_set_power_scale(int mode) {
+  if (mode < -1 || mode > 2) return;
+  s_power_scale_mode = mode;
+}
 
 static lv_obj_t* s_can_switch_lbl;
 static lv_obj_t* s_can_switch;
@@ -3793,13 +3923,17 @@ static void roles_row_cb(lv_event_t* e) {
   }
   const uint8_t next = k_role_cycle[(pos + 1u) % ROLE_CYCLE_LEN];
   gui_roles_set(index, next);
-  if (index < ROLES_MAX && s_roles_lbl[index]) {
-    if (!gui_roles_get(index, rom, &fn)) fn = next;
-    txt(s_roles_lbl[index], role_fn_name(fn));
+  /* A duplicate function is exchanged with the probe that owned it, so more
+   * than the tapped row can change. Repaint every row, not just this one. */
+  const uint8_t count = gui_roles_count();
+  for (uint8_t i = 0; i < count && i < ROLES_MAX; i++) {
+    if (!s_roles_lbl[i]) continue;
+    if (!gui_roles_get(i, rom, &fn)) continue;
+    txt(s_roles_lbl[i], role_fn_name(fn));
     lv_obj_set_style_text_color(
-        s_roles_lbl[index],
-        lv_color_hex(fn == SENSOR_FN_NONE ? C_FAINT : C_INK), 0);
-    lv_obj_invalidate(s_roles_lbl[index]);
+        s_roles_lbl[i], lv_color_hex(fn == SENSOR_FN_NONE ? C_FAINT : C_INK),
+        0);
+    lv_obj_invalidate(s_roles_lbl[i]);
   }
   roles_badge_refresh();
   gui_request_redraw();
@@ -3881,6 +4015,11 @@ static void settings_open_ac_cb(lv_event_t* e) {
   ui_push(UI_SCREEN_AC);
 }
 
+static void settings_open_sml_cb(lv_event_t* e) {
+  (void)e;
+  ui_push(UI_SCREEN_SML);
+}
+
 static void settings_open_log_cb(lv_event_t* e) {
   (void)e;
   ui_push(UI_SCREEN_LOG);
@@ -3941,7 +4080,6 @@ static lv_obj_t* s_backlight_lbl;
 static lv_obj_t* s_power_unit_lbl;
 static lv_obj_t* s_diag_lbl;
 static lv_obj_t* s_panel_lbl;
-static int s_settings_power_unit = -1; /* -1 auto, 0 W, 1 kW */
 
 static void settings_backlight_cb(lv_event_t* e) {
   (void)e;
@@ -3952,11 +4090,17 @@ static void settings_backlight_cb(lv_event_t* e) {
 
 static void settings_power_unit_cb(lv_event_t* e) {
   (void)e;
-  s_settings_power_unit++;
-  if (s_settings_power_unit > 1) s_settings_power_unit = -1;
-  txt(s_power_unit_lbl, s_settings_power_unit < 0
-                            ? "auto"
-                            : (s_settings_power_unit == 0 ? "W" : "kW"));
+  s_power_scale_mode++;
+  if (s_power_scale_mode > 2) s_power_scale_mode = -1;
+  const char* label = "auto";
+  if (s_power_scale_mode == 0)
+    label = "W";
+  else if (s_power_scale_mode == 1)
+    label = "kW";
+  else if (s_power_scale_mode == 2)
+    label = "log W";
+  txt(s_power_unit_lbl, label);
+  gui_request_redraw();
 }
 
 static void settings_panel_reset_cb(lv_event_t* e) {
@@ -4189,6 +4333,7 @@ lv_obj_t* haus_ui_build_storage(void) {
 static lv_obj_t* s_can_id_lbl[CAN_ROWS];
 static lv_obj_t* s_can_type_lbl[CAN_ROWS];
 static lv_obj_t* s_can_text_lbl[CAN_ROWS];
+static lv_obj_t* s_can_age_lbl[CAN_ROWS];
 static lv_obj_t* s_can_stats;
 static lv_obj_t* s_can_fault_bar;
 static lv_obj_t* s_can_overlay;
@@ -4450,6 +4595,7 @@ static void can_screen_update(void) {
       txt(s_can_id_lbl[i], "---");
       txt(s_can_type_lbl[i], "--");
       txt(s_can_text_lbl[i], "--");
+      if (s_can_age_lbl[i]) txt(s_can_age_lbl[i], "-");
       continue;
     }
     const can_id_entry_t* entry = &snapshot;
@@ -4466,6 +4612,13 @@ static void can_screen_update(void) {
     can_monitor_decode(entry->identifier, entry->data, entry->data_len, &d);
     txt(s_can_type_lbl[i], d.label[0] ? d.label : "RAW");
     txt(s_can_text_lbl[i], d.decoded[0] ? d.decoded : "--");
+    if (s_can_age_lbl[i]) {
+      char agebuf[16];
+      const uint32_t ago = (now - entry->last_timestamp) / 1000u;
+      snprintf(agebuf, sizeof(agebuf), "%lus",
+               (unsigned long)(ago > 9999u ? 9999u : ago));
+      txt(s_can_age_lbl[i], agebuf);
+    }
   }
 }
 
@@ -4491,6 +4644,7 @@ lv_obj_t* haus_ui_build_can(void) {
     s_can_id_lbl[i] = NULL;
     s_can_type_lbl[i] = NULL;
     s_can_text_lbl[i] = NULL;
+    s_can_age_lbl[i] = NULL;
   }
 
   if (!on) {
@@ -4552,10 +4706,17 @@ lv_obj_t* haus_ui_build_can(void) {
     s_can_type_lbl[i] = label_make(row, "--", 86, 8, &lv_font_montserrat_16, C_DIM);
     lv_obj_set_size(s_can_type_lbl[i], 110, 22);
     s_can_text_lbl[i] = label_make(row, "--", 204, 8, &lv_font_montserrat_16, C_INK);
-    lv_obj_set_size(s_can_text_lbl[i], CONTENT_W - 218, 22);
+    lv_obj_set_size(s_can_text_lbl[i], CONTENT_W - 288, 22);
     lv_label_set_long_mode(s_can_id_lbl[i], LV_LABEL_LONG_DOT);
     lv_label_set_long_mode(s_can_type_lbl[i], LV_LABEL_LONG_DOT);
     lv_label_set_long_mode(s_can_text_lbl[i], LV_LABEL_LONG_DOT);
+
+    /* Last frame age, seconds. Right-aligned so the eye can scan one column. */
+    s_can_age_lbl[i] = label_make(row, "-", CONTENT_W - 76, 8,
+                                  &lv_font_montserrat_16, C_DIM);
+    lv_obj_set_size(s_can_age_lbl[i], 60, 22);
+    lv_obj_set_style_text_align(s_can_age_lbl[i], LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_align(s_can_age_lbl[i], LV_ALIGN_TOP_RIGHT, -6, 8);
   }
 
   s_can_wave_info = label_make(root, "ADC 20 ms   waiting for waveform", 20,
@@ -4573,6 +4734,148 @@ lv_obj_t* haus_ui_build_can(void) {
 
   nav_build(UI_SCREEN_SETTINGS);
   can_screen_update();
+  return root;
+}
+
+/* ─── SML live meter screen ──────────────────────────────────────────────── */
+
+static lv_obj_t* s_sml_v[3];
+static lv_obj_t* s_sml_a[3];
+static lv_obj_t* s_sml_ph[3];
+static lv_obj_t* s_sml_freq;
+static lv_obj_t* s_sml_power;
+static lv_obj_t* s_sml_hist_lbl[4];
+static lv_obj_t* s_sml_hist_val[4];
+static lv_obj_t* s_sml_energy_val[2];
+
+static void sml_screen_update(void) {
+  if (!s_sml_v[0]) return;
+  HausState st;
+  gui_get_state(&st);
+  char b[40];
+
+  if (st.can.sml_voltage_valid || st.can.sml_current_valid ||
+      st.can.sml_frequency_valid)
+    header_badge_set("LIVE", C_OK);
+  else if (st.can.energy_from_cache)
+    header_badge_set("CACHE", C_AMBER);
+  else
+    header_badge_set("--", C_OFF);
+
+  for (int i = 0; i < 3; i++) {
+    if (st.can.sml_voltage_valid)
+      snprintf(b, sizeof(b), "%.1f V", st.can.sml_voltage_v[i]);
+    else
+      snprintf(b, sizeof(b), "--");
+    txt(s_sml_v[i], b);
+
+    if (st.can.sml_current_valid)
+      snprintf(b, sizeof(b), "%.2f A", st.can.sml_current_a[i]);
+    else
+      snprintf(b, sizeof(b), "--");
+    txt(s_sml_a[i], b);
+
+    if (st.can.sml_phase_valid)
+      snprintf(b, sizeof(b), "%.0f°", st.can.sml_phase_deg[i]);
+    else
+      snprintf(b, sizeof(b), "--");
+    txt(s_sml_ph[i], b);
+  }
+
+  if (st.can.sml_frequency_valid)
+    snprintf(b, sizeof(b), "%.2f Hz", st.can.sml_frequency_hz);
+  else
+    snprintf(b, sizeof(b), "--");
+  txt(s_sml_freq, b);
+
+  if (st.can.valid) {
+    if (st.can.watts >= 1000)
+      snprintf(b, sizeof(b), "%.2f kW", st.can.watts / 1000.0);
+    else
+      snprintf(b, sizeof(b), "%d W", (int)st.can.watts);
+  } else {
+    snprintf(b, sizeof(b), "--");
+  }
+  txt(s_sml_power, b);
+
+  for (int i = 0; i < 4; i++) {
+    if (st.can.sml_history_mask & (1u << i))
+      snprintf(b, sizeof(b), "%.1f kWh", st.can.sml_history_kwh[i]);
+    else
+      snprintf(b, sizeof(b), "--");
+    txt(s_sml_hist_val[i], b);
+  }
+
+  if (st.can.energy_consumption_valid)
+    snprintf(b, sizeof(b), "%.1f kWh", st.can.energy_consumption_kwh);
+  else
+    snprintf(b, sizeof(b), "--");
+  txt(s_sml_energy_val[0], b);
+  if (st.can.energy_production_valid)
+    snprintf(b, sizeof(b), "%.1f kWh", st.can.energy_production_kwh);
+  else
+    snprintf(b, sizeof(b), "--");
+  txt(s_sml_energy_val[1], b);
+}
+
+lv_obj_t* haus_ui_build_sml(void) {
+  screen_lock_scroll();
+  lv_obj_t* root = lv_screen_active();
+  lv_obj_set_style_bg_color(root, lv_color_hex(C_BG), 0);
+  g_current_screen = UI_SCREEN_SML;
+  header_build("SML METER", "LIVE", C_OK);
+
+  label_make(root, "VOLTAGE", 20, 70, &lv_font_montserrat_16, C_DIM);
+  label_make(root, "CURRENT", 20, 210, &lv_font_montserrat_16, C_DIM);
+  label_make(root, "ENERGY REGISTERS", 20, 350, &lv_font_montserrat_16,
+             C_DIM);
+  label_make(root, "PHASE", 380, 70, &lv_font_montserrat_16, C_DIM);
+  label_make(root, "GRID", 380, 210, &lv_font_montserrat_16, C_DIM);
+  label_make(root, "POWER", 380, 280, &lv_font_montserrat_16, C_DIM);
+  label_make(root, "HISTORY", 380, 348, &lv_font_montserrat_16, C_DIM);
+
+  for (int i = 0; i < 3; i++) {
+    char l[4];
+    snprintf(l, sizeof(l), "L%d", i + 1);
+    label_make(root, l, 20, 104 + i * 34, &haus_body_21, C_DIM);
+    s_sml_v[i] =
+        label_make(root, "--", 70, 104 + i * 34, &haus_mono_21, C_INK);
+    label_make(root, l, 20, 244 + i * 34, &haus_body_21, C_DIM);
+    s_sml_a[i] =
+        label_make(root, "--", 70, 244 + i * 34, &haus_mono_21, C_INK);
+    label_make(root, l, 380, 104 + i * 34, &haus_body_21, C_DIM);
+    s_sml_ph[i] =
+        label_make(root, "--", 430, 104 + i * 34, &haus_mono_21, C_INK);
+  }
+
+  s_sml_freq = label_make(root, "--", 430, 244, &haus_mono_21, C_INK);
+  s_sml_power = label_make(root, "--", 430, 314, &haus_mono_21, C_INK);
+
+  static const char* const hist_names[4] = {"day", "week", "month", "year"};
+  for (int i = 0; i < 4; i++) {
+    const int hy = 376 + i * 26;
+    s_sml_hist_lbl[i] =
+        label_make(root, hist_names[i], 380, hy, &haus_body_21, C_DIM);
+    s_sml_hist_val[i] =
+        label_make(root, "--", 430, hy, &haus_mono_21, C_INK);
+    lv_obj_set_width(s_sml_hist_val[i], 250);
+    lv_obj_set_style_text_align(s_sml_hist_val[i], LV_TEXT_ALIGN_RIGHT, 0);
+  }
+
+  /* Cumulative registers on the left bottom, values right-aligned. */
+  label_make(root, "consumed", 20, 382, &haus_body_21, C_DIM);
+  s_sml_energy_val[0] =
+      label_make(root, "--", 120, 382, &haus_mono_21, C_INK);
+  lv_obj_set_width(s_sml_energy_val[0], 220);
+  lv_obj_set_style_text_align(s_sml_energy_val[0], LV_TEXT_ALIGN_RIGHT, 0);
+  label_make(root, "produced", 20, 412, &haus_body_21, C_DIM);
+  s_sml_energy_val[1] =
+      label_make(root, "--", 120, 412, &haus_mono_21, C_INK);
+  lv_obj_set_width(s_sml_energy_val[1], 220);
+  lv_obj_set_style_text_align(s_sml_energy_val[1], LV_TEXT_ALIGN_RIGHT, 0);
+
+  nav_build(UI_SCREEN_SETTINGS);
+  sml_screen_update();
   return root;
 }
 
@@ -4620,7 +4923,7 @@ lv_obj_t* haus_ui_build_settings(void) {
   settings_value_row(RX, yr, CW, "SENSOR ROLES", sbuf, settings_open_roles_cb);
   yl += step;
   yr += step;
-  settings_value_row(LX, yl, CW, "PUMP", "monitor", settings_open_ac_cb);
+  settings_value_row(LX, yl, CW, "PUMP CURRENT", "monitor", settings_open_ac_cb);
   settings_value_row(RX, yr, CW, "STORAGE", mounted ? "card" : "absent",
                      settings_open_storage_cb);
   yl += step;
@@ -4637,10 +4940,17 @@ lv_obj_t* haus_ui_build_settings(void) {
                                   settings_diag_cb);
   yl += step;
   yr += step;
-  s_power_unit_lbl = settings_value_row(LX, yl, CW, "POWER UNIT", "auto",
+  const char* power_scale =
+      s_power_scale_mode == 0 ? "W"
+      : s_power_scale_mode == 1 ? "kW"
+      : s_power_scale_mode == 2 ? "log W"
+                                : "auto";
+  s_power_unit_lbl = settings_value_row(LX, yl, CW, "POWER SCALE", power_scale,
                                         settings_power_unit_cb);
   settings_value_row(RX, yr, CW, "NETWORK", gui_wifi_ip(), NULL);
+  yl += step;
   yr += step;
+  settings_value_row(LX, yl, CW, "SML METER", "live", settings_open_sml_cb);
   settings_value_row(RX, yr, CW, "FIRMWARE", GIT_HASH, NULL);
 
   nav_build(UI_SCREEN_SETTINGS);
@@ -4669,17 +4979,26 @@ void haus_ui_deinit(void) {
   s_water_in = s_water_in_lbl = NULL;
   s_pump = s_pump_lbl = s_water_out = s_water_out_lbl = NULL;
   s_living_temp = s_living_unit = s_living_temp_tol = s_living_rh =
-      s_living_rh_tol = NULL;
+      s_living_rh_unit = s_living_rh_tol = NULL;
   s_power_num = s_power_bolt = s_power_src = NULL;
+  memset(s_sml_v, 0, sizeof(s_sml_v));
+  memset(s_sml_a, 0, sizeof(s_sml_a));
+  memset(s_sml_ph, 0, sizeof(s_sml_ph));
+  memset(s_sml_hist_lbl, 0, sizeof(s_sml_hist_lbl));
+  memset(s_sml_hist_val, 0, sizeof(s_sml_hist_val));
+  memset(s_sml_energy_val, 0, sizeof(s_sml_energy_val));
+  s_sml_freq = s_sml_power = NULL;
   memset(s_zone, 0, sizeof(s_zone));
   s_last_can_color = s_last_sd_color = s_last_wifi_color = s_last_fire_grad =
       0xFFFFFFFFu;
   memset(s_last_flame_opa, 0xFF, sizeof(s_last_flame_opa));
 
+#ifndef HAUS_HOST
   if (s_chart_pixels) {
     lv_free(s_chart_pixels);
     s_chart_pixels = NULL;
   }
+#endif
   if (s_can_wave_pixels) {
     lv_free(s_can_wave_pixels);
     s_can_wave_pixels = NULL;
@@ -4696,7 +5015,6 @@ void haus_ui_deinit(void) {
   s_range_hl = NULL;
   s_detail_value = NULL;
   s_header_badge = s_header_badge_lbl = NULL;
-  s_above_target = NULL;
   s_side_h = s_side_big = NULL;
   memset(s_side_l, 0, sizeof(s_side_l));
   s_side_note = NULL;
@@ -4723,7 +5041,7 @@ void haus_ui_deinit(void) {
 
 /* Load a screen. The stack is managed by ui_jump/ui_push/ui_pop. */
 static void ui_show_screen(int screen) {
-  if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_ROLES) return;
+  if (screen < UI_SCREEN_HOME || screen > UI_SCREEN_SML) return;
   g_current_screen = screen;
 
   haus_ui_deinit();
@@ -4762,6 +5080,9 @@ static void ui_show_screen(int screen) {
       break;
     case UI_SCREEN_ROLES:
       haus_ui_build_roles();
+      break;
+    case UI_SCREEN_SML:
+      haus_ui_build_sml();
       break;
   }
 }

@@ -448,6 +448,65 @@ static void test_retention(uint32_t now) {
           (unsigned)haus_history_test_retention_files());
 }
 
+/* ─── I: role correction ──────────────────────────────────────────────────── */
+
+static void test_role_remap(void) {
+    SECTION("I1  a role swap relabels L1, L2 and the ring");
+
+    CHECK(haus_history_init(), "history init failed");
+    memset(haus_history_l1(), 0, HAUS_L1_BYTES);
+    memset(haus_history_l2(), 0, HAUS_L2_BYTES);
+
+    gui_sample_t* l1 = haus_history_l1();
+    l1[0].temp[0] = 100;
+    l1[0].temp[1] = 200;
+    l1[0].temp[2] = 300;
+
+    RollupColumn* l2 = haus_history_l2();
+    l2[0].t = 12345;
+    for (int i = 0; i < 3; i++) {
+        l2[0].mn[i] = 100 + i;
+        l2[0].mx[i] = 200 + i;
+        l2[0].sum[i] = 300 + i;
+        l2[0].n[i] = (uint16_t)(10 + i);
+    }
+
+    RollupColumn ring_col;
+    memset(&ring_col, 0, sizeof(ring_col));
+    ring_col.t = 12345;
+    ring_col.mn[1] = 11;
+    ring_col.mn[2] = 22;
+    ring_col.n[1] = 1;
+    ring_col.n[2] = 1;
+    CHECK(haus_history_ring_append(&ring_col), "ring append failed");
+
+    haus_history_remap_pair(SENSOR_FN_WATER_IN, SENSOR_FN_WATER_OUT);
+
+    CHECK(l1[0].temp[0] == 100, "chamber untouched");
+    CHECK(l1[0].temp[1] == 300, "water-in now holds the old water-out");
+    CHECK(l1[0].temp[2] == 200, "water-out now holds the old water-in");
+
+    CHECK(l2[0].mn[0] == 100, "L2 chamber untouched");
+    CHECK(l2[0].mn[1] == 102 && l2[0].mn[2] == 101,
+          "L2 min water series swapped");
+    CHECK(l2[0].mx[1] == 202 && l2[0].mx[2] == 201,
+          "L2 max water series swapped");
+    CHECK(l2[0].n[1] == 12 && l2[0].n[2] == 11,
+          "L2 counts swapped");
+
+    RollupColumn out;
+    const size_t n =
+        haus_history_ring_load_at(&out, 1, (uint32_t)ring_col.t * 60u);
+    CHECK(n == 1, "ring load returned %u", (unsigned)n);
+    if (n == 1) {
+        CHECK(out.mn[1] == 22 && out.mn[2] == 11, "ring series swapped");
+    }
+
+    /* BOARD and CHAMBER alias the same history series: nothing to do. */
+    haus_history_remap_pair(SENSOR_FN_BOARD, SENSOR_FN_CHAMBER);
+    CHECK(l1[0].temp[0] == 100, "board/chamber alias is a no-op");
+}
+
 int main(void) {
     CHECK(sizeof(gui_sample_t) == 28u, "gui_sample_t = %u",
           (unsigned)sizeof(gui_sample_t));
@@ -472,6 +531,7 @@ int main(void) {
     test_l2_wrap(start);
     test_write_failure();
     test_retention(local_midnight(2024, 10, 14));
+    test_role_remap();
 
     if (g_failures != 0u) {
         printf("%u/%u checks FAILED\n", (unsigned)g_failures,

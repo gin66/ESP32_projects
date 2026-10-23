@@ -168,6 +168,9 @@ bool can_monitor_get_entry(int index, can_id_entry_t* out) {
   ensure();
   if (!out || index < 0 || index >= s_count) return false;
   *out = s_entries[index];
+  /* Keep the age column plausible: the synthetic bus keeps receiving. */
+  const unsigned long now = now_ms();
+  out->last_timestamp = now - (unsigned long)((index * 137u) % 3000u);
   return true;
 }
 

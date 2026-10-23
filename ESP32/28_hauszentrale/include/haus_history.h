@@ -28,6 +28,10 @@
 #define HAUS_RING_BYTES (HAUS_RING_HOURS * sizeof(RollupColumn))
 #define HAUS_RING_PATH "/rollup_ring.bin"
 
+/* SPIFFS backup ring for the SML cumulative energy registers: one record per
+ * hour, 30 days. Written independently of the SD card. */
+#define HAUS_ENERGY_RING_HOURS (24 * 30)
+
 /* Files are written in 64-record blocks with a trailing CRC32. */
 #define HAUS_BLOCK_RECORDS 64
 #define HAUS_DAY_FILE_BYTES \
@@ -52,6 +56,15 @@ bool haus_history_init(void);
 /* Fixed buffers. NULL until haus_history_init() succeeds. */
 gui_sample_t* haus_history_l1(void);
 RollupColumn* haus_history_l2(void);
+
+/* Relabel stored history after a sensor-role swap (S9.03).
+ *
+ * History records temperatures per function, not per ROM. When the operator
+ * corrects a wiring mistake by exchanging two functions, the already stored
+ * minutes and hours carry the old labels. Swap those two series in L1, L2,
+ * the SPIFFS ring and the SD rollup so the chart agrees with the new roles.
+ * Functions outside {BOARD/CHAMBER, WATER_IN, WATER_OUT} are ignored. */
+void haus_history_remap_pair(uint8_t fn_a, uint8_t fn_b);
 
 /* Append a completed hour column to the SPIFFS ring. */
 bool haus_history_ring_append(const RollupColumn* col);
@@ -86,6 +99,15 @@ size_t haus_history_ring_load_at(RollupColumn* out, size_t max_columns,
 
 /* Record one minute from the merged state. Idempotent within a minute. */
 bool haus_history_sample(const HausState* state, uint32_t epoch_seconds);
+
+/* Append the cumulative SML meter registers to /energy.csv. One line per
+ * call; the recorder calls it once a minute. The same values are mirrored to
+ * the SPIFFS hourly ring as an SD-less fallback. Not part of chart data. */
+void haus_history_log_energy(const HausState* state, uint32_t epoch_seconds);
+
+/* Newest SPIFFS energy-ring entry. Returns false when the ring is empty. */
+bool haus_history_energy_latest(double* consumed_kwh, double* produced_kwh,
+                                uint32_t* epoch);
 
 /* Number of valid minute entries currently in L1 (0…1440). */
 size_t haus_history_l1_count(void);

@@ -32,6 +32,20 @@ typedef struct {
   double consumption_wh; /* 1-0:1.8.0/255 */
   double production_wh;  /* 1-0:2.8.0/255 */
   double current_w;      /* 1-0:16.7.0/255, signed by the status bit */
+
+  /* Phase quantities (L1/L2/L3). */
+  double voltage_v[3];   /* 1-0:32/52/72.7.0/255 */
+  double current_a[3];   /* 1-0:31/51/71.7.0/255 */
+  double phase_deg[3];   /* 1-0:81.7.1/2/3/255 */
+  double frequency_hz;   /* 1-0:14.7.0/255 */
+
+  /* Historical consumption registers, Wh: day/week/month/year. */
+  double history_wh[4];  /* 1-0:1.8.0/96 .. /99 */
+  bool has_voltage;
+  bool has_current;
+  bool has_phase;
+  bool has_frequency;
+  uint8_t history_mask;  /* bit 0 day, 1 week, 2 month, 3 year */
   uint32_t messages;     /* file bodies handed to libsml */
   uint32_t parse_errors; /* sml_file_parse() returned NULL */
   uint32_t errors;       /* header/CRC/length rejected (sml_error_cnt) */
@@ -40,6 +54,8 @@ typedef struct {
   uint32_t lost_bytes;   /* partial message abandoned (sml_lost_bytes_cnt) */
   uint32_t empty_messages;
   bool valid; /* at least one of the three OBIS values matched */
+  bool has_consumption; /* 1-0:1.8.0/255 seen */
+  bool has_production;  /* 1-0:2.8.0/255 seen */
 } sml_power_reading_t;
 
 void sml_power_reset(void);

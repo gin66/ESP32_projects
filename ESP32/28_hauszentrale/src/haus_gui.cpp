@@ -166,6 +166,42 @@ int gui_get_history(const gui_history_request_t* req) {
   return 0;
 }
 
+static int16_t l2_mean(const RollupColumn* col, int series) {
+  if (!col || series < 0 || series >= HAUS_HISTORY_SERIES ||
+      col->n[series] == 0)
+    return HAUS_CAN_TEMP_EMPTY;
+  return (int16_t)(col->sum[series] / col->n[series]);
+}
+
+/* The rolling 24 h view crosses local midnight, but L1 is only today's
+ * minute buffer. Fill older minutes from the hourly rollup so the first part
+ * of the window is not a gap. */
+static bool sample_from_l2(uint32_t epoch, gui_sample_t* s) {
+  RollupColumn* l2 = haus_history_l2();
+  if (!l2) return false;
+  const uint32_t hour = epoch - (epoch % 3600u);
+  const size_t slot = (size_t)((hour / 3600u) % HAUS_L2_COLUMNS);
+  const RollupColumn* col = &l2[slot];
+  if (col->t != hour / 60u) return false;
+
+  memset(s, 0, sizeof(*s));
+  s->epoch = epoch;
+  s->temp[0] = l2_mean(col, 0);
+  s->temp[1] = l2_mean(col, 1);
+  s->temp[2] = l2_mean(col, 2);
+  const int16_t living = l2_mean(col, 3);
+  const int16_t hum = l2_mean(col, 4);
+  s->living_c100 = living;
+  s->hum_c100 = hum == HAUS_CAN_TEMP_EMPTY ? 0 : (uint16_t)hum;
+  if (living != HAUS_CAN_TEMP_EMPTY)
+    s->flags |= SAMPLE_FLAG_CLIMATE_AHT20;
+  if (col->n[6] != 0) s->power_dw = (uint16_t)(col->sum[6] / col->n[6]);
+  if (col->n[7] != 0) s->ac_rms_dc = (uint16_t)(col->sum[7] / col->n[7]);
+  if (col->n[8] != 0) s->ac_angle_cdeg = (int16_t)(col->sum[8] / col->n[8]);
+  s->target_c100 = col->target_c100;
+  return true;
+}
+
 size_t gui_read_samples_chunk(uint32_t start_epoch, size_t first, size_t count,
                               gui_sample_t* out) {
   gui_sample_t* l1 = haus_history_l1();
@@ -177,6 +213,8 @@ size_t gui_read_samples_chunk(uint32_t start_epoch, size_t first, size_t count,
     const size_t mod = (size_t)((epoch / 60u) % HAUS_L1_SAMPLES);
     if (l1[mod].epoch == epoch) {
       out[i] = l1[mod];
+    } else if (sample_from_l2(epoch, &out[i])) {
+      /* filled from the hourly rollup */
     } else {
       memset(&out[i], 0, sizeof(out[i]));
       out[i].epoch = epoch;
@@ -218,8 +256,13 @@ size_t gui_read_target_samples_chunk(uint32_t start_epoch, size_t first,
   for (size_t i = 0; i < count; i++) {
     const uint32_t epoch = base + (uint32_t)(first + i) * 60u;
     const size_t mod = (size_t)((epoch / 60u) % HAUS_L1_SAMPLES);
-    out[i] =
-        (l1[mod].epoch == epoch) ? l1[mod].target_c100 : HAUS_CAN_TEMP_EMPTY;
+    if (l1[mod].epoch == epoch) {
+      out[i] = l1[mod].target_c100;
+    } else {
+      gui_sample_t s;
+      out[i] = sample_from_l2(epoch, &s) ? s.target_c100
+                                         : HAUS_CAN_TEMP_EMPTY;
+    }
   }
   return count;
 }
@@ -590,6 +633,44 @@ void gui_update_state(void) {
   can.power_src = power_src;
   uint32_t power_dw = watts > 0 ? (uint32_t)watts * 10u : 0u;
   can.power_dw = (uint16_t)(power_dw > 65535u ? 65535u : power_dw);
+
+  /* Cumulative SML registers. Logged by the history recorder, never graphed. */
+  const sml_power_reading_t* sml = sml_power_reading();
+  can.energy_consumption_kwh = sml->consumption_wh / 1000.0;
+  can.energy_production_kwh = sml->production_wh / 1000.0;
+  can.energy_consumption_valid = sml->has_consumption;
+  can.energy_production_valid = sml->has_production;
+  can.energy_from_cache = false;
+  if (!can.energy_consumption_valid || !can.energy_production_valid) {
+    double cached_c = 0.0;
+    double cached_p = 0.0;
+    uint32_t cached_epoch = 0;
+    if (haus_history_energy_latest(&cached_c, &cached_p, &cached_epoch)) {
+      if (!can.energy_consumption_valid) {
+        can.energy_consumption_kwh = cached_c;
+        can.energy_consumption_valid = true;
+      }
+      if (!can.energy_production_valid) {
+        can.energy_production_kwh = cached_p;
+        can.energy_production_valid = true;
+      }
+      can.energy_from_cache = true;
+    }
+  }
+
+  for (int i = 0; i < 3; i++) {
+    can.sml_voltage_v[i] = sml->voltage_v[i];
+    can.sml_current_a[i] = sml->current_a[i];
+    can.sml_phase_deg[i] = sml->phase_deg[i];
+  }
+  can.sml_frequency_hz = sml->frequency_hz;
+  for (int i = 0; i < 4; i++)
+    can.sml_history_kwh[i] = sml->history_wh[i] / 1000.0;
+  can.sml_voltage_valid = sml->has_voltage;
+  can.sml_current_valid = sml->has_current;
+  can.sml_phase_valid = sml->has_phase;
+  can.sml_frequency_valid = sml->has_frequency;
+  can.sml_history_mask = sml->history_mask;
 
   /* Living room — SHT45 (temperature + humidity); no pressure sensor. */
   int16_t living_temp = GUI_EMPTY;

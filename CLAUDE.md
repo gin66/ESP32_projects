@@ -210,3 +210,12 @@ calibration ranges) plus adding one `-D` flag to `platformio.ini`. No
 `main.cpp` changes needed.
 
 Full documentation: `ESP32/prj_template/docs/cyd_board_abstraction.md`.
+
+## Mandatory agent rules
+
+- **NEVER upload or flash anything to a device** unless the user explicitly
+  requests the upload in the current conversation. This covers firmware,
+  filesystems, OTA and recovery paths: `pio run --target upload`,
+  `pio run --target uploadfs`, `espota`, `esptool`, `curl …/update`, web
+  updater, or any equivalent command. Building, testing and inspecting are
+  allowed. If an upload seems useful, ask first and wait for approval.
